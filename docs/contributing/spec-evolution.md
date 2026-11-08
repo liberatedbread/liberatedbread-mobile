@@ -827,6 +827,79 @@ offering a status it cannot fetch. No existing spec changes meaning.
 **Effort.** Small schema; small consumer work (the method that matched is
 already known at resolution time, so it is one filter at render time).
 
+### P17 — A home for Bluetooth Classic { #p17 }
+
+**Status: landed (2026-09-27).** `device.protocol: bluetooth_classic`,
+`device.transport: rfcomm | l2cap | hid`, the `bt_classic_inquiry` discovery
+method, the `bt_classic_pairing` setup method, `rfcomm` on `commands[].transport`
+and on a DFU `transport`, and the top-level `bluetooth_classic` block are in
+`schema.json`; `quin-pillcalendar` is the first spec written against them and
+`brother-ql-1110nwb`, `obd2-bluetooth-adapter` and `obdlink-mx-plus` were
+migrated off their workarounds. Kept here as the worked reasoning.
+
+**Problem.** `device.protocol` named every link the catalogue speaks except
+one. A BR/EDR device — an SPP printer, a Classic ELM327 dongle, a headset with
+a vendor RFCOMM control channel, a pill box that is *found* over BLE and
+*talked to* over SPP — had nowhere to go. The three that existed were filed as
+`ble` or `wifi` with a paragraph of apology ("recorded as a ble_scan method
+because the schema has no bt_classic_inquiry type"; "under ble_direct for
+want of a bt_classic setup type"), and the 2026-09 missing-devices survey
+parked four whole families and two research notes on the gap.
+
+**Evidence.** The Quin PillCalendar decompile (2026-09-27): an unfiltered BLE
+scan filtered by name prefix, then `createInsecureRfcommSocketToServiceRecord`
+with the SPP UUID to the *same* address, a raw byte stream with no length
+field and no checksum, and per-command fixed reply lengths. Not one of those
+facts had a declared key. The mobile Rust `Protocol` enum already preserves
+unknown values verbatim rather than failing the parse, so the value could be
+added without breaking the one consumer that reads it.
+
+**Proposal, as landed.** Name the link, then give a client the four things it
+needs in the order it needs them: find it (`bt_classic_inquiry`, or a
+`ble_scan` on a dual-mode unit, with `bluetooth_classic.ble_role` saying what
+the BLE side is for); pair or not (`device.pairing`, `bt_classic_pairing`);
+open the right socket (`bluetooth_classic.profiles[]`, each with its SDP UUID,
+channel and — the consequential bit — `secure`, the flag the vendor app opens
+the socket with); then read a stream with no edges
+(`bluetooth_classic.serial.framing`, and a per-command `response` with
+`prefix` and `length`, because a protocol without a length field is
+splittable only that way). Commands ride the top-level `commands` block with
+`transport: rfcomm` and the BLE `value`/`template`/`parameters` envelope, so
+one encoder serves both radios. Two conventions are enforced beside the
+schema: a Classic spec answers the iPhone question with a `corebluetooth`
+`host_compatibility` verdict, and its control profile states `secure`.
+
+**Second pass, same day.** Three adversarial reviewers — the engineer who
+would implement the RFCOMM transport, a spec author writing the pill box, a
+Bose headset and an ELM327 dongle against it, and the schema maintainer —
+found 45 defects before any consumer did. The ones that changed the shape:
+there was nowhere to declare frames the device sends unprompted, so the pill
+box's low-battery push would have desynchronised every client
+(`serial.unsolicited`); nothing said how a reply maps to its command
+(`correlation`, `max_in_flight`); a length-prefixed stream could not say where
+its length was; terminators were escaped strings that validated two ways and
+the ELM327 prompt had no key (`line_terminator`, `prompt`,
+`command_terminator`, all hex); a Classic handshake could not be written
+because `initialization` demanded a GATT characteristic (steps now name a
+`command`); one `device.pairing` block was describing two radios
+(`bluetooth_classic.pairing`); the documented iPhone verdict failed
+validation four ways (`symptom: no_transport`, `cause: {missing_api}`,
+`workaround: vendor_mfi`, `link`, and an `iobluetooth` stack for macOS);
+and the inquiry matchers were OR-combined, so `name + SPP UUID` matched every
+serial module (they now narrow).
+
+**Compatibility.** Additive for the catalogue: every existing spec validates
+unchanged, and the three migrated ones changed only the keys they had been
+apologising for. The mobile app's parser loads every new key (unknown values
+are preserved, not rejected), but its BLE scan matcher does not yet check
+`device.protocol` or `ble_role`, so a Classic spec that also matches a BLE
+advertisement is offered as a BLE device until it does. On iOS the RFCOMM half
+never will work, which the `host_compatibility` verdict states per spec
+rather than leaving to a footnote.
+
+**Effort.** Schema and docs: done. Consumer: an Android/Linux RFCOMM transport
+in the mobile app, which is the second half of this change.
+
 ## Strategic / optional
 
 ### P7 — A normalized capability vocabulary { #p7 }
@@ -933,6 +1006,7 @@ this page classifiable.
 | [P14](#p14) | Disambiguating a shared discovery service type | High | Very low | **Landed** |
 | [P15](#p15) | A second address for the same invocation | Medium | Very low | **Landed** |
 | [P16](#p16) | Scope a surface to the discovery method that proves it | Medium | Very low | With consumer — the IPP printer spec needs it today |
+| [P17](#p17) | A home for Bluetooth Classic | High | Low | **Landed** |
 | [P7](#p7) | Normalized capability vocabulary | High | Medium | Needs a design pass |
 | [P8](#p8) | Rename `command_class` → `adapter_class` | Low | Low | Governance |
 | [P9](#p9) | SemVer the schema | Medium | Low | Governance — enables the rest |

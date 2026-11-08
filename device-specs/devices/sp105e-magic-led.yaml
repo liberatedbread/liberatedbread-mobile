@@ -18,6 +18,7 @@ device:
   protocol: "ble"
   type: "led-pixel-controller"
   category: "light"
+  category_hierarchy: ["light", "led"]
   notes: >
     Bluetooth SPI pixel ("dream color") LED strip controller sold generically as
     the SP105E and driven by the Magic-LED app (com.vengean.magicled). Single

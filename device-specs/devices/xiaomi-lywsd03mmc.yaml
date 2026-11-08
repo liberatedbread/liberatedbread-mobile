@@ -23,6 +23,7 @@ device:
       other firmware variants in device.variants were not on hand.
   protocol: "ble"
   category: "sensor"
+  category_hierarchy: ["measurement", "temperature"]
   notes: >
     Compact BLE thermometer and hygrometer with E-ink display. Telink
     TLSR8251 SoC, CR2032 battery, 6-12 month battery life. $4-6.

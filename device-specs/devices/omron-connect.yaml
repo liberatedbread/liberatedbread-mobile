@@ -10,6 +10,7 @@ device:
     status: untested
   protocol: "ble"
   category: "health"
+  category_hierarchy: ["measurement", "health", "blood_pressure"]
   notes: >
     Omron's Bluetooth blood pressure monitors (HEM-7xxx upper-arm and
     HEM-6xxx wrist families; global names M2/M3/M4/M7 Intelli IT, RS2/RS7

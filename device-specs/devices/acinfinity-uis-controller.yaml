@@ -1,0 +1,2413 @@
+# AC Infinity UIS controllers (Controller 69 Pro family) and the UIS power
+# strip, over BLE — Device Specification
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Sources (clean-room — derived facts only; no vendor code, strings, assets
+# or decompiled source are in this file):
+#   - Nyx000/acinfinity-ble (MIT) — protocol notes recovered from the vendor
+#     Android app, then re-checked against the running app (in-process GATT
+#     write hooks) and HCI snoops on a Controller 69 Pro (4 ports, protocol
+#     revision 7) and an 8-port AI power strip. Its golden frames reproduce
+#     byte for byte with the CRC stated below.
+#   - hunterjm/ac-infinity-ble (MIT) — an independent Python library read
+#     from a later app build and run on a Controller 69 Pro (device type 11,
+#     protocol revision 7): the advertisement layout, the device-type table,
+#     the telemetry families, 20-byte write chunking and the packed ON level
+#     on newer revisions.
+#   - AC Infinity's own manuals and web guides (CONTROLLER 69 PRO, 69, 67,
+#     OUTLET AI) — pairing, factory reset, and the ranges the device offers.
+#
+# SAFETY: every port switches mains equipment — heaters, humidifiers, fans,
+# pumps. The commands here are the ones the vendor app sends, bounded to the
+# ranges it offers. The controller-reset opcode (0x08) and the settings
+# selectors nobody has exercised are NOT offered as commands; the one command
+# that carries them (the settings bundle) is `advanced`. No firmware-update
+# bytes are documented.
+
+device:
+  name: "AC Infinity UIS Controller (BLE)"
+  manufacturer: "AC Infinity Inc."
+  manufacturer_status: "active"
+  testing:
+    status: untested
+    notes: >-
+      Not driven against hardware by this project, and the research store
+      holds no capture of this device. The byte layouts come from two
+      independent open implementations whose authors ran them on a
+      Controller 69 Pro (Nyx000/acinfinity-ble also on an 8-port AI power
+      strip). Where Nyx000's published captures (in-app GATT hooks, HCI
+      snoops, captured query replies) show a byte sequence, the fact is
+      marked `confirmed`, citing that capture; everything read only from the
+      vendor app by either project is `reported`.
+  openness:
+    status: "undocumented"
+    reverse_engineered: true
+    source_code: "https://github.com/Nyx000/acinfinity-ble"
+    license: "MIT"
+    upstream_docs:
+      - url: "https://github.com/Nyx000/acinfinity-ble/blob/main/docs/protocol/wire-protocol.md"
+        title: "Nyx000/acinfinity-ble: wire protocol"
+        covers: >-
+          The A5 frame, the dual CRC, per-port mode and trigger blocks, the
+          settings bundle and its read-modify-write rule, and the open
+          questions (calibration byte 0, the AUTO threshold-change capture).
+      - url: "https://github.com/Nyx000/acinfinity-ble/blob/main/docs/protocol/app-ble-capture-verified-2026-06.md"
+        title: "Nyx000/acinfinity-ble: capture-verified findings"
+        covers: >-
+          The captured app writes (579 frames): port on/off, ON level, VPD,
+          AUTO, schedule and cycle writes, the settings bundle, and the
+          power strip's query replies.
+      - url: "https://github.com/Nyx000/acinfinity-ble/blob/main/docs/protocol/read-notifications.md"
+        title: "Nyx000/acinfinity-ble: read and notify decode"
+        covers: "The self-streamed controller frame, the query TLVs and the advertisement parse."
+      - url: "https://github.com/Nyx000/acinfinity-ble/blob/main/docs/protocol/ble-transport.md"
+        title: "Nyx000/acinfinity-ble: BLE transport"
+        covers: "GATT UUIDs, connect order, MTU, sequence numbers, acks, timeouts and retries."
+      - url: "https://github.com/hunterjm/ac-infinity-ble/blob/main/docs/protocol-validation.md"
+        title: "hunterjm/ac-infinity-ble: protocol validation"
+        covers: >-
+          The advertisement layout and device-type table, the telemetry
+          families (including the AI power strip's), reply acceptance, write
+          chunking and the packed ON level.
+    notes: >-
+      AC Infinity publishes no local protocol. Two projects recovered it
+      independently from the Android app (com.eternal.acinfinity) and agree
+      on every layout both cover; where they disagree this spec says so.
+  protocol: "ble"
+  transport: "ble-gatt"
+  category: "climate"
+  type: "grow-environment-controller"
+  safety_advisory:
+    severity: "caution"
+    summary: >-
+      Ports switch mains equipment such as heaters and humidifiers, and a
+      write sent to the wrong port leaves that equipment running unattended.
+    detail: >-
+      A mode, level or trigger written to the wrong port, or a settings
+      bundle rebuilt from a bad read-back, runs real equipment with nobody
+      watching. That includes a heater left on, a humidifier left on, or
+      calibration offsets that make every trigger fire at the wrong reading.
+      Read the port's state back after every write, and keep the vendor's
+      own overload and placement instructions in force. This app is
+      unaffiliated with AC Infinity, and the manufacturer's manual governs.
+  notes: >
+    AC Infinity's UIS controllers run grow-tent equipment (inline fans,
+    lights, humidifiers, heaters) from climate triggers, timers and
+    schedules. Each port has its own mode. Local control is BLE GATT,
+    phone to device, with no bonding, no account and no cloud key. The app
+    mirrors state to AC Infinity's cloud, and none of that is needed here.
+
+    GATT: one vendor service, 70d51000-2c7f-4e75-ae8a-d758951ce4e0. Frames
+    are written to 70d51001-2c7f-4e75-ae8a-d758951ce4e0. Replies, and a
+    status frame the device streams about once a second while subscribed,
+    arrive as notifications on 70d51002-2c7f-4e75-ae8a-d758951ce4e0. The
+    three UUIDs differ only in the last digit of the first group. The device acts on
+    writes, and answers them, only while a central is subscribed to
+    70d51002, so subscribe before the first write. The app also reads the
+    standard Device Information revision strings at connect: firmware
+    00002a26-0000-1000-8000-00805f9b34fb, hardware
+    00002a27-0000-1000-8000-00805f9b34fb and software
+    00002a28-0000-1000-8000-00805f9b34fb.
+
+    FRAME: every command is wrapped in an envelope that starts A5 00. It
+    carries a big-endian payload length, a big-endian sequence number, a
+    CRC-16/CCITT-FALSE over the first six bytes, then 00, an opcode (0x01
+    read, 0x03 write), the payload, and a second CRC-16/CCITT-FALSE over
+    everything from that 00 to the end of the payload. The payload is a
+    list of [selector][length][value] items followed by a [0xff, port]
+    trailer, where port is the 1-based physical port and 0 addresses the
+    controller itself. The device answers with the same framing, echoing
+    the sequence number. The command templates below are the span the
+    second CRC covers (00, opcode, payload), and a client must add the
+    envelope. See `protocol_handler` and `protocol_details.frame`.
+
+    TWO WRITES TO CHANGE A MODE: a mode's parameters (thresholds, cycle
+    times, schedule) and the port's active mode are separate. A parameter
+    write only stores values, and selector 0x10 switches the port into a
+    mode. Port on/off in the app is that 0x10 write alone.
+
+    SETTINGS ARE A BUNDLE: controller settings (display unit, brightness,
+    calibration, transition, buffer and more) travel as one write carrying
+    every setting. The vendor app never sends a single field. A unit-only
+    change in the app put nothing on the air until another field changed,
+    and upstream reports a lone single-field write as a silent no-op. So
+    settings are a read-modify-write of the whole bundle.
+
+    SCOPE: the primary target is the Controller 69 Pro and similar
+    multi-port controllers at protocol revision 6 or later, which upstream
+    ran live. The UIS power strip is covered for its status stream and port
+    on/off. Single-port controllers and revisions below 6 are included from
+    the app analysis only. Out of scope: the newer AI-series format (two-byte
+    item lengths, selector 0x61 multi-sensor blocks), Wi-Fi provisioning over
+    the separate 0000ffff service (0000ff01/0000ff02), the AC Infinity cloud
+    API, and firmware update.
+
+  identification:
+    service_uuids:
+      - "70d51000-2c7f-4e75-ae8a-d758951ce4e0"
+    manufacturer_data:
+      company_id: 2306
+      company_id_hex: "0x0902"
+      description: >-
+        Every AC Infinity BLE device the app knows advertises manufacturer
+        data under 0x0902. The Bluetooth SIG registry assigns 0x0902 to TSC
+        Auto-ID Technology Co., Ltd., not to AC Infinity, so this is an
+        advertisement shape rather than a vendor claim. Pair it with the
+        70d51000 service UUID. The app parses this payload at scan time for
+        device identity, protocol revision and device type
+        (protocol_details.advertisement).
+    notes: >-
+      The vendor service UUID is the strong signal. The app and both open
+      implementations filter on it or on the 0x0902 manufacturer data. The
+      advertised local name is not recorded by either source. hunterjm
+      names a unit by its family letter, a dash and the five ASCII
+      characters at manufacturer-payload bytes 6-10, the same shape as the
+      unique ID the manual shows the app assigning. Upstream's two units carried
+      Espressif OUIs (80:f1:b2 and d8:85:ac), which points to an ESP32-class
+      radio but identifies nothing, so no MAC prefix is declared. A
+      controller that holds a connection stops advertising.
+
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          service_uuids:
+            - "70d51000-2c7f-4e75-ae8a-d758951ce4e0"
+        notes: >-
+          The vendor app's scan filter: the control service UUID in the
+          advertisement.
+      - type: "ble_scan"
+        ble:
+          manufacturer_data:
+            company_id: 2306
+            description: >-
+              Company ID 0x0902 (shared with TSC Auto-ID in the SIG registry).
+              Payload byte 12 (after the two company-ID bytes) is the device
+              type. 11 = Controller 69 Pro, 18 = Controller 69 Pro+, 21/22 =
+              OUTLET AI / AI+ (see device.variants). Byte 11 is the protocol
+              revision.
+        notes: >-
+          hunterjm/ac-infinity-ble's matcher. Accept only the device types
+          this spec covers; other AC Infinity families (thermo-hygrometers,
+          home fans, air conditioners) share the company ID with different
+          frame formats.
+    identity:
+      stable_keys: ["address"]
+      display: "address"
+      notes: >-
+        Upstream keys devices by their public BLE address. Manufacturer
+        payload bytes 0-5 carry the same device identity. On macOS
+        CoreBluetooth hides the address, and upstream maps it to the
+        per-host peripheral identifier.
+    static_ip_required: false
+
+  setup:
+    required: false
+    confidence: "medium"
+    notes: >-
+      Nothing is provisioned for BLE control. A client scans, connects,
+      subscribes and writes. The confidence is not high because of one
+      precondition nobody has pinned down. For app pairing the manual has the
+      owner hold the port button for 5 s until the Bluetooth icon flashes,
+      and on Bluetooth+Wi-Fi units choosing Bluetooth in the app turns Wi-Fi
+      off. Upstream's clients reconnect to an already-paired controller
+      without pressing anything. Whether a factory-fresh unit, or one the
+      app bound over Wi-Fi, advertises the control service without that
+      button hold is not established.
+    methods:
+      - type: "ble_direct"
+        verified: false
+        description: >-
+          Connect, subscribe to 70d51002, then exchange A5 frames on
+          70d51001. This is the sequence both open implementations run
+          against a Controller 69 Pro. It has not been replayed by this
+          project.
+        ble:
+          pairing_required: false
+        steps:
+          - action: >-
+              Power the controller. A controller takes its power from the
+              UIS device plugged into one of its ports. The power strip plugs
+              into the wall.
+            actor: user
+          - action: >-
+              If the controller is not found in a scan, hold its port button
+              for 5 s until the Bluetooth icon flashes (on the OUTLET AI,
+              hold the power button for 5 s until it flashes green). Close
+              the vendor app, since the controller stops advertising while
+              any central is connected.
+            actor: user
+            expect: "The controller advertises service 70d51000-2c7f-4e75-ae8a-d758951ce4e0."
+          - action: >-
+              Scan for the service UUID, or for manufacturer data under
+              company 0x0902 with a covered device type at payload byte 12.
+            actor: client
+          - action: >-
+              Connect. Request an ATT MTU of 256, as the app does, or be
+              ready to split every write into 20-byte pieces. No bonding is
+              requested.
+            actor: client
+          - action: "Enable notifications on 70d51002-2c7f-4e75-ae8a-d758951ce4e0."
+            actor: client
+            expect: >-
+              Status frames starting 1e ff 02 09 arrive about once a second
+              (54 bytes from a 4-port Controller 69 Pro, 139 bytes from the
+              8-port strip).
+          - action: >-
+              Optionally read the revision strings: firmware
+              00002a26-0000-1000-8000-00805f9b34fb, hardware
+              00002a27-0000-1000-8000-00805f9b34fb and software
+              00002a28-0000-1000-8000-00805f9b34fb.
+            actor: client
+          - action: >-
+              Send get_model_data for a port, wrapped in the A5 envelope with
+              a fresh sequence number, and wait for the reply on 70d51002.
+            actor: client
+            expect: >-
+              An A5 frame whose bytes 4-5 echo the sequence number and whose
+              body lists [selector][length][value] items for 0x10-0x17, then
+              ff and the port number.
+            timeout_seconds: 8
+        timing:
+          reply_timeout_ms: 8000
+          max_retries: 3
+          idle_disconnect_ms: 5000
+          notes: >-
+            The app keeps one command in flight per device. It writes the
+            next only when the current one's reply arrives, re-writes after
+            8 s without a reply, and gives up after three retries.
+            hunterjm's library disconnects after 5 s idle, which frees the
+            controller for other centrals, since it does not advertise while
+            connected. The app requests MTU 256 on BLE-only units (512 on
+            Wi-Fi+BLE units) and splits writes at MTU - 5. hunterjm writes
+            20-byte chunks, which also works on hardware.
+        troubleshooting:
+          - symptom: "The controller never shows up in a scan."
+            causes:
+              - "Another central holds the link: the vendor app, Home Assistant, or another client. The controller stops advertising while connected."
+              - "A stale BlueZ connection left by a killed client. `bluetoothctl disconnect <address>` clears it, and the controller advertises again about a second later (upstream's workaround)."
+              - "Bluetooth is not active on the unit. Hold the port button for 5 s until the Bluetooth icon flashes (manual)."
+          - symptom: "Writes go out, but nothing is acknowledged and nothing changes."
+            causes:
+              - "Notifications on 70d51002 were not enabled first. The device acts on and answers a command only while a central is subscribed."
+              - "A CRC is wrong, or the length field counts the whole frame instead of the payload. Check against the test vectors in protocol_details.test_vectors."
+              - "A frame longer than the negotiated ATT payload was truncated. Request MTU 256 or split the frame into 20-byte writes."
+          - symptom: "The reply says success but the port keeps its old behaviour."
+            causes:
+              - "Only the parameters were written. Mode parameters are stored, and set_port_mode (selector 0x10) switches the port into the mode."
+              - "A 7-byte AUTO block was sent to a revision-6-or-later multi-port controller. Upstream reports the older client's 7-byte write was answered as success and never stored. Use the 10-byte block."
+              - "A single settings field was written on its own. Rewrite the whole bundle (write_settings_bundle)."
+          - symptom: "A port in OFF mode is still running."
+            causes:
+              - "OFF mode runs the load at the saved OFF level, which can be above zero (set_port_off_level). This matches the manual's minimum-level behaviour."
+          - symptom: "The ON level reads back as a strange number such as 0x6a."
+            causes:
+              - "Above protocol revision 7, selector 0x12 packs the manual ON level in the high nibble and the maximum level in the low nibble (hunterjm). Read-modify-write the nibble you mean."
+          - symptom: "Power-strip temperatures disagree between the status stream and a query."
+            causes:
+              - "The strip streams its probe temperature in °F (sensor id 0, ×0.01) but answers A5 queries in °C (×0.01). Convert by the sensor id, not by the display setting."
+          - symptom: "A Node.js client on Linux drops the link with le-connection-abort-by-local."
+            causes:
+              - "Upstream could not hold a connection with node-ble on BlueZ, while bleak on the same host connected reliably. This is a client-library problem, not a stack verdict."
+    factory_reset:
+      applicable: true
+      confidence: "medium"
+      effect: >-
+        Per the manuals, it clears every user parameter in every mode and
+        setting on the controller. Whether it also forgets an app or Wi-Fi
+        binding is not stated. BLE control needs no binding either way.
+      procedures:
+        - name: "MODE + UP + DOWN held together for 5 seconds (controllers)"
+          verified: false
+          basis: >-
+            CONTROLLER 69 PRO user manual (Other Settings, Factory Reset); the
+            CONTROLLER 69 and 67 manuals and AC Infinity's Other Settings web
+            guide say the same. Not performed by this project.
+          applies_to:
+            - "Controller 69 Pro (CTR69P)"
+            - "Controller 69 Pro+ (CTR69Q)"
+            - "Other multi-port UIS controllers"
+            - "Single-port UIS controllers (decompile only)"
+          hold_seconds: 5
+          power_state: "on"
+          steps:
+            - action: "Hold the mode, up and down buttons together for 5 seconds."
+              actor: user
+              expect: "The controller restarts with factory settings."
+        - name: "Power button held for 15 seconds (OUTLET AI / AI+)"
+          verified: false
+          basis: >-
+            OUTLET AI user manual (Factory Reset). Not performed by this
+            project, and the exact strip upstream used is not recorded.
+          applies_to:
+            - "UIS power strip (OUTLET AI / AI+)"
+          hold_seconds: 15
+          power_state: "on"
+          glyph: "generic/hold-button.svg"
+          steps:
+            - action: "Hold the power button for 15 seconds."
+              actor: user
+              expect: "The socket lights flash twice and stay lit once power delivery is restored."
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >-
+        There is no bond and no BLE credential. A new phone or client only
+        needs the controller free, so disconnect whatever else holds it. The
+        vendor app's account binding lives in AC Infinity's cloud and does
+        not gate the BLE protocol.
+    credentials:
+      wifi_passphrase_protection: "unknown"
+      stored_on_device: []
+      issued_to_client: []
+      notes: >-
+        Nothing is exchanged or stored for BLE control, and anyone in radio
+        range can connect and write. Wi-Fi+BLE models take Wi-Fi credentials
+        through the app over the separate 0000ffff service. That path is out
+        of scope, so how the passphrase travels is not documented here.
+
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "none"
+    bonding: "none"
+    exclusivity:
+      single_connection: true
+      single_bond: false
+      recovery: >-
+        Close the vendor app (or stop whatever else is connected) before
+        connecting, because the controller stops advertising while it holds
+        a link. On Linux, clear a stale link with `bluetoothctl disconnect
+        <address>`. Nothing needs forgetting, since no bond is stored.
+    enter_pairing_mode:
+      required: "unknown"
+      notes: >-
+        The vendor app's pairing flow starts with a button hold that turns
+        the controller's Bluetooth on. Upstream's clients connect to an already-set-up
+        controller with no button press. Whether a factory-fresh unit, or one
+        on Wi-Fi, needs the hold before it advertises the control service is
+        not established.
+      procedures:
+        - name: "Port button held for 5 seconds (controllers)"
+          verified: false
+          basis: >-
+            CONTROLLER 69 PRO user manual (Add a Device, Bluetooth) and AC
+            Infinity's Connecting to the App guide. Not performed by this
+            project.
+          applies_to:
+            - "Controller 69 Pro (CTR69P)"
+            - "Controller 69 Pro+ (CTR69Q)"
+            - "Other multi-port UIS controllers"
+          hold_seconds: 5
+          power_state: "on"
+          glyph: "generic/hold-button.svg"
+          steps:
+            - action: "Hold the port button for 5 seconds, then release it when the Bluetooth icon starts flashing."
+              actor: user
+              expect: "The Bluetooth icon flashes on the controller's screen."
+        - name: "Power button held for 5 seconds (OUTLET AI / AI+)"
+          verified: false
+          basis: >-
+            OUTLET AI user manual (Connect via Bluetooth). Not performed by
+            this project.
+          applies_to:
+            - "UIS power strip (OUTLET AI / AI+)"
+          hold_seconds: 5
+          power_state: "on"
+          glyph: "generic/hold-button.svg"
+          steps:
+            - action: "Hold the power button for 5 seconds and release it."
+              actor: user
+              expect: >-
+                The power-button light flashes green. Per the manual, the
+                strip leaves pairing mode after 5 minutes with no app
+                connection, or when the button is held again for 5 s.
+    notes: >-
+      Link layer: nothing pairs and nothing bonds. Both open
+      implementations write on a bare connection, and there is no
+      application-layer key either. The only requirement is the
+      subscription to 70d51002 before writing (see `initialization`).
+
+  host_compatibility:
+    - stack: "bluez"
+      status: "compatible"
+      verification: "reported"
+      basis: >-
+        Nyx000/acinfinity-ble has driven a Controller 69 Pro and the power
+        strip from a Raspberry Pi through bleak since 2026-06, and
+        hunterjm/ac-infinity-ble (bleak) reports a hardware-tested Controller
+        69 Pro. Not run by this project.
+      notes: >-
+        Two host-side caveats, neither a stack defect. A stale connection
+        left by a killed client keeps the controller from advertising until
+        `bluetoothctl disconnect` clears it. And node-ble could not hold a
+        connection (le-connection-abort-by-local) where bleak could.
+    - stack: "android"
+      status: "compatible"
+      verification: "reported"
+      basis: >-
+        The vendor app drives the device through the platform GATT client:
+        write with response, MTU 256, notifications on 70d51002. Upstream
+        captured those writes in-process. Not run by this project.
+    - stack: "corebluetooth"
+      status: "compatible"
+      verification: "reported"
+      basis: >-
+        The vendor app ships for iOS, and Nyx000 used bleak on macOS for its
+        scan and diagnostic rig. Not run by this project.
+      notes: >-
+        CoreBluetooth hides the hardware address, so a client keys the
+        controller by the per-host peripheral identifier (or the
+        advertisement's identity bytes) instead.
+
+  variants:
+    - model: "Controller 69 Pro (CTR69P)"
+      notes: >-
+        Device type 11 at advertisement payload byte 12. 4 UIS ports. The
+        unit both open implementations ran is at protocol revision 7
+        (hunterjm reports software 3.2.56), so it uses the 54-byte status
+        frame and the 10-byte AUTO block. Bluetooth and 2.4 GHz Wi-Fi.
+        IC ID 29196-CTR69P.
+    - model: "Controller 69 Pro+ (CTR69Q)"
+      notes: >-
+        Device type 18. 8 UIS ports, FCC ID 2AXMF-CTR69Q. The status frame
+        should be 22 + 8 × 8 = 86 bytes, with ports 5-8 continuing the
+        8-byte stride from byte 54. That is inferred from the layout, not
+        captured, so only ports 1-4 are declared in the notify format. The
+        app routes it through the same multi-port path as the 69 Pro.
+    - model: "Other multi-port UIS controllers"
+      notes: >-
+        CONTROLLER 69 (CTR69A, type 7), the wall-hang and desktop
+        controllers (types 9, 12, 16, 17) and type 23 share the 69 Pro's
+        multi-port path in the app. Below protocol revision 5 the status
+        frame uses 4-byte port records from byte 18. Below revision 6 the
+        AUTO block is the 7-byte form. From the app analysis only. The
+        CONTROLLER 69 WiFi (type 8) may expose Bluetooth only during setup
+        (hunterjm).
+    - model: "UIS power strip (OUTLET AI / AI+)"
+      notes: >-
+        Upstream's "8-port AI power strip". Its query replies carry frame
+        type 0x1c, its status frame is 139 bytes, and it takes the
+        multi-port on/off write. Which retail model it was is not recorded.
+        hunterjm's table puts OUTLET AI (AC-ADA4, type 21) and OUTLET AI+
+        (AC-ADA8, type 22) in the AI family, whose status-frame layout
+        matches upstream's capture exactly, so this is most likely an
+        OUTLET AI+ (hypothesis). Covered for its status stream
+        (protocol_details.power_strip_stream) and port on/off only. Every
+        outlet is a relay, so levels, AUTO and VPD live on the controller's
+        UIS ports.
+    - model: "Single-port UIS controllers (decompile only)"
+      notes: >-
+        CONTROLLER 67 (CTR67A, type 1) and CONTROLLER 76 (CTR76A, type 2).
+        Same envelope and selectors, but no [0xff, port] trailer, and the
+        AUTO block is always the 7-byte form. Reported from the app analysis
+        alone; nobody has captured one. AC Infinity says controllers older
+        than CONTROLLER 69 get no firmware updates.
+    - model: "AI-series controllers with the extended format (not covered)"
+      notes: >-
+        CONTROLLER AI / AI+ at revision 20 or later and CONTROLLER AI 2
+        (types 19, 20, 51). Item lengths are two bytes, port records carry
+        explicit port ids, and climate targets travel in selector 0x61
+        8-byte sensor blocks. Listed so a client does not send this spec's
+        one-byte-length frames to them. CONTROLLER AI+ is FCC ID 2AXMF-CTR89.
+
+protocol_handler: "acinfinity_a5"
+
+initialization:
+  - characteristic: "70d51002-2c7f-4e75-ae8a-d758951ce4e0"
+    subscribe: true
+    when: "connect"
+    notes: >-
+      Required. The device acts on a write, and answers it, only while a
+      central is subscribed to 70d51002 on the same connection (upstream,
+      from both the app's design and its own clients). The subscription also
+      starts the ~1/s status stream.
+
+services:
+  - uuid: "70d51000-2c7f-4e75-ae8a-d758951ce4e0"
+    name: "AC Infinity UIS control service"
+    notes: >
+      Also the advertised service UUID. Two characteristics: write frames to
+      70d51001, and receive replies and the status stream on 70d51002. The
+      properties below come from how the app and the open clients use them,
+      not from a GATT dump.
+    characteristics:
+      - uuid: "70d51001-2c7f-4e75-ae8a-d758951ce4e0"
+        name: "Command frames (write)"
+        properties: ["write", "write_without_response"]
+        role: "command"
+        notes: >
+          ENVELOPE, applied by the client to every command below. Each
+          template is the INNER span [0x00][opcode][payload]. The frame on
+          the wire is: a5 00, then len (u16 BE = inner length - 2, the
+          payload only), then seq (u16 BE), then crc16(bytes 0-5) (u16 BE),
+          then the inner span, then crc16(inner span) (u16 BE). CRC is
+          CRC-16/CCITT-FALSE (poly 0x1021, init 0xffff, no reflection, no
+          final XOR; check value 0x29b1 over "123456789"). The frame is 12
+          bytes longer than the payload. seq increments per command and
+          wraps 65535 -> 1 in the app. The device only echoes it. No schema
+          framing scheme or `auto` role expresses this yet, which is why
+          `protocol_handler` is set. A consumer without that handler must not
+          write the bare templates. Worked frames are in
+          protocol_details.test_vectors.
+
+          WRITE TYPE: the app writes with response. Both open clients write
+          without response and work on hardware. Frames over the ATT payload
+          size may be split into consecutive writes, which the device
+          reassembles by the length field (the app splits at MTU - 5 after
+          requesting MTU 256, hunterjm at 20 bytes). Keep one command in
+          flight and wait for its reply (matched by the echoed seq) before
+          sending the next.
+
+          PORT: the trailer byte after 0xff is the 1-based physical port.
+          0 addresses the controller (settings). Single-port controllers
+          omit the [0xff, port] trailer. Remove it from these templates for
+          them.
+        commands:
+          set_port_mode:
+            description: >-
+              Switch one port's ACTIVE mode (selector 0x10). This is how the
+              vendor app turns a port on and off, with work_type 2 and 1. For
+              the other modes it runs whatever parameters are already stored
+              for that mode, so write those first (the app sends this, then
+              the mode's parameter write). Example, port 2 to off, seq
+              0x0102: a5 00 00 05 01 02 54 ba 00 03 10 01 01 ff 02 59 4d.
+            verification: "confirmed"
+            template: [0x00, 0x03, 0x10, 0x01, "{work_type}", 0xff, "{port}"]
+            packet_layout:
+              "0": "0x00 (start of the tail-CRC span)"
+              "1": "opcode 0x03 write"
+              "2": "selector 0x10 (active mode)"
+              "3": "item length 1"
+              "4": "work_type"
+              "5": "0xff port trailer"
+              "6": "port"
+            parameters:
+              work_type:
+                type: "uint8"
+                min: 1
+                max: 8
+                labels:
+                  - "off (runs at the saved OFF level)"
+                  - "on (runs at the saved ON level)"
+                  - "auto: temperature and humidity triggers"
+                  - "countdown, then on"
+                  - "countdown, then off"
+                  - "repeating on/off cycle"
+                  - "daily on/off schedule"
+                  - "VPD triggers"
+                description: >-
+                  The mode number the status frame reports in the port's
+                  mode field. Upstream captured 1, 2, 3, 6, 7 and 8 from the
+                  app, and 4 and 5 come from the app analysis. The AI-series
+                  modes 9-17 (CO2, soil moisture, pH and others) are out of
+                  scope.
+              port:
+                type: "uint8"
+                min: 1
+                max: 8
+                description: "1-based physical port (4 on a Controller 69 Pro, 8 on a 69 Pro+ or the 8-outlet strip)."
+          set_port_on_level:
+            description: >-
+              Set the level the port runs at in ON mode, which is also the
+              maximum the triggered modes ramp to (selector 0x12). This
+              stores the value without switching mode. Upstream captured
+              `12 01 05 ff 01` for level 5 on port 1. Controllers at protocol
+              revision 7 or below take the level itself. Above revision 7
+              the byte packs the manual ON level in the high nibble and the
+              maximum in the low nibble (hunterjm), so read 0x12 back, change
+              the nibble you mean, and send the packed byte.
+            verification: "confirmed"
+            template: [0x00, 0x03, 0x12, 0x01, "{on_level}", 0xff, "{port}"]
+            parameters:
+              on_level:
+                type: "uint8"
+                min: 0
+                max: 255
+                description: "Revision 7 or below: level 0-10. Above revision 7: (manual level << 4) | maximum level, each 0-10."
+              port:
+                type: "uint8"
+                min: 1
+                max: 8
+                description: "1-based physical port."
+          set_port_off_level:
+            description: >-
+              Set the level the port idles at in OFF mode and whenever a
+              triggered mode is triggered off (selector 0x11). This is the
+              minimum level. The app sends 0 (`11 01 00`). Stores only.
+            verification: "confirmed"
+            template: [0x00, 0x03, 0x11, 0x01, "{off_level}", 0xff, "{port}"]
+            parameters:
+              off_level:
+                type: "uint8"
+                min: 0
+                max: 10
+                description: "Level 0-10. 0 means fully off when not triggered."
+              port:
+                type: "uint8"
+                min: 1
+                max: 8
+                description: "1-based physical port."
+          set_auto_triggers:
+            description: >-
+              Store the AUTO-mode triggers (selector 0x13), in the 10-byte
+              form a multi-port controller at protocol revision 6 or later
+              takes. Every temperature is sent twice, once in °F and once in
+              °C, as whole degrees. The app fills the unit on screen and
+              derives the other by rounding. A disabled bound keeps its rail
+              value (high 194 °F / 90 °C, low 32 °F / 0 °C, humidity 100 /
+              0), and its enable bit is clear. Then send set_port_mode 3.
+              Upstream captured this block from the app when a port was put
+              into AUTO (`13 0a 0f 56 1e 44 14 46 28 20 00 00 ff 01`, all
+              four triggers on) and saw the device round-trip all 10 bytes.
+              Two things are still open upstream: a clean capture of one
+              threshold changed on a port already in AUTO, and bytes 7-9,
+              which the app analysis names the AUTO target (°F, °C, %). Read
+              0x13 first and write back what you do not mean to change. The
+              7-byte form for single-port and older units is in
+              protocol_details.auto_block.
+            verification: "reported"
+            template: [0x00, 0x03, 0x13, 0x0a, "{switches}", "{high_temp_f}", "{high_temp_c}", "{low_temp_f}", "{low_temp_c}", "{high_humidity}", "{low_humidity}", "{target_temp_f}", "{target_temp_c}", "{target_humidity}", 0xff, "{port}"]
+            parameters:
+              switches:
+                type: "uint8"
+                min: 0
+                max: 127
+                description: >-
+                  Enable bits: 0x08 high temperature, 0x04 low temperature,
+                  0x02 high humidity, 0x01 low humidity, plus 0x10 AUTO
+                  target, 0x20 target humidity and 0x40 target temperature
+                  (the target bits from the app analysis only).
+              high_temp_f:
+                type: "uint8"
+                min: 32
+                max: 194
+                unit: "F"
+                description: "High temperature trigger in whole °F (the app's range is 32-194 °F)."
+              high_temp_c:
+                type: "uint8"
+                min: 0
+                max: 90
+                unit: "C"
+                description: "The same trigger in whole °C."
+              low_temp_f:
+                type: "uint8"
+                min: 32
+                max: 194
+                unit: "F"
+                description: "Low temperature trigger in whole °F."
+              low_temp_c:
+                type: "uint8"
+                min: 0
+                max: 90
+                unit: "C"
+                description: "The same trigger in whole °C."
+              high_humidity:
+                type: "uint8"
+                min: 0
+                max: 100
+                unit: "%"
+                description: "High humidity trigger, whole percent."
+              low_humidity:
+                type: "uint8"
+                min: 0
+                max: 100
+                unit: "%"
+                description: "Low humidity trigger, whole percent."
+              target_temp_f:
+                type: "uint8"
+                min: 32
+                max: 194
+                unit: "F"
+                description: "AUTO target temperature, whole °F (app analysis). Captured as 32 when no target is set."
+              target_temp_c:
+                type: "uint8"
+                min: 0
+                max: 90
+                unit: "C"
+                description: "AUTO target temperature, whole °C (app analysis)."
+              target_humidity:
+                type: "uint8"
+                min: 0
+                max: 100
+                unit: "%"
+                description: "AUTO target humidity, whole percent (app analysis)."
+              port:
+                type: "uint8"
+                min: 1
+                max: 8
+                description: "1-based physical port."
+          set_vpd_triggers:
+            description: >-
+              Store the VPD-mode triggers (selector 0x51), one byte each in
+              tenths of a kPa, for every revision. Then send set_port_mode 8.
+              Upstream captured `51 04 02 0d 00 00 ff 02` (high trigger 1.3
+              kPa on port 2) and read back `51 04 02 0e 0a 02`. Read 0x51
+              first and keep what you are not changing.
+            verification: "confirmed"
+            template: [0x00, 0x03, 0x51, 0x04, "{switches}", "{high_vpd}", "{low_vpd}", "{target_vpd}", 0xff, "{port}"]
+            parameters:
+              switches:
+                type: "uint8"
+                min: 0
+                max: 15
+                description: "Enable bits: 0x02 high trigger, 0x01 low trigger, 0x08 target, 0x04 target-setting mode (app analysis)."
+              high_vpd:
+                type: "uint8"
+                min: 0
+                max: 99
+                scale: 0.1
+                unit: "kPa"
+                description: "High VPD trigger, 0.0-9.9 kPa (1.4 kPa = 14 = 0x0e). Never hundredths."
+              low_vpd:
+                type: "uint8"
+                min: 0
+                max: 99
+                scale: 0.1
+                unit: "kPa"
+                description: "Low VPD trigger, 0.0-9.9 kPa."
+              target_vpd:
+                type: "uint8"
+                min: 0
+                max: 99
+                scale: 0.1
+                unit: "kPa"
+                description: "VPD target, 0.0-9.9 kPa; 0 when unused."
+              port:
+                type: "uint8"
+                min: 1
+                max: 8
+                description: "1-based physical port."
+          set_timer_to_on:
+            description: >-
+              Store the countdown for the countdown-then-on mode (selector
+              0x14): seconds, u32 big-endian. Then send set_port_mode 4. From
+              the app analysis only.
+            verification: "reported"
+            template: [0x00, 0x03, 0x14, 0x04, "{seconds}", 0xff, "{port}"]
+            parameters:
+              seconds:
+                type: "uint32"
+                endianness: "big"
+                min: 0
+                max: 4294967295
+                unit: "s"
+                description: "Countdown in seconds. The app's own upper bound is not recorded."
+              port:
+                type: "uint8"
+                min: 1
+                max: 8
+                description: "1-based physical port."
+          set_timer_to_off:
+            description: >-
+              Store the countdown for the countdown-then-off mode (selector
+              0x15): seconds, u32 big-endian. Then send set_port_mode 5. From
+              the app analysis only.
+            verification: "reported"
+            template: [0x00, 0x03, 0x15, 0x04, "{seconds}", 0xff, "{port}"]
+            parameters:
+              seconds:
+                type: "uint32"
+                endianness: "big"
+                min: 0
+                max: 4294967295
+                unit: "s"
+                description: "Countdown in seconds (2 h = 7200 = 00 00 1c 20)."
+              port:
+                type: "uint8"
+                min: 1
+                max: 8
+                description: "1-based physical port."
+          set_cycle:
+            description: >-
+              Store the repeating cycle (selector 0x16): on-seconds and
+              off-seconds, each u32 big-endian. Then send set_port_mode 6.
+              Upstream captured 5 min / 5 min as `16 08 00 00 01 2c 00 00 01
+              2c`.
+            verification: "confirmed"
+            template: [0x00, 0x03, 0x16, 0x08, "{on_seconds}", "{off_seconds}", 0xff, "{port}"]
+            parameters:
+              on_seconds:
+                type: "uint32"
+                endianness: "big"
+                min: 0
+                max: 4294967295
+                unit: "s"
+                description: "Duration of the ON phase."
+              off_seconds:
+                type: "uint32"
+                endianness: "big"
+                min: 0
+                max: 4294967295
+                unit: "s"
+                description: "Duration of the OFF phase."
+              port:
+                type: "uint8"
+                min: 1
+                max: 8
+                description: "1-based physical port."
+          set_schedule:
+            description: >-
+              Store the daily schedule (selector 0x17) as wall-clock hour
+              and minute bytes, not minutes since midnight. Then send
+              set_port_mode 7. Upstream captured 17:00 on / 11:00 off as
+              `17 04 11 00 0b 00`. 0xff in a pair leaves that switch time
+              unset. The schedule runs on the controller's own clock
+              (protocol_details.clock).
+            verification: "confirmed"
+            template: [0x00, 0x03, 0x17, 0x04, "{on_hour}", "{on_minute}", "{off_hour}", "{off_minute}", 0xff, "{port}"]
+            parameters:
+              on_hour: &schedule_hour
+                type: "uint8"
+                allowed: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 255]
+                unit: "h"
+                description: "Hour 0-23 (24-hour clock), or 255 (0xff) for unset. The app clamps 24:00 to 23:59."
+              on_minute: &schedule_minute
+                type: "uint8"
+                allowed: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 255]
+                unit: "min"
+                description: "Minute 0-59, or 255 (0xff) for unset."
+              off_hour: *schedule_hour
+              off_minute: *schedule_minute
+              port:
+                type: "uint8"
+                min: 1
+                max: 8
+                description: "1-based physical port."
+          get_model_data:
+            description: >-
+              Read one port's stored mode and parameters (opcode 0x01,
+              selectors 0x10-0x17). The reply is an A5 frame with opcode 01
+              whose body is [selector][length][value] items, then ff and the
+              port. Items: 0x10 the mode, 0x11 OFF level, 0x12 ON level, 0x13
+              the AUTO block, 0x14/0x15 countdowns, 0x16 cycle, 0x17
+              schedule. Upstream's captured request, port 1, seq 0: a5 00 00
+              0a 00 00 6b f8 00 01 10 11 12 13 14 15 16 17 ff 01 ff 2b. The
+              app appends selector 0x53 on revision 6 and later. Its meaning
+              is not established, and the request works without it.
+            verification: "confirmed"
+            template: [0x00, 0x01, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0xff, "{port}"]
+            parameters:
+              port:
+                type: "uint8"
+                min: 1
+                max: 8
+                description: "1-based physical port."
+          get_vpd_settings:
+            description: >-
+              Read one port's OFF/ON levels and VPD block (selectors 0x11,
+              0x12, 0x51), the app's VPD read. 0x51 answers [switches, high,
+              low, target] in tenths of a kPa. App analysis; upstream's
+              client uses it for VPD read-back.
+            verification: "reported"
+            template: [0x00, 0x01, 0x11, 0x12, 0x51, 0xff, "{port}"]
+            parameters:
+              port:
+                type: "uint8"
+                min: 1
+                max: 8
+                description: "1-based physical port."
+          read_everything:
+            description: >-
+              The app's controller-wide read (addressed to port 0): settings,
+              the port list, per-port targets and more in one reply (about
+              233 bytes). Captured from the app on the power strip. Its 0x07
+              item is eight 7-byte records [port][id hi][id lo][state][00 00
+              00], with state 1 = on and 0 = off. Upstream found this tracked
+              the strip's relays exactly, including schedule-driven changes.
+              Selectors 0x52, 0x54, 0x55 and 0x60-0x63 in it are not decoded.
+            verification: "confirmed"
+            value: [0x00, 0x01, 0x20, 0x21, 0x24, 0x11, 0x12, 0x04, 0x07, 0x25, 0x50, 0x10, 0x51, 0x13, 0x28, 0x62, 0x52, 0x70, 0x54, 0x55, 0x60, 0x63, 0xff, 0x00]
+          read_settings:
+            description: >-
+              Read back every item the settings bundle carries, as the
+              read half of write_settings_bundle. This selector list is
+              assembled from the bundle itself. Nobody has captured the
+              device answering all of it in one query, and the app's own
+              settings read uses a shorter list (0x20, 0x21, 0x24, 0x11,
+              0x12, 0x04, 0x07, 0x25, 0x22, 0x23, 0x26). If any selector is
+              missing from the reply, do not write the bundle.
+            verification: "hypothesis"
+            value: [0x00, 0x01, 0x20, 0x21, 0x24, 0x11, 0x12, 0x26, 0x22, 0x23, 0x25, 0x50, 0x53, 0x28, 0x70, 0xff, 0x00]
+          write_settings_bundle:
+            description: >-
+              Write the controller settings as ONE bundle, addressed to port
+              0, in the order the app sends: 0x20 display unit, 0x21
+              brightness, 0x24 calibration, then 0x11, 0x12, 0x26 (buffer
+              on/off), 0x22 (transition), 0x23 (buffer), 0x25 (leaf offset),
+              0x50, 0x53, 0x28 and 0x70. Change the field you mean and copy
+              every other item byte for byte from a fresh read. Upstream
+              captured the app sending this block (about 65 bytes) and never
+              saw it send a single field. The layout of every item is in
+              protocol_details.settings_bundle.
+            verification: "reported"
+            advanced: true
+            advanced_reason: >-
+              Rewrites every controller setting at once, including the
+              temperature and humidity calibration and six items (0x11,
+              0x12, 0x50, 0x53, 0x28, 0x70 at port 0) whose meaning nobody
+              has established. A bundle built from a stale or partial read
+              silently shifts calibration, and every AUTO and VPD trigger then
+              fires at the wrong reading. Keep the read-back you started from
+              so it can be written back. The controller's own settings menu
+              and factory reset remain the fallback.
+            template: [0x00, 0x03, 0x20, 0x01, "{display_unit}", 0x21, 0x02, "{brightness}", "{brightness_enabled}", 0x24, 0x03, "{calibration_byte0}", "{calibration_temp}", "{calibration_humidity}", "{other_items}", 0xff, 0x00]
+            parameters:
+              display_unit:
+                type: "uint8"
+                min: 0
+                max: 1
+                labels: ["Fahrenheit", "Celsius"]
+                description: >-
+                  Display unit. 1 = °C, 0 = °F, confirmed on the wire (the
+                  byte flipped 00 -> 01 on a °F -> °C change). Display only:
+                  the status stream and query replies carry °C either way.
+              brightness:
+                type: "uint8"
+                min: 1
+                max: 5
+                labels: ["level 1", "level 2", "level 3", "level 2, dims when idle", "level 3, dims when idle"]
+                description: "Screen brightness as the app's selector index. 1-3 captured, 4 and 5 (the auto-dim settings) not exercised."
+              brightness_enabled:
+                type: "uint8"
+                min: 0
+                max: 1
+                labels: ["off", "on"]
+                description: "Mirrors the app's screen-brightness toggle (captured)."
+              calibration_byte0:
+                type: "uint8"
+                min: 0
+                max: 255
+                description: >-
+                  Unresolved. Copy it from the read-back. In °C display it
+                  fitted round(offset × 9/5 + 32), the absolute °C-to-°F
+                  formula applied to an offset (1 -> 0x22, 2 -> 0x24). That
+                  is two data points, so do not compute it.
+              calibration_temp:
+                type: "int8"
+                min: -20
+                max: 20
+                description: >-
+                  Temperature calibration offset in whole degrees of the
+                  unit currently displayed. Tracked the app's stepper 1:1.
+                  The manual's range is -20 to 20 °F or -10 to 10 °C.
+              calibration_humidity:
+                type: "int8"
+                min: -10
+                max: 10
+                unit: "%"
+                description: "Humidity calibration offset in whole percent; tracked the app's stepper 1:1."
+              other_items:
+                type: "bytes"
+                min_length: 1
+                max_length: 64
+                description: >-
+                  Every remaining item from the read-back, [selector][length]
+                  [value], in the order 0x11, 0x12, 0x26, 0x22, 0x23, 0x25,
+                  0x50, 0x53, 0x28, 0x70, copied byte for byte.
+      - uuid: "70d51002-2c7f-4e75-ae8a-d758951ce4e0"
+        name: "Replies and status stream (notify)"
+        properties: ["notify"]
+        role: "notify"
+        notes: >
+          Two kinds of frame arrive here, and a notification can carry a
+          fragment of either, so a reader reassembles by declared length.
+
+          (1) A5 replies: the command envelope with byte 1 non-zero (0x13,
+          0x17 or 0x1c observed). Total length is 12 + the u16 BE at bytes
+          2-3. Both CRCs are checked the same way. Bytes 4-5 echo the
+          request's sequence number, which is how a reply is matched. Byte 9
+          echoes the opcode. A write is acknowledged with [selector,
+          result] pairs, where 0 = accepted and 1 = rejected, then ff and
+          the port. Example ack for a combined on-and-level write to port 1:
+          a5 1c 00 06 00 00 91 e8 00 03 10 00 12 00 ff 01 16 29.
+
+          (2) Status stream: starts 1e ff 02 09, total length 6 + byte 5,
+          with no CRC. It is sent about once a second while subscribed. The
+          `format` below is the multi-port controller layout for protocol
+          revision 5 or later (54 bytes on a 4-port Controller 69 Pro). The
+          power strip streams a different, AI-family layout. See
+          protocol_details.power_strip_stream, and never decode a strip
+          frame with this `format`.
+
+          All climate values are signed 16-bit big-endian hundredths, and
+          -32768 (0x8000) means no probe reading. Temperatures are °C
+          whatever the display unit.
+        format_match:
+          offset: 0
+          value: 0x1e
+          notes: "A5 replies start 0xa5 and are not decoded by `format`."
+        format:
+          - name: "stream_marker"
+            offset: 0
+            length: 4
+            type: "bytes"
+            notes: "Always 1e ff 02 09. It reads like a manufacturer-data AD header for company 0x0902, but the length byte does not match the frame."
+          - name: "frame_kind"
+            offset: 4
+            length: 1
+            type: "uint8"
+            notes: "0x07 on upstream's Controller 69 Pro and 0x0c on its power strip. Meaning not established."
+          - name: "body_length"
+            offset: 5
+            length: 1
+            type: "uint8"
+            notes: "Bytes after this one; frame length = 6 + body_length (48 on a 4-port controller)."
+          - name: "display_celsius"
+            offset: 6
+            length: 1
+            type: "uint8"
+            mask: 0x80
+            notes: "1 = the controller displays °C, 0 = °F (app analysis; upstream's °F-display unit streams 0). Display only."
+          - name: "temperature_trend"
+            offset: 6
+            length: 1
+            type: "uint8"
+            mask: 0x60
+            notes: "Two-bit trend code; value meanings not established."
+          - name: "humidity_trend"
+            offset: 6
+            length: 1
+            type: "uint8"
+            mask: 0x18
+            notes: "Two-bit trend code; value meanings not established."
+          - name: "vpd_trend"
+            offset: 6
+            length: 1
+            type: "uint8"
+            mask: 0x06
+            notes: "Two-bit trend code; value meanings not established."
+          - name: "selected_port"
+            offset: 7
+            length: 1
+            type: "uint8"
+            mask: 0x0f
+            notes: "The port the controller's screen is showing."
+          - name: "temperature"
+            offset: 8
+            length: 2
+            type: "int16"
+            endianness: "big"
+            scale: 0.01
+            unit: "C"
+            device_class: "temperature"
+            notes: "Probe temperature, always °C × 100 on the wire. -32768 = no probe."
+          - name: "humidity"
+            offset: 10
+            length: 2
+            type: "int16"
+            endianness: "big"
+            scale: 0.01
+            unit: "%"
+            device_class: "humidity"
+            notes: "Probe relative humidity × 100. -32768 = no probe."
+          - name: "vpd"
+            offset: 12
+            length: 2
+            type: "int16"
+            endianness: "big"
+            scale: 0.01
+            unit: "kPa"
+            notes: "Measured VPD in hundredths of a kPa, unlike the tenths the trigger settings use. -32768 = no probe."
+          - name: "root_load_id"
+            offset: 14
+            length: 2
+            type: "uint16"
+            endianness: "big"
+            notes: "The controller's own aggregate output record (bytes 14-17), a leftover of single-port layouts. 0 on upstream's unit. Read per-port state from the blocks below."
+          - name: "root_level"
+            offset: 16
+            length: 1
+            type: "uint8"
+            mask: 0x3c
+            notes: "Aggregate output level 0-10."
+          - name: "root_mode"
+            offset: 17
+            length: 1
+            type: "uint8"
+            mask: 0x0f
+            notes: "Aggregate mode. Read 1 while upstream's ports ran cycle and VPD, so do not use it for a port's mode."
+          # Port 1: block at bytes 22-29.
+          - name: "port1_load_id"
+            offset: 22
+            length: 2
+            type: "uint16"
+            endianness: "big"
+            notes: "Identifier of the UIS device plugged into port 1; 65535 (ff ff) = nothing plugged in, and the rest of the block is then meaningless. Upstream saw 10000 and 12000 on a fan and a humidifier; the id-to-product table is not published."
+          - name: "port1_run_state"
+            offset: 24
+            length: 1
+            type: "uint8"
+            mask: 0xc0
+            notes: "Two-bit run state (0 when idle, 3 while driving the load in every capture). Values 1 and 2 are not established."
+          - name: "port1_level"
+            offset: 24
+            length: 1
+            type: "uint8"
+            mask: 0x3c
+            notes: "Output level the port is actually running at, 0-10. Equals the set ON level while ON (upstream level sweep 2, 5, 9, 10)."
+          - name: "port1_output_on"
+            offset: 24
+            length: 1
+            type: "uint8"
+            mask: 0x02
+            notes: "1 = the port is energising its load now, 0 = not."
+          - name: "port1_fault"
+            offset: 24
+            length: 1
+            type: "uint8"
+            mask: 0x01
+            notes: "Error flag per the app's parser; 0 in every capture."
+          - name: "port1_overcurrent"
+            offset: 25
+            length: 1
+            type: "uint8"
+            mask: 0x80
+            notes: "Overcurrent flag per the app's parser; 0 in every capture."
+          - name: "port1_advanced_program"
+            offset: 25
+            length: 1
+            type: "uint8"
+            mask: 0x70
+            notes: "Three-bit indicator that an app-side advanced program is layered on the mode; 0 in every capture, values not established."
+          - name: "port1_mode"
+            offset: 25
+            length: 1
+            type: "uint8"
+            mask: 0x0f
+            values:
+              1: "off"
+              2: "on"
+              3: "auto"
+              4: "countdown_then_on"
+              5: "countdown_then_off"
+              6: "cycle"
+              7: "schedule"
+              8: "vpd"
+            notes: "The port's ACTIVE mode, the authoritative source for it (the 0x10 value in a query reply can show the output state instead). Same numbering as set_port_mode."
+          - name: "port1_load_type"
+            offset: 29
+            length: 1
+            type: "uint8"
+            values:
+              0: "not_reported"
+              1: "light"
+              2: "humidifier"
+              3: "dehumidifier"
+              4: "heater"
+              5: "air_conditioner"
+              6: "fan"
+              7: "fan"
+              128: "outlet"
+              129: "light"
+              130: "humidifier"
+              131: "dehumidifier"
+              132: "heater"
+              133: "air_conditioner"
+              134: "fan"
+              135: "fan"
+            notes: "Load-type code in the app's wire numbering (the high bit marks an outlet-style load). 0 in upstream's controller captures; the app's table is reported only."
+          # Port 2: block at bytes 30-37.
+          - name: "port2_load_id"
+            offset: 30
+            length: 2
+            type: "uint16"
+            endianness: "big"
+            notes: "Identifier of the UIS device plugged into port 2; 65535 (ff ff) = nothing plugged in, and the rest of the block is then meaningless. Upstream saw 10000 and 12000 on a fan and a humidifier; the id-to-product table is not published."
+          - name: "port2_run_state"
+            offset: 32
+            length: 1
+            type: "uint8"
+            mask: 0xc0
+            notes: "Two-bit run state (0 when idle, 3 while driving the load in every capture). Values 1 and 2 are not established."
+          - name: "port2_level"
+            offset: 32
+            length: 1
+            type: "uint8"
+            mask: 0x3c
+            notes: "Output level the port is actually running at, 0-10. Equals the set ON level while ON (upstream level sweep 2, 5, 9, 10)."
+          - name: "port2_output_on"
+            offset: 32
+            length: 1
+            type: "uint8"
+            mask: 0x02
+            notes: "1 = the port is energising its load now, 0 = not."
+          - name: "port2_fault"
+            offset: 32
+            length: 1
+            type: "uint8"
+            mask: 0x01
+            notes: "Error flag per the app's parser; 0 in every capture."
+          - name: "port2_overcurrent"
+            offset: 33
+            length: 1
+            type: "uint8"
+            mask: 0x80
+            notes: "Overcurrent flag per the app's parser; 0 in every capture."
+          - name: "port2_advanced_program"
+            offset: 33
+            length: 1
+            type: "uint8"
+            mask: 0x70
+            notes: "Three-bit indicator that an app-side advanced program is layered on the mode; 0 in every capture, values not established."
+          - name: "port2_mode"
+            offset: 33
+            length: 1
+            type: "uint8"
+            mask: 0x0f
+            values:
+              1: "off"
+              2: "on"
+              3: "auto"
+              4: "countdown_then_on"
+              5: "countdown_then_off"
+              6: "cycle"
+              7: "schedule"
+              8: "vpd"
+            notes: "The port's ACTIVE mode, the authoritative source for it (the 0x10 value in a query reply can show the output state instead). Same numbering as set_port_mode."
+          - name: "port2_load_type"
+            offset: 37
+            length: 1
+            type: "uint8"
+            values:
+              0: "not_reported"
+              1: "light"
+              2: "humidifier"
+              3: "dehumidifier"
+              4: "heater"
+              5: "air_conditioner"
+              6: "fan"
+              7: "fan"
+              128: "outlet"
+              129: "light"
+              130: "humidifier"
+              131: "dehumidifier"
+              132: "heater"
+              133: "air_conditioner"
+              134: "fan"
+              135: "fan"
+            notes: "Load-type code in the app's wire numbering (the high bit marks an outlet-style load). 0 in upstream's controller captures; the app's table is reported only."
+          # Port 3: block at bytes 38-45.
+          - name: "port3_load_id"
+            offset: 38
+            length: 2
+            type: "uint16"
+            endianness: "big"
+            notes: "Identifier of the UIS device plugged into port 3; 65535 (ff ff) = nothing plugged in, and the rest of the block is then meaningless. Upstream saw 10000 and 12000 on a fan and a humidifier; the id-to-product table is not published."
+          - name: "port3_run_state"
+            offset: 40
+            length: 1
+            type: "uint8"
+            mask: 0xc0
+            notes: "Two-bit run state (0 when idle, 3 while driving the load in every capture). Values 1 and 2 are not established."
+          - name: "port3_level"
+            offset: 40
+            length: 1
+            type: "uint8"
+            mask: 0x3c
+            notes: "Output level the port is actually running at, 0-10. Equals the set ON level while ON (upstream level sweep 2, 5, 9, 10)."
+          - name: "port3_output_on"
+            offset: 40
+            length: 1
+            type: "uint8"
+            mask: 0x02
+            notes: "1 = the port is energising its load now, 0 = not."
+          - name: "port3_fault"
+            offset: 40
+            length: 1
+            type: "uint8"
+            mask: 0x01
+            notes: "Error flag per the app's parser; 0 in every capture."
+          - name: "port3_overcurrent"
+            offset: 41
+            length: 1
+            type: "uint8"
+            mask: 0x80
+            notes: "Overcurrent flag per the app's parser; 0 in every capture."
+          - name: "port3_advanced_program"
+            offset: 41
+            length: 1
+            type: "uint8"
+            mask: 0x70
+            notes: "Three-bit indicator that an app-side advanced program is layered on the mode; 0 in every capture, values not established."
+          - name: "port3_mode"
+            offset: 41
+            length: 1
+            type: "uint8"
+            mask: 0x0f
+            values:
+              1: "off"
+              2: "on"
+              3: "auto"
+              4: "countdown_then_on"
+              5: "countdown_then_off"
+              6: "cycle"
+              7: "schedule"
+              8: "vpd"
+            notes: "The port's ACTIVE mode, the authoritative source for it (the 0x10 value in a query reply can show the output state instead). Same numbering as set_port_mode."
+          - name: "port3_load_type"
+            offset: 45
+            length: 1
+            type: "uint8"
+            values:
+              0: "not_reported"
+              1: "light"
+              2: "humidifier"
+              3: "dehumidifier"
+              4: "heater"
+              5: "air_conditioner"
+              6: "fan"
+              7: "fan"
+              128: "outlet"
+              129: "light"
+              130: "humidifier"
+              131: "dehumidifier"
+              132: "heater"
+              133: "air_conditioner"
+              134: "fan"
+              135: "fan"
+            notes: "Load-type code in the app's wire numbering (the high bit marks an outlet-style load). 0 in upstream's controller captures; the app's table is reported only."
+          # Port 4: block at bytes 46-53.
+          - name: "port4_load_id"
+            offset: 46
+            length: 2
+            type: "uint16"
+            endianness: "big"
+            notes: "Identifier of the UIS device plugged into port 4; 65535 (ff ff) = nothing plugged in, and the rest of the block is then meaningless. Upstream saw 10000 and 12000 on a fan and a humidifier; the id-to-product table is not published."
+          - name: "port4_run_state"
+            offset: 48
+            length: 1
+            type: "uint8"
+            mask: 0xc0
+            notes: "Two-bit run state (0 when idle, 3 while driving the load in every capture). Values 1 and 2 are not established."
+          - name: "port4_level"
+            offset: 48
+            length: 1
+            type: "uint8"
+            mask: 0x3c
+            notes: "Output level the port is actually running at, 0-10. Equals the set ON level while ON (upstream level sweep 2, 5, 9, 10)."
+          - name: "port4_output_on"
+            offset: 48
+            length: 1
+            type: "uint8"
+            mask: 0x02
+            notes: "1 = the port is energising its load now, 0 = not."
+          - name: "port4_fault"
+            offset: 48
+            length: 1
+            type: "uint8"
+            mask: 0x01
+            notes: "Error flag per the app's parser; 0 in every capture."
+          - name: "port4_overcurrent"
+            offset: 49
+            length: 1
+            type: "uint8"
+            mask: 0x80
+            notes: "Overcurrent flag per the app's parser; 0 in every capture."
+          - name: "port4_advanced_program"
+            offset: 49
+            length: 1
+            type: "uint8"
+            mask: 0x70
+            notes: "Three-bit indicator that an app-side advanced program is layered on the mode; 0 in every capture, values not established."
+          - name: "port4_mode"
+            offset: 49
+            length: 1
+            type: "uint8"
+            mask: 0x0f
+            values:
+              1: "off"
+              2: "on"
+              3: "auto"
+              4: "countdown_then_on"
+              5: "countdown_then_off"
+              6: "cycle"
+              7: "schedule"
+              8: "vpd"
+            notes: "The port's ACTIVE mode, the authoritative source for it (the 0x10 value in a query reply can show the output state instead). Same numbering as set_port_mode."
+          - name: "port4_load_type"
+            offset: 53
+            length: 1
+            type: "uint8"
+            values:
+              0: "not_reported"
+              1: "light"
+              2: "humidifier"
+              3: "dehumidifier"
+              4: "heater"
+              5: "air_conditioner"
+              6: "fan"
+              7: "fan"
+              128: "outlet"
+              129: "light"
+              130: "humidifier"
+              131: "dehumidifier"
+              132: "heater"
+              133: "air_conditioner"
+              134: "fan"
+              135: "fan"
+            notes: "Load-type code in the app's wire numbering (the high bit marks an outlet-style load). 0 in upstream's controller captures; the app's table is reported only."
+  - uuid: "0000180a-0000-1000-8000-00805f9b34fb"
+    name: "Device Information (assumed)"
+    notes: >-
+      The app reads these three revision strings by UUID at connect. The
+      parent service is assumed to be the standard Device Information
+      service, since nobody has published a GATT dump. hunterjm notes that the
+      app handling 00002a26 does not prove every controller exposes it.
+      Advertisement byte 11 is a protocol revision, not one of these strings.
+    characteristics:
+      - uuid: "00002a26-0000-1000-8000-00805f9b34fb"
+        name: "Firmware Revision String"
+        properties: ["read"]
+        notes: "ASCII. Present on some units only (hunterjm)."
+      - uuid: "00002a27-0000-1000-8000-00805f9b34fb"
+        name: "Hardware Revision String"
+        properties: ["read"]
+        notes: "ASCII."
+      - uuid: "00002a28-0000-1000-8000-00805f9b34fb"
+        name: "Software Revision String"
+        properties: ["read"]
+        notes: "ASCII. The version the app's device-information screen shows. It reads 3.2.56 on hunterjm's Controller 69 Pro."
+
+features:
+  - type: "firmware_update"
+    dfu:
+      mechanisms: ["unknown"]
+      image:
+        signing: "unknown"
+        source: "unknown"
+      enter:
+        how: "unknown"
+        notes: >-
+          Deliberately not documented. The app offers firmware updates for
+          CONTROLLER 69 and later (AC Infinity's app guide; controllers
+          released before the 69 get none), and the controller switches
+          off briefly while updating. Upstream notes that the app's connect
+          sequence also opens an update-status notification and that it has
+          a separate chunked bulk-transfer path. Neither is part of this
+          spec.
+      recovery:
+        interrupted: "unknown"
+      verification: "reported"
+      notes: >-
+        Recorded so a reader knows the device takes new firmware and that a
+        generic client must stay away from the update path. The mechanism,
+        transport and image handling are out of scope.
+
+entities:
+  - platform: "sensor"
+    name: "Temperature"
+    device_class: "temperature"
+    unit: "C"
+    variants: ["Controller 69 Pro (CTR69P)", "Controller 69 Pro+ (CTR69Q)"]
+    state_characteristic: "70d51002-2c7f-4e75-ae8a-d758951ce4e0"
+    state_mapping:
+      value: "temperature"
+    notes: "Probe temperature, °C on the wire whatever the display unit. -32768 raw (-327.68) means no probe, so show it as unavailable."
+  - platform: "sensor"
+    name: "Humidity"
+    device_class: "humidity"
+    unit: "%"
+    variants: ["Controller 69 Pro (CTR69P)", "Controller 69 Pro+ (CTR69Q)"]
+    state_characteristic: "70d51002-2c7f-4e75-ae8a-d758951ce4e0"
+    state_mapping:
+      value: "humidity"
+    notes: "-32768 raw means no probe."
+  - platform: "sensor"
+    name: "VPD"
+    unit: "kPa"
+    variants: ["Controller 69 Pro (CTR69P)", "Controller 69 Pro+ (CTR69Q)"]
+    state_characteristic: "70d51002-2c7f-4e75-ae8a-d758951ce4e0"
+    state_mapping:
+      value: "vpd"
+    notes: "Vapour-pressure deficit the controller computes from the probe. -32768 raw means no probe."
+  - platform: "select"
+    name: "Port 1 Mode"
+    variants: ["Controller 69 Pro (CTR69P)", "Controller 69 Pro+ (CTR69Q)"]
+    state_characteristic: "70d51002-2c7f-4e75-ae8a-d758951ce4e0"
+    command_characteristic: "70d51001-2c7f-4e75-ae8a-d758951ce4e0"
+    state_mapping:
+      value: "port1_mode"
+      options:
+        "1": "off"
+        "2": "on"
+        "3": "auto"
+        "4": "countdown then on"
+        "5": "countdown then off"
+        "6": "cycle"
+        "7": "schedule"
+        "8": "vpd"
+    commands:
+      select_option:
+        command: "set_port_mode"
+        values:
+          port: 1
+    notes: "Switches port 1's active mode. Auto, VPD, cycle, schedule and the countdowns run the parameters already stored for them. Write those first with the set_* commands."
+  - platform: "sensor"
+    name: "Port 1 Level"
+    variants: ["Controller 69 Pro (CTR69P)", "Controller 69 Pro+ (CTR69Q)"]
+    state_characteristic: "70d51002-2c7f-4e75-ae8a-d758951ce4e0"
+    state_mapping:
+      value: "port1_level"
+    notes: "The level port 1 is running at now, 0-10. Meaningless when port1_load_id is 65535 (nothing plugged in)."
+  - platform: "binary_sensor"
+    name: "Port 1 Output"
+    variants: ["Controller 69 Pro (CTR69P)", "Controller 69 Pro+ (CTR69Q)"]
+    state_characteristic: "70d51002-2c7f-4e75-ae8a-d758951ce4e0"
+    state_mapping:
+      value: "port1_output_on"
+      on_when: "nonzero"
+    notes: "On while port 1 is energising its load. A port in OFF mode can still be on at a non-zero OFF level."
+  - platform: "select"
+    name: "Port 2 Mode"
+    variants: ["Controller 69 Pro (CTR69P)", "Controller 69 Pro+ (CTR69Q)"]
+    state_characteristic: "70d51002-2c7f-4e75-ae8a-d758951ce4e0"
+    command_characteristic: "70d51001-2c7f-4e75-ae8a-d758951ce4e0"
+    state_mapping:
+      value: "port2_mode"
+      options:
+        "1": "off"
+        "2": "on"
+        "3": "auto"
+        "4": "countdown then on"
+        "5": "countdown then off"
+        "6": "cycle"
+        "7": "schedule"
+        "8": "vpd"
+    commands:
+      select_option:
+        command: "set_port_mode"
+        values:
+          port: 2
+    notes: "Switches port 2's active mode. Auto, VPD, cycle, schedule and the countdowns run the parameters already stored for them. Write those first with the set_* commands."
+  - platform: "sensor"
+    name: "Port 2 Level"
+    variants: ["Controller 69 Pro (CTR69P)", "Controller 69 Pro+ (CTR69Q)"]
+    state_characteristic: "70d51002-2c7f-4e75-ae8a-d758951ce4e0"
+    state_mapping:
+      value: "port2_level"
+    notes: "The level port 2 is running at now, 0-10. Meaningless when port2_load_id is 65535 (nothing plugged in)."
+  - platform: "binary_sensor"
+    name: "Port 2 Output"
+    variants: ["Controller 69 Pro (CTR69P)", "Controller 69 Pro+ (CTR69Q)"]
+    state_characteristic: "70d51002-2c7f-4e75-ae8a-d758951ce4e0"
+    state_mapping:
+      value: "port2_output_on"
+      on_when: "nonzero"
+    notes: "On while port 2 is energising its load. A port in OFF mode can still be on at a non-zero OFF level."
+  - platform: "select"
+    name: "Port 3 Mode"
+    variants: ["Controller 69 Pro (CTR69P)", "Controller 69 Pro+ (CTR69Q)"]
+    state_characteristic: "70d51002-2c7f-4e75-ae8a-d758951ce4e0"
+    command_characteristic: "70d51001-2c7f-4e75-ae8a-d758951ce4e0"
+    state_mapping:
+      value: "port3_mode"
+      options:
+        "1": "off"
+        "2": "on"
+        "3": "auto"
+        "4": "countdown then on"
+        "5": "countdown then off"
+        "6": "cycle"
+        "7": "schedule"
+        "8": "vpd"
+    commands:
+      select_option:
+        command: "set_port_mode"
+        values:
+          port: 3
+    notes: "Switches port 3's active mode. Auto, VPD, cycle, schedule and the countdowns run the parameters already stored for them. Write those first with the set_* commands."
+  - platform: "sensor"
+    name: "Port 3 Level"
+    variants: ["Controller 69 Pro (CTR69P)", "Controller 69 Pro+ (CTR69Q)"]
+    state_characteristic: "70d51002-2c7f-4e75-ae8a-d758951ce4e0"
+    state_mapping:
+      value: "port3_level"
+    notes: "The level port 3 is running at now, 0-10. Meaningless when port3_load_id is 65535 (nothing plugged in)."
+  - platform: "binary_sensor"
+    name: "Port 3 Output"
+    variants: ["Controller 69 Pro (CTR69P)", "Controller 69 Pro+ (CTR69Q)"]
+    state_characteristic: "70d51002-2c7f-4e75-ae8a-d758951ce4e0"
+    state_mapping:
+      value: "port3_output_on"
+      on_when: "nonzero"
+    notes: "On while port 3 is energising its load. A port in OFF mode can still be on at a non-zero OFF level."
+  - platform: "select"
+    name: "Port 4 Mode"
+    variants: ["Controller 69 Pro (CTR69P)", "Controller 69 Pro+ (CTR69Q)"]
+    state_characteristic: "70d51002-2c7f-4e75-ae8a-d758951ce4e0"
+    command_characteristic: "70d51001-2c7f-4e75-ae8a-d758951ce4e0"
+    state_mapping:
+      value: "port4_mode"
+      options:
+        "1": "off"
+        "2": "on"
+        "3": "auto"
+        "4": "countdown then on"
+        "5": "countdown then off"
+        "6": "cycle"
+        "7": "schedule"
+        "8": "vpd"
+    commands:
+      select_option:
+        command: "set_port_mode"
+        values:
+          port: 4
+    notes: "Switches port 4's active mode. Auto, VPD, cycle, schedule and the countdowns run the parameters already stored for them. Write those first with the set_* commands."
+  - platform: "sensor"
+    name: "Port 4 Level"
+    variants: ["Controller 69 Pro (CTR69P)", "Controller 69 Pro+ (CTR69Q)"]
+    state_characteristic: "70d51002-2c7f-4e75-ae8a-d758951ce4e0"
+    state_mapping:
+      value: "port4_level"
+    notes: "The level port 4 is running at now, 0-10. Meaningless when port4_load_id is 65535 (nothing plugged in)."
+  - platform: "binary_sensor"
+    name: "Port 4 Output"
+    variants: ["Controller 69 Pro (CTR69P)", "Controller 69 Pro+ (CTR69Q)"]
+    state_characteristic: "70d51002-2c7f-4e75-ae8a-d758951ce4e0"
+    state_mapping:
+      value: "port4_output_on"
+      on_when: "nonzero"
+    notes: "On while port 4 is energising its load. A port in OFF mode can still be on at a non-zero OFF level."
+  - platform: "switch"
+    name: "Outlet 1"
+    variants: ["UIS power strip (OUTLET AI / AI+)"]
+    command_characteristic: "70d51001-2c7f-4e75-ae8a-d758951ce4e0"
+    commands:
+      turn_on:
+        command: "set_port_mode"
+        values:
+          port: 1
+          work_type: 2
+      turn_off:
+        command: "set_port_mode"
+        values:
+          port: 1
+          work_type: 1
+    notes: "Relay outlet 1. No state is bound, because the strip's status stream is not the controller layout. Read it from read_everything item 0x07 or protocol_details.power_strip_stream."
+  - platform: "switch"
+    name: "Outlet 2"
+    variants: ["UIS power strip (OUTLET AI / AI+)"]
+    command_characteristic: "70d51001-2c7f-4e75-ae8a-d758951ce4e0"
+    commands:
+      turn_on:
+        command: "set_port_mode"
+        values:
+          port: 2
+          work_type: 2
+      turn_off:
+        command: "set_port_mode"
+        values:
+          port: 2
+          work_type: 1
+    notes: "Relay outlet 2. No state is bound, because the strip's status stream is not the controller layout. Read it from read_everything item 0x07 or protocol_details.power_strip_stream."
+  - platform: "switch"
+    name: "Outlet 3"
+    variants: ["UIS power strip (OUTLET AI / AI+)"]
+    command_characteristic: "70d51001-2c7f-4e75-ae8a-d758951ce4e0"
+    commands:
+      turn_on:
+        command: "set_port_mode"
+        values:
+          port: 3
+          work_type: 2
+      turn_off:
+        command: "set_port_mode"
+        values:
+          port: 3
+          work_type: 1
+    notes: "Relay outlet 3. No state is bound, because the strip's status stream is not the controller layout. Read it from read_everything item 0x07 or protocol_details.power_strip_stream."
+  - platform: "switch"
+    name: "Outlet 4"
+    variants: ["UIS power strip (OUTLET AI / AI+)"]
+    command_characteristic: "70d51001-2c7f-4e75-ae8a-d758951ce4e0"
+    commands:
+      turn_on:
+        command: "set_port_mode"
+        values:
+          port: 4
+          work_type: 2
+      turn_off:
+        command: "set_port_mode"
+        values:
+          port: 4
+          work_type: 1
+    notes: "Relay outlet 4. No state is bound, because the strip's status stream is not the controller layout. Read it from read_everything item 0x07 or protocol_details.power_strip_stream."
+  - platform: "switch"
+    name: "Outlet 5"
+    variants: ["UIS power strip (OUTLET AI / AI+)"]
+    command_characteristic: "70d51001-2c7f-4e75-ae8a-d758951ce4e0"
+    commands:
+      turn_on:
+        command: "set_port_mode"
+        values:
+          port: 5
+          work_type: 2
+      turn_off:
+        command: "set_port_mode"
+        values:
+          port: 5
+          work_type: 1
+    notes: "Relay outlet 5. No state is bound, because the strip's status stream is not the controller layout. Read it from read_everything item 0x07 or protocol_details.power_strip_stream."
+  - platform: "switch"
+    name: "Outlet 6"
+    variants: ["UIS power strip (OUTLET AI / AI+)"]
+    command_characteristic: "70d51001-2c7f-4e75-ae8a-d758951ce4e0"
+    commands:
+      turn_on:
+        command: "set_port_mode"
+        values:
+          port: 6
+          work_type: 2
+      turn_off:
+        command: "set_port_mode"
+        values:
+          port: 6
+          work_type: 1
+    notes: "Relay outlet 6. No state is bound, because the strip's status stream is not the controller layout. Read it from read_everything item 0x07 or protocol_details.power_strip_stream."
+  - platform: "switch"
+    name: "Outlet 7"
+    variants: ["UIS power strip (OUTLET AI / AI+)"]
+    command_characteristic: "70d51001-2c7f-4e75-ae8a-d758951ce4e0"
+    commands:
+      turn_on:
+        command: "set_port_mode"
+        values:
+          port: 7
+          work_type: 2
+      turn_off:
+        command: "set_port_mode"
+        values:
+          port: 7
+          work_type: 1
+    notes: "Relay outlet 7. No state is bound, because the strip's status stream is not the controller layout. Read it from read_everything item 0x07 or protocol_details.power_strip_stream."
+  - platform: "switch"
+    name: "Outlet 8"
+    variants: ["UIS power strip (OUTLET AI / AI+)"]
+    command_characteristic: "70d51001-2c7f-4e75-ae8a-d758951ce4e0"
+    commands:
+      turn_on:
+        command: "set_port_mode"
+        values:
+          port: 8
+          work_type: 2
+      turn_off:
+        command: "set_port_mode"
+        values:
+          port: 8
+          work_type: 1
+    notes: "Relay outlet 8. No state is bound, because the strip's status stream is not the controller layout. Read it from read_everything item 0x07 or protocol_details.power_strip_stream."
+
+# Bespoke framing, selector tables and stream layouts. Namespaced so the top
+# level stays closed; nothing here is a declared contract. `protocol_handler`
+# above names the consumer-side code that applies `frame`.
+protocol_details:
+  frame:
+    verification: "confirmed"
+    notes: >-
+      Upstream brute-forced both CRCs on 579 captured app frames (579/579)
+      and checked its encoder against the app's routine on 20,000 random
+      inputs. The golden frames in test_vectors reproduce with the algorithm
+      below.
+    layout:
+      "0": "0xa5"
+      "1": "0x00 in a client's frame. Replies set it non-zero (see reply_byte_1)"
+      "2-3": "payload length, u16 big-endian (payload only; the frame is payload + 12 bytes)"
+      "4-5": "sequence number, u16 big-endian"
+      "6-7": "CRC-16/CCITT-FALSE over bytes 0-5, big-endian"
+      "8": "0x00"
+      "9": "opcode"
+      "10..n-3": "payload: [selector][length][value] items, then [0xff][port] on multi-port devices"
+      "n-2..n-1": "CRC-16/CCITT-FALSE over byte 8 through the last payload byte, big-endian"
+    crc:
+      algorithm: "CRC-16/CCITT-FALSE"
+      polynomial: "0x1021"
+      initial: "0xffff"
+      reflected: false
+      xor_out: "0x0000"
+      byte_order: "big"
+      check: "0x29b1 over ASCII 123456789"
+      notes: >-
+        The same value as Python's binascii.crc_hqx(data, 0xffff). The tail
+        CRC does not cover the sequence number, so identical payloads carry
+        identical tail CRCs.
+    sequence: >-
+      The app keeps one counter per device, adds 1 per command and wraps
+      65535 -> 1 (never 0). It uses a second, separate counter for Wi-Fi
+      provisioning. The device only echoes the value, so upstream's clients
+      start at 0 on every connection without trouble.
+    reply_byte_1: >-
+      Seen as 0x13 (hunterjm, a protocol-revision-3 unit), 0x17 (both
+      projects' Controller 69 Pro, revision 7) and 0x1c (the power strip).
+      hunterjm accepts the whole a5 00 - a5 1f family, as the app's frame
+      assembler does. Hypothesis: byte 1 = 0x10 + protocol revision. It fits
+      all three, but nobody has confirmed it.
+    reply_matching: >-
+      The app matches a reply to the command in flight by the echoed
+      sequence number alone. hunterjm also checks length, both CRCs and the
+      echoed opcode (byte 9), and rejects anything else as stale. Do both.
+    acknowledgement: >-
+      A write's reply echoes each written selector as a [selector, result]
+      pair (result 0 = accepted, 1 = rejected), then ff and the port. The app
+      treats any result of 1 as failure. hunterjm demands an explicit 0 for
+      every selector it wrote plus the right port, and upstream observed
+      `10 00 12 00 ff 01` for an accepted mode-and-level write. The app also
+      accepts a reply with 0x66 in byte 9 as an ack whose byte 10 is a
+      sub-status (app analysis, never captured).
+    reassembly: >-
+      Both writes and notifications may be split across ATT packets. A
+      frame starting a5 is complete at 12 + (u16 at bytes 2-3) bytes, and a
+      status frame starting 1e ff 02 09 at 6 + byte 5. Keep the two
+      assembly buffers separate, because status frames keep arriving while a
+      reply is pending.
+    older_combined_on_write: >-
+      Before the separate activate write was understood, clients (and
+      hunterjm's early library) turned a port on at a level with one write,
+      `10 01 02 12 01 <level> ff <port>`, and off with `10 01 01 11 01 00 ff
+      <port>`. The strip accepted it (the acknowledgement above). The
+      vendor app sends the two items separately.
+
+  opcodes:
+    "0x01":
+      meaning: "Read. The payload is a list of bare selectors, then [0xff, port]. The reply carries [selector][length][value] items."
+      verification: "confirmed"
+    "0x03":
+      meaning: "Write. The payload is [selector][length][value] items, then [0xff, port]."
+      verification: "confirmed"
+    "0x08":
+      meaning: "Reset, per the app analysis. Payload not documented, and deliberately not offered as a command."
+      verification: "reported"
+      advanced: true
+      advanced_reason: >-
+        Resets the controller. Nobody has exercised it or recorded its
+        payload or its effect on stored modes, calibration and the app's
+        binding. The physical factory reset (setup.factory_reset) does the
+        same job with known consequences.
+    "0x11, 0x12, 0x14, 0x15":
+      meaning: >-
+        History/chart download (captured; 0x15 returned 512 bytes of
+        logged sensor records). Out of scope.
+      verification: "confirmed"
+
+  port_trailer: >-
+    Multi-port devices end every payload with 0xff and the 1-based
+    physical port (ff 04 = port 4, confirmed by upstream on ports 2 and 4 of
+    the strip), or 0 for the controller itself. The trailer is not an item,
+    so do not walk it as one. Single-port controllers omit it. The AI-series
+    extended format uses two-byte item lengths (out of scope).
+
+  selectors:
+    notes: >-
+      One number space shared by reads and writes. "confirmed" means seen in
+      upstream's captures of the app, "reported" means from the app analysis
+      only, and "hypothesis" means a name nobody has exercised.
+    "0x01": {meaning: "Controller clock (see clock).", verification: "confirmed"}
+    "0x02": {meaning: "Temperature and trend states (read).", verification: "reported"}
+    "0x03": {meaning: "Port realtime: load id, level, run state (read).", verification: "reported"}
+    "0x04": {meaning: "The port the screen shows. Also written by the app (`04 05 ...`, layout not recorded).", verification: "confirmed"}
+    "0x07": {meaning: "Port list: records of [port][id hi][id lo][state][3 bytes] (7 bytes each on the strip; state 1 on, 0 off).", verification: "confirmed"}
+    "0x10": {meaning: "Active mode (work type). The write is set_port_mode. Read back, it can show the output state rather than the programmed mode, so prefer the status stream.", verification: "confirmed"}
+    "0x11": {meaning: "OFF level 0-10 (minimum).", verification: "confirmed"}
+    "0x12": {meaning: "ON level 0-10 (maximum), packed with the manual level above revision 7.", verification: "confirmed"}
+    "0x13": {meaning: "AUTO triggers (auto_block).", verification: "reported"}
+    "0x14": {meaning: "Countdown-then-on seconds, u32 BE.", verification: "reported"}
+    "0x15": {meaning: "Countdown-then-off seconds, u32 BE.", verification: "reported"}
+    "0x16": {meaning: "Cycle: on seconds u32 BE, off seconds u32 BE.", verification: "confirmed"}
+    "0x17": {meaning: "Schedule: on hour, on minute, off hour, off minute; 0xff = unset.", verification: "confirmed"}
+    "0x18": {meaning: "Time left in the current mode (read).", verification: "reported"}
+    "0x20": {meaning: "Display unit, 1 = °C, 0 = °F (bundle only).", verification: "confirmed"}
+    "0x21": {meaning: "Brightness [index 1-5, enable 0/1] (bundle only).", verification: "confirmed"}
+    "0x22": {meaning: "Transition [temp °F, temp °C, humidity %, VPD tenths kPa]; 3 bytes (no VPD) on some firmware.", verification: "reported"}
+    "0x23": {meaning: "Buffer (hysteresis) [temp °F, temp °C, humidity %, VPD tenths kPa]; 3 bytes (no VPD) on some firmware.", verification: "reported"}
+    "0x24": {meaning: "Calibration [byte 0 unresolved, temperature offset in the displayed unit, humidity offset %], signed.", verification: "confirmed"}
+    "0x25": {meaning: "Leaf temperature offset [°F, °C].", verification: "reported"}
+    "0x26": {meaning: "Buffer on/off (revision 5 and later); the app sends it before 0x23.", verification: "reported"}
+    "0x28": {meaning: "Named 'timer enable and duration' by the app analysis; in the bundle, meaning unexercised.", verification: "hypothesis"}
+    "0x30-0x33": {meaning: "Notification and automation configuration (read by the app; not decoded here).", verification: "reported"}
+    "0x50": {meaning: "Named 'port type' by the app analysis; also the app's bulk port-configuration write (`50 01 ...`). In the bundle, meaning unexercised.", verification: "hypothesis"}
+    "0x51": {meaning: "VPD block [switches, high, low, target], tenths of a kPa; all revisions.", verification: "confirmed"}
+    "0x53": {meaning: "Appended to get_model_data on revision 6+; 6 bytes in the bundle. The app analysis calls it an outside-temperature item. Meaning unexercised.", verification: "hypothesis"}
+    "0x60-0x65": {meaning: "CO2, soil-moisture, water-temperature, pH and EC/TDS targets for AI-series sensors. Out of scope.", verification: "reported"}
+    "0x61": {meaning: "AI-series multi-sensor blocks (includes VPD targets on those devices). Out of scope. The VPD write on the devices covered here is 0x51, never 0x61.", verification: "reported"}
+    "0x70": {meaning: "Named 'port parameter data' by the app analysis; 9 bytes in the bundle. Meaning unexercised.", verification: "hypothesis"}
+
+  work_types:
+    notes: >-
+      The active-mode numbers written by set_port_mode and reported by the
+      status stream's port mode field. The names below are paraphrases.
+    "1": "off; runs at the OFF level"
+    "2": "on; runs at the ON level"
+    "3": "auto; temperature and humidity triggers"
+    "4": "countdown, then on"
+    "5": "countdown, then off"
+    "6": "repeating on/off cycle"
+    "7": "daily on/off schedule"
+    "8": "VPD triggers"
+    "9-17": "AI-series sensor modes (CO2, soil moisture, water temperature, pH, EC/TDS, water detection, standalone temperature and humidity). Out of scope."
+
+  auto_block:
+    ten_byte:
+      applies_to: "Multi-port controllers at protocol revision 6 or later."
+      layout: "[switches][high °F][high °C][low °F][low °C][high RH %][low RH %][target °F][target °C][target RH %]"
+      verification: "reported"
+      notes: >-
+        Positions 1-6 were confirmed by a live write-and-read-back on
+        upstream's units, and the whole block round-trips. Positions 7-9
+        are named by the app analysis, and a captured block with no target
+        set carried 20 00 00 there (32 °F, 0 °C, 0 %). Every temperature
+        goes out in both units as whole degrees. The app fills the unit on
+        screen and derives the other by rounding (°C->°F: c × 9/5 + 32).
+    seven_byte:
+      applies_to: "Single-port controllers, and multi-port controllers below revision 6."
+      layout: "[switches][high °F][high °C][low °F][low °C][high RH %][low RH %]"
+      verification: "reported"
+      notes: >-
+        Upstream reports that its older client sent this form to a
+        revision-7 controller, got success back, and nothing was stored.
+        Match the form to the revision.
+    switch_bits:
+      "0x08": "high temperature trigger enabled"
+      "0x04": "low temperature trigger enabled"
+      "0x02": "high humidity trigger enabled"
+      "0x01": "low humidity trigger enabled"
+      "0x10": "AUTO target enabled (10-byte form; app analysis)"
+      "0x20": "target humidity enabled (app analysis)"
+      "0x40": "target temperature enabled (app analysis)"
+    ranges: >-
+      The app offers 32-194 °F (0-90 °C) for temperature triggers and 0-100 %
+      for humidity. A disabled bound keeps its rail value (194/90, 32/0,
+      100, 0) with its bit clear.
+
+  vpd_block:
+    layout: "[switches][high][low][target], each one byte in tenths of a kPa (0-99 = 0.0-9.9 kPa)"
+    verification: "confirmed"
+    switch_bits:
+      "0x02": "high VPD trigger enabled"
+      "0x01": "low VPD trigger enabled"
+      "0x08": "VPD target enabled (app analysis)"
+      "0x04": "target-setting mode (app analysis)"
+    notes: >-
+      Measured VPD in the status stream is hundredths of a kPa, and the
+      trigger bytes here are tenths. Writing hundredths (1.4 kPa as 140)
+      is the classic mistake.
+
+  on_level_encoding:
+    verification: "reported"
+    notes: >-
+      Selector 0x12. At protocol revision 7 and below the value is the ON
+      level, 0-10. Above revision 7 (hunterjm, from the app) the high
+      nibble is the manual ON level and the low nibble is the maximum level.
+      The power strip's replies show 0x62 and 0x6a, which fits the packed
+      form. A client changing the manual level reads 0x12, replaces the high
+      nibble and writes the byte back.
+
+  settings_bundle:
+    verification: "reported"
+    port: 0
+    order: ["0x20", "0x21", "0x24", "0x11", "0x12", "0x26", "0x22", "0x23", "0x25", "0x50", "0x53", "0x28", "0x70"]
+    items:
+      "0x20": "length 1: display unit, 1 = °C, 0 = °F (confirmed on the wire)"
+      "0x21": "length 2: [brightness index, enable]. 1-3 captured; 4-5 are the auto-dimming settings, not exercised"
+      "0x24": "length 3: [byte 0 unresolved, temperature offset (int8, displayed unit), humidity offset (int8, %)]"
+      "0x11": "length 1 at port 0: captured 00; meaning at controller level not established"
+      "0x12": "length 1 at port 0: captured 0a; meaning at controller level not established"
+      "0x26": "length 1: buffer on/off"
+      "0x22": "length 4 (or 3): transition [°F, °C, %, VPD tenths]"
+      "0x23": "length 4 (or 3): buffer [°F, °C, %, VPD tenths]. A 3-byte read means no VPD buffer on this firmware; write back the length you read"
+      "0x25": "length 2: leaf temperature offset [°F, °C]"
+      "0x50": "length 1: captured 00; unexercised"
+      "0x53": "length 6: unexercised"
+      "0x28": "length 2: unexercised"
+      "0x70": "length 9: unexercised"
+    example_payload: >-
+      Illustrative only, with neutral values and the unexercised items left
+      as read-back placeholders (not a frame to send): 20 01 01 | 21 02 03
+      01 | 24 03 <byte0 as read> 00 00 | 11 01 00 | 12 01 0a | 26 01 00 |
+      22 04 00 00 00 00 | 23 04 00 00 00 00 | 25 02 00 00 | 50 01 00 | 53
+      06 <6 bytes as read> | 28 02 <2 bytes as read> | 70 09 <9 bytes as
+      read> | ff 00. That is °C display, brightness 3 on, zero calibration
+      offsets, no transition, no buffer.
+    single_field_writes: >-
+      The app never sends one. Upstream captured a °F->°C toggle on its own
+      three times and saw no bytes on the air. The unit reached the device
+      only inside a bundle sent when another field changed. Upstream also
+      reports a lone field write as a silent no-op. Whether the firmware
+      would act on a single item sent by another client was never isolated,
+      so the safe rule is the bundle, read-modify-write.
+    calibration_byte0: >-
+      Open. In °C display it tracked round(offset × 9/5 + 32) on two
+      samples (offset 1 -> 0x22, 2 -> 0x24), which is the app's absolute
+      °C-to-°F conversion applied to an offset. That fits the app
+      analysis's description of the field as a °F twin, but it is not a
+      usable °F offset. Nothing has been captured in °F display or with a
+      unit switch while calibrated. Copy the byte from the read-back.
+
+  controller_stream:
+    verification: "confirmed"
+    applies_to: "Multi-port controllers, protocol revision 5 or later (the characteristic `format`)."
+    layout: >-
+      Bytes 0-3 are 1e ff 02 09, 4 is the frame kind, 5 the body length, 6
+      the flags (°C display bit 7, trend codes in bits 6-5, 4-3 and 2-1), 7
+      the selected port (low nibble), 8-9/10-11/12-13 temperature, humidity
+      and VPD (int16 BE, ×0.01), 14-17 the aggregate output record and
+      18-21 reserved. Then 8-byte port blocks from byte 22: [load id u16 BE,
+      ff ff = empty][run state bits 7-6, level bits 5-2, output on bit 1,
+      fault bit 0][overcurrent bit 7, advanced-program bits 6-4, mode bits
+      3-0][3 unresolved bytes][load type].
+    unresolved_block_bytes: >-
+      Port-block bytes 4-6. On a cycling port upstream saw byte 4 go 0x10
+      in the off phase and 0x00 in the on phase, and byte 6 count down once
+      a second (a countdown in seconds, with byte 5 perhaps its high byte).
+      The app analysis instead folds bytes 5-7 into error and
+      secondary-function status. Neither reading is confirmed.
+    legacy_layout: >-
+      Below revision 5: same climate fields, 4-byte port records from byte
+      18 ([load id u16 BE][state][level high nibble, mode low nibble]). App
+      analysis only.
+    constructed_example: >-
+      Built for this spec, not captured: 1e ff 02 09 07 30 80 01 08 ca 15
+      7c 00 7a 00 00 00 01 00 00 00 00 27 10 da 02 00 00 00 00 2e e0 00 01
+      00 00 00 00 ff ff 00 01 00 00 00 00 ff ff 00 01 00 00 00 00 decodes
+      as °C display, selected port 1, 22.50 °C, 55.00 %, 1.22 kPa. Port 1
+      has load 10000, running, level 6, output on, mode 2 (on). Port 2 has
+      load 12000, idle, mode 1 (off). Ports 3 and 4 are empty.
+
+  power_strip_stream:
+    verification: "reported"
+    applies_to: "UIS power strip (OUTLET AI / AI+) — the AI-family status frame, 139 bytes on the 8-outlet unit."
+    header: >-
+      Bytes 0-3 are 1e ff 02 09, 4 the frame kind (0x0c observed), 5 the
+      body length (frame = 6 + byte 5), and byte 7 low 6 bits the number of
+      sensor records. The 139-byte frame uses the expanded header (hunterjm,
+      from the app): byte 11 high nibble is the number of port records
+      (record 0 is the strip itself), byte 11 low nibble is the selected
+      port, and byte 12 low nibble is the number of 3-byte calibration
+      records starting at byte 13. Port records follow them. Check:
+      frame length = 13 + records × 10 + sensors × 4 + calibration × 3
+      (13 + 90 + 24 + 12 = 139 for upstream's capture). In the original
+      header form the counts sit in byte 8 and byte 9 instead.
+    port_record: >-
+      10 bytes: [id u16 BE; 0xff in its first byte = nothing connected][second
+      id u16 BE][load type, the same wire codes as the controller's, high bit = outlet-style
+      load][state: level bits 5-2, output on bit 1, fault bit 0][mode, low 5
+      bits][3 bytes unresolved]. Record N (N >= 1) is outlet N.
+    sensor_record: >-
+      4 bytes: [sensor id][flags: accuracy in bits 6-5][value int16 BE].
+      Scale by accuracy: 0 = ×10, 1 = ×1, 2 = ×0.1, 3 = ×0.01, and -32768
+      means no reading. Sensor ids: 0 probe temperature °F, 1 probe
+      temperature °C, 2 probe humidity, 3 probe VPD, 4 zone temperature °F,
+      5 zone temperature °C, 6 zone humidity, 7 zone VPD. Upstream's strip
+      streams id 0 (°F) with accuracy 3, but its A5 query replies carry °C.
+    numbering_conflict: >-
+      Nyx000's decoder splits the frame on the byte run 3d b8 ff ff and
+      numbers each outlet from the next byte as 0x80 + outlet - 1. In the
+      layout above those four bytes are a record's two ids, and the next
+      byte is its load type. Upstream's own capture decodes under the
+      load-type reading to a light on outlet 1, a fan on outlet 2 and a
+      humidifier on outlet 5. That matches the outlet assignments upstream
+      recorded, while the key reading would put the light on outlet 2.
+      Treat record position as the outlet number. Both readings agree on
+      the on/off byte.
+    honest_relay_state: >-
+      Upstream found the query path more trustworthy than the stream for
+      automation-driven outlets. read_everything's 0x07 item tracked
+      commanded and schedule-driven relay changes exactly.
+
+  advertisement:
+    verification: "reported"
+    company_id: "0x0902"
+    payload_lengths: [17, 27]
+    layout: >-
+      Offsets are into the manufacturer payload after the two company-ID
+      bytes. 0-5 device identity (the address). 6-10 five ASCII characters
+      of the unit's name suffix (VPD sensor models use them for VPD data
+      instead). 11 protocol revision. 12 device type. 13 flags. The
+      27-byte form adds live readings from byte 14: temperature and
+      humidity int16 BE ×0.01 at 14 and 16 on controllers, level at 18,
+      and on multi-port units from revision 3 the selected port at 19, the
+      VPD state at 20 and VPD at 21-22. Other families pack readings
+      differently. Use the connected status stream for values.
+    device_types:
+      "1": "CONTROLLER 67 (CTR67A), single-port"
+      "2": "CONTROLLER 76 (CTR76A), single-port outlet controller"
+      "7": "CONTROLLER 69 (CTR69A)"
+      "8": "CONTROLLER 69 WiFi (CTR69X); Bluetooth may appear only during setup"
+      "9": "wall-hang controller (CTR79A)"
+      "11": "CONTROLLER 69 PRO (CTR69P)"
+      "12": "desktop controller (CTR75A)"
+      "16": "wall-hang controller pro (CTR79P)"
+      "17": "desktop controller pro (CTR75P)"
+      "18": "CONTROLLER 69 PRO+ (CTR69Q)"
+      "19": "CONTROLLER AI (not covered)"
+      "20": "CONTROLLER AI+ (CTR89Q; not covered at revision 20+)"
+      "21": "OUTLET AI (AC-ADA4)"
+      "22": "OUTLET AI+ (AC-ADA8)"
+      "23": "multi-port controller, name not recorded"
+      "51": "CONTROLLER AI 2 (extended format, not covered)"
+    notes: >-
+      From hunterjm's table, read from the app's device catalogue. Other
+      ids are thermo-hygrometers (3-5, 14, 15, 24, 25, 34, 35) and home
+      appliances (33, 39, 40, 48-50) with different frame formats, which
+      this spec does not cover. Only types 11 and (by upstream's frames) the
+      strip have been run.
+
+  clock:
+    verification: "reported"
+    write: >-
+      Selector 0x01, length 7: [year - 2000, month, day, weekday, hour,
+      minute, second], big-endian bytes. The app wrote 1a 06 18 03 11 0d 10
+      for Wednesday 2026-06-24 17:13:16, so Wednesday = 3. The Sunday value
+      is not recorded. The strip's form has length 11 (the same 7 bytes and
+      4 undetermined bytes). The app sends it during its connect-time
+      sync. Whether it carries the [0xff, port] trailer is not recorded,
+      so it is not declared as a command.
+    why_it_matters: "Schedule mode runs on the controller's clock (manual). A controller that lost power may need it set."
+
+  other_traffic:
+    status_poll: "The app reads selectors 0x20 0x38 about once a second as a heartbeat. The meaning of 0x38 is not established."
+    named_profile: "A read of selector 0x44 returns an ASCII profile name."
+    unexplained_reads: "0x52, 0x57, 0x36, 0x37, 0x43, 0x47 and 0x48 were seen in reads and not decoded."
+
+  provisioning_service:
+    notes: >-
+      Wi-Fi+BLE models expose a second service, 0000ffff-0000-1000-8000-00805f9b34fb,
+      with write 0000ff01-0000-1000-8000-00805f9b34fb and notify
+      0000ff02-0000-1000-8000-00805f9b34fb, which the app uses only for
+      Wi-Fi provisioning, with its own sequence counter and 100-500 ms
+      pauses between writes. It is out of scope. hunterjm's library falls
+      back to that pair for commands when 70d51001/70d51002 are absent.
+      Which device, if any, needs that is not recorded.
+
+  ai_series_extended_format:
+    notes: >-
+      Not covered, and listed so a client can recognise it. Item lengths
+      are u16 big-endian (so mode-activate is 10 00 01 <work type> ff
+      <port>). Port records carry explicit port ids. Climate targets travel
+      as selector 0x61 blocks of 8-byte records [type][flags][high u16
+      BE][low u16 BE][target u16 BE], scaled by an accuracy code in the
+      flags. It applies to CONTROLLER AI / AI+ at revision 20 or later and
+      to CONTROLLER AI 2.
+
+  test_vectors:
+    notes: >-
+      Full frames. The first three are upstream's captured or golden frames.
+      The rest were built for this spec with the CRC above and not
+      captured. `inner` is the template span the command declarations carry.
+    crc_check: "CRC-16/CCITT-FALSE(\"123456789\") = 0x29b1"
+    activate_cycle_port1_seq0: "a5 00 00 05 00 00 47 c9 00 03 10 01 06 ff 01 ec be (upstream golden; inner 00 03 10 01 06 ff 01)"
+    get_model_data_port1_seq0: "a5 00 00 0a 00 00 6b f8 00 01 10 11 12 13 14 15 16 17 ff 01 ff 2b (upstream golden)"
+    ack_mode_and_level_port1: "a5 1c 00 06 00 00 91 e8 00 03 10 00 12 00 ff 01 16 29 (captured strip reply; head CRC is over the reply's own byte 1)"
+    port2_off_seq_0x0102: "a5 00 00 05 01 02 54 ba 00 03 10 01 01 ff 02 59 4d"
+    port2_off_seq_0xffff: "a5 00 00 05 ff ff 5a c6 00 03 10 01 01 ff 02 59 4d (same tail CRC: the tail does not cover the sequence)"
+    port3_on_seq_0x0103: "a5 00 00 05 01 03 44 9b 00 03 10 01 02 ff 03 10 3c"
+    port1_on_level_5_seq_0x0010: "a5 00 00 05 00 10 55 f8 00 03 12 01 05 ff 01 f1 6d"
+    port2_vpd_high_1_4_low_0_8_seq_0x0007: "a5 00 00 08 00 07 75 7f 00 03 51 04 03 0e 08 00 ff 02 26 3a"
+    port1_auto_high_86F_30C_only_seq_0x0020: "a5 00 00 0e 00 20 93 5a 00 03 13 0a 08 56 1e 20 00 64 00 20 00 00 ff 01 db 7b"
+    port4_schedule_0700_on_1900_off_seq_0x0021: "a5 00 00 08 00 21 31 db 00 03 17 04 07 00 13 00 ff 04 fc 56"
+    port1_cycle_15min_on_45min_off_seq_0x0022: "a5 00 00 0c 00 22 dd 78 00 03 16 08 00 00 03 84 00 00 0a 8c ff 01 6f 2b"
+    port2_countdown_then_off_2h_seq_0x0023: "a5 00 00 08 00 23 11 99 00 03 15 04 00 00 1c 20 ff 02 89 5f"
+    get_vpd_settings_port2_seq_0x0024: "a5 00 00 05 00 24 23 2f 00 01 11 12 51 ff 02 a6 e9"
+
+evidence:
+  open_source_analysis: >-
+    Nyx000/acinfinity-ble (MIT, read at commit 7894096, 2026-07-27) gives
+    the frame, CRC, UUIDs, transport behaviour, mode and trigger blocks,
+    the settings bundle, the controller status layout and the strip's
+    query replies. Its notes name the app's internal classes, and this spec
+    does not repeat them. hunterjm/ac-infinity-ble (MIT, read 2026-09-28,
+    docs/protocol-validation.md and the telemetry, protocol and
+    capabilities modules) gives the advertisement layout, the device-type
+    table, the AI-family (strip) status layout, reply acceptance, 20-byte
+    write chunking and the packed ON level. Where they overlap they agree,
+    except on the strip's outlet numbering (protocol_details.power_strip_stream).
+  upstream_captures: >-
+    Nyx000 captured the running vendor app's own GATT writes with in-process
+    hooks (2026-06-24, 579 frames; 2026-07-22), took HCI snoops, and
+    captured query replies and status frames from a Controller 69 Pro
+    (revision 7) and the 8-port strip (fixtures dated 2026-06-22). This spec
+    marks a fact `confirmed` only where one of those captures shows it.
+    Nothing was captured by this project.
+  documentation_review: >-
+    AC Infinity's CONTROLLER 69 PRO manual (CTR69P2212X1): pairing (port
+    button, 5 s), factory reset (mode + up + down, 5 s), AUTO and VPD
+    trigger ranges, calibration ranges. The CONTROLLER 69 and 67 manuals
+    give the same reset. The OUTLET AI manual (AI2407X1): pairing (power
+    button, 5 s, 5-minute window) and reset (15 s). The web guides give
+    the brightness levels and the firmware-update note. The Bluetooth SIG
+    company registry assigns 0x0902 to TSC Auto-ID Technology.
+  open_questions: >-
+    Everything under remaining_unknowns. The first things to settle on
+    hardware: whether a factory-fresh or Wi-Fi-bound controller advertises
+    the control service without the port-button hold; calibration byte 0;
+    a single-field settings write sent by a third-party client; and the
+    strip's outlet numbering.
+  artifacts:
+    - type: "public_implementation"
+      artifact: "Nyx000/acinfinity-ble, commit 7894096 (2026-07-27)"
+      url: "https://github.com/Nyx000/acinfinity-ble"
+      description: >-
+        TypeScript client plus protocol notes and captured fixtures, MIT.
+        The protocol was recovered from app 2.0.4 and re-validated live on a
+        Controller 69 Pro and an 8-port AI power strip. It does not cover
+        single-port controllers live, and the AUTO threshold-change capture
+        is still open.
+    - type: "public_implementation"
+      artifact: "hunterjm/ac-infinity-ble (main, read 2026-09-28)"
+      url: "https://github.com/hunterjm/ac-infinity-ble"
+      description: >-
+        Python library, MIT, read from app 2.0.8 (versionCode 123) and
+        hardware-tested on a Controller 69 Pro (type 11, revision 7). It
+        implements manual mode and level control, not schedules, AUTO or VPD
+        writes, firmware update or provisioning.
+    - type: "static_analysis"
+      artifact: "com.eternal.acinfinity 2.0.4 and 2.0.8 (Android), analysed by the two projects above"
+      description: >-
+        Not examined by this project. Recorded because every `reported`
+        fact here traces to one of these two builds.
+    - type: "vendor_documentation"
+      artifact: "CONTROLLER 69 PRO user manual CTR69P2212X1; CONTROLLER 69 manual CTR692108X2; CONTROLLER 67 manual CTR672109X1; OUTLET AI manual AI2407X1"
+      obtained_via: "acinfinity.com/content, 2026-09"
+
+remaining_unknowns:
+  - >-
+    Whether a factory-fresh controller, or one the app bound over Wi-Fi,
+    advertises the 70d51000 service without the 5-second port-button hold.
+    Both open clients have only reconnected to units already paired over
+    Bluetooth.
+  - >-
+    Calibration (0x24) byte 0: two samples fit round(offset × 9/5 + 32) in
+    °C display. Nothing has been captured in °F display or across a unit
+    switch with a non-zero offset.
+  - >-
+    Whether the firmware ignores a single settings item written by a
+    third-party client, or only the app declines to send one. Upstream's
+    evidence is that the app never sends one.
+  - >-
+    The meaning of the settings items 0x11 and 0x12 at port 0, and of 0x50,
+    0x53, 0x28 and 0x70. They were captured inside the bundle but never
+    exercised.
+  - >-
+    A clean capture of one AUTO threshold changed on a port already in AUTO,
+    and the device-side meaning of AUTO bytes 7-9 (named the AUTO target by
+    the app analysis only).
+  - >-
+    Controller status-block bytes 4-6: cycle phase and countdown per
+    upstream's captures, or error and secondary-function status per the app
+    analysis.
+  - >-
+    The power strip's outlet numbering. The load-type reading
+    (hunterjm/app) and Nyx000's key reading disagree, and the first matches
+    upstream's own fixture. Also which retail model upstream's strip is
+    (probably OUTLET AI+, AC-ADA8).
+  - >-
+    Reply byte 1 (0x13, 0x17, 0x1c seen): 0x10 + protocol revision is a
+    hypothesis.
+  - >-
+    The frame-kind byte 4 of the status stream (0x07 controller, 0x0c
+    strip) and the trend-code values in byte 6.
+  - >-
+    The payload and effect of opcode 0x08 (reset), and the ack form with
+    0x66 in byte 9.
+  - >-
+    Whether the clock write (selector 0x01) carries a [0xff, port]
+    trailer, and the Sunday weekday value.
+  - >-
+    The status frame of an 8-port Controller 69 Pro+ (expected 86 bytes)
+    and anything at all from single-port controllers or units below
+    revision 6. None has been captured.
+  - >-
+    The app's upper bounds for countdown and cycle durations, and whether
+    the device rejects values past them.
+  - >-
+    The advertised local name, and whether the controller uses a public or
+    random address (upstream keys on the address, which suggests public).
+
+helpful_urls:
+  - title: "AC Infinity CONTROLLER 69 PRO user manual (PDF)"
+    url: "https://acinfinity.com/content/CTR69P2212X1_221215_CONTROLLER%2069%20PRO%20Manual.pdf"
+    kind: "manual"
+    description: >-
+      Vendor-hosted full manual for the CONTROLLER 69 PRO (CTR69P), manual
+      code CTR69P2212X1. Covers modes and trigger ranges, calibration,
+      Bluetooth pairing (hold the port button 5 s) and the mode + up + down
+      factory reset this spec relies on.
+  - title: "AC Infinity CONTROLLER 69 PRO quick start guide (PDF)"
+    url: "https://www.acinfinity.com/content/CTR69P2305X1_230510_%20Quick%20Start%20Guide.pdf"
+    kind: "manual"
+    description: "Two-page quick start for the CONTROLLER 69 PRO (CTR69P2305X1, 2023), the manual the current product page links."
+  - title: "AC Infinity CONTROLLER 69 PRO+ quick start guide (PDF)"
+    url: "https://www.acinfinity.com/content/CTR69Q2305X1_%20CONTROLLER%2069%20PRO%20Plus_Quick%20Start%20Guide.pdf"
+    kind: "manual"
+    description: "Quick start for the 8-port CONTROLLER 69 PRO+ (CTR69Q). No full manual for this model is published."
+  - title: "AC Infinity CONTROLLER 69 user manual (PDF)"
+    url: "https://acinfinity.com/content/CTR692108X2_210827_CONTROLLER%2069%20Manual.pdf"
+    kind: "manual"
+    description: "Manual for the Bluetooth-only CONTROLLER 69 (CTR69A), 2021: pairing, port dongles and the same factory reset."
+  - title: "AC Infinity CONTROLLER 67 user manual (PDF)"
+    url: "https://acinfinity.com/content/CTR672109X1_210902_CONTROLLER%2067%20Manual.pdf"
+    kind: "manual"
+    description: "Manual for the single-port CONTROLLER 67 (CTR67A), 2021, one of the decompile-only variants."
+  - title: "AC Infinity OUTLET AI user manual (PDF)"
+    url: "https://www.acinfinity.com/content/AI2407X1_240711_OUTLET%20AI%20Manual.pdf"
+    kind: "manual"
+    description: >-
+      Manual for the OUTLET AI (AC-ADA4) and OUTLET AI+ (AC-ADA8) outlet
+      controllers, the probable power strip: Bluetooth pairing mode (power
+      button 5 s) and factory reset (power button 15 s).
+  - title: "AC Infinity: Connecting to the app"
+    url: "https://acinfinity.com/pages/app-programming/connecting-to-the-app.html"
+    kind: "vendor_support"
+    description: "Which controllers are app-capable, the port-button pairing step, and the firmware-update note (none for controllers older than CONTROLLER 69)."
+  - title: "AC Infinity: Other settings"
+    url: "https://acinfinity.com/pages/controller-programming/other-settings.html"
+    kind: "vendor_support"
+    description: "Brightness levels and auto-dimming, °F/°C, calibration, lock, and the factory reset chord."
+  - title: "AC Infinity: AUTO mode triggers"
+    url: "https://acinfinity.com/pages/controller-programming/auto-mode-triggers.html"
+    kind: "vendor_support"
+    description: "What the four AUTO triggers do, and so what the 0x13 block's fields mean."
+  - title: "AC Infinity: VPD mode triggers"
+    url: "https://acinfinity.com/pages/controller-programming/vpd-mode-triggers.html"
+    kind: "vendor_support"
+    description: "What the high and low VPD triggers do (the 0x51 block)."
+  - title: "Nyx000/acinfinity-ble"
+    url: "https://github.com/Nyx000/acinfinity-ble"
+    kind: "implementation"
+    description: "MIT TypeScript client with a bleak transport, live on a Controller 69 Pro and an 8-port AI power strip. The primary source for this spec."
+  - title: "Nyx000/acinfinity-ble: wire protocol"
+    url: "https://github.com/Nyx000/acinfinity-ble/blob/main/docs/protocol/wire-protocol.md"
+    kind: "protocol_writeup"
+    description: "Frame, CRC, per-port blocks, the settings bundle, and the dated corrections and open questions."
+  - title: "Nyx000/acinfinity-ble: capture-verified findings"
+    url: "https://github.com/Nyx000/acinfinity-ble/blob/main/docs/protocol/app-ble-capture-verified-2026-06.md"
+    kind: "protocol_writeup"
+    description: "What the in-app capture of 579 frames confirmed, command by command."
+  - title: "Nyx000/acinfinity-ble: BLE transport"
+    url: "https://github.com/Nyx000/acinfinity-ble/blob/main/docs/protocol/ble-transport.md"
+    kind: "protocol_writeup"
+    description: "Connect order, MTU, write type, sequence numbers, acks, timeouts and retries."
+  - title: "Nyx000/acinfinity-ble: read and notify decode"
+    url: "https://github.com/Nyx000/acinfinity-ble/blob/main/docs/protocol/read-notifications.md"
+    kind: "protocol_writeup"
+    description: "The controller status frame, query replies and the advertisement parse."
+  - title: "Nyx000/acinfinity-ble: packet field map"
+    url: "https://github.com/Nyx000/acinfinity-ble/blob/main/docs/protocol/ble-packet-field-map.md"
+    kind: "protocol_writeup"
+    description: "Byte-by-byte decode of the controller and strip status frames and the query TLVs, with the ground truth for each field."
+  - title: "Nyx000/acinfinity-ble: data model"
+    url: "https://github.com/Nyx000/acinfinity-ble/blob/main/docs/protocol/data-model.md"
+    kind: "protocol_writeup"
+    description: "Mode numbers, load-type codes, sensor ids and value scalings."
+  - title: "hunterjm/ac-infinity-ble"
+    url: "https://github.com/hunterjm/ac-infinity-ble"
+    kind: "implementation"
+    description: "MIT Python library (bleak) for AC Infinity BLE devices, hardware-tested on a Controller 69 Pro."
+  - title: "hunterjm/ac-infinity-ble: protocol validation"
+    url: "https://github.com/hunterjm/ac-infinity-ble/blob/main/docs/protocol-validation.md"
+    kind: "protocol_writeup"
+    description: "Advertisement layout, device-type families, telemetry layouts, reply acceptance and write chunking."
+  - title: "FCC ID 2AXMF-CTR69Q (CONTROLLER 69 PRO+)"
+    url: "https://fccid.io/2AXMF-CTR69Q"
+    kind: "other"
+    description: "FCC grant for the CONTROLLER 69 PRO+ (grantee AC Infinity Inc., 2023-03-21). No user-manual exhibit."

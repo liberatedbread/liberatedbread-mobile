@@ -33,6 +33,7 @@ on them directly.
 | Type | What happens | Recoverable without the vendor? |
 |---|---|---|
 | `none` / `ble_direct` | Nothing to provision. Power on, scan, connect. | Yes — trivially |
+| `bt_classic_pairing` | A Bluetooth Classic device paired from the host's own Bluetooth settings (fixed or printed PIN, or an SSP prompt) before its serial or HID surface answers. The link-layer facts live in `device.pairing`; see [Common Bluetooth Classic Patterns](bluetooth-classic-common.md) | Yes — the host OS does it |
 | `softap_http` | Device hosts a temporary AP; credentials go over a local HTTP API | Yes, if the API is documented |
 | `softap_soap` | Same, but the setup API is UPnP/SOAP (Wemo) | Yes — see [Wemo setup](../devices/wemo-setup.md) |
 | `softap_udp` | Same, but credentials go over a UDP datagram protocol (legacy LIFX) | Yes, if the messages are documented |

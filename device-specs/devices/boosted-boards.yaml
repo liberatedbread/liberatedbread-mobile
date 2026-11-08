@@ -1,0 +1,1229 @@
+# Boosted boards (2nd/3rd gen) and Boosted Rev — phone-app BLE profile
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Sources (clean-room; derived facts only): static analysis of the last
+# Android release of the vendor app (1.4.5, December 2019), the vendor's
+# own support articles and 2014 riding-mode insert (Internet Archive
+# copies), and the owner community's public FAQ. Nothing here has been
+# run against a board or captured off the air.
+
+device:
+  name: "Boosted boards (2nd/3rd gen) and Boosted Rev — app BLE profile"
+  manufacturer: "Boosted Inc."
+  manufacturer_status: "shutdown"
+  openness:
+    status: "undocumented"
+    reverse_engineered: true
+    notes: >
+      Boosted never published the phone-side protocol. Everything below
+      comes from the vendor app's own parsers and write paths, plus the
+      owner community's notes. The company stopped trading in 2020. Its
+      servers are gone, so the phone-to-board GATT link described here is
+      all a board can still do with a phone.
+  testing:
+    status: untested
+    notes: >
+      Not run against a board or a Rev by this project, and no capture
+      exists in the research store. Every characteristic, value layout and
+      write comes from static analysis of the vendor Android app (release
+      1.4.5, December 2019). Two facts are backed by owners reading real
+      hardware with a generic BLE explorer, as reported in the community
+      FAQ: the firmware revision string sits in the standard Device
+      Information service, and the battery firmware characteristic sits in
+      service 65a8eaa8-c61f-11e5-9912-ba0be0483c18.
+  protocol: "ble"
+  type: "electric-skateboard"
+  category: "vehicle"
+  notes: >
+    Boosted electric skateboards: Dual, Dual+ (2nd gen), Plus, Stealth,
+    Mini S and Mini X. The spec also covers the Boosted Rev scooter. Riding
+    uses the handheld remote over its own BLE link, which is out of scope
+    here (see the community projects in helpful_urls). This spec covers the
+    other link, phone to board. The vendor app used it to show speed,
+    odometer, battery and charging state, pick a ride mode, rename the
+    board, set units and drive the lights. The app talks to the board
+    straight over GATT, with no login. The cloud handled only accounts,
+    ride logs, the inbox and firmware hosting, and it has been gone since
+    2020.
+
+    GENERATIONS. The app's scan filter accepts two advertised services. A
+    board advertising 7dc55a86-c61f-11e5-9912-ba0be0483c18 is what the app
+    calls "V2". That covers every 2nd- and 3rd-gen board and, going by the
+    app's logic, the Rev (see variants). A board advertising
+    da2b84f1-6279-48de-bdc0-afbea0226079 is "V1". That UUID is the stock
+    BlueRadios BRSP serial-port service, so the 1st-gen boards
+    (Single/Dual/Dual+) expose a serial pipe, not a GATT
+    profile. This spec identifies them and leaves their payload unmapped.
+    Both halves of that mapping are reported, not confirmed. An older note
+    in this repository had it the other way round.
+
+    GATT MODEL. Every value has its own characteristic. There is no
+    framing, no checksum and no session handshake on any of them. Numbers
+    are little-endian. Writes are a single byte (mode, units, lights) or
+    raw UTF-8 (name). The app finds characteristics by UUID across the
+    whole GATT table and never names a service. It reads every
+    characteristic it knows that the table contains, then subscribes to
+    the notify set. The service each characteristic sits under below is
+    the best evidence available, and each service's notes say how sure
+    that is.
+
+    SAFETY. The ride-mode write changes acceleration and top speed on a
+    vehicle that reaches 38 km/h. It is documented exactly as the vendor
+    app does it (one of the firmware's own modes) and is marked advanced.
+    Speed-cap changes, battery limits and the firmware-flashing flow over
+    the serial characteristics are deliberately left out.
+
+  safety_advisory:
+    severity: "danger"
+    summary: >-
+      This controls a motorised skateboard or scooter that reaches 38 km/h.
+      A ride-mode change alters acceleration and top speed at once.
+    detail: >-
+      Changing the ride mode changes how hard the board accelerates and how
+      fast it will go, from the moment the write lands. Pick a mode only
+      while the board is stationary and nobody is standing on it, and start
+      in Beginner on an unfamiliar board. Boosted's own guidance was to
+      start in Beginner, move up gradually, and treat the throttle as much
+      more sensitive in Expert and above. This spec is not affiliated with
+      Boosted or anyone who took over the brand, and it sends nothing
+      beyond what the vendor app sent: it cannot raise a speed cap or
+      change battery limits.
+    acknowledge_required: true
+    advisory_archive_url: "https://web.archive.org/web/20160616061842/http://boostedboards.com/wp-content/uploads/2014/12/Manual-Insert.pdf"
+
+  identification:
+    service_uuids:
+      - "7dc55a86-c61f-11e5-9912-ba0be0483c18"
+    manufacturer_data:
+      description: >
+        No company-ID filter. The app reads the first manufacturer-specific
+        AD structure, but the two bytes where a company ID would sit are
+        flags: bit 0x02 of the first byte is set while the board is in
+        pairing mode. The three bytes after them are the firmware version,
+        patch first. See payload_formats.boosted_advertisement.
+    notes: >
+      Match on the advertised 7dc55a86 service, the app's own filter for
+      every 2nd/3rd-gen board and the Rev. The app also carries a check
+      that marks a scan result advertising
+      ea32b817-d410-42e2-848a-1218201468fc as the Rev scooter, though the
+      release examined never calls it. Both UUIDs cannot fit in one 31-byte
+      legacy advertisement, so one of them is probably in the scan
+      response. Scan actively. The local name is the owner-editable board
+      name, so it is not a matcher. da2b84f1-6279-48de-bdc0-afbea0226079 (1st gen) is left out
+      of matching on purpose. It is BlueRadios' generic serial-port
+      service, carried by unrelated products built on the same radio
+      modules, and matching on it alone would claim all of them.
+
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          service_uuids:
+            - "7dc55a86-c61f-11e5-9912-ba0be0483c18"
+        notes: >
+          The app scans in low-latency mode with two filters: this service
+          ("V2") or the BRSP service ("V1"). It lists boards in pairing
+          mode first. It tells pairing mode from the manufacturer-data
+          flag, and reads the firmware version from the same structure
+          before connecting.
+    identity:
+      stable_keys: ["address"]
+      display: "local_name"
+    static_ip_required: false
+
+  setup:
+    required: false
+    confidence: "medium"
+    notes: >
+      Nothing is provisioned. Boards ride out of the box with their remote.
+      The phone link needs one thing: an OS-level bond made while the board
+      is in pairing mode (five presses of the board's power button). The
+      vendor's registration and account step was optional ("Not now")
+      except for firmware updates, and its servers no longer exist.
+      Confidence is medium. The five-press step is in a vendor support
+      article and in the app's own prompts, and the bond-before-connect
+      behaviour is in the app. Nobody here has replayed it.
+    methods:
+      - type: "ble_direct"
+        name: "Five power-button presses, then bond from the phone"
+        role: "primary"
+        verified: false
+        description: >
+          Wake the board, put it in pairing mode with five presses of its
+          power button, then bond from the phone and connect. The vendor
+          app never opens a GATT connection to an unbonded board. When the
+          phone holds no bond it asks the OS to create one and waits for
+          the bond-state change. After connecting it reads every known
+          characteristic the board has and subscribes to the notify set.
+        ble:
+          pairing_required: true
+          pin_source: "none requested by the vendor app; the association model is not recorded"
+        steps:
+          - action: "Turn the board on and press its power button five times."
+            actor: "user"
+            expect: "The power button LED flashes blue, and the advertisement's pairing flag (bit 0x02 of the first manufacturer-data byte) is set."
+          - action: "Scan for the 7dc55a86-c61f-11e5-9912-ba0be0483c18 service and pick the board whose pairing flag is set."
+            actor: "client"
+          - action: "Create an OS bond with the board, then connect."
+            actor: "client"
+            request:
+              protocol: "ble_gatt"
+            expect: "Bond state becomes bonded; service discovery succeeds."
+            timeout_seconds: 45
+            notes: "45 s is the vendor app's own connection timeout."
+          - action: "Read the model (7dc59643-c61f-11e5-9912-ba0be0483c18) and modes count, then subscribe to mode, odometer, speed, battery remaining and charging."
+            actor: "client"
+            expect: "Model code 1-7 and live notifications. The app reads characteristics only if the GATT table has them."
+        timing:
+          connect_timeout_s: 45
+          retry_after_disconnect_s: 1
+          retry_after_characteristic_error_s: 10
+          notes: >
+            The vendor app's retry policy: reconnect 1 s after a
+            disconnect, and 10 s after a missing characteristic or a failed
+            notification setup. Before a reconnect it refreshes Android's
+            cached GATT table, which suggests the table can change across
+            firmware updates.
+        troubleshooting:
+          - symptom: "The phone keeps asking to pair, or connects once and then refuses."
+            causes:
+              - "Board firmware older than v2.0.0 (advertised version). The vendor app deleted the phone's bond before every connection to these boards and bonded again, which points to a bonding defect in that firmware. Forget the board in the phone's Bluetooth settings, re-enter pairing mode and bond again."
+              - "The board is still bonded to another phone that is in range and connected. Close the vendor app there."
+          - symptom: "Battery details (pack ID, pack firmware) never appear."
+            causes:
+              - "Board firmware older than v1.5.0 has no battery characteristics. The app got these details over the serial channel on v1.4.2 up to v1.5.0, and not at all before v1.4.2."
+          - symptom: "An extended-range battery pack flashes its power button white and the board will not use it."
+            causes:
+              - "The vendor's instructions required a board software update to activate an extended-range pack. That update came from Boosted's servers, which are gone, so a board that was never updated cannot be activated through the vendor path."
+          - symptom: "The app shows Eco for a mode the firmware reports."
+            causes:
+              - "The app shows any mode byte outside 0-4 as Eco. Read the raw byte."
+          - symptom: "Hyper (mode 5) is missing on a board that used to offer it."
+            causes:
+              - "An ESC fault the owner community describes, in which the ESC locks out the fifth mode after connecting to the vendor app. The fix they report is ESC replacement or a memory-dump restore, not anything on this link."
+      - type: "cloud_account"
+        name: "Vendor account and board registration (servers gone)"
+        role: "historical"
+        verified: false
+        description: >
+          The vendor app asked for an account, offered to skip it, and
+          registered boards to the account by motor-driver serial. An
+          account was required only for firmware updates and ride sharing.
+          The servers have been down since 2020, so this route cannot be
+          completed. It was never needed for the controls in this spec.
+        cloud:
+          provider: "Boosted (defunct)"
+          local_alternative: "The primary method. Bonding and GATT control never touched the cloud."
+        steps:
+          - action: "Create or sign in to a Boosted account in the vendor app, then register the connected board."
+            actor: "user"
+            expect: "Fails today: the account and firmware servers no longer answer."
+    factory_reset:
+      applicable: "unknown"
+      confidence: "low"
+      effect: >
+        Not established. No vendor article or community source in the
+        research store describes a board-side reset that clears phone
+        bonds, the board name or settings.
+      description: >
+        Recorded as unknown, not absent. What the board stores that
+        concerns a phone client (the bond, the name written to 7dc5bb39,
+        the ride mode, units and light settings) survives power cycles as
+        far as anyone knows. The owner community documents remote
+        re-pairing (five presses on the remote and five on the board's
+        power button) but no factory reset. Do not experiment with button
+        combinations on a board you intend to ride.
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        No network membership. A new phone bonds after the board is put
+        back into pairing mode. Whether the board keeps more than one phone
+        bond is not recorded.
+    credentials:
+      wifi_passphrase_protection: "not_applicable"
+      stored_on_device:
+        - "BLE bond keys for the phone (inferred from the app bonding before every connection)"
+      issued_to_client: []
+      notes: >
+        No application-layer credential for anything in this spec. The
+        serial characteristics' access challenge (firmware v1.6.0 and
+        later) was answered by Boosted's servers. It guards only the
+        serial channel and is out of scope.
+
+  pairing:
+    required: true
+    confidence: "medium"
+    security_mode: "unknown"
+    bonding: "required"
+    enter_pairing_mode:
+      required: true
+      indicator: "Power button LED flashes blue. The first manufacturer-data byte of the advertisement carries bit 0x02 while pairable."
+      procedures:
+        - name: "Five presses of the board's power button"
+          verified: false
+          basis: >
+            Vendor support article on updating board software (archived
+            2019-11): "pressing the board's power button 5 times", then
+            Connect in the app. The vendor app's pairing prompts say the
+            same, adding that the button flashes blue.
+          press_count: 5
+          power_state: "on"
+          description: >
+            With the board on, press the power button five times. It flashes
+            blue while pairable. The same five presses put the board into
+            remote-pairing mode too, per the owner community.
+      notes: >
+        How long the pairing window stays open is not recorded.
+    exclusivity:
+      single_connection: "unknown"
+      single_bond: "unknown"
+      recovery: >
+        Close the vendor app on any other phone, forget the board in this
+        phone's Bluetooth settings, re-enter pairing mode, and bond again.
+      notes: >
+        Per the vendor, 2nd-gen, Mini, Plus and Stealth boards accept the
+        app and the remote at the same time. A 1st-gen board takes either
+        the app or the remote, not both.
+    unpair:
+      supported: "unknown"
+      notes: >
+        On the phone side, forget the board in the OS Bluetooth settings.
+        No board-side way to drop a bond is documented. The vendor app
+        itself deleted and re-created the phone's bond on every connection
+        to boards with firmware older than v2.0.0.
+    notes: >
+      The vendor app supplies no PIN or passkey. It calls the OS bond API
+      and lets the OS finish the job, which points to Just Works but does
+      not establish it. Whether the board refuses GATT reads or writes from
+      an unbonded central is not recorded. The app never tried.
+
+  host_compatibility:
+    - stack: "android"
+      status: "compatible"
+      verification: "reported"
+      basis: >
+        The vendor app drives the board through the stock Android GATT
+        client (bond through the OS API, plain reads, writes and
+        notifications, no MTU request). Its special handling is limited
+        to refreshing the cached GATT table before a reconnect and
+        re-bonding boards on firmware older than v2.0.0. Not run by this
+        project.
+    - stack: "corebluetooth"
+      status: "compatible"
+      verification: "reported"
+      basis: >
+        Boosted shipped an iOS app for the same boards, and owners in the
+        community FAQ read the firmware revision and battery
+        characteristics with a generic iOS BLE explorer. Not run by this
+        project.
+
+  variants:
+    - model: "Dual / Dual+ (2nd gen)"
+      notes: "Model codes 1 (Dual) and 2 (Dual+) on 7dc59643. Odometer scale 3.6128e-5 mi per count."
+    - model: "Mini S / Mini X"
+      notes: "Model codes 5 (Mini S) and 6 (Mini X). Odometer scale 3.6128e-5 mi per count."
+    - model: "Plus / Stealth"
+      notes: "Model codes 3 (Plus) and 4 (Stealth). Odometer scale 3.8386e-5 mi per count."
+    - model: "Boosted Rev"
+      identification:
+        service_uuids:
+          - "ea32b817-d410-42e2-848a-1218201468fc"
+      notes: >
+        Model code 7, which switches the app's speed scale to 1 mm/s and
+        odometer scale to 1 m per count. The app has a helper, not called
+        in the release examined, that marks a vehicle advertising ea32b817
+        as the scooter. The app only finds vehicles advertising 7dc55a86 or
+        the BRSP service, so its logic implies the Rev advertises 7dc55a86
+        as well. Not verified on hardware.
+    - model: "1st gen Single / Dual / Dual+ (BRSP)"
+      identification:
+        service_uuids:
+          - "da2b84f1-6279-48de-bdc0-afbea0226079"
+      notes: >
+        Identification only. The service is BlueRadios' generic BRSP
+        serial port, the app's "V1" path. Its byte stream is not mapped
+        here, and none of the entities below apply. The app identifies
+        these boards by their advertised name only.
+
+services:
+  - uuid: "7dc55a86-c61f-11e5-9912-ba0be0483c18"
+    name: "Boosted vehicle service"
+    notes: >
+      The advertised service. Its 7dc5xxxx-c61f-11e5-9912-ba0be0483c18
+      characteristics share the service's base, so they are listed here.
+      The app addresses them by characteristic UUID alone and never checks
+      the parent service, so treat the placement as probable, not
+      observed, and look characteristics up by UUID across the whole table.
+      The two serial characteristics (58856524/58856525) are listed here
+      only because their real parent service is not recorded.
+    characteristics:
+      - uuid: "7dc5bb39-c61f-11e5-9912-ba0be0483c18"
+        name: "vehicle_id_name"
+        properties: ["read", "write"]
+        notes: >
+          One characteristic, two roles in the app. On connect it reads it
+          as the board's identifier: text, NUL-padded, trailing NULs
+          stripped. The rename command writes the new name here, and the
+          app then files that name against the board's account record.
+          Whether the board's advertised local name follows a rename is
+          not recorded, nor is the maximum length. The app only refuses a
+          blank name.
+        commands:
+          rename_vehicle:
+            description: >
+              Write the board's new name as raw UTF-8 bytes, with no length
+              prefix and no NUL terminator, exactly as the vendor app's
+              rename dialog does. The app accepts any non-blank name and
+              sends it as a single GATT write without negotiating an MTU.
+              Keep it short: the stored length is not known.
+            verification: "reported"
+            template: ["{name}"]
+            parameters:
+              name:
+                type: "string"
+                min_length: 1
+                description: "The new board name, UTF-8. Must not be blank."
+      - uuid: "7dc59643-c61f-11e5-9912-ba0be0483c18"
+        name: "vehicle_model"
+        properties: ["read"]
+        format:
+          - offset: 0
+            length: 1
+            name: "vehicle_model"
+            type: "uint8"
+            values:
+              0: "unknown"
+              1: "Dual"
+              2: "Dual+"
+              3: "Plus"
+              4: "Stealth"
+              5: "Mini S"
+              6: "Mini X"
+              7: "Rev"
+            notes: "Any other value is treated as unknown by the app. The model selects the odometer and speed scales (protocol_details.per_model_scales)."
+      - uuid: "7dc55dec-c61f-11e5-9912-ba0be0483c18"
+        name: "vehicle_modes_count"
+        properties: ["read"]
+        format:
+          - offset: 0
+            length: 1
+            name: "modes_count"
+            type: "uint8"
+            notes: >
+              How many ride modes the firmware offers, counted from
+              Beginner (wire 0). It varies by model and firmware; the
+              vendor app's picker lists at most five. Write only modes below
+              this count.
+      - uuid: "7dc55f22-c61f-11e5-9912-ba0be0483c18"
+        name: "vehicle_mode"
+        properties: ["read", "write", "notify"]
+        notes: >
+          Current ride mode. The app reads it on connect and subscribes to
+          it, so a mode change made from the remote also arrives as a
+          notification. The app shows the modes numbered 1-5. On the wire
+          they are 0-4.
+        format:
+          - offset: 0
+            length: 1
+            name: "mode"
+            type: "uint8"
+            values:
+              0: "Beginner"
+              1: "Eco"
+              2: "Expert"
+              3: "Pro"
+              4: "Hyper"
+            notes: "The app shows any other value as Eco and logs it as unknown."
+        commands:
+          set_ride_mode:
+            description: >
+              Select one of the firmware's own ride modes, exactly as the
+              vendor app's mode picker does: one byte, the mode index 0-4
+              (shown to the rider as 1-5). The speed cap and acceleration
+              curve for each mode live in the firmware. This write only
+              chooses among them. Send only indices below
+              vehicle_modes_count, and only while the board is stationary.
+              The vendor app writes it with no preceding handshake.
+            advanced: true
+            advanced_reason: >-
+              Changes the board's acceleration and top speed the moment it
+              lands, up to about 38 km/h in Hyper. A jump in throttle
+              response on a moving board can throw the rider, so send it
+              only with the board stopped and nobody on it. To undo, read
+              the current mode first and write that value back.
+            verification: "reported"
+            template: ["{mode}"]
+            parameters:
+              mode:
+                type: "uint8"
+                min: 0
+                max: 4
+                labels: ["1 Beginner", "2 Eco", "3 Expert", "4 Pro", "5 Hyper"]
+                description: "Wire index 0-4, displayed 1-5. Must be below the board's modes_count."
+      - uuid: "7dc56594-c61f-11e5-9912-ba0be0483c18"
+        name: "vehicle_odometer"
+        properties: ["read", "notify"]
+        notes: >
+          Lifetime odometer. The raw value is a count whose distance
+          depends on the model, and the app multiplies by a per-model
+          factor. The format below carries the Dual/Dual+/Mini factor. The
+          Plus and Stealth use 3.8386e-5 mi per count, a ratio of 1.0625
+          that matches their 85 mm wheels against 80 mm (an inference).
+          The Rev uses 6.2137273665e-4 mi per count, which is 1 m. The
+          odometer entities below carry each factor.
+        format:
+          - offset: 0
+            length: 4
+            name: "odometer"
+            type: "uint32"
+            endianness: "little"
+            scale: 3.6128e-5
+            unit: "mi"
+            device_class: "distance"
+            notes: "Dual, Dual+, Mini S, Mini X (and the app's fallback for an unknown model). See protocol_details.per_model_scales for the Plus/Stealth and Rev factors."
+      - uuid: "7dc56b34-c61f-11e5-9912-ba0be0483c18"
+        name: "vehicle_speed"
+        properties: ["read", "notify"]
+        notes: >
+          Live speed, signed. On boards one count is 1/352 mph (0.05 in/s,
+          0.004572 km/h). On the Rev one count is 1 mm/s, and the app
+          multiplies by 0.00223694 to get mph. The app shows negative
+          values (reverse or braking) as 0. The format carries the board
+          scale, and the Rev entity overrides it.
+        format:
+          - offset: 0
+            length: 2
+            name: "speed"
+            type: "int16"
+            endianness: "little"
+            scale: 0.0028409092
+            unit: "mph"
+            device_class: "speed"
+            notes: "Boards. Rev: scale 0.00223694 mph (1 mm/s per count). Clamp negative results to 0 as the app does."
+      - uuid: "7dc56bfc-c61f-11e5-9912-ba0be0483c18"
+        name: "vehicle_power"
+        properties: []
+        notes: >
+          The app knows this UUID but never reads it and has no parser for
+          it. Properties and layout unknown.
+      - uuid: "7dc5c19d-c61f-11e5-9912-ba0be0483c18"
+        name: "vehicle_units"
+        properties: ["read", "write"]
+        notes: >
+          The unit system the vehicle displays in. The app groups it with
+          the scooter characteristics but, like everything else, reads it
+          wherever the GATT table has it. Only the Rev has a speed display.
+          Whether boards expose it is not recorded. It does not change the
+          encoding of any other characteristic.
+        format:
+          - offset: 0
+            length: 1
+            name: "units"
+            type: "uint8"
+            values:
+              0: "US (mi, mph)"
+              1: "metric (km, km/h)"
+            notes: "The app treats any non-zero value as metric."
+        commands:
+          set_units:
+            description: "Set the vehicle's display units: one byte, 0 = US (miles, mph), 1 = metric (km, km/h). The vendor app sends this from its units setting."
+            verification: "reported"
+            template: ["{units}"]
+            parameters:
+              units:
+                type: "uint8"
+                min: 0
+                max: 1
+                labels: ["US (mi, mph)", "metric (km, km/h)"]
+      - uuid: "7dc5c201-c61f-11e5-9912-ba0be0483c18"
+        name: "motor_driver_serial"
+        properties: ["read"]
+        notes: >
+          Motor-driver (ESC) serial number. The app renders the raw bytes as
+          uppercase hex. The app groups it with the scooter
+          characteristics and reads it wherever present. Length not
+          recorded. The app also takes a 4-byte motor-driver serial
+          from the scan record before connecting (see
+          payload_formats.boosted_advertisement).
+      - uuid: "7dc5c202-c61f-11e5-9912-ba0be0483c18"
+        name: "motor_driver_firmware"
+        properties: ["read"]
+        notes: "Motor-driver firmware version, three bytes printed by the app as byte0.byte1.byte2. Grouped by the app with the scooter characteristics; read wherever present."
+        format:
+          - {offset: 0, length: 1, name: "fw_major", type: "uint8"}
+          - {offset: 1, length: 1, name: "fw_minor", type: "uint8"}
+          - {offset: 2, length: 1, name: "fw_patch", type: "uint8"}
+      - uuid: "58856524-0065-11e6-8d22-5e5517507c66"
+        name: "serial_command"
+        properties: ["read", "write", "notify"]
+        notes: >
+          Command half of a serial pipe the app used for firmware updates
+          (and, on board firmware v1.4.2 up to v1.5.0, for battery
+          details). Commands and replies are lines of text: commands end in
+          CR, replies arrive as notifications ending in CRLF. The app sends
+          a version query ("ALLFW") this way. From board firmware v1.5.0
+          the app wraps serial writes in a framing that is not mapped here.
+          From v1.6.0 the channel is locked. The app reads a challenge from
+          this characteristic, sends it with the board's ID to Boosted's
+          servers, and writes the server's answer back. Those servers are
+          gone. The bootloader and flashing frames are deliberately left
+          out of this spec.
+      - uuid: "58856525-0065-11e6-8d22-5e5517507c66"
+        name: "serial_auth"
+        properties: ["read"]
+        notes: "Access state of the serial pipe on firmware v1.6.0 and later. The app reads it before and after the challenge. The pipe is open when the value is non-empty with a non-zero first byte. The app only reads it."
+        format:
+          - offset: 0
+            length: 1
+            name: "serial_access"
+            type: "uint8"
+            values:
+              0: "locked"
+            notes: "Non-zero = access granted."
+
+  - uuid: "65a8eaa8-c61f-11e5-9912-ba0be0483c18"
+    name: "Boosted battery service"
+    notes: >
+      Service UUID from the owner community's FAQ, which reads battery
+      firmware (65a8f833) under this service with a generic BLE explorer.
+      The app itself addresses the characteristics by UUID only. The pack
+      ID and firmware characteristics exist from ESC firmware v1.5.0 (the
+      Firmware Revision String). From v1.4.2 up to v1.5.0 the app gets the
+      same details over the serial pipe instead, and before v1.4.2 not at
+      all. It also falls back to the serial pipe if they are missing on a
+      newer board.
+    characteristics:
+      - uuid: "65a8eeae-c61f-11e5-9912-ba0be0483c18"
+        name: "battery_remaining"
+        properties: ["read", "notify"]
+        format:
+          - offset: 0
+            length: 1
+            name: "battery"
+            type: "uint8"
+            unit: "%"
+            device_class: "battery"
+            notes: "State of charge. The app also multiplies it into its range estimate."
+      - uuid: "65a8f5d4-c61f-11e5-9912-ba0be0483c18"
+        name: "battery_charging"
+        properties: ["read", "notify"]
+        format:
+          - offset: 0
+            length: 1
+            name: "charging"
+            type: "uint8"
+            values:
+              0: "not charging"
+            notes: "Any non-zero value = charging. The app raises its charge-complete notification from this."
+      - uuid: "65a8f3c2-c61f-11e5-9912-ba0be0483c18"
+        name: "battery_capacity"
+        properties: ["read"]
+        notes: >
+          Pack capacity as a raw count. The physical unit is not
+          recorded. The app turns it into a unitless range factor: raw /
+          2,400,000 when raw is below 3,000,000, and raw / 2,000,000 at or
+          above 3,000,000, the threshold the app treats as an
+          extended-range pack. A standard pack therefore comes out near
+          1.0.
+        format:
+          - offset: 0
+            length: 4
+            name: "capacity_raw"
+            type: "uint32"
+            endianness: "little"
+      - uuid: "65a8f834-c61f-11e5-9912-ba0be0483c18"
+        name: "battery_id"
+        properties: ["read"]
+        notes: "Battery pack identifier. The app renders the raw bytes as uppercase hex. Length not recorded."
+      - uuid: "65a8f833-c61f-11e5-9912-ba0be0483c18"
+        name: "battery_firmware"
+        properties: ["read"]
+        notes: "Battery firmware version, three bytes printed by the app as byte0.byte1.byte2 (e.g. 2.5.1, the last extended-range release per the community)."
+        format:
+          - {offset: 0, length: 1, name: "fw_major", type: "uint8"}
+          - {offset: 1, length: 1, name: "fw_minor", type: "uint8"}
+          - {offset: 2, length: 1, name: "fw_patch", type: "uint8"}
+
+  - uuid: "ea32b817-d410-42e2-848a-1218201468fc"
+    name: "Boosted lights service"
+    notes: >
+      Parent service inferred, not observed. The lights characteristics
+      share this UUID's base, and the app's scooter check looks for this
+      UUID in the advertisement. The characteristics serve the Rev's built-in lights and
+      the Boosted Beams head and brake lights for boards (ESC firmware
+      2.7.x, late 2019, per the community). The app reads them wherever
+      the GATT table has them. A board without lights support will not
+      have them.
+    characteristics:
+      - uuid: "ea32dcac-d410-42e2-848a-1218201468fc"
+        name: "lights_status"
+        properties: ["read", "write", "notify"]
+        format:
+          - offset: 0
+            length: 1
+            name: "lights_status"
+            type: "uint8"
+            values:
+              0: "off"
+              1: "on"
+              2: "automatic"
+            notes: "2 is in the app's value set but its UI never offers or tests for it."
+        commands:
+          set_lights_power:
+            description: "Turn the lights on (1) or off (0), the app's Power switch. The rider can also switch the lights with a double press of the remote's button; that this lands in the same state is an inference."
+            verification: "reported"
+            template: ["{state}"]
+            parameters:
+              state:
+                type: "uint8"
+                min: 0
+                max: 1
+                labels: ["off", "on"]
+      - uuid: "ea32b761-d410-42e2-848a-1218201468fc"
+        name: "lights_default_mode"
+        properties: ["read", "write"]
+        format:
+          - offset: 0
+            length: 1
+            name: "lights_startup"
+            type: "uint8"
+            values:
+              0: "off at power-up (on only when switched on)"
+              1: "on automatically at power-up"
+              2: "automatic"
+            notes: "2 is in the app's value set but never offered by its UI."
+        commands:
+          set_lights_startup:
+            description: "Whether the lights come on by themselves when the vehicle powers up: 1 = yes, 0 = only when switched on. The app's Start-Up switch."
+            verification: "reported"
+            template: ["{startup}"]
+            parameters:
+              startup:
+                type: "uint8"
+                min: 0
+                max: 1
+                labels: ["only when switched on", "on at power-up"]
+      - uuid: "ea326b96-d410-42e2-848a-1218201468fc"
+        name: "lights_brightness"
+        properties: ["read", "write"]
+        format:
+          - offset: 0
+            length: 1
+            name: "brightness"
+            type: "uint8"
+            unit: "%"
+            notes: "0-100. The app's slider writes multiples of 5."
+        commands:
+          set_lights_brightness:
+            description: "Light brightness in percent, one byte. The vendor app's slider has 21 stops and writes step x 5 (0, 5, ..., 100)."
+            verification: "reported"
+            template: ["{brightness}"]
+            parameters:
+              brightness:
+                type: "uint8"
+                min: 0
+                max: 100
+                unit: "%"
+      - uuid: "ea324d8c-d410-42e2-848a-1218201468fc"
+        name: "brake_lights_pattern"
+        properties: ["read", "write"]
+        format:
+          - offset: 0
+            length: 1
+            name: "brake_pattern"
+            type: "uint8"
+            values:
+              0: "steady"
+              1: "blink"
+        commands:
+          set_brake_light_pattern:
+            description: "Brake light behaviour: 1 = blink when braking, 0 = don't blink. The app's Blinking switch."
+            verification: "reported"
+            template: ["{pattern}"]
+            parameters:
+              pattern:
+                type: "uint8"
+                min: 0
+                max: 1
+                labels: ["steady", "blink"]
+
+  - uuid: "0000180a-0000-1000-8000-00805f9b34fb"
+    name: "Device Information"
+    notes: >
+      The owner community reads the ESC firmware version here with a
+      generic BLE explorer as Device Information > Firmware Revision
+      String. The app reads the characteristic by UUID alone.
+    characteristics:
+      - uuid: "00002a26-0000-1000-8000-00805f9b34fb"
+        name: "Firmware Revision String"
+        properties: ["read"]
+        notes: >
+          ESC (board) firmware version as text, "vX.Y.Z" (the app strips a
+          leading "v" before comparing). The app's battery-detail and
+          serial-pipe thresholds (v1.4.2, v1.5.0, v1.6.0) use this version.
+          2.7.2 was the last ESC release per the community.
+      - uuid: "00002a25-0000-1000-8000-00805f9b34fb"
+        name: "Serial Number String"
+        properties: ["read"]
+        notes: "The app knows this as the scooter's serial but never reads it. Presence on boards not recorded."
+
+  - uuid: "da2b84f1-6279-48de-bdc0-afbea0226079"
+    name: "BlueRadios BRSP serial port (1st gen boards)"
+    notes: >
+      Identification only. This is BlueRadios' stock serial-port service,
+      on 1st-gen boards (the app's "V1"). The roles below are BlueRadios'
+      published names, and "as used" is how the vendor app touches each
+      characteristic. The byte stream carried over RX/TX is not mapped.
+      Shared with unrelated BlueRadios-module products, so it is never a
+      matcher on its own.
+    characteristics:
+      - uuid: "99564a02-dc01-4d3c-b04e-3bb1ef0571b2"
+        name: "brsp_info"
+        properties: ["read"]
+        notes: "BRSP info. The app reads it and takes a uint8 at offset 1."
+      - uuid: "a87988b9-694c-479c-900e-95dfa6c00a24"
+        name: "brsp_mode"
+        properties: ["read", "write"]
+        notes: "BRSP mode. The app writes a mode value before streaming and reads a uint8 at offset 0. Values not mapped here."
+      - uuid: "bf03260c-7205-4c25-af43-93b1c299d159"
+        name: "brsp_rx"
+        properties: ["write"]
+        notes: "BRSP RX, the app-to-board data direction."
+      - uuid: "18cda784-4bd3-4370-85bb-bfed91ec86af"
+        name: "brsp_tx"
+        properties: ["indicate"]
+        notes: "BRSP TX, the board-to-app data direction. The app enables indications on it."
+      - uuid: "fdd6b4d3-046d-4330-bdec-1fd0c90cb43b"
+        name: "brsp_rts"
+        properties: ["notify"]
+        notes: "BRSP RTS flow control. The app enables notifications and reads a signed byte at offset 0."
+      - uuid: "0a1934f5-24b8-4f13-9842-37bb167c6aff"
+        name: "brsp_cts"
+        properties: []
+        notes: "Named in the app but never used. It is the remaining member of the BRSP characteristic set (CTS flow control per the BRSP family). Properties not recorded."
+
+initialization:
+  - characteristic: "7dc55f22-c61f-11e5-9912-ba0be0483c18"
+    subscribe: true
+    notes: "Ride mode. The vendor app reads each characteristic once, then subscribes to these five."
+  - characteristic: "7dc56594-c61f-11e5-9912-ba0be0483c18"
+    subscribe: true
+    notes: "Odometer."
+  - characteristic: "7dc56b34-c61f-11e5-9912-ba0be0483c18"
+    subscribe: true
+    notes: "Speed."
+  - characteristic: "65a8eeae-c61f-11e5-9912-ba0be0483c18"
+    subscribe: true
+    notes: "Battery remaining."
+  - characteristic: "65a8f5d4-c61f-11e5-9912-ba0be0483c18"
+    subscribe: true
+    notes: "Charging. On a vehicle with lights, the app also subscribes to ea32dcac-d410-42e2-848a-1218201468fc (lights status). Skip it when the characteristic is absent."
+
+payload_formats:
+  boosted_advertisement:
+    description: >
+      The first manufacturer-specific AD structure (type 0xff) in a Boosted
+      vehicle's scan record, as the vendor app reads it before connecting.
+      Offsets count from the first byte of the AD value, i.e. including the
+      two bytes a stack reports as the "company ID". Those two bytes are
+      flags, not a Bluetooth SIG company. Separately, the app takes a
+      4-byte motor-driver serial from raw scan-record bytes 34-37 (the
+      advertisement padded to 31 bytes, followed by the scan response),
+      read in reverse order and printed as uppercase hex. That position is
+      tied to Android's scan-record buffer and is unverified on air.
+    fields:
+      - index: 0
+        name: "flags"
+        description: "Bytes 0-1, where a company ID would sit. Bit 0x02 of byte 0 = board is in pairing mode. Other bits unknown."
+      - index: 2
+        name: "fw_patch"
+        description: "Firmware version, patch."
+      - index: 3
+        name: "fw_minor"
+        description: "Firmware version, minor."
+      - index: 4
+        name: "fw_major"
+        description: "Firmware version, major. The app renders the version as v<major>.<minor>.<patch>."
+    parse_rules:
+      - "Take the first manufacturer-specific AD structure; do not filter on its company-ID field."
+      - "pairing = (byte0 & 0x02) != 0."
+      - "version = 'v' + byte4 + '.' + byte3 + '.' + byte2; on any parse failure the app uses v0.0.0."
+      - "The one gate the app applies to this version: below v2.0.0 it drops the phone's bond before connecting and bonds again (protocol_details.firmware_gates)."
+    example: "02 00 02 07 02"
+
+features:
+  - type: "firmware_update"
+    dfu:
+      mechanisms: ["vendor_ble"]
+      transport: "ble"
+      image:
+        signing: "unknown"
+        source: "vendor_cloud"
+        notes: >
+          Images and the per-board update script came from Boosted's
+          servers, which have been offline since 2020. The owner community
+          lists ESC 2.7.2 and extended-range battery 2.5.1 as the last
+          releases. No official image can be downloaded today.
+      enter:
+        how: "unknown"
+        notes: >
+          The app flashes over the serial characteristics
+          (58856524/58856525) with Boosted's own bootloader protocol, not
+          Nordic DFU. The app bundles no Nordic DFU or MCUmgr library. On
+          firmware v1.6.0 and later the pipe first needs a challenge
+          answered by Boosted's servers. The entry and frame bytes are
+          left out of this spec on purpose: a half-flashed ESC is a board
+          that cannot be ridden.
+      dfu_mode:
+        notes: "Not recorded. The vendor instructions keep the board plugged in and the phone close for the whole update."
+      recovery:
+        interrupted: "unknown"
+      verification: "reported"
+      notes: "From the vendor app's update path and the vendor's update instructions. Not run against hardware."
+
+entities:
+  - platform: "select"
+    name: "Ride Mode"
+    icon: "mdi:speedometer"
+    variants: ["Dual / Dual+ (2nd gen)", "Mini S / Mini X", "Plus / Stealth", "Boosted Rev"]
+    state_characteristic: "7dc55f22-c61f-11e5-9912-ba0be0483c18"
+    command_characteristic: "7dc55f22-c61f-11e5-9912-ba0be0483c18"
+    state_mapping:
+      value: "mode"
+    commands:
+      select_option: "set_ride_mode"
+    notes: "Offer only modes below vehicle_modes_count (7dc55dec). Advanced: send only while the board is stationary."
+  - platform: "sensor"
+    name: "Speed"
+    device_class: "speed"
+    unit: "mph"
+    variants: ["Dual / Dual+ (2nd gen)", "Mini S / Mini X", "Plus / Stealth"]
+    state_characteristic: "7dc56b34-c61f-11e5-9912-ba0be0483c18"
+    state_mapping:
+      value: "speed"
+    notes: "Clamp negative values to 0 as the vendor app does."
+  - platform: "sensor"
+    name: "Speed"
+    device_class: "speed"
+    unit: "mph"
+    variants: ["Boosted Rev"]
+    state_characteristic: "7dc56b34-c61f-11e5-9912-ba0be0483c18"
+    state_mapping:
+      value: "speed"
+      scale: 0.00223694
+    notes: "The Rev reports 1 mm/s per count. Clamp negative values to 0."
+  - platform: "sensor"
+    name: "Odometer"
+    device_class: "distance"
+    unit: "mi"
+    variants: ["Dual / Dual+ (2nd gen)", "Mini S / Mini X"]
+    state_characteristic: "7dc56594-c61f-11e5-9912-ba0be0483c18"
+    state_mapping:
+      value: "odometer"
+      scale: 3.6128e-5
+  - platform: "sensor"
+    name: "Odometer"
+    device_class: "distance"
+    unit: "mi"
+    variants: ["Plus / Stealth"]
+    state_characteristic: "7dc56594-c61f-11e5-9912-ba0be0483c18"
+    state_mapping:
+      value: "odometer"
+      scale: 3.8386e-5
+  - platform: "sensor"
+    name: "Odometer"
+    device_class: "distance"
+    unit: "mi"
+    variants: ["Boosted Rev"]
+    state_characteristic: "7dc56594-c61f-11e5-9912-ba0be0483c18"
+    state_mapping:
+      value: "odometer"
+      scale: 6.2137273665e-4
+    notes: "The Rev counts metres."
+  - platform: "sensor"
+    name: "Battery"
+    device_class: "battery"
+    unit: "%"
+    variants: ["Dual / Dual+ (2nd gen)", "Mini S / Mini X", "Plus / Stealth", "Boosted Rev"]
+    state_characteristic: "65a8eeae-c61f-11e5-9912-ba0be0483c18"
+    state_mapping:
+      value: "battery"
+  - platform: "binary_sensor"
+    name: "Charging"
+    device_class: "battery_charging"
+    variants: ["Dual / Dual+ (2nd gen)", "Mini S / Mini X", "Plus / Stealth", "Boosted Rev"]
+    state_characteristic: "65a8f5d4-c61f-11e5-9912-ba0be0483c18"
+    state_mapping:
+      value: "charging"
+      on_when: "nonzero"
+  - platform: "select"
+    name: "Units"
+    variants: ["Dual / Dual+ (2nd gen)", "Mini S / Mini X", "Plus / Stealth", "Boosted Rev"]
+    state_characteristic: "7dc5c19d-c61f-11e5-9912-ba0be0483c18"
+    command_characteristic: "7dc5c19d-c61f-11e5-9912-ba0be0483c18"
+    state_mapping:
+      value: "units"
+    commands:
+      select_option: "set_units"
+    notes: "Meaningful on the Rev, which has a speed display. Whether boards expose the characteristic is not recorded; hide it when absent."
+  - platform: "switch"
+    name: "Lights"
+    icon: "mdi:car-light-high"
+    variants: ["Dual / Dual+ (2nd gen)", "Mini S / Mini X", "Plus / Stealth", "Boosted Rev"]
+    state_characteristic: "ea32dcac-d410-42e2-848a-1218201468fc"
+    command_characteristic: "ea32dcac-d410-42e2-848a-1218201468fc"
+    state_mapping:
+      value: "lights_status"
+      on_value: 1
+    commands:
+      turn_on: {command: "set_lights_power", values: {state: 1}}
+      turn_off: {command: "set_lights_power", values: {state: 0}}
+    notes: "Only on the Rev and on boards with Beams-capable firmware and lights fitted. Hide it when the characteristic is absent."
+  - platform: "switch"
+    name: "Lights On At Start-Up"
+    variants: ["Dual / Dual+ (2nd gen)", "Mini S / Mini X", "Plus / Stealth", "Boosted Rev"]
+    state_characteristic: "ea32b761-d410-42e2-848a-1218201468fc"
+    command_characteristic: "ea32b761-d410-42e2-848a-1218201468fc"
+    state_mapping:
+      value: "lights_startup"
+      on_value: 1
+    commands:
+      turn_on: {command: "set_lights_startup", values: {startup: 1}}
+      turn_off: {command: "set_lights_startup", values: {startup: 0}}
+    notes: "Only where the lights characteristics exist."
+  - platform: "number"
+    name: "Light Brightness"
+    unit: "%"
+    min: 0
+    max: 100
+    step: 5
+    variants: ["Dual / Dual+ (2nd gen)", "Mini S / Mini X", "Plus / Stealth", "Boosted Rev"]
+    state_characteristic: "ea326b96-d410-42e2-848a-1218201468fc"
+    command_characteristic: "ea326b96-d410-42e2-848a-1218201468fc"
+    state_mapping:
+      value: "brightness"
+    commands:
+      set_value: "set_lights_brightness"
+    notes: "Only where the lights characteristics exist."
+  - platform: "switch"
+    name: "Brake Light Blink"
+    variants: ["Dual / Dual+ (2nd gen)", "Mini S / Mini X", "Plus / Stealth", "Boosted Rev"]
+    state_characteristic: "ea324d8c-d410-42e2-848a-1218201468fc"
+    command_characteristic: "ea324d8c-d410-42e2-848a-1218201468fc"
+    state_mapping:
+      value: "brake_pattern"
+      on_value: 1
+    commands:
+      turn_on: {command: "set_brake_light_pattern", values: {pattern: 1}}
+      turn_off: {command: "set_brake_light_pattern", values: {pattern: 0}}
+    notes: "Only where the lights characteristics exist."
+
+protocol_details:
+  generation_mapping:
+    description: >
+      How the vendor app sorts a scan result, and what this spec concludes
+      from it. Reported: inferred from the app plus BlueRadios' published
+      BRSP UUIDs, not from hardware.
+    rules:
+      - {advertised_service: "7dc55a86-c61f-11e5-9912-ba0be0483c18", app_generation: "V2", covers: "2nd-gen Dual/Dual+, Plus, Stealth, Mini S, Mini X; the Rev (by the app's logic)"}
+      - {advertised_service: "da2b84f1-6279-48de-bdc0-afbea0226079", app_generation: "V1", covers: "1st-gen Single/Dual/Dual+ (BlueRadios BRSP serial pipe)"}
+      - {advertised_service: "ea32b817-d410-42e2-848a-1218201468fc", app_generation: "V2 + scooter", covers: "Boosted Rev (a check on top of the V2 match, in a helper the release examined never calls)"}
+    verification: "reported"
+  per_model_scales:
+    description: >
+      Factors the app applies to the raw odometer and speed counts, by the
+      model code read from 7dc59643. Odometer in miles per count; speed in
+      mph per count.
+    odometer_mi_per_count:
+      "0": 3.6128e-5
+      "1": 3.6128e-5
+      "2": 3.6128e-5
+      "3": 3.8386e-5
+      "4": 3.8386e-5
+      "5": 3.6128e-5
+      "6": 3.6128e-5
+      "7": 6.2137273665e-4
+    speed_mph_per_count:
+      boards: 0.0028409092
+      "7": 0.00223694
+    test_vectors:
+      - {characteristic: "7dc56b34-c61f-11e5-9912-ba0be0483c18", model: 4, bytes: "c0 0d", raw: 3520, decoded: "10.0 mph"}
+      - {characteristic: "7dc56b34-c61f-11e5-9912-ba0be0483c18", model: 7, bytes: "10 27", raw: 10000, decoded: "22.37 mph (10 m/s)"}
+      - {characteristic: "7dc56594-c61f-11e5-9912-ba0be0483c18", model: 1, bytes: "40 42 0f 00", raw: 1000000, decoded: "36.128 mi"}
+      - {characteristic: "7dc56594-c61f-11e5-9912-ba0be0483c18", model: 3, bytes: "40 42 0f 00", raw: 1000000, decoded: "38.386 mi"}
+      - {characteristic: "7dc56594-c61f-11e5-9912-ba0be0483c18", model: 7, bytes: "40 42 0f 00", raw: 1000000, decoded: "621.37 mi (1000 km)"}
+    verification: "reported"
+  ride_modes:
+    description: >
+      The firmware's modes as the app presents them. The wire value is the
+      index. The app numbers modes from 1. The km/h figures are the app's
+      own display constants for its mode picker. The firmware enforces the
+      real caps, and they vary with board and firmware (the vendor's
+      listing screenshot shows 22/26/32/35/39 km/h on a 3rd-gen board).
+    modes:
+      - {wire: 0, shown_as: 1, name: "Beginner", app_top_speed_kmh: 18.0, app_top_speed_kmh_rev: 19.3}
+      - {wire: 1, shown_as: 2, name: "Eco", app_top_speed_kmh: 25.0, app_top_speed_kmh_rev: 29.0}
+      - {wire: 2, shown_as: 3, name: "Expert", app_top_speed_kmh: 32.0, app_top_speed_kmh_rev: 38.6}
+      - {wire: 3, shown_as: 4, name: "Pro", app_top_speed_kmh: 35.0}
+      - {wire: 4, shown_as: 5, name: "Hyper", app_top_speed_kmh: 38.0}
+    first_gen_reference: >
+      The vendor's 2014 insert for 1st-gen boards (which this GATT profile
+      does not reach) lists Dual as Beginner 11 mph, Eco 16 mph and Expert
+      20 mph, and Dual+ adds Pro at 22 mph. On those boards the mode is
+      cycled with three presses of the remote's button.
+    verification: "reported"
+  characteristic_sets:
+    description: >
+      The app keeps three groups of characteristics. On connect it reads
+      every characteristic from all three groups that the GATT table
+      actually contains, whatever the vehicle. Then, going by the Firmware
+      Revision String, it reads the battery pack group again or asks the
+      serial pipe (protocol_details.firmware_gates), and finally subscribes
+      to the notify set.
+    board: ["7dc5bb39", "7dc55f22", "7dc59643", "7dc56594", "7dc55dec", "00002a26", "65a8eeae", "65a8f5d4", "65a8f3c2", "7dc56b34"]
+    battery_pack_v1_5_plus: ["65a8f834", "65a8f833"]
+    scooter_group: ["7dc5c19d", "ea32dcac", "ea32b761", "ea326b96", "ea324d8c", "7dc5c201", "7dc5c202"]
+    notify: ["7dc55f22", "7dc56594", "7dc56b34", "65a8eeae", "65a8f5d4", "ea32dcac"]
+    known_but_unused: ["7dc56bfc (power)", "00002a25 (serial number)"]
+    notes: "Short forms are the first 8 hex digits of the full UUIDs declared in `services`."
+  firmware_gates:
+    description: "Version thresholds the vendor app applies. 'fw string' = the Firmware Revision String (00002a26-0000-1000-8000-00805f9b34fb), read after connecting; 'advertised' = the version in the manufacturer data, read before connecting."
+    gates:
+      - {version: "v1.4.2", source: "fw string", effect: "Below: the app gets no battery pack ID/firmware at all."}
+      - {version: "v1.5.0", source: "fw string", effect: "From here the app reads the battery pack ID/firmware characteristics. From v1.4.2 up to v1.5.0 it asks the serial pipe instead (25 s timeout)."}
+      - {version: "v1.5.0", source: "fw string", effect: "Serial-pipe writes are wrapped in a framing (not mapped)."}
+      - {version: "v1.6.0", source: "fw string", effect: "The serial pipe needs a cloud-answered challenge before use."}
+      - {version: "v2.0.0", source: "advertised", effect: "Below: the app deletes the phone's bond before connecting and bonds again."}
+      - {version: "v2.1.0", source: "advertised", effect: "The app defines a 'bonded connection fixed' test at this version but never calls it in the release examined."}
+    verification: "reported"
+  range_estimate:
+    description: >
+      The app computes range itself. The board reports only charge, pack
+      capacity and mode. The estimate in miles is (battery_percent / 100) x
+      capacity_factor x (full_range + (mode_wire + 1) x mode_coeff +
+      (grade_setting / 400) x rider_weight_lb x grade_coeff +
+      (aggressiveness_setting / 100) x rider_weight_lb x aggressiveness_coeff).
+      Grade, aggressiveness and weight are rider settings kept in the app.
+    coefficients:
+      boards: {full_range: 9.30698856285735, mode_coeff: -1.0949060404929, grade_coeff: -0.046077882499967, aggressiveness_coeff: -0.007478175495908}
+      rev: {full_range: 9.22777778, mode_coeff: -1.9, grade_coeff: -0.013, aggressiveness_coeff: -0.0027}
+    verification: "reported"
+  cloud:
+    description: "Boosted's REST backend (accounts, rides, cities, inbox and the firmware list with image URLs) has been offline since 2020. Nothing in this spec depends on it."
+
+evidence:
+  app_static_analysis: >
+    The last Android release of the vendor app (1.4.5, December 2019),
+    decompiled and read by hand in September 2026. It established the scan
+    filters and generation mapping, the full characteristic list with each
+    characteristic's parser (offset, width, signedness, scale), every write
+    path (mode, units, name, lights), the bond-before-connect behaviour,
+    the firmware-version gates, the serial pipe's cloud challenge, and
+    that the app bundles no Nordic DFU or MCUmgr library. It also showed
+    that the ride-mode wire values are 0-4, not the 1-5 the app shows.
+  documentation_review: >
+    Boosted's own support articles and the 2014 riding-mode insert, as
+    archived by the Internet Archive: the five-press pairing step, app and
+    remote coexistence per generation, the Beams lights, the
+    extended-range battery's update requirement, and the 1st-gen mode
+    speeds. The archived Play Store listing screenshots confirmed the five
+    mode names and their order.
+  community_reports: >
+    The foreverboosted.co FAQ: owners read the Firmware Revision String
+    under Device Information and battery firmware under service
+    65a8eaa8-c61f-11e5-9912-ba0be0483c18 with a generic BLE explorer, and
+    the last firmware releases (ESC 2.7.2, extended-range battery 2.5.1).
+    Beambreak's firmware table dates Beams support to ESC 2.7.x.
+  open_questions: >
+    Everything is reported. Nothing was captured or replayed. The
+    generation mapping, the Rev's advertised services, the parent services
+    of the vehicle, lights and serial characteristics, the pairing
+    association model, and whether the board enforces the bond all need
+    hardware.
+  artifacts:
+    - type: "static_analysis"
+      artifact: "Boosted Boards Android app, release 1.4.5 (December 2019), the final release"
+      obtained_via: "third-party APK mirror; the app is delisted from Google Play"
+      description: >
+        Source of every characteristic, value layout and write in this
+        spec. Negative findings: no Nordic DFU or MCUmgr/SMP library; no
+        PIN handling; the power and serial-number characteristics are
+        known to the app but never read.
+    - type: "documentation"
+      artifact: "Boosted support articles and 2014 riding-mode insert (Internet Archive copies)"
+      description: "Pairing procedure, generation compatibility, lights, battery update requirement, 1st-gen mode speeds."
+
+remaining_unknowns:
+  - "Nothing has been checked on hardware. Every characteristic, scale and write here is read from the vendor app."
+  - "The generation mapping (7dc55a86 = 2nd/3rd gen, da2b84f1 = 1st gen BRSP) is inferred from the app and BlueRadios' public UUIDs, not observed on a board."
+  - "Whether the Rev advertises 7dc55a86 as well as ea32b817. The app's scan filters imply it must, but nobody has looked."
+  - "Parent services: the vehicle characteristics are assumed to sit under the advertised 7dc55a86 service and the lights under ea32b817, and the serial pair's service is unknown. Only the battery service (65a8eaa8) and Device Information placement come from owners' own reads."
+  - "The pairing association model (Just Works is likely: the app supplies no PIN), whether the board refuses an unbonded central, how many bonds it keeps, and how long the pairing window lasts."
+  - "The physical unit of battery_capacity's raw count, and the lengths of the motor-driver serial and battery ID values."
+  - "Maximum board-name length, and whether a rename changes the advertised local name."
+  - "vehicle_power (7dc56bfc) layout and properties: the app never reads it."
+  - "Whether boards (not only the Rev) expose vehicle_units, and what it changes on a board with no display."
+  - "Which vehicles expose the lights characteristics: the Rev (built-in lights) and boards on ESC 2.7.x with Beams fitted, both by inference. Not checked."
+  - "Whether the flags bytes of the manufacturer data carry anything besides the pairing bit, and whether scan-record bytes 34-37 really hold the motor-driver serial over the air."
+  - "The serial pipe's framing (v1.5.0+) and the bootloader protocol are deliberately unmapped. The v1.6.0+ challenge cannot be answered without Boosted's servers."
+  - "The 1st-gen BRSP payload is entirely unmapped."
+
+helpful_urls:
+  - title: "Boosted: riding-mode insert for 1st-gen Dual and Dual+ (2014, archived PDF)"
+    url: "https://web.archive.org/web/20160616061842/http://boostedboards.com/wp-content/uploads/2014/12/Manual-Insert.pdf"
+    kind: "manual"
+    description: >
+      Vendor amendment to the 1st-gen Quick Start Guide for the Dual and
+      Dual+: the mode list with top speeds (Beginner 11 mph to Pro 22
+      mph), how to cycle modes from the remote, and the vendor's own
+      warning about throttle sensitivity in Expert and Pro. Internet
+      Archive copy; the vendor site is gone.
+  - title: "Boosted support: How to Update Your Board's Software (archived)"
+    url: "https://web.archive.org/web/20191115095759/https://support.boostedboards.com/hc/en-us/articles/115004591014-How-to-Update-Your-Board-s-Software-Required-for-Extended-Range-Battery-"
+    kind: "vendor_support"
+    description: >
+      Covers 2nd-gen and later boards. The source of the five-press pairing
+      step and of the extended-range battery's update requirement
+      (flashing white power LED).
+  - title: "Boosted support: The Boosted App (archived)"
+    url: "https://web.archive.org/web/20191216105010/https://support.boostedboards.com/hc/en-us/articles/115000910028-The-Boosted-App"
+    kind: "vendor_support"
+    description: "Which boards the app supports, and that 2nd-gen and later boards accept app and remote together while 1st-gen boards take one or the other."
+  - title: "Boosted support: How to Install Your Boosted Beams (archived)"
+    url: "https://web.archive.org/web/20191216104420/https://support.boostedboards.com/hc/en-us/articles/360038377014-How-to-Install-Your-Boosted-Beams"
+    kind: "vendor_support"
+    description: "The head and brake light accessory the lights characteristics drive, and its firmware-update prerequisite."
+  - title: "Forever Boosted: FAQ"
+    url: "https://foreverboosted.co/faq"
+    kind: "other"
+    description: "Owner-community FAQ: what the vendor app still does, last firmware releases, and reading firmware versions with a generic BLE explorer (Device Information; battery service 65a8eaa8)."
+  - title: "Project Beambreak"
+    url: "https://beambreak.org/"
+    kind: "protocol_writeup"
+    description: "Community reverse engineering of the board: remote BLE attribute IDs, battery status codes, known firmware versions, and browser-based BLE tools."
+  - title: "axkrysl47/BoostedBreak"
+    url: "https://github.com/axkrysl47/BoostedBreak"
+    kind: "protocol_writeup"
+    description: "The Boosted Board Reverse Engineering Project: the CAN protocol between V2/V3 batteries and ESCs, with a PC tool. Board internals, out of scope for the phone link."
+  - title: "Tejas Bhakta: Reverse Engineering the Boosted Board Remote"
+    url: "https://tejasbhakta.com/boosted-board"
+    kind: "protocol_writeup"
+    description: "Write-up of the remote-to-board BLE riding link (throttle packets, pairing window), building on johnathanchiu's work. This spec does not cover that link."
+  - title: "johnathanchiu/boosted-project"
+    url: "https://github.com/johnathanchiu/boosted-project"
+    kind: "implementation"
+    description: "ESP32 replication of the board-remote pairing protocol (board v1.5.2, remote v2.3.3). The riding side, not the phone profile."
+  - title: "Reverse engineering the Boosted board v1 (shwin.co)"
+    url: "https://shwin.co/blog/reverse-engineering-the-boosted-board-v1"
+    kind: "protocol_writeup"
+    description: "Progress dump on repairing a 1st-gen board: BMS, CAN and firmware extraction, and the vendor app. Its 1st-gen phone link is the BRSP serial pipe left unmapped here."
+  - title: "SharpX-Technologies/Coyote-App: BRSP UUIDs"
+    url: "https://github.com/SharpX-Technologies/Coyote-App"
+    kind: "other"
+    description: "An unrelated product's README that lists the BlueRadios BRSP service and its info, mode, RX, TX and RTS characteristics by role, the public source for the 1st-gen roles here."
+  - title: "Boosted USA: FAQ"
+    url: "https://boostedusa.com/pages/faq"
+    kind: "other"
+    description: "The company that bought Boosted's remaining inventory after the shutdown. It is a separate company, honours no Boosted warranties, and offers Rev parts and repair advice but does not repair boards."

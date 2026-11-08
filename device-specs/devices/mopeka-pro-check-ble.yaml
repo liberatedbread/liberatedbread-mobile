@@ -17,6 +17,7 @@ device:
       mopeka_pro_check component documentation.
   protocol: "ble"
   category: "sensor"
+  category_hierarchy: ["measurement", "other"]
   notes: >
     Mopeka Pro Check ultrasonic tank sensors (LP/propane and universal) report
     the fill level of a tank by measuring ultrasonic time-of-flight to the liquid

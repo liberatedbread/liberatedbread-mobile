@@ -39,6 +39,7 @@ device:
       `reported`, not `confirmed`.
   protocol: "wifi"
   category: "light"
+  category_hierarchy: ["light", "led"]
   type: "wifi-bulb"
   transport: "udp"
   notes: >

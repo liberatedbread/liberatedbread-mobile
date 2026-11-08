@@ -1,0 +1,916 @@
+# iopool EcO / EcO Salt pool water monitor device spec
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Sources (clean-room: derived facts only, every table written in our own
+# words, no vendor code, strings or assets reproduced):
+#   - Static analysis of the vendor's React Native app (Android, com.iopool
+#     2.43.6, Hermes bytecode bundle): scan filter, advertisement record layout,
+#     GATT map, the one-byte mode opcodes, the live-mode, timestamp and beep
+#     payloads, the connect sequence, the activation and standby flows, and the
+#     measurement-time rules. Described by role; no class, method, constant or
+#     source-path names from the app appear here.
+#   - innoveit/react-native-ble-manager (Apache-2.0), the BLE library the app
+#     uses: DefaultPeripheral.java and ios/Helper.swift, for how the
+#     manufacturer-data key the app filters on maps to bytes on the air.
+#   - FCC ID 2AVNQECO-V1 (iopool SA, granted 2020-04-15): test report, internal
+#     photos and the welcome guide exhibit.
+#   - mguyard/hass-iopool (Home Assistant integration): evidence that the
+#     vendor's public API is read-only and cloud-side.
+# Nothing here has been run against hardware by this project.
+
+device:
+  name: "iopool EcO / EcO Salt pool water monitor"
+  manufacturer: "iopool SA"
+  manufacturer_status: "active"
+  openness:
+    status: "undocumented"
+    reverse_engineered: true
+    notes: >
+      iopool publishes a read-only cloud API (pools and their latest
+      measurement) but nothing about the probe's radio protocol. Everything
+      below was recovered from the vendor app.
+  testing:
+    status: untested
+    notes: >
+      Not driven against hardware by this project, and no capture of real
+      traffic is held. Every byte layout below comes from static analysis of
+      the vendor app (com.iopool 2.43.6), so every fact is `reported` at best,
+      and the scalings marked `hypothesis` are inference on top of that.
+  protocol: "ble"
+  category: "sensor"
+  category_hierarchy: ["measurement", "environmental"]
+  type: "Floating pool and spa water monitor (pH, ORP, water temperature, conductivity) that broadcasts its readings in BLE advertisements"
+  safety_advisory:
+    severity: "caution"
+    summary: "Readings decoded from this spec are uncalibrated raw values with partly inferred scalings; pool chemicals dosed on a wrong pH or ORP reading can irritate skin and eyes."
+    detail: >
+      The probe broadcasts raw sensor values. The vendor keeps the per-probe
+      pH and ORP calibration in its cloud (the app sends raw live samples from
+      a calibration wizard there), so a local client sees the uncalibrated
+      value. The pH and temperature scalings in this spec are inferences, not
+      facts read from the app. Check a reading against a test strip before
+      adding acid, chlorine or salt, and follow the chemical supplier's
+      handling instructions. This spec is independent of iopool.
+  notes: >
+    A sealed floating probe from iopool (Belgium), sold in the EcO Start pack,
+    that measures pH, ORP (the app calls it disinfection potential),
+    water temperature and conductivity and reports its battery level. The FCC
+    filing (2AVNQECO-V1, model "EcO v01") shows a Bluetooth 4.0 LE radio with
+    an integral antenna and nothing else: no Wi-Fi, no Sigfox. The optional
+    iopool Connect box (gateway generations IGW and I10 to I40 in the app)
+    relays probe readings to Wi-Fi; it is a separate product and out of scope,
+    as are the Ecotab chlorine-tablet dispenser and the iopool cloud.
+
+    EVIDENCE BASE. Everything below is `reported`: read out of the vendor's
+    Android app (React Native, Hermes bytecode, v2.43.6). No capture is held,
+    nothing has been replayed, and no open implementation of the BLE side
+    exists (the one community integration, mguyard/hass-iopool, polls the
+    vendor cloud). The scalings of pH and temperature are `hypothesis`.
+
+    THE READ PATH NEEDS NO CONNECTION. The probe broadcasts its latest
+    measurement in manufacturer-specific advertisement data under company ID
+    0x074c (on air: ff 4c 07 then the record). The app scans continuously
+    with duplicates allowed and no service filter, and takes an advertisement
+    as an EcO record when it has a local name exactly 8 characters long AND
+    manufacturer data under 0x074c. The name is the probe's code, which the
+    vendor cloud registers against the owner's pool. See
+    payload_formats.EcoAdvertisementRecord for the byte layout: format
+    version, mode, sequence, pH (int16 BE), ORP (int16 BE), temperature
+    (uint16 BE), conductivity (uint16 BE), a packed activity/battery byte, and
+    an 11-bit time of day in minutes after 00:00 UTC. A record repeats in
+    advertisements until the next measurement, so deduplicate on
+    (name, sequence, minutes).
+
+    THE CONNECTED SURFACE is small and needs no pairing. Service
+    f3a00001-f0a2-9b06-0c59-1bc4763b5c00 carries: a command characteristic
+    (f3a00002) that takes one-byte opcodes (0x04 monitoring mode, 0x05
+    maintenance/standby mode, 0x01 a reset whose effect is not established);
+    a clock characteristic (f3a00008) that takes the Unix time in seconds as
+    8 bytes little-endian; a beep characteristic (f3a00009) that takes the
+    uint16 LE value 200; a live-mode characteristic (f3a0000a) that takes
+    [count, 0x00]; and a software-version characteristic (f3a00011) read as
+    ASCII. The app writes everything with response, and on EVERY connection
+    it writes the clock first, right after service discovery.
+
+    LIFECYCLE. A new or wintered probe advertises records with mode 3
+    (maintenance). The app finds a new probe by waiting for such a record,
+    after the owner turns the probe upside down and back, then connects,
+    sets the clock, reads the software version, writes 0x04 and disconnects.
+    Wintering is the reverse: connect, write 0x05, disconnect. Mode numbers
+    in the record (1 standard, 2 live, 3 maintenance, 4 backup) are NOT the
+    command opcodes.
+
+    THE CLOCK MATTERS. The record carries only the time of day, taken from
+    the probe's own clock, and the app rebuilds the date: today at that
+    minute (UTC), or yesterday if that would be more than 15 minutes in the
+    future. If the result is more than 30 minutes old or more than 5 minutes
+    ahead, the app treats the probe clock as drifted, stamps the reading with
+    the current minute, and reconnects to reset the clock. It also reconnects
+    once a day for the first measurement. A client that never connects will
+    see the probe's clock wander.
+
+    SHARED UUID BASE. The -f0a2-9b06-0c59-1bc4763b5c00 base is also used by
+    Blueriiot's Blue Connect analyser (f330xxxx; see
+    blueriiot-blue-connect.yaml), so never identify on the base alone.
+
+    NOT THIS DEVICE. Earlier notes attributed the f4000001 "transport" and
+    f4100001 "OTA" services and SIG service 0xfe63 to the EcO. In the app they
+    belong to the Connect gateway, the Ecotab dispenser and adopted pHin
+    monitors respectively (see protocol_details.uuids_that_are_not_this_device).
+    The app has no firmware-update path for the EcO at all. The iopool app
+    also reads pHin monitor advertisements; that format belongs to the
+    separate phin-pool candidate (research-notes/phin-pool-monitor.md) and is
+    not described here.
+
+  identification:
+    manufacturer_data:
+      company_id: 1868
+      company_id_hex: "0x074C"
+      description: >
+        The app accepts an advertisement as an EcO record only if its
+        manufacturer data is keyed 074c (the BLE library formats the
+        little-endian company ID as four lowercase hex digits and strips it
+        from the value, on Android and on iOS alike). 0x074C is not listed in
+        the Bluetooth SIG company-identifier registry as fetched 2026-09-28
+        (0x074B and 0x074D belong to unrelated companies), so it is either an
+        unlisted assignment or a squatted value. Treat it as "an advertisement
+        shaped like the one documented here", and require the 8-character name
+        as well.
+    notes: >
+      The second condition the app applies, a local name of exactly 8
+      characters, has no identification key (a length test is neither a
+      prefix nor an exact name); it is stated in discovery.methods[0].notes.
+      The name's format beyond its length is not established: it is the
+      probe's code as registered with the vendor cloud and has not been seen
+      on air. Whether the probe advertises service
+      f3a00001-f0a2-9b06-0c59-1bc4763b5c00 is not established either; the app
+      does not filter on it.
+
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          manufacturer_data:
+            company_id: 1868
+            description: "Company ID 0x074C, payload = the EcoAdvertisementRecord (14 bytes or more)."
+        notes: >
+          Scan actively with duplicates allowed and no service-UUID filter,
+          which is what the app does (low-latency scan mode). Keep a result
+          only if the local name is exactly 8 characters long AND the
+          manufacturer data under 0x074C is present. A pHin monitor's
+          "pHin-xxxx" name is 9 characters and fails the test, so the two
+          families never collide in the app's scanner. Which advertising PDU
+          carries the name and which the manufacturer data (advertisement or
+          scan response) is not established.
+    identity:
+      stable_keys: ["local_name", "address"]
+      display: "local_name"
+      notes: >
+        The app keys every probe by its advertised name (the code the cloud
+        registers), and uses the platform's peripheral handle only as a
+        connection locator it re-learns from each scan. Whether the probe's
+        address is public or rotating is not established, so prefer the name.
+    static_ip_required: false
+
+  setup:
+    required: true
+    confidence: "medium"
+    notes: >
+      Nothing is provisioned: no credentials, no bond, no network. But a new
+      or wintered probe sits in maintenance mode and the app does not treat
+      its records as measurements until it has been switched to monitoring
+      mode over BLE, so setup is required in that sense. The whole BLE
+      exchange is recovered from the vendor app and needs no account or
+      token. Confidence medium: it is the vendor's own implementation, read
+      rather than replayed, and whether a factory-fresh probe advertises
+      before the wake gesture has not been observed.
+    methods:
+      - type: "ble_direct"
+        name: "Wake by turning over, then switch to monitoring mode over BLE (no account)"
+        role: "primary"
+        verified: false
+        description: >
+          The vendor app's own activation exchange, minus the cloud calls. Wake
+          the probe, find its maintenance-mode advertisement, connect, set
+          its clock, optionally read its software version, write the
+          monitoring-mode opcode, and disconnect. From then on the probe
+          broadcasts measurements (mode 1 records) that any listener can
+          decode.
+        ble:
+          pairing_required: false
+          service_uuid: "f3a00001-f0a2-9b06-0c59-1bc4763b5c00"
+          write_characteristic: "f3a00002-f0a2-9b06-0c59-1bc4763b5c00"
+        steps:
+          - action: "Take the probe in your hand, turn it upside down and then back upright."
+            actor: user
+            notes: >
+              The app's activation screen asks for this gesture. The FCC
+              internal photos show a two-lead switch beside the buzzer that is
+              consistent with a tilt switch, but that is not confirmed.
+          - action: "Start advertising maintenance-mode records."
+            actor: device
+            expect: "Advertisements with an 8-character name and manufacturer data 0x074C whose byte 1 (mode) is 3."
+          - action: "Scan for an 8-character name with manufacturer data 0x074C and record byte 1 equal to 3. Keep the name: it is the probe's code."
+            actor: client
+            timeout_seconds: 5
+            notes: "The app gives up after 5 s by default and reports the probe as not found."
+          - action: "Connect without pairing and discover services."
+            actor: client
+            request:
+              protocol: "ble_gatt"
+            timeout_seconds: 12
+          - action: "Write the current Unix time to f3a00008-f0a2-9b06-0c59-1bc4763b5c00 (command set_time)."
+            actor: client
+            request:
+              protocol: "ble_gatt"
+            notes: "The app does this on every connection, before anything else."
+          - action: "Optionally read f3a00011-f0a2-9b06-0c59-1bc4763b5c00 and decode it as ASCII: the software version."
+            actor: client
+            request:
+              protocol: "ble_gatt"
+          - action: "Write 0x04 with response to f3a00002-f0a2-9b06-0c59-1bc4763b5c00 (command enter_monitoring_mode), then disconnect."
+            actor: client
+            request:
+              protocol: "ble_gatt"
+          - action: "Measure and broadcast mode-1 (standard) records."
+            actor: device
+            expect: >
+              Records with byte 1 = 1 and a new sequence number. How long the
+              first one takes is not established; the app tells the owner the
+              probe needs an acclimatisation period in the water before its
+              first reliable analysis.
+        timing:
+          scan_timeout_seconds: 5
+          connect_timeout_seconds: 12
+          notes: >
+            Both are the vendor app's defaults, not device limits. The app
+            scans in low-latency mode with duplicates allowed.
+        troubleshooting:
+          - symptom: "No maintenance-mode (mode 3) record appears."
+            causes:
+              - "The probe was not woken: repeat the turn-over gesture."
+              - "The probe is already in monitoring mode: look for mode 1 records under the same name instead."
+              - "The scanner filters duplicates or by service UUID. The app does neither."
+          - symptom: "The connection times out."
+            causes:
+              - "Out of range. The app tells owners to move closer to the pool."
+              - "Another central holds the probe: the vendor app, or an iopool Connect gateway relaying readings (whether the probe takes a second central is not established)."
+          - symptom: "Measurements carry the wrong time of day."
+            causes:
+              - "The probe's clock was never set or has drifted. Connect and write set_time; the app does so at least daily."
+      - type: "cloud_account"
+        name: "Vendor app with an iopool account"
+        role: "alternative"
+        verified: false
+        description: >
+          What the vendor app does. The owner creates an account and a pool,
+          scans the QR code of the EcO Start pack, and then the app runs the
+          same BLE exchange as the primary method and registers the probe's
+          code and software version against the pool in the vendor cloud.
+          Measurements then reach the cloud through the owner's phone, or
+          through an iopool Connect gateway. The cloud side is not documented
+          here.
+        cloud:
+          provider: "iopool (account on AWS Cognito; app API over GraphQL)"
+          local_alternative: >
+            The BLE activation in the primary method uses no account, token or
+            cloud value, and the measurements are broadcast in the clear.
+        steps:
+          - action: "Create an iopool account and a pool in the vendor app, and scan the pack's QR code."
+            actor: user
+          - action: "Follow the app's EcO activation screen: turn the probe over when asked."
+            actor: user
+          - action: "Run the BLE activation exchange and link the probe code to the pool."
+            actor: client
+    factory_reset:
+      applicable: "unknown"
+      confidence: "low"
+      effect: >
+        No owner-facing factory reset is documented, and the probe holds no
+        bond or credential, so a BLE client has nothing on the device to
+        clear. The pool link lives in the vendor cloud. The app's pool
+        settings offer a "reset EcO" action that sends opcode 0x01; what it
+        clears on the probe (stored measurements, clock, mode) is not
+        established.
+      description: >
+        The procedure below is the only reset-like operation in the app. It is
+        listed as a candidate so an owner knows it exists, not because it is
+        known to return the probe to factory state. After it, expect to have
+        to re-activate the probe (monitoring-mode opcode) if the app's
+        behaviour is any guide.
+      procedures:
+        - name: "BLE reset opcode 0x01"
+          verified: false
+          basis: "Vendor app (com.iopool 2.43.6): the pool-settings reset action connects, writes 0x01 to the command characteristic and disconnects."
+          power_state: "on"
+          steps:
+            - action: "Connect to the probe, write the current time to f3a00008 as on every connection."
+              actor: client
+            - action: "Write 0x01 with response to f3a00002-f0a2-9b06-0c59-1bc4763b5c00 (command reset), then disconnect."
+              actor: client
+            - action: "Watch the next advertisements for the mode byte, to learn which state the probe is in afterwards."
+              actor: client
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        Nothing binds the probe to a phone. Any listener in range decodes its
+        advertisements, and any central can connect and write its commands.
+        Moving a probe to another pool or account is a cloud operation: the
+        app asks whether to link an already-activated probe to the new pool.
+    credentials:
+      wifi_passphrase_protection: "not_applicable"
+      stored_on_device: []
+      issued_to_client: []
+      notes: >
+        The probe has no Wi-Fi and no BLE authentication. Anything in radio
+        range can read its measurements and switch its mode. The pack's QR
+        code is a cloud credential and is not used on the BLE link.
+
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "none"
+    bonding: "none"
+    exclusivity:
+      single_connection: "unknown"
+      single_bond: false
+      recovery: >
+        Close the vendor app, and unplug an iopool Connect gateway if there is
+        one near the pool, then retry.
+      notes: >
+        Nothing bonds, so there is nothing to forget. Whether the probe accepts
+        a second central while one is connected is not established. A Connect
+        gateway is itself a BLE client of the probe.
+    enter_pairing_mode:
+      required: false
+      notes: >
+        No pairing window exists. The turn-over gesture in setup wakes a probe
+        into maintenance mode; it is not a pairing step.
+    notes: >
+      The app's probe path connects, discovers services and writes, with no
+      bonding call anywhere in it (reported). The measurement path needs no
+      connection at all.
+
+  host_compatibility:
+    - stack: "android"
+      status: "compatible"
+      verification: "reported"
+      basis: "The vendor app scans, connects and writes to the probe through the platform stack on Android."
+    - stack: "corebluetooth"
+      status: "compatible"
+      verification: "reported"
+      basis: "The same app ships for iOS and carries iOS-specific branches in its probe code (scan duration, live-mode byte masking, ORP sign handling)."
+
+  variants:
+    - model: "EcO"
+      notes: >
+        The standard probe (FCC model "EcO v01"). The app warns that it is not
+        salt-water compatible.
+    - model: "EcO Salt"
+      notes: >
+        The salt-water probe. The app's probe-type values are ECO, ECO_SALT
+        and PHIN, and its EcO handling applies to any type containing "ECO",
+        so both probes run the same parser and commands. The type comes from
+        the vendor cloud's record of the probe, not from the advertisement,
+        and no on-air difference is known. The salt level itself is entered
+        from a test strip, not measured by the probe.
+
+initialization:
+  - characteristic: "f3a00008-f0a2-9b06-0c59-1bc4763b5c00"
+    description: >
+      Right after service discovery, write the current Unix time (command
+      set_time: 8 bytes, seconds, little-endian). The bytes change every
+      second, so this step is documentation: a client builds them itself.
+    notes: >
+      The vendor app does this on every connection before any other command,
+      including connections made only to resynchronise the clock.
+
+services:
+  - uuid: "f3a00001-f0a2-9b06-0c59-1bc4763b5c00"
+    name: "EcO probe service"
+    notes: >
+      The probe's only vendor service in the app (reported). The UUID base is
+      shared with Blueriiot's Blue Connect, so the service says "this design
+      house", not "an EcO". Properties below are what the app does with each
+      characteristic; the full property set of each is not established.
+    characteristics:
+      - uuid: "f3a00002-f0a2-9b06-0c59-1bc4763b5c00"
+        name: "Command"
+        properties: ["write"]
+        role: "command"
+        commands:
+          enter_monitoring_mode:
+            description: >
+              Switch the probe to monitoring mode: it measures on its own
+              schedule and broadcasts mode-1 records. The app sends it to
+              activate a new probe and to wake one from wintering. One byte,
+              written with response.
+            verification: "reported"
+            value: [0x04]
+          enter_maintenance_mode:
+            description: >
+              Switch the probe to maintenance (standby) mode, which the app
+              calls wintering; it advertises mode-3 records and the app stops
+              ingesting its measurements. The app offers it when the water is
+              too cold for the probe. One byte, written with response.
+            verification: "reported"
+            value: [0x05]
+          reset:
+            description: >
+              The app's "reset EcO" action from the pool settings. One byte,
+              written with response. What it does on the probe is not
+              established.
+            verification: "reported"
+            advanced: true
+            advanced_reason: >
+              Its effect is unknown. It may clear the probe's stored
+              measurements or return it to its unactivated state, in which case
+              it stops broadcasting measurements until it is re-activated with
+              the monitoring-mode command. The probe is sealed, so there is no
+              button to recover with.
+            value: [0x01]
+      - uuid: "f3a00008-f0a2-9b06-0c59-1bc4763b5c00"
+        name: "Clock"
+        properties: ["write"]
+        commands:
+          set_time:
+            description: >
+              Set the probe's clock. 8 bytes: the Unix time in whole seconds
+              (UTC, rounded), little-endian. The app builds all 8 bytes from a
+              64-bit value; the template writes the low 32 bits and zero-fills
+              the high 32, which is exact until 2106. Write with response,
+              first thing on every connection (see initialization).
+            verification: "reported"
+            template: ["{unix_time}", 0x00, 0x00, 0x00, 0x00]
+            parameters:
+              unix_time:
+                type: "uint32"
+                endianness: "little"
+                unit: "s"
+                description: "Seconds since 1970-01-01T00:00:00Z, from the client's clock at the moment of writing."
+            packet_layout:
+              "0": "Unix time bits 0-7"
+              "1": "Unix time bits 8-15"
+              "2": "Unix time bits 16-23"
+              "3": "Unix time bits 24-31"
+              "4": "0x00 (bits 32-39)"
+              "5": "0x00 (bits 40-47)"
+              "6": "0x00 (bits 48-55)"
+              "7": "0x00 (bits 56-63)"
+      - uuid: "f3a00009-f0a2-9b06-0c59-1bc4763b5c00"
+        name: "Beep"
+        properties: ["write"]
+        commands:
+          beep:
+            description: >
+              Sound the probe's buzzer once. The app writes the uint16
+              little-endian value 200 (bytes c8 00); the unit is not
+              established (200 ms is a plausible reading). Its buzzer test
+              connects, beeps three times 500 ms apart, and disconnects.
+              Write with response.
+            verification: "reported"
+            locate: "sound"
+            value: [0xc8, 0x00]
+      - uuid: "f3a0000a-f0a2-9b06-0c59-1bc4763b5c00"
+        name: "Live-mode counter"
+        properties: ["write"]
+        notes: >
+          The app only ever writes this characteristic. Earlier notes called it
+          notify, but nothing in the app subscribes to it or reads it.
+        commands:
+          start_live_mode:
+            description: >
+              Put the probe into live mode for a run of back-to-back
+              measurements, broadcast as mode-2 records whose sequence counts
+              up from 1 (the app treats sequence 1 as the start of a run).
+              Two bytes: the count, then 0x00. The app's default count is 5,
+              and its calibration wizard asks for 21. The interval between
+              live measurements is not established. Write with response.
+            verification: "reported"
+            template: ["{count}", 0x00]
+            parameters:
+              count:
+                type: "uint8"
+                min: 1
+                max: 255
+                default: 5
+                description: "Number of live measurements to take. The app's iOS branch masks it to 8 bits; its Android branch does not, which only matters above 255."
+      - uuid: "f3a00011-f0a2-9b06-0c59-1bc4763b5c00"
+        name: "Software version"
+        properties: ["read"]
+        notes: >
+          Read once at activation. The whole value is decoded as ASCII text
+          and stored by the vendor cloud as the probe's firmware version; see
+          payload_formats.EcoSoftwareVersion. Its length and format are not
+          established, so no fixed-width format block is declared.
+
+payload_formats:
+  EcoAdvertisementRecord:
+    description: >
+      The manufacturer-specific advertisement data after the two company-ID
+      bytes (on air: ff 4c 07, then these bytes). Offsets count from the first
+      byte after the company ID. Multi-byte fields are BIG-endian, unlike most
+      BLE payloads. The app reads bytes 0 to 13, so a record is at least 14
+      bytes; whether longer records carry more is not established. Layout
+      from the vendor app's parser (reported); scalings marked hypothesis are
+      inference.
+    fields:
+      - name: "format_version"
+        offset: 0
+        length: 1
+        type: "uint8"
+        description: "Record format version. Values seen in the field are not known; the app does not branch on it."
+      - name: "mode"
+        offset: 1
+        length: 1
+        type: "uint8"
+        values: {"1": "standard", "2": "live", "3": "maintenance", "4": "backup"}
+        description: >
+          The probe's mode when it took this measurement. The app ignores
+          maintenance records for measurement purposes, keeps live records
+          for calibration only, and for backup records prefers a timestamp that
+          this record does not carry. What "backup" means on the probe is not
+          established.
+      - name: "sequence"
+        offset: 2
+        length: 1
+        type: "uint8"
+        description: "Measurement counter. In live mode it counts the run from 1. Wraparound behaviour is not established."
+      - name: "ph"
+        offset: 3
+        length: 2
+        type: "int16"
+        endianness: "big"
+        scale: 0.01
+        verification: "hypothesis"
+        description: >
+          pH. The app sign-extends the 16-bit value (reported) and forwards the
+          raw integer to the cloud. The 1/100 scale is inference: it fits the
+          range and the app's calibration stability test (a spread under 5 raw
+          units). Uncalibrated.
+      - name: "orp"
+        offset: 5
+        length: 2
+        type: "int16"
+        endianness: "big"
+        unit: "mV"
+        verification: "hypothesis"
+        description: >
+          Oxidation-reduction potential. Raw = millivolts is inference from
+          the pool range (the app's advice targets 650 to 800 mV). The app
+          sign-extends it on iOS only; its Android build reads the same bytes
+          unsigned, so a negative ORP shows there as 65536 minus the
+          magnitude. Decode as signed. Uncalibrated.
+      - name: "temperature"
+        offset: 7
+        length: 2
+        type: "uint16"
+        endianness: "big"
+        scale: 0.01
+        unit: "C"
+        verification: "hypothesis"
+        description: >
+          Water temperature. Unsigned big-endian (reported). The app forwards
+          the raw integer and never scales it itself, so the scale is
+          inference: 0.01 C, the encoding the Blue Connect uses on the same
+          UUID base. 0.1 C is the main alternative. Check against a
+          thermometer before trusting it.
+      - name: "conductivity"
+        offset: 9
+        length: 2
+        type: "uint16"
+        endianness: "big"
+        description: >
+          Conductivity, raw. Unit and scale are not established. The app
+          parses it but does not upload it with the measurement.
+      - name: "activity"
+        offset: 11
+        length: 1
+        type: "uint8"
+        mask: 0xC0
+        description: "Top two bits of byte 11. Meaning not established. The app uploads 1 in place of 0."
+      - name: "battery"
+        offset: 11
+        length: 1
+        type: "uint8"
+        mask: 0x3F
+        scale: 2
+        unit: "%"
+        description: "Low six bits of byte 11, times 2 (reported: the app's own formula). The field can express up to 126; clamp to 100."
+      - name: "minutes_of_day"
+        offset: 12
+        length: 2
+        type: "uint16"
+        endianness: "big"
+        mask: 0xFFE0
+        unit: "min"
+        description: >
+          11 bits: all of byte 12 as the high bits and the top three bits of
+          byte 13 as the low bits, i.e. byte12 * 8 + (byte13 >> 5). Minutes
+          after 00:00 UTC on the probe's clock when the measurement was taken
+          (see parse_rules for the date). The low five bits of byte 13 are not
+          used by the app.
+    parse_rules:
+      - "Accept only advertisements whose local name is exactly 8 characters and whose manufacturer data is keyed 0x074C (on air: ff 4c 07 ...). Offsets start after the company ID."
+      - "Every multi-byte field is big-endian. pH and ORP are signed; temperature and conductivity are unsigned."
+      - "battery_percent = (byte11 & 0x3f) * 2, clamped to 100. activity = (byte11 & 0xc0) >> 6."
+      - "minutes = byte12 * 8 + (byte13 >> 5). measured_at = today 00:00 UTC + minutes; if that is more than 15 minutes in the future, subtract one day."
+      - "If measured_at is more than 30 minutes in the past or more than 5 minutes in the future, the probe clock has drifted: the app then uses the current minute instead and reconnects to write set_time."
+      - "The same record repeats in advertisements until the probe measures again. Treat a record as new only when (name, sequence, minutes) changes."
+      - "Treat mode 3 (maintenance) records as not measurements, and mode 2 (live) records as a calibration run, as the app does."
+    example: "01 01 07 02 e4 02 b2 0a 1e 04 d2 b2 5a a0"
+
+  EcoSoftwareVersion:
+    description: "The value read from f3a00011-f0a2-9b06-0c59-1bc4763b5c00."
+    fields:
+      - name: "software_version"
+        type: "string"
+        description: "The whole characteristic value as ASCII text. Length and format not established."
+    parse_rules:
+      - "Read the characteristic and decode every byte as ASCII."
+
+entities:
+  - platform: "sensor"
+    name: "pH"
+    device_class: "ph"
+    notes: >
+      From the advertisement (payload_formats.EcoAdvertisementRecord.ph), no
+      connection needed. Uncalibrated, and the 1/100 scale is a hypothesis.
+      Skip mode 2 and mode 3 records.
+  - platform: "sensor"
+    name: "ORP"
+    device_class: "voltage"
+    unit: "mV"
+    notes: "From the advertisement (EcoAdvertisementRecord.orp). Uncalibrated. Decode as signed."
+  - platform: "sensor"
+    name: "Water Temperature"
+    device_class: "temperature"
+    unit: "C"
+    notes: "From the advertisement (EcoAdvertisementRecord.temperature). The 0.01 C scale is a hypothesis; check it against a thermometer."
+  - platform: "sensor"
+    name: "Conductivity (raw)"
+    notes: "From the advertisement (EcoAdvertisementRecord.conductivity). Raw integer, unit not established."
+  - platform: "sensor"
+    name: "Battery"
+    device_class: "battery"
+    unit: "%"
+    notes: "From the advertisement (EcoAdvertisementRecord.battery)."
+  - platform: "button"
+    name: "Beep"
+    commands:
+      press: "beep"
+    notes: "Connect, write set_time, write the beep, disconnect. The probe floats in the pool, so this is how to find it."
+  - platform: "button"
+    name: "Start Live Mode"
+    commands:
+      press: "start_live_mode"
+    notes: "Five back-to-back measurements by default, broadcast as mode-2 records."
+  - platform: "button"
+    name: "Activate (Monitoring Mode)"
+    commands:
+      press: "enter_monitoring_mode"
+    notes: "Activates a new probe or wakes one from wintering."
+  - platform: "button"
+    name: "Winter Standby (Maintenance Mode)"
+    commands:
+      press: "enter_maintenance_mode"
+    notes: "The app's wintering. Measurements stop being ingested until the probe is activated again."
+
+protocol_details:
+  record_modes_and_opcodes:
+    description: >
+      Two numberings that look alike and are not. The mode byte in the
+      advertisement record reports the probe's state; the opcode written to
+      f3a00002 requests a state. Both from the vendor app (reported).
+    record_mode_byte:
+      "1": "standard: a scheduled measurement, the one to ingest"
+      "2": "live: part of a run started with start_live_mode"
+      "3": "maintenance: a new, wintered or standby probe"
+      "4": "backup: meaning not established"
+    command_opcodes:
+      "0x01": "reset (effect not established; advanced)"
+      "0x04": "enter monitoring mode (activate, wake from wintering)"
+      "0x05": "enter maintenance mode (wintering / standby)"
+    notes: >
+      No other opcode appears in the app. What the probe does with any other
+      byte is not established.
+  connect_sequence:
+    description: >
+      What the vendor app does every time it connects (reported): connect with
+      a 12 s timeout, discover services, write set_time, then the operation
+      (read f3a00011; or write an opcode, the beep, or the live-mode count),
+      then disconnect. It holds no connection open and subscribes to nothing.
+    operations:
+      activate: ["connect", "set_time", "read f3a00011", "write 0x04 to f3a00002", "disconnect"]
+      winter: ["connect", "set_time", "write 0x05 to f3a00002", "disconnect"]
+      reset: ["connect", "set_time", "write 0x01 to f3a00002", "disconnect"]
+      clock_resync: ["connect", "set_time", "disconnect"]
+      buzzer_test: ["connect", "set_time", "beep", "wait 500 ms", "beep", "wait 500 ms", "beep", "disconnect"]
+      calibration_run: ["connect", "set_time", "beep", "write [21, 0] to f3a0000a", "disconnect", "collect mode-2 records from advertisements"]
+  calibration:
+    description: >
+      The app's calibration wizard asks the owner to rinse the sensors and
+      hold the probe in a reference solution, starts a live run of 21
+      measurements, and accepts the run when the spread (max minus min) of the
+      channel being calibrated over the collected samples is under 5 raw
+      units; otherwise it asks the owner to keep the probe in the fluid and
+      repeats. The raw samples go to the vendor cloud, which keeps the
+      calibration and the date of the last pH and ORP calibration. Nothing
+      calibration-related is written to the probe (reported). A local client
+      therefore reads uncalibrated values and has to do its own two-point
+      calibration if it wants better.
+  measurement_time:
+    description: >
+      The record carries only minutes after 00:00 UTC from the probe's own
+      clock; there is no date and no age. The probe's clock is set by
+      set_time. See the parse rules on payload_formats.EcoAdvertisementRecord
+      for how the app rebuilds the timestamp, and when it decides the clock has
+      drifted. The app also resynchronises the clock with the first
+      measurement it sees each day.
+  test_vectors:
+    description: >
+      Constructed from the app's parser to pin byte order, signedness, masks
+      and the minutes split. They are NOT captures: the format-version byte
+      0x01 and every value are invented, and the decoded pH and temperature
+      use this spec's hypothesis scalings.
+    vectors:
+      - record: "01 01 07 02 e4 02 b2 0a 1e 04 d2 b2 5a a0"
+        decoded: {format_version: 1, mode: "standard", sequence: 7, ph_raw: 740, ph: 7.40, orp_mv: 690, temperature_raw: 2590, temperature_c_if_centi: 25.90, conductivity_raw: 1234, activity: 2, battery_percent: 100, minutes_of_day: 725, time_utc: "12:05"}
+      - record: "01 02 01 02 d5 ff 38 07 d0 00 00 5e 7d 1f"
+        decoded: {format_version: 1, mode: "live", sequence: 1, ph_raw: 725, ph: 7.25, orp_mv: -200, temperature_raw: 2000, temperature_c_if_centi: 20.00, conductivity_raw: 0, activity: 1, battery_percent: 60, minutes_of_day: 1000, time_utc: "16:40"}
+        notes: "ORP ff 38 is -200 mV signed. The vendor's Android build would read 65336 here. Byte 13's low five bits (0x1f) are ignored."
+      - record: "01 03 00 03 0c 01 f4 09 c4 00 00 32 00 00"
+        decoded: {format_version: 1, mode: "maintenance", sequence: 0, ph_raw: 780, ph: 7.80, orp_mv: 500, temperature_raw: 2500, temperature_c_if_centi: 25.00, conductivity_raw: 0, activity: 0, battery_percent: 100, minutes_of_day: 0, time_utc: "00:00"}
+        notes: "A maintenance record: what the app waits for when adding a probe, and not a measurement."
+      - command: "set_time"
+        input: {unix_time: 1790000000}
+        bytes: "80 3b b1 6a 00 00 00 00"
+        notes: "2026-09-21T14:13:20Z."
+      - command: "start_live_mode"
+        input: {count: 5}
+        bytes: "05 00"
+      - command: "beep"
+        bytes: "c8 00"
+  uuids_that_are_not_this_device:
+    description: >
+      UUIDs found near the EcO's in the vendor app that belong to other
+      products. Recorded because earlier notes attributed them to the EcO, and
+      that is the wrong turn the next reader would take. All reported, from
+      the app code that uses each one.
+    entries:
+      - uuids: ["f4000001-f0a2-9b06-0c59-1bc4763b5c00", "f4000002-f0a2-9b06-0c59-1bc4763b5c00", "f4000003-f0a2-9b06-0c59-1bc4763b5c00"]
+        belongs_to: "iopool Connect BLE-to-Wi-Fi gateway (service, write, read). Used by the app's gateway setup, which also fetches the gateway's firmware URL from the vendor cloud config."
+      - uuids: ["f4100001-f0a2-9b06-0c59-1bc4763b5c00", "f4100010-f0a2-9b06-0c59-1bc4763b5c00", "f4100011-f0a2-9b06-0c59-1bc4763b5c00"]
+        belongs_to: "Ecotab chlorine-tablet dispenser (service, write, read). The dispenser's own firmware update and API run through it."
+      - uuids: ["0000fe63-0000-1000-8000-00805f9b34fb", "3206152c-76fd-4996-952b-2a1be2cb9450"]
+        belongs_to: "Adopted pHin monitors, a separate family with its own advertisement format (phin-pool candidate)."
+      - uuids: ["f3300001-f0a2-9b06-0c59-1bc4763b5c00"]
+        belongs_to: "Blueriiot Blue Connect (not in the iopool app). Same UUID base as the EcO, different vendor."
+  hardware:
+    description: >
+      From the FCC filing for 2AVNQECO-V1 (test report and internal photos):
+      model "EcO v01", Bluetooth 4.0 LE only across 2402-2480 MHz, an internal
+      integral antenna, a 3.7 V internal battery, a Texas Instruments
+      CC2640R2F SoC (marking legible in the internal photo), an 8-pin
+      companion part whose marking is not legible (possibly serial flash), a
+      buzzer, and a two-lead switch beside it. The welcome-guide exhibit gives
+      a two-year battery life with no recharging, and says the probe must stay
+      in the water once its cap is off. The vendor's current product page
+      describes a newer generation with a replaceable battery and sensors;
+      whether its radio protocol differs is not established.
+
+evidence:
+  app_static_analysis: >
+    The vendor's Android app, com.iopool 2.43.6 (React Native with a Hermes
+    bytecode bundle), decompiled to pseudo-code and read. It established: the
+    scan (continuous, duplicates allowed, no service filter, low-latency);
+    the discovery test (an 8-character local name plus manufacturer data keyed
+    074c); the advertisement record's layout, signedness and masks, and the
+    battery and minutes formulas; the mode numbering and which modes the app
+    ingests; how it rebuilds the measurement date and when it declares clock
+    drift; the connect sequence (12 s timeout, service discovery, clock write
+    on every connection); the GATT map of service f3a00001 and the operation
+    on each characteristic; the opcodes 0x01, 0x04 and 0x05; the 8-byte
+    little-endian Unix-seconds clock payload; the beep payload (uint16 LE
+    200) and the three-beep test; the live-mode payload [count, 0] with its
+    default of 5 and the calibration wizard's 21; the activation, wintering
+    and reset flows; and which nearby UUIDs belong to the Connect gateway, the
+    Ecotab and pHin. Not established from the app: the pH, ORP and
+    temperature scalings (the app forwards raw integers to the cloud) and
+    anything the probe does that the app does not exercise. Nothing was
+    copied.
+  open_source_review: >
+    innoveit/react-native-ble-manager, the app's BLE library:
+    DefaultPeripheral.java (Android) and ios/Helper.swift key manufacturer
+    data by the company ID formatted as four lowercase hex digits and strip
+    the ID from the value, which is what turns the app's 074c key into
+    company ID 0x074C and fixes where offset 0 of the record sits.
+    mguyard/hass-iopool: the Home Assistant integration polls the vendor's
+    read-only REST API for each pool's latest measurement (already converted
+    to pH, mV and degrees) and exposes no device control, so there is no cloud
+    control surface to fall back on either.
+  documentation_review: >
+    FCC ID 2AVNQECO-V1 (iopool SA, Belgium, granted 2020-04-15): the grant
+    page, the test report (model EcO v01, Bluetooth 4.0 LE, 3.7 V internal
+    battery, integral antenna), the internal photos (TI CC2640R2F) and the
+    welcome-guide exhibit (two-year battery, keep in water, start guide). The
+    Bluetooth SIG company-identifier registry (fetched 2026-09-28) has no
+    entry for 0x074C.
+  negative_findings: >
+    No firmware-update path for the EcO exists in the app: its firmware-URL
+    configuration belongs to the Connect gateway and the Ecotab, and no TI
+    over-the-air-download service UUID appears anywhere in the bundle. No
+    notification subscription and no bonding call exists in the probe path.
+    The f400 and f410 services and 0xfe63 are not the EcO's. No capture of the
+    probe exists in any source this project holds, and no public BLE-level
+    write-up of it was found.
+  open_questions: >
+    See remaining_unknowns. The cheapest first checks with a probe in hand:
+    one passive scan (the name format, whether f3a00001 is advertised, the
+    format-version byte, the record length, and the temperature and pH raw
+    values next to a thermometer and a test strip), then one connect and read
+    of f3a00011.
+  artifacts:
+    - type: "static_analysis"
+      artifact: "com.iopool 2.43.6 (iopool, React Native with Hermes bytecode; Android APK)"
+      obtained_via: "third-party APK mirror, 2026-09-01"
+      description: "Source of every protocol fact in this spec. The bundle holds no probe firmware and no OTA image URL."
+    - type: "fcc_filing"
+      artifact: "FCC ID 2AVNQECO-V1, iopool SA, granted 2020-04-15"
+      url: "https://fccid.co/fcc/2AVNQECO-V1"
+      obtained_via: "fccid.co, 2026-09-26"
+      description: "Radio (BLE 4.0 only), battery, antenna, SoC and the welcome guide."
+    - type: "public_implementation"
+      artifact: "innoveit/react-native-ble-manager (Apache-2.0)"
+      url: "https://github.com/innoveit/react-native-ble-manager"
+      obtained_via: "raw file fetch, 2026-09-28"
+      description: "How the app's manufacturer-data key maps to bytes on the air."
+    - type: "community_repo"
+      artifact: "mguyard/hass-iopool (Home Assistant integration)"
+      url: "https://github.com/mguyard/hass-iopool"
+      obtained_via: "raw file fetch, 2026-09-28"
+      description: "Cloud-only and read-only: no BLE, no device control."
+
+remaining_unknowns:
+  - "Nothing here has been seen on air. The advertised name's format (beyond its 8-character length), whether f3a00001 is advertised, and which PDU carries the manufacturer data are not established."
+  - "Whether 0x074C is an unlisted assignment or a squatted company ID."
+  - "The pH scale (1/100 is a hypothesis), the ORP unit (mV is a hypothesis) and the temperature scale (0.01 C is a hypothesis; 0.1 C is the alternative)."
+  - "The conductivity field's unit and scale, and the meaning of the two activity bits."
+  - "The format-version values in use, whether records longer than 14 bytes exist, and what the low five bits of byte 13 carry."
+  - "What mode 4 (backup) means on the probe, and what the reset opcode 0x01 clears."
+  - "The beep value's unit, the live-mode measurement interval, and the standard-mode measurement and advertising intervals."
+  - "Whether a factory-fresh probe advertises before the turn-over gesture, and whether the gesture is sensed by the switch seen in the FCC photos."
+  - "Whether the probe accepts a second central while the vendor app or a Connect gateway is connected."
+  - "Whether the full property sets of the f3a0 characteristics include read or notify beyond what the app uses."
+  - "Whether the newer EcO generation with a replaceable battery and sensors speaks the same protocol."
+  - "Whether and how the probe's firmware can be updated. The app has no path for it."
+
+helpful_urls:
+  - title: "EcO welcome guide (FCC exhibit, PDF)"
+    url: "https://fccid.co/api/files/s1/2avnqeco_v1_usersmanual_4689472_d7f4cefa85.pdf"
+    kind: "manual"
+    description: >
+      The two-page user-manual exhibit for the iopool EcO (model EcO v01, FCC
+      ID 2AVNQECO-V1): pack contents, battery life, keep-in-water advice and
+      the app start guide.
+  - title: "FCC ID 2AVNQECO-V1 grant (iopool EcO)"
+    url: "https://fccid.co/fcc/2AVNQECO-V1"
+    kind: "other"
+    description: "Grant record and exhibit list: iopool SA, Swimming Pool Sensor, 2402-2480 MHz, granted 2020-04-15."
+  - title: "FCC 2AVNQECO-V1 internal photos (PDF)"
+    url: "https://fccid.co/api/files/s1/2avnqeco_v1_internalphotos_4689480_166016b092.pdf"
+    kind: "teardown"
+    description: "The main board: TI CC2640R2F SoC, buzzer, a two-lead switch and the sensor connector."
+  - title: "FCC 2AVNQECO-V1 test report (PDF)"
+    url: "https://fccid.co/api/files/s1/2avnqeco_v1_testreport_4689476_47f9003ce3.pdf"
+    kind: "other"
+    description: "Model EcO v01, Bluetooth 4.0 LE, 3.7 V internal battery, integral antenna."
+  - title: "iopool EcO Start (vendor product page)"
+    url: "https://iopool.com/products/eco-start"
+    kind: "vendor_support"
+    description: "The pack the probe is sold in. Describes the current generation with a replaceable battery and sensors."
+  - title: "mguyard/hass-iopool"
+    url: "https://github.com/mguyard/hass-iopool"
+    kind: "implementation"
+    description: >
+      Home Assistant integration built on the vendor's read-only cloud API. It
+      shows what the cloud reports (converted pH, ORP, temperature, mode) and
+      that there is no cloud control surface; it does not use BLE.
+  - title: "react-native-ble-manager: DefaultPeripheral.java"
+    url: "https://github.com/innoveit/react-native-ble-manager/blob/master/android/src/main/java/it/innove/DefaultPeripheral.java"
+    kind: "implementation"
+    description: "How the app's BLE library keys manufacturer data on Android (company ID as %04x, ID stripped from the value)."
+  - title: "react-native-ble-manager: ios/Helper.swift"
+    url: "https://github.com/innoveit/react-native-ble-manager/blob/master/ios/Helper.swift"
+    kind: "implementation"
+    description: "The same keying on iOS: the little-endian company ID as four hex digits, value without it."
+  - title: "Bluetooth SIG company identifiers (YAML)"
+    url: "https://bitbucket.org/bluetooth-SIG/public/raw/main/assigned_numbers/company_identifiers/company_identifiers.yaml"
+    kind: "standard"
+    description: "The registry that has no entry for 0x074C."
+  - title: "TI CC2640R2F product page"
+    url: "https://www.ti.com/product/CC2640R2F"
+    kind: "other"
+    description: "The SoC read off the FCC internal photos."

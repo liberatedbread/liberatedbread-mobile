@@ -1,0 +1,940 @@
+# Beddit Sleep Monitor 3 / 3.5 under-mattress BLE sensor strip device spec
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Scope: the BLE sensor strips the Beddit Android app drives as its "BTLE"
+# and "BTLEv3" hardware types (two GATT layouts, see device.variants), raw
+# ballistocardiography (BCG) force streaming and Device Information only.
+# Out of scope: the phone-side sleep/heart-rate/respiration analysis, the
+# classic-Bluetooth SPP sensor generation the same app also drives (separate
+# spec), and the Beddit cloud API (shut down 2018-11-15).
+# Evidence: a static read of the last Android app, so every protocol fact is
+# verification: reported. The FCC listings for Beddit 3 (2AI4U-B3) and the
+# model 3.5 (BCG-B35), and the 3.5's user guide, add the radio and the setup
+# steps. There are no captures.
+# Role note: two earlier write-ups (and the brief this spec was written from)
+# swap the description and data characteristics of the e6807d20 service. The
+# roles below are the ones the app's bytecode runs; see device.notes.
+
+device:
+  name: "Beddit Sleep Monitor 3 / 3.5"
+  manufacturer: "Beddit (Apple)"
+  manufacturer_status: "shutdown"
+  openness:
+    status: "undocumented"
+    reverse_engineered: true
+  testing:
+    status: untested
+    notes: >
+      No hardware was exercised for this spec and there are no captures.
+      Every protocol fact comes from a static read of the last Android app,
+      com.beddit.beddit 2.3.12 (versionCode 149), so it is
+      `verification: reported` at best. The model 3.5's FCC filing and user
+      guide (Internet Archive copies) and the Beddit 3 FCC listing add
+      hardware and setup facts only; none of them describes the protocol.
+  protocol: "ble"
+  transport: "ble-gatt"
+  type: "sleep-sensor"
+  category: "health"
+  category_hierarchy: ["measurement", "health", "sleep"]
+  notes: >
+    Beddit made thin under-mattress sensor strips that measure
+    ballistocardiography (BCG): the tiny body movements caused by each
+    heartbeat and breath. Apple bought Beddit in May 2017, shut Beddit
+    Cloud on 2018-11-15, stopped selling the hardware in January 2022 and
+    removed the Beddit 3.0 and 3.5 iOS apps from the App Store in September
+    2024. The Android app had been dropped earlier. The strip has no
+    battery. It is powered over a USB cable from the supplied USB power
+    adapter, and the app's onboarding asks the user to put it under the
+    sheet, plug it in, and then connect. Both FCC filings show a Bluetooth
+    LE radio only (one 2402-2480 MHz line, equipment class DTS, no Classic
+    DSS line): 2AI4U-B3, filed by Beddit Oy in August 2016 for the "B3"
+    sensor (Beddit 3), and BCG-B35, filed by Apple in December 2018 for
+    model 3.5. So neither model has a Classic side.
+
+    WHAT THE SENSOR SENDS: only a raw force waveform, streamed live as
+    uint16 samples at a rate the sensor announces. It sends no sleep
+    stages, heart rate, respiration or sleep score. Those came from a
+    native analysis library that ran on the phone and fed on this stream,
+    with snoring taken from the phone's own microphone. So a client built
+    from this spec gets the BCG waveform and nothing derived; getting the
+    numbers the app showed means reimplementing that analysis. An earlier
+    guess, based on the app's screenshots, that a night is bulk-downloaded
+    as finished metrics is contradicted by the code: the app streams live
+    for the whole night and does no download.
+
+    TWO GATT LAYOUTS, chosen after connecting. The app walks the
+    discovered services and uses the first one it recognises:
+      - service f82fd8a8-329d-4c44-a178-e82f91ec9fe6 (the app's "BTLE"
+        hardware type): one "force" channel. f82fd8aa-... gives the sample
+        rate in whole Hz; f82fd8a9-... is written with 0x01 to start and
+        then notifies [type 0x80|0x90][sequence][uint16 LE samples...].
+      - service e6807d20-b90a-11e5-a837-0800200c9a66 (the app's "BTLEv3"
+        hardware type): two channels that describe themselves, plus a
+        control point and a status characteristic. Control point
+        e6807d21-... takes 0x01 to start. Channel 1 is described by
+        e6807e21-... (read) and carries data on e6807e20-... (notify);
+        channel 2 is described by e6807e25-... (read) and carries data on
+        e6807e24-... (notify). e6807d22-... is a status characteristic the
+        app subscribes to but does not act on.
+    The e6807d20 UUID is a time-based (version 1) UUID whose timestamp
+    decodes to 2016-01-12, nine months before Beddit 3 reached shops in
+    October 2016, so "BTLEv3" is very likely Beddit 3. Which physical
+    models speak the f82fd8a8 layout is not established (see
+    device.variants). On that layout the vendor app no longer works at
+    all: after connecting, it asks a Beddit server whether the sensor is
+    blocked, and treats the now-unreachable server as fatal (see cloud).
+    The sensor is not involved in that check, so a client built from this
+    spec is unaffected.
+
+    CORRECTED ROLES: earlier write-ups of this app disagree on the
+    e6807d20 layout. One gives the service as e6807e20 and makes e6807d20
+    the channel-1 description. Another, repeated in the brief this spec
+    was written from, pairs the descriptions with e6807e20/e6807e24 and
+    the data with e6807e21/e6807e25. The roles above are the ones the
+    app's session code actually runs, checked in the disassembled bytecode
+    as well as in the decompiled source. It READS e6807e21 and e6807e25 at
+    connect; those are the values its description parser receives (the
+    5-byte minimum and the "u2" check run on them). It SUBSCRIBES to
+    e6807e20 and e6807e24, which the parser pairs with e6807e21 and
+    e6807e25 respectively, and parses their notifications as sample
+    packets. The service UUID the app selects on is e6807d20. A client
+    that does not want to trust any labelling can check the bytes: a
+    description is readable and carries ASCII "u2" at bytes 2-3.
+
+    The whole local surface is: scan for the name, connect with no pairing,
+    read Device Information plus the variant's description or rate
+    characteristics, open notifications, write 0x01, and collect samples
+    until you disconnect. There is no stop command, no stored history, no
+    authentication and no firmware update path in the app.
+
+  safety_advisory:
+    severity: "warning"
+    summary: >
+      Raw sleep-sensor data and any metrics derived from it are wellness
+      information, not a diagnosis or a basis for treatment.
+    detail: >
+      This unverified spec exposes a raw ballistocardiography force waveform,
+      not clinically validated heart-rate, respiration or sleep-stage
+      measurements. Do not use it to detect or rule out a medical condition
+      or to change medication or treatment. Keep the sensor and its cable
+      positioned according to the manufacturer's instructions, and do not
+      start or stop a recording while someone is adjusting the bed.
+    acknowledge_required: true
+
+  identification:
+    local_name_prefixes: ["Beddit", "beddit", "BEDDIT"]
+    notes: >
+      The app's scanner keeps any device whose advertised name starts with
+      "beddit", compared case-insensitively. The three prefixes are the
+      likely casings of that one test; discovery.methods carries the exact
+      case-insensitive form as a regex. The real advertised name has never
+      been seen in a scan. The Android app's onboarding tells owners with
+      several sensors to find the device number on the back of the strip,
+      and the model 3.5 user guide says the ID number is printed on the
+      cable close to the sensor. Both suggest that each unit's advertised
+      name carries that number (hypothesis).
+      No advertised service UUID, manufacturer data or OUI for the BLE
+      strips is known. The Bluegiga OUI 00:07:80 that appears in the app is
+      used the other way round: it marks the classic-Bluetooth generation,
+      and the app keeps such a device off the BLE path (see
+      protocol_details.app_scan_classifier). It is not listed here.
+
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          local_name:
+            match: "regex"
+            value: "(?i)^beddit"
+            # Mirrors the app's filter: lower-case the name, then test
+            # startsWith("beddit"). Unverified against a live scan.
+    identity:
+      stable_keys: ["address"]
+      display: "local_name"
+      notes: >
+        The app keys a sensor by its Bluetooth address and shows its name.
+        Whether the strips use a public or a rotating random address is not
+        known; a single mains-powered sensor with no bonding most likely
+        uses a fixed address, but that has not been checked.
+    static_ip_required: false
+
+  setup:
+    required: false
+    confidence: "low"
+    notes: >
+      Nothing is provisioned: no Wi-Fi, no account on the sensor, no
+      pairing and no key exchange. The app's own onboarding is: put the
+      strip on the mattress under the sheet, plug in its power adapter, and
+      connect. Confidence is low because this comes only from reading the
+      app. Nothing has been run against hardware and there is no open
+      implementation to compare with.
+    methods:
+      - type: "ble_direct"
+        verified: false
+        description: >
+          Plug in the strip, scan for a name starting with "beddit" (any
+          case), connect with no pairing, pick the GATT layout by service
+          UUID, run that service's initialization, then write 0x01 to start
+          streaming. Recording ends when the client disconnects.
+        ble:
+          pairing_required: false
+        steps:
+          - action: "Lay the strip on the mattress under the sheet and plug its power adapter into a wall socket."
+            actor: "user"
+            expect: "The sensor powers up and advertises. There is no button, and the app has no pairing-mode step."
+          - action: "Scan for a device whose local name starts with 'beddit' in any case. If there are several, match the ID number printed on the strip or, on the 3.5, on the cable close to the sensor."
+            actor: "client"
+            request:
+              protocol: "ble_gatt"
+          - action: "Connect without bonding and discover services. Use service f82fd8a8-329d-4c44-a178-e82f91ec9fe6 or e6807d20-b90a-11e5-a837-0800200c9a66, whichever the device has."
+            actor: "client"
+            expect: "If neither service is present, the app gives up and reports that no Beddit service was found."
+          - action: "Run the chosen service's initialization and the Device Information reads. Wait for every read and every notification-enable write to complete before moving on."
+            actor: "client"
+          - action: "Write 0x01 to the start characteristic: e6807d21-b90a-11e5-a837-0800200c9a66 on the e6807d20 layout, f82fd8a9-329d-4c44-a178-e82f91ec9fe6 on the f82fd8a8 layout."
+            actor: "client"
+            expect: "Sample notifications begin on the data characteristics. See payload_formats."
+          - action: "Disconnect to stop. No stop byte is written."
+            actor: "client"
+        troubleshooting:
+          - symptom: "Sensor never appears in the scan."
+            causes:
+              - "The strip is not powered. It has no battery, and the app's own hint is to check the power adapter and move closer."
+              - "Another central still holds the link, for example an old phone that still has the vendor app installed."
+          - symptom: "Connected, but the session ends straight after service discovery."
+            causes:
+              - "Neither Beddit service was found. The app aborts in that case, and so should a client."
+              - "One of the four Device Information strings is missing. The app requires all four and aborts without them."
+          - symptom: "Notifications arrive but the sample count jumps."
+            causes:
+              - "Packets were lost. The sequence byte shows the gap. See protocol_details.gap_padding for how the app filled it."
+    factory_reset:
+      applicable: "unknown"
+      confidence: "low"
+      effect: >
+        As far as the app shows, the sensor holds no credentials, no bond
+        and no owner binding, so no reset is known to clear anything. Its
+        state is the stream it is sending.
+      procedures:
+        - name: "Power cycle"
+          verified: false
+          basis: >
+            Not from any Beddit document: the model 3.5 user guide
+            describes no reset procedure and no button. It is the generic
+            remedy for a BLE peripheral with no bond. The strip has no
+            battery, so unplugging the adapter removes all power.
+          steps:
+            - action: "Unplug the strip's power adapter for about ten seconds, then plug it back in."
+              actor: "user"
+              expect: "The sensor advertises again and accepts a fresh connection."
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        No bond or account ties the strip to a phone at the BLE layer, so
+        moving it to a new client should need only connecting from that
+        client, once the old one has let go of the link.
+    credentials:
+      wifi_passphrase_protection: "not_applicable"
+      stored_on_device: []
+      issued_to_client: []
+      notes: >
+        No keys, tokens or PINs on the BLE path. Anyone in radio range can
+        connect and read the raw BCG stream, which is personal health data.
+        The only protection is physical proximity.
+
+  pairing:
+    required: false
+    confidence: "low"
+    security_mode: "none"
+    bonding: "none"
+    exclusivity:
+      single_connection: "unknown"
+      recovery: >
+        If the sensor cannot be found or connected to, close or uninstall
+        the vendor app on any phone that used it, then power-cycle the
+        strip.
+    enter_pairing_mode:
+      required: false
+      notes: >
+        The app's onboarding only asks the user to plug the strip in. There
+        is no button and no pairing-mode step.
+    notes: >
+      The app opens a plain GATT connection (no autoConnect). It never
+      requests a bond and has no handling for authentication errors, and it
+      sets up both layouts the same way. That fits a device with open GATT.
+      It is inferred rather than proven. Android pairs automatically when a
+      characteristic answers "insufficient authentication", so the app's
+      code would look the same if the sensor demanded Just Works pairing on
+      some attribute. Hence low confidence.
+
+  host_compatibility:
+    - stack: "android"
+      status: "compatible"
+      verification: "reported"
+      basis: >
+        The vendor's Android app (2.3.12) drove both GATT layouts through
+        the stock Android GATT client with no bonding, read from its code.
+        Not run here.
+      notes: >
+        The app's only host-specific handling is for one handset model, the
+        Samsung GT-I9300 (Galaxy S III). On that phone it runs a 2-second LE
+        scan before calling connect. On every other phone it connects
+        directly. That is a quirk of that phone's stack, not of the sensor.
+
+  variants:
+    - model: "BTLEv3 (e6807d20 service)"
+      notes: >
+        Two self-describing uint16 channels, control point e6807d21 and
+        status e6807d22. The app reports this layout as hardware type
+        "BTLEv3/<hardware revision>". Very likely Beddit 3: the service
+        UUID was minted 2016-01-12. Whether the Beddit 3.5 (sold from
+        December 2018) uses the same layout is assumed but not shown. The
+        3.5 shipped with a new iOS-only app (iOS 12 or later) while the old
+        app was kept for model 3.0, and Android support was dropped around
+        then, so the Android app studied here most likely never drove a
+        3.5. Both the Beddit 3 filing (FCC ID 2AI4U-B3, Beddit Oy, August
+        2016) and the 3.5 filing (BCG-B35, Apple, December 2018) show a
+        BLE-only radio, so both are at least reachable over LE. The 3.5's
+        radio test report records firmware v004ef1 on the tested unit. Told
+        apart from the other layout after connecting, by the service UUID;
+        nothing is known to distinguish them in the advertisement.
+    - model: "BTLE (f82fd8a8 service)"
+      notes: >
+        One "force" channel. The rate comes from f82fd8aa, and control and
+        data share f82fd8a9. The app reports this layout as hardware type
+        "BTLE/<hardware revision>", with no "v3". It also puts these
+        sensors, like the classic-Bluetooth ones, through a post-connect
+        check against Beddit's sensor-replacement service, which BTLEv3
+        sensors skip (see cloud). Both facts point to an earlier BLE Beddit
+        generation rather than a Beddit 3 revision. The separate
+        beddit-2-sleep-tracker spec argues from 2015 press coverage that
+        this is the Beddit Smart (2015); that is not verified here, and
+        which retail models used the layout is not established.
+
+services:
+  - uuid: "e6807d20-b90a-11e5-a837-0800200c9a66"
+    name: "Beddit sensor service (BTLEv3 layout)"
+    notes: >
+      Selected when the device has this service. The app requires all six
+      characteristics below and aborts the session if any one is missing.
+      It reads each characteristic in
+      turn, starting the next read only after the previous one completes.
+      It enables notifications the same way, one descriptor write at a
+      time. The CCCD value is 0x0001 (notifications) throughout. Whether
+      any of these characteristics indicate rather than notify is unknown.
+    initialization:
+      - characteristic: "e6807d21-b90a-11e5-a837-0800200c9a66"
+        read: true
+        notes: "The app reads the control point once at connect and never uses the value."
+      - characteristic: "e6807d22-b90a-11e5-a837-0800200c9a66"
+        read: true
+        notes: "Read once at connect; the value is not used."
+      - characteristic: "e6807e21-b90a-11e5-a837-0800200c9a66"
+        read: true
+        notes: "Channel 1 description (payload_formats.BedditChannelDescription)."
+      - characteristic: "e6807e25-b90a-11e5-a837-0800200c9a66"
+        read: true
+        notes: "Channel 2 description."
+      - characteristic: "e6807d22-b90a-11e5-a837-0800200c9a66"
+        subscribe: true
+      - characteristic: "e6807e20-b90a-11e5-a837-0800200c9a66"
+        subscribe: true
+        notes: "Channel 1 data."
+      - characteristic: "e6807e24-b90a-11e5-a837-0800200c9a66"
+        subscribe: true
+        notes: "Channel 2 data. Once this descriptor write completes the app treats the session as open; streaming starts only when start_streaming is written."
+    characteristics:
+      - uuid: "e6807d21-b90a-11e5-a837-0800200c9a66"
+        name: "Control point"
+        properties: ["read", "write"]
+        notes: >
+          The app reads it at connect and writes 0x01 to start streaming. It
+          writes with Android's default write type, so whether the device
+          also accepts write-without-response is not known. No other
+          control value appears in the app.
+        commands:
+          start_streaming:
+            description: >
+              Start the sample stream on both channels. The app writes this
+              single byte when a recording starts, after the descriptions
+              have been read and notifications opened on e6807d22, e6807e20
+              and e6807e24. It is sent once per connection. There is no stop
+              command: the app ends a recording by disconnecting.
+            value: [0x01]
+            verification: "reported"
+      - uuid: "e6807d22-b90a-11e5-a837-0800200c9a66"
+        name: "Sensor status"
+        properties: ["read", "notify"]
+        notes: >
+          The app reads it once and subscribes, but takes no action on any
+          status value in this build. Its status routine tests bit 0x02 of
+          byte 0 and then does nothing with the result. The notification
+          dispatcher does not even route e6807d22 notifications to that
+          routine. So the status bits are undocumented. The one hint is
+          that byte 0 is a bitfield with a 0x02 flag.
+        format:
+          - offset: 0
+            length: 1
+            name: "status_flags"
+            type: "uint8"
+            notes: "Bitfield of unknown meaning. The app's code tests only bit 0x02."
+      - uuid: "e6807e21-b90a-11e5-a837-0800200c9a66"
+        name: "Channel 1 description"
+        properties: ["read"]
+        notes: >
+          At least 5 bytes: sample rate x100 (uint16 LE), the ASCII type
+          code "u2" (uint16 samples), then the channel name as UTF-8 from
+          byte 4 to the end of the value. The variable-length name has no
+          fixed-length field below; see
+          payload_formats.BedditChannelDescription. The app aborts the
+          session if the value is shorter than 5 bytes or the type code is
+          not "u2".
+        format:
+          - offset: 0
+            length: 2
+            name: "sample_rate"
+            type: "uint16"
+            endianness: "little"
+            scale: 0.01
+            unit: "Hz"
+            notes: "Raw is the rate x100, so a fractional rate can be expressed. The app's analysis needs rate x 0.2 s to be a whole number of samples."
+          - offset: 2
+            length: 2
+            name: "sample_type"
+            type: "string"
+            notes: "Must be ASCII 'u2' (0x75 0x32), meaning uint16 samples. The app rejects anything else."
+      - uuid: "e6807e20-b90a-11e5-a837-0800200c9a66"
+        name: "Channel 1 data"
+        properties: ["notify"]
+        notes: >
+          Sample packets: a 1-byte sequence counter, then one or more uint16
+          LE samples to the end of the value. Sample count = (length - 1) /
+          2. The app aborts on a value shorter than 3 bytes or of even
+          length. Only the header and the first sample are fixed-position;
+          see payload_formats.BedditChannelPacket for the full layout and
+          protocol_details.gap_padding for lost packets.
+        format:
+          - offset: 0
+            length: 1
+            name: "sequence"
+            type: "uint8"
+            notes: "Increments by 1 per packet on this channel and wraps 255 to 0. The app expects 0 for the first packet after notifications open."
+          - offset: 1
+            length: 2
+            name: "sample_0"
+            type: "uint16"
+            endianness: "little"
+            notes: "Raw force sample in sensor counts; calibration unknown. Further samples follow every 2 bytes."
+      - uuid: "e6807e25-b90a-11e5-a837-0800200c9a66"
+        name: "Channel 2 description"
+        properties: ["read"]
+        notes: "Same layout as the channel 1 description (e6807e21-b90a-11e5-a837-0800200c9a66)."
+        format:
+          - offset: 0
+            length: 2
+            name: "sample_rate"
+            type: "uint16"
+            endianness: "little"
+            scale: 0.01
+            unit: "Hz"
+          - offset: 2
+            length: 2
+            name: "sample_type"
+            type: "string"
+            notes: "Must be ASCII 'u2'."
+      - uuid: "e6807e24-b90a-11e5-a837-0800200c9a66"
+        name: "Channel 2 data"
+        properties: ["notify"]
+        notes: "Same packet layout as channel 1 data (e6807e20-b90a-11e5-a837-0800200c9a66), with its own sequence counter."
+        format:
+          - offset: 0
+            length: 1
+            name: "sequence"
+            type: "uint8"
+          - offset: 1
+            length: 2
+            name: "sample_0"
+            type: "uint16"
+            endianness: "little"
+
+  - uuid: "f82fd8a8-329d-4c44-a178-e82f91ec9fe6"
+    name: "Beddit sensor service (BTLE layout)"
+    notes: >
+      Selected when the device has this service. The app checks for it
+      before the e6807d20 service within each discovered service entry, so
+      a device that somehow had both would get whichever of the two was
+      discovered first. Single "force" channel.
+    initialization:
+      - characteristic: "f82fd8aa-329d-4c44-a178-e82f91ec9fe6"
+        read: true
+        notes: "Sample rate in whole Hz."
+      - characteristic: "f82fd8a9-329d-4c44-a178-e82f91ec9fe6"
+        subscribe: true
+        notes: >
+          The app writes the CCCD and reports the session open at the same
+          moment, without waiting for the write to complete. A client should
+          wait for it before writing start_force_stream, or the first
+          packets may be lost.
+    characteristics:
+      - uuid: "f82fd8aa-329d-4c44-a178-e82f91ec9fe6"
+        name: "Sample rate"
+        properties: ["read"]
+        format:
+          - offset: 0
+            length: 2
+            name: "sample_rate"
+            type: "uint16"
+            endianness: "little"
+            unit: "Hz"
+            notes: "Whole Hz. Unlike the e6807d20 layout, there is no x100 scaling."
+      - uuid: "f82fd8a9-329d-4c44-a178-e82f91ec9fe6"
+        name: "Control and force data"
+        properties: ["write", "notify"]
+        notes: >
+          One characteristic for both jobs. The client writes 0x01 to
+          start, and the sensor notifies force packets: byte 0 is the
+          packet type (0x80 or 0x90), byte 1 the sequence, then uint16 LE
+          samples. The length must be even and at least 4, and any other
+          type byte makes the app abort. See
+          payload_formats.BedditForcePacket.
+        commands:
+          start_force_stream:
+            description: >
+              Start the force stream. The app writes this single byte when a
+              recording starts, after reading the rate and enabling
+              notifications here. There is no stop command: disconnect to
+              stop.
+            value: [0x01]
+            verification: "reported"
+        format:
+          - offset: 0
+            length: 1
+            name: "packet_type"
+            type: "uint8"
+            values:
+              128: "type 0x80 (accepted; meaning unknown)"
+              144: "type 0x90 (accepted; meaning unknown)"
+            notes: "The app accepts only these two values and treats them the same."
+          - offset: 1
+            length: 1
+            name: "sequence"
+            type: "uint8"
+            notes: "Same rules as the e6807d20 layout: starts at 0 and wraps 255 to 0."
+          - offset: 2
+            length: 2
+            name: "force_sample_0"
+            type: "uint16"
+            endianness: "little"
+            notes: "Raw force sample in sensor counts. Further samples follow every 2 bytes."
+
+  - uuid: "0000180a-0000-1000-8000-00805f9b34fb"
+    name: "Device Information"
+    notes: >
+      Standard SIG service. Both layouts require all four strings below and
+      abort the session if one is missing. The app decodes each as a string
+      from byte 0 to the end of the value. It uses the Firmware Revision
+      String as the bootloader version: its version label is "<software>
+      bl:<firmware> hw:<hardware>". Its hardware-type label is "BTLEv3" or
+      "BTLE", then "/", then the hardware revision.
+    initialization:
+      - characteristic: "00002a25-0000-1000-8000-00805f9b34fb"
+        read: true
+      - characteristic: "00002a27-0000-1000-8000-00805f9b34fb"
+        read: true
+      - characteristic: "00002a26-0000-1000-8000-00805f9b34fb"
+        read: true
+      - characteristic: "00002a28-0000-1000-8000-00805f9b34fb"
+        read: true
+    characteristics:
+      - uuid: "00002a25-0000-1000-8000-00805f9b34fb"
+        name: "Serial Number String"
+        properties: ["read"]
+        notes: "UTF-8, whole value. The app stores it as the sensor's serial."
+      - uuid: "00002a27-0000-1000-8000-00805f9b34fb"
+        name: "Hardware Revision String"
+        properties: ["read"]
+        notes: "UTF-8, whole value. Appended to the hardware-type label."
+      - uuid: "00002a26-0000-1000-8000-00805f9b34fb"
+        name: "Firmware Revision String"
+        properties: ["read"]
+        notes: "UTF-8, whole value. The app labels it the bootloader version."
+      - uuid: "00002a28-0000-1000-8000-00805f9b34fb"
+        name: "Software Revision String"
+        properties: ["read"]
+        notes: "UTF-8, whole value. The app labels it the main firmware version."
+
+payload_formats:
+  BedditChannelDescription:
+    description: >
+      Value of e6807e21-b90a-11e5-a837-0800200c9a66 (channel 1) and
+      e6807e25-b90a-11e5-a837-0800200c9a66 (channel 2), read once per
+      connection. Each describes one sample channel of the e6807d20 layout.
+    fields:
+      - index: 0
+        name: "sample_rate"
+        description: "Bytes 0-1, uint16 little-endian, rate x100."
+        scale: 0.01
+        unit: "Hz"
+      - index: 2
+        name: "sample_type"
+        description: "Bytes 2-3, ASCII type code. Only 'u2' (0x75 0x32, uint16) is valid."
+      - index: 4
+        name: "channel_name"
+        description: "Bytes 4 to the end of the value, UTF-8, at least one byte."
+    parse_rules:
+      - "Read the whole value. Fewer than 5 bytes: reject; the app aborts the session."
+      - "sample_rate_hz = u16le(bytes 0-1) / 100.0. The result is a real number, not an integer."
+      - "Bytes 2-3 must be 0x75 0x32 ('u2'). Anything else: reject. The app has no other sample width, so do not guess one."
+      - "channel_name = UTF-8 decode of bytes 4 to the end."
+      - "The app's analysis needs one channel named exactly 'force' and refuses to start without it, so a working unit very likely names one channel that way. The second channel's name is unknown."
+      - "The analysis frames samples in 0.2 s blocks and rejects a rate that does not give a whole number of samples per block. Real rates are therefore multiples of 5 Hz."
+    example: "10 27 75 32 66 6f 72 63 65"
+    # Constructed example, not a capture: 0x2710 = 10000 -> 100.00 Hz,
+    # 'u2', name 'force'. The rate is illustrative; the real rate is unknown.
+
+  BedditChannelPacket:
+    description: >
+      One notification on e6807e20-b90a-11e5-a837-0800200c9a66 (channel 1)
+      or e6807e24-b90a-11e5-a837-0800200c9a66 (channel 2) after
+      start_streaming.
+    fields:
+      - index: 0
+        name: "sequence"
+        description: "Byte 0, uint8, per-channel packet counter, wraps 255 to 0."
+      - index: 1
+        name: "samples"
+        description: "Bytes 1 to the end: uint16 little-endian samples, (length - 1) / 2 of them."
+    parse_rules:
+      - "Length must be at least 3 and odd. Otherwise reject; the app aborts the session."
+      - "sequence = byte 0. samples[i] = u16le(bytes 1+2i, 2+2i)."
+      - "Keep one expected-sequence counter per channel. It starts at 0 when notifications open, and after each packet becomes (sequence + 1) mod 256."
+      - "If sequence != expected, (sequence - expected) mod 256 packets were lost. protocol_details.gap_padding says how the app filled them."
+      - "Samples are raw sensor counts with no known calibration. The app hands the bytes to its analysis unchanged."
+      - "Timestamp samples by count: sample n of a channel falls at n / sample_rate_hz seconds after the stream began. Packets carry no time field."
+      - "Accept any valid length. See protocol_details.att_mtu for why packets from the app's era held at most 9 samples, and why a client should not rely on that."
+    example: "00 10 27 11 27 12 27"
+    # Constructed: sequence 0, samples 0x2710=10000, 0x2711=10001, 0x2712=10002.
+
+  BedditForcePacket:
+    description: >
+      One notification on f82fd8a9-329d-4c44-a178-e82f91ec9fe6 after
+      start_force_stream (f82fd8a8 layout, single force channel).
+    fields:
+      - index: 0
+        name: "packet_type"
+        description: "Byte 0: 0x80 or 0x90. The meaning of the difference is unknown."
+      - index: 1
+        name: "sequence"
+        description: "Byte 1, uint8 packet counter, wraps 255 to 0."
+      - index: 2
+        name: "force_samples"
+        description: "Bytes 2 to the end: uint16 little-endian force samples, (length - 2) / 2 of them."
+    parse_rules:
+      - "Length must be at least 4 and even. Otherwise reject; the app aborts the session."
+      - "Byte 0 must be 0x80 or 0x90. Anything else: reject; the app treats it as a protocol violation and aborts the session."
+      - "Sequence and gap handling are the same as for BedditChannelPacket; the expected counter starts at 0."
+      - "Sample rate comes from f82fd8aa-329d-4c44-a178-e82f91ec9fe6 in whole Hz."
+      - "Accept any valid length (see protocol_details.att_mtu)."
+    example: "80 00 e8 03 e9 03 ea 03"
+    # Constructed: type 0x80, sequence 0, samples 1000, 1001, 1002.
+
+entities:
+  - platform: "button"
+    name: "Start streaming"
+    variants: ["BTLEv3 (e6807d20 service)"]
+    commands:
+      press: "start_streaming"
+    notes: >
+      What the app's START SLEEPING action sends on this layout. The
+      samples that follow are a raw BCG waveform, too fast (tens to
+      hundreds of samples a second) to show as a sensor entity, so none is
+      declared. A consumer that wants the waveform reads the data
+      characteristics directly.
+  - platform: "button"
+    name: "Start streaming"
+    variants: ["BTLE (f82fd8a8 service)"]
+    commands:
+      press: "start_force_stream"
+    notes: "Same action on the single-channel layout."
+
+cloud:
+  required: false
+  vendor_service: "Beddit Cloud and the Beddit sensor-replacement service"
+  hosts: ["https://cloudapi.beddit.com", "https://replacements.beddit.com"]
+  endpoints:
+    - path: "/blocking_status/{sensor_id}"
+      method: "GET"
+      name: "Sensor blocking status (replacement service)"
+      returns: "JSON with an integer blocking_status, a boolean silent flag, an optional replacement action and label, and a message."
+      notes: >
+        The app calls this on replacements.beddit.com after connecting to
+        any sensor whose hardware type is not BTLEv3, so on this spec's
+        BTLE (f82fd8a8) layout, and never on the BTLEv3 (e6807d20) layout.
+        It calls it in the setup wizard and again at the start of every
+        recording. sensor_id is the Bluetooth address with the colons
+        removed, and the query carries the hardware type. The sensor
+        itself is not involved.
+      verification: "reported"
+  failure_mode: >
+    Beddit Cloud shut down on 2018-11-15, ending account sign-in, backup
+    and sync. Neither host resolved in DNS on 2026-09-28. Nothing in the
+    sensor's BLE session depends on either host: the stream needs no token
+    and the sleep analysis ran on the phone. The vendor Android app is
+    another matter. On a BTLE-layout (f82fd8a8) sensor it treats a failed
+    blocking-status query as fatal: it shows an error, then abandons setup
+    or cancels the recording. So that app can no longer set up or record
+    such a sensor. BTLEv3 (e6807d20) sensors skip the query. Whether the
+    app still reaches its recording screen for them without a working
+    account has not been tested. A client built from this spec needs
+    neither host.
+  data_leaves_device:
+    - "sleep history and results (personal health data), through account backup"
+    - "the sensor's Bluetooth address and hardware type, with the account email when known, sent to the replacement service after each connection (BTLE layout only)"
+  notes: >
+    Listed to record that the dependency is gone and to explain why the
+    vendor app fails with BTLE-layout sensors. The account API itself is
+    out of scope. The same check is documented from the classic-Bluetooth
+    side in the separate beddit-2-sleep-tracker spec. The app also embeds
+    a third-party analytics client and a transactional-mail client. The
+    mail client's API token is a UUID-shaped string in the app. It is not
+    a GATT UUID and is deliberately not reproduced here.
+
+protocol_details:
+  session_sequence:
+    description: >
+      What the app does, in order, on one connection. It has one state
+      machine with a branch per layout. Any GATT error, a disconnect, or a
+      protocol violation ends the session. The app does not reconnect
+      inside a session.
+    steps:
+      - "Connect (Android connectGatt with autoConnect false). No bonding."
+      - "Discover services. Walk them in discovery order: f82fd8a8-329d-4c44-a178-e82f91ec9fe6 selects the BTLE layout and e6807d20-b90a-11e5-a837-0800200c9a66 the BTLEv3 layout. Neither present: abort."
+      - "Look up every characteristic the layout needs. Any missing: abort."
+      - "Read them one after another, each after the previous completes. BTLEv3: 2a25, 2a27, 2a26, 2a28, e6807d21, e6807d22, e6807e21, e6807e25. BTLE: 2a25, 2a27, 2a26, 2a28, f82fd8aa. The actual order follows service discovery order."
+      - "BTLEv3: parse both descriptions, then enable notifications on e6807d22, e6807e20 and e6807e24, one CCCD write (0x0001) at a time, each after the previous completes. BTLE: enable notifications on f82fd8a9 and do not wait."
+      - "Session is open. When the user starts a recording, write 0x01 to e6807d21 (BTLEv3) or f82fd8a9 (BTLE)."
+      - "Decode sample notifications until the user stops. Then disconnect and close. Nothing is written to stop."
+  gap_padding:
+    description: >
+      How the app fills lost packets. A client may do the same, to keep a
+      steady sample clock for analysis code that assumes one, or may record
+      the gap instead. Either way it must advance its expected sequence the
+      same way, or every later packet will look like a gap.
+    rules:
+      - "Per channel, expected starts at 0. For each packet: if sequence == expected, take its samples as they are."
+      - "Otherwise lost = (sequence - expected) mod 256 and filler_count = lost x (samples in THIS packet). The app assumes the lost packets were the same size as this one."
+      - "Filler value = this packet's second sample (value bytes 3-4 on the BTLEv3 layout, 4-5 on the BTLE layout). A one-sample packet, on either layout, has no second sample, and the filler is then 0x0000."
+      - "Emit filler_count copies of the filler, then this packet's own samples."
+      - "Then expected = (sequence + 1) mod 256."
+      - "The app assumes the stream starts at sequence 0. If the first packet after notifications open has any other sequence, the app pads (sequence x samples) at the very start. Whether the sensor restarts its counter at 0 on each connection, or on each 0x01, is unknown."
+      - "The app counts padding events and padded samples per session for its analytics. Nothing is sent back to the sensor."
+    example: >
+      Constructed: expected = 5, the packet arrives as 07 10 27 20 27 30 27
+      (sequence 7, 3 samples). lost = 2, filler_count = 6, filler = 0x2720
+      (10016). Emitted: 10016 x6, then 10000, 10016, 10032. expected
+      becomes 8.
+  att_mtu:
+    description: >
+      The app never requests a larger ATT MTU and never changes the
+      connection priority, so on the phones it ran on the link used the
+      default ATT MTU of 23 bytes and a notification carried at most 20
+      bytes. That caps a packet at 9 samples on either layout: 1 sequence
+      byte plus 9 samples (19 bytes, odd) on the e6807d20 layout, and 2
+      header bytes plus 9 samples (20 bytes, even) on the f82fd8a8 layout.
+      This is an inference from the code, not an observation. A host that
+      negotiates a larger MTU may receive longer packets, so a parser
+      should size each packet from its length, never from a fixed count.
+  app_scan_classifier:
+    description: >
+      How the app decides between this spec (BLE) and the classic-Bluetooth
+      SPP generation (separate spec) once a name has matched "beddit".
+      Recorded because it explains how a Beddit that Android reports as
+      dual-mode would have been handled.
+    rules:
+      - "Android older than 4.3 (API 18): always the classic SPP path."
+      - "Android reports DEVICE_TYPE_LE: BLE path (this spec)."
+      - "Android reports classic or dual-mode: classic SPP path. A dual-mode BLE Beddit would therefore have been driven over SPP."
+      - "Android reports the type as unknown: BLE path, unless the address starts with 00:07:80 (Bluegiga), which the app treats as a classic-only unit."
+      - "The scan alternates a 4-second LE scan with classic discovery."
+  analysis_boundary:
+    description: >
+      Where the documented protocol stops. The app feeds every channel to
+      its analysis as a sample track, with the one named "force" as the
+      reference track, in 0.2-second frames. A second input comes from the
+      phone microphone (for snoring) when the user has granted that
+      permission. Sleep stages, heart rate, respiration, efficiency and the
+      sleep score are all computed by a native library bundled in the app.
+      None of them crosses the radio. Reproducing them means implementing
+      BCG analysis from the raw stream, which is research, not protocol
+      work, and out of scope here.
+
+evidence:
+  app_static_analysis: >
+    Static read (jadx) of com.beddit.beddit 2.3.12, the last Android build
+    known to us. Its BLE layer is small and readable despite light
+    obfuscation. It gave: the name filter and the classic/BLE classifier;
+    both GATT layouts with every UUID and role; the read, subscribe and
+    start order; the byte layouts of the description, the two packet types
+    and the rate; the sequence-gap padding; the Device Information usage;
+    the absence of bonding, of a stop command and of any OTA or DFU code or
+    firmware image; and, from the measurement layer, that the analysis runs
+    on the phone and needs a "force" track in 0.2 s frames. The app's
+    post-connect replacement-service check, which BTLEv3 sensors skip, was
+    first spotted by the sibling classic-Bluetooth spec and re-read here in
+    the same build. Where the two earlier write-ups disagreed about the
+    e6807d20 roles, the pairing of description and data characteristics
+    was checked in the disassembled bytecode, not only in the decompiled
+    source. The Wayback copy of the Play listing (2017-04-13, app 2.3.2)
+    confirms the product framing: Bluetooth Smart, "nothing to charge",
+    data stored in the cloud. The model 3.5's FCC filing and user guide,
+    read from Internet Archive copies, give the radio (BLE only) and the
+    setup steps, and describe no reset.
+  open_questions: >
+    Everything here is reported, not confirmed. First to settle with a
+    sensor and a BLE sniffer: the advertised name and address type, which
+    retail models speak each layout (above all whether the Beddit 3.5
+    exposes e6807d20), the real sample rates and channel names, and
+    whether the sequence counter restarts at 0.
+  artifacts:
+    - type: "static_analysis"
+      artifact: "com.beddit.beddit 2.3.12 (versionCode 149)"
+      obtained_via: "third-party APK mirror, 2026-08"
+      description: >
+        The only protocol source. Negative findings: no OTA/DFU code and no
+        firmware images; no stop command; no bonding; no handling of the
+        status characteristic's contents; no BLE characteristic for room
+        temperature or humidity, although Beddit 3 was sold as measuring
+        both.
+    - type: "vendor_store_listing"
+      url: "https://web.archive.org/web/20170413023340/https://play.google.com/store/apps/details?id=com.beddit.beddit"
+      description: "Archived Play listing for app 2.3.2. Product description only, no protocol."
+    - type: "fcc_filing"
+      artifact: "FCC ID BCG-B35 (IC 579C-B35), Apple Inc., granted 2018-12-05"
+      url: "https://web.archive.org/web/20221024082234/https://fccid.io/BCG-B35"
+      obtained_via: "Internet Archive replay of the fccid.io listing and exhibits (the live mirror refuses automated requests)"
+      description: >
+        Model 3.5 only. The grant has one line: 2402-2480 MHz, about 3 mW,
+        rule part 15C, equipment class DTS, with no Classic (DSS) entry.
+        The BLE test report describes a sleep monitor with a Bluetooth LE
+        radio and an integrated antenna, no battery, powered over USB-A,
+        and gives a peak conducted output of 5.02 dBm. The schematic, block
+        diagram, parts list and operational description were confidential,
+        so the chipset is not known.
+    - type: "fcc_filing"
+      artifact: "FCC ID 2AI4U-B3, Beddit Oy, application dated 2016-08-12"
+      url: "https://fccid.io/2AI4U-B3"
+      obtained_via: "search-engine summary of the fccid.io listing; the mirror refuses automated requests and no Internet Archive copy was found"
+      description: >
+        Beddit 3 ("B3 non-intrusive sleep sensor"). The listing gives one
+        2402-2480 MHz line at about 1.5 mW, equipment class DTS, so a BLE
+        radio with no Classic side. None of its exhibits (user manual,
+        photos, test report) were read for this spec; a copy of the
+        user-manual exhibit is listed on ManualsLib (see helpful_urls).
+    - type: "vendor_documentation"
+      artifact: "Beddit Sleep Monitor user guide, model 3.5 (FCC exhibit)"
+      url: "https://web.archive.org/web/20250110173852/https://fccid.io/BCG-B35/User-Manual/B35-user-guide-4071459.pdf"
+      description: >
+        Setup only: the sensor goes dark side down at chest level under the
+        fitted sheet, the USB power adapter goes into a wall socket, and
+        the iOS app (iPhone 5s or later, iOS 12 or later) connects over
+        Bluetooth. The unit's ID number is printed on the cable close to
+        the sensor. It warns against powering the strip from a computer's
+        USB port. It gives no reset procedure, no button and nothing about
+        the radio protocol.
+    - type: "public_reporting"
+      description: >
+        AppleInsider (cloud shutdown 2018-11-15), MacRumors (Beddit 3 retail
+        October 2016; FCC grant and launch of model 3.5, December 2018;
+        app removal, September 2024), Gadgets & Wearables (sales ended
+        January 2022) and 9to5Mac (app removal) for the product timeline.
+        Links in helpful_urls.
+
+remaining_unknowns:
+  - "The advertised local name, address type and any advertised service UUIDs. Only the app's case-insensitive 'beddit' prefix filter is known."
+  - "Which retail models use the f82fd8a8 (BTLE) layout and which use e6807d20 (BTLEv3), and whether the Beddit 3.5 speaks e6807d20 at all. The Android app studied may predate the 3.5."
+  - "Real sample rates and the second channel's name on the BTLEv3 layout. One channel is presumably 'force', because the app's analysis requires it."
+  - "What the e6807d22 status bits mean. The app's code tests bit 0x02 and acts on nothing."
+  - "Whether any characteristic indicates rather than notifies. The app always writes CCCD 0x0001."
+  - "What distinguishes packet type 0x80 from 0x90 on the BTLE layout."
+  - "Whether the sequence counter restarts at 0 on each connection or on each start write."
+  - "Whether a second start write, or a start before notifications are open, is tolerated."
+  - "Whether the sensor accepts more than one central, and whether it tolerates or requests bonding."
+  - "Where Beddit 3's advertised room temperature and humidity readings travel. No characteristic for them exists in the Android app. They may be the second BTLEv3 channel or live only in the iOS app's protocol."
+  - "Whether the sensor streams indefinitely or stops by itself (for example when nobody is in bed). The app has no data-silence timeout."
+  - "Firmware update: the Android app has none. Whether the iOS apps could update the strip is unknown, and no image is known."
+  - "The chipset. The model 3.5's schematic and block diagram were filed confidentially, and no teardown is known."
+  - "What the Beddit 3 filing (FCC ID 2AI4U-B3) exhibits say. Only the listing's summary was seen (BLE, DTS, about 1.5 mW); its user manual, photos and test report were not reachable from here."
+
+helpful_urls:
+  - title: "Beddit Sleep Monitor user guide, model 3.5 (FCC exhibit, Internet Archive)"
+    url: "https://web.archive.org/web/20250110173852/https://fccid.io/BCG-B35/User-Manual/B35-user-guide-4071459.pdf"
+    kind: "manual"
+    description: >
+      Apple's printed guide for the Beddit Sleep Monitor model 3.5, filed
+      with its FCC application: placement under the sheet, the USB power
+      adapter, and where the unit's ID number is printed (on the cable near
+      the sensor). No reset procedure.
+  - title: "Beddit 3 (B3) user manual, FCC exhibit 3094679 (ManualsLib)"
+    url: "https://www.manualslib.com/manual/1328024/Beddit-B3-3094679.html"
+    kind: "manual"
+    description: >
+      ManualsLib's copy of the user-manual exhibit Beddit Oy filed under
+      FCC ID 2AI4U-B3, for the original Beddit 3 strip (model 3.0), listed
+      there as a quick installation guide. Not read for this spec; the
+      model 3.5 guide above is the one the setup steps come from.
+  - title: "FCC ID 2AI4U-B3 (Beddit 3, Beddit Oy)"
+    url: "https://fccid.io/2AI4U-B3"
+    kind: "other"
+    description: >
+      Beddit Oy's August 2016 filing for the "B3" sleep sensor: one BLE
+      line at 2402-2480 MHz, equipment class DTS, with the user manual,
+      photos and test report as exhibits. The mirror refuses scripted
+      requests (403) but opens in a browser.
+  - title: "FCC ID BCG-B35 (Beddit Sleep Monitor model 3.5), Internet Archive copy"
+    url: "https://web.archive.org/web/20221024082234/https://fccid.io/BCG-B35"
+    kind: "other"
+    description: >
+      Apple's December 2018 grant for the model 3.5 strip: one BLE line at
+      2402-2480 MHz, equipment class DTS, and the list of exhibits. The
+      live fccid.io page refuses automated requests.
+  - title: "FCC BCG-B35 BLE test report (Internet Archive)"
+    url: "https://web.archive.org/web/20250110064920/https://fccid.io/BCG-B35/Test-Report/12289553-E1V2-FCC-IC-Report-BLE-Final-revised-4071460.pdf"
+    kind: "other"
+    description: "Model 3.5 radio test report: Bluetooth LE radio with integrated antenna, no battery, USB-A power, 5.02 dBm peak conducted output."
+  - title: "Beddit app on Google Play (Internet Archive, 2017-04-13)"
+    url: "https://web.archive.org/web/20170413023340/https://play.google.com/store/apps/details?id=com.beddit.beddit"
+    kind: "other"
+    description: >
+      Last archived listing of the Android app this spec was read from
+      (listing version 2.3.2). Product description: Bluetooth Smart,
+      Android 4.3 or newer, nothing to charge.
+  - title: "MacRumors: Apple receives FCC approval for what appears to be a new Beddit 3.5"
+    url: "https://www.macrumors.com/2018/12/05/apple-fcc-approval-sleep-monitor-beddit-3-5/"
+    kind: "other"
+    description: "Links the BCG-B35 filing and reports the model number 3.5."
+  - title: "MacRumors: Apple begins selling new Beddit 3.5 sleep monitor"
+    url: "https://www.macrumors.com/2018/12/07/apple-selling-new-beddit-sleep-monitor/"
+    kind: "other"
+    description: "3.5 launch (December 2018): same 2 mm strip, slightly smaller and lighter, a new iOS app for the 3.5 while the old app stays with model 3.0."
+  - title: "MacRumors: New Beddit 3 sleep tracker available at select Apple Stores"
+    url: "https://www.macrumors.com/2016/09/26/beddit-3-sleep-tracker-apple-stores/"
+    kind: "other"
+    description: "Beddit 3 retail launch (4 October 2016), which dates the e6807d20 layout."
+  - title: "AppleInsider: Apple-owned Beddit to shut down cloud services on Nov. 15 (Internet Archive)"
+    url: "https://web.archive.org/web/20180927192024/https://appleinsider.com/articles/18/09/21/apple-owned-beddit-to-shut-down-cloud-services-on-nov-15"
+    kind: "other"
+    description: "Cloud shutdown notice (2018-09-21). Archived copy; the live site refuses automated requests."
+  - title: "Gadgets & Wearables: Apple stops selling Beddit sleep monitor"
+    url: "https://gadgetsandwearables.com/2022/01/12/beddit-sleep-monitor-buy/"
+    kind: "other"
+    description: "Hardware sales ended (January 2022). Also notes that Android support had been dropped."
+  - title: "9to5Mac: Apple silently removes Beddit apps from iOS App Store"
+    url: "https://9to5mac.com/2024/09/30/apple-removes-beddit-app-store/"
+    kind: "other"
+    description: "Both iOS apps (for models 3.0 and 3.5) removed, September 2024."
+  - title: "MacRumors: Beddit topic page"
+    url: "https://www.macrumors.com/guide/beddit/"
+    kind: "other"
+    description: "Index of Beddit coverage from launch to app removal."

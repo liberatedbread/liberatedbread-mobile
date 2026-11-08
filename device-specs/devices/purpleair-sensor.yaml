@@ -33,6 +33,7 @@ device:
       provisioning.
   protocol: "wifi"
   category: "sensor"
+  category_hierarchy: ["measurement", "environmental"]
   pictogram: "air-quality"
   transport: "http"
   notes: >

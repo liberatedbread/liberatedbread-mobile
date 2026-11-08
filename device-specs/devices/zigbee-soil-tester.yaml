@@ -33,6 +33,7 @@ device:
       control.
   protocol: "zigbee"
   category: "sensor"
+  category_hierarchy: ["measurement", "environmental"]
   type: "soil-sensor"
   notes: >
     Battery-powered (2xAA) sleepy ZigBee 3.0 end devices with a soil probe:

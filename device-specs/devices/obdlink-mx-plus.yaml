@@ -54,8 +54,6 @@ device:
     guarantee, on motorcycles and older vehicles.
   identification:
     local_name_prefix: "OBDLink MX+"
-    service_uuids:
-      - "0000fff0-0000-1000-8000-00805f9b34fb"
   discovery:
     methods:
       - type: "ble_scan"
@@ -63,13 +61,35 @@ device:
           local_name:
             match: "contains"
             value: "OBDLink"
-          service_uuids:
-            - "0000fff0-0000-1000-8000-00805f9b34fb"
         notes: >
-          BLE is the secondary link: the Classic side advertises as
-          "OBDLink MX+" (SPP, UUID 00001101) and is primary per the vendor
-          spec sheet. The app falls back to Classic when an operation
-          requires it (it raises a dedicated needs-Classic error).
+          BLE is the secondary link (`bluetooth_classic.ble_role:
+          secondary_control`): the Classic side, found by the
+          bt_classic_inquiry method below, is primary per the vendor spec
+          sheet. The app falls back to Classic when an operation requires
+          it (it raises a dedicated needs-Classic error).
+      - type: "bt_classic_inquiry"
+        bt_classic:
+          name:
+            match: "prefix"
+            value: "OBDLink MX+"
+          service_uuids:
+            - "00001101-0000-1000-8000-00805f9b34fb"
+          requires_discoverable_mode: true
+        verification: "reported"
+        notes: >
+          The Classic (BR/EDR) side, advertised as "OBDLink MX+" with the
+          SPP service class. Per the vendor quick start guides the adapter
+          is discoverable only for a window after the Connect button is
+          pressed (the BT LED switches to a fast blink; about 2 minutes),
+          which is the procedure under
+          `bluetooth_classic.pairing.enter_pairing_mode`.
+          The app also exposes an adapter setting (Auto / Manual) that
+          decides whether the MX+ enters Bluetooth pairing mode by itself on
+          boot or only on a button press, so an adapter left on Auto may
+          answer a cold inquiry. The inquiry name and Class of Device are
+          user-writable through ST settings commands, so a renamed unit will
+          not match this needle. The SPP UUID alone matches every serial
+          module; the name is the discriminator.
     identity:
       stable_keys: ["address"]
       display: "local_name"
@@ -155,12 +175,57 @@ device:
     # there is no separate BLE OTA/DFU GATT service in the app.
 
   pairing:
-    required: false
-    confidence: "medium"
-    security_mode: "none"
-    bonding: "none"
-    enter_pairing_mode:
-      required: false
+    required: "unknown"
+    confidence: "low"
+    security_mode: "unknown"
+    bonding: "unknown"
+    notes: >
+      Describes the BLE GATT pipe, the link this spec's `protocol: ble` names.
+      Whether it demands pairing or a bond is not established: the vendor
+      documents only the Classic side (see `bluetooth_classic.pairing`), and
+      the spec sheet's "Connect button requires physical access to enable
+      Bluetooth pairing" does not say which radio it gates. The capture plan
+      covers it.
+  host_compatibility:
+    - stack: "corebluetooth"
+      link: "br_edr"
+      status: "incompatible"
+      symptom: "no_transport"
+      cause:
+        missing_api: "rfcomm"
+      workaround: "vendor_mfi"
+      verification: "reported"
+      basis: >
+        Vendor spec sheet (profiles SPP and iAP2; the adapter is MFi) and the
+        vendor iOS quick start guide, which pairs the MX+ from iOS Settings
+        and connects from the vendor's own app. Not run against hardware.
+      notes: >
+        CoreBluetooth exposes no RFCOMM. iOS reaches the Classic side only
+        over MFi iAP2 through the ExternalAccessory framework, which in
+        practice means the vendor's own app. macOS is outside this verdict:
+        IOBluetooth exposes RFCOMM.
+    - stack: "corebluetooth"
+      link: "ble"
+      status: "degraded"
+      verification: "reported"
+      basis: >
+        Vendor spec sheet (profiles SPP and iAP2; the adapter is MFi) and
+        the vendor iOS quick start guide, which pairs the MX+ from iOS
+        Settings and connects from the OBDLink app; plus the vendor Android
+        app's dual-mode handling (a BLE driver for the FFF0 pipe and a
+        dedicated error for operations that need the Classic link). Not
+        run against hardware.
+      notes: >
+        CoreBluetooth exposes no RFCOMM, so an iPhone cannot open the SPP
+        socket. iOS reaches the Classic side only over MFi iAP2 (the
+        ExternalAccessory framework), which is open to the vendor's own app
+        and not to an arbitrary third-party app. A third-party iOS client
+        therefore drives the MX+ over the BLE GATT serial pipe (service
+        0xFFF0), which CoreBluetooth handles like any other peripheral --
+        the degraded part is that any operation the vendor app reserves for
+        Classic is out of reach on that path until the capture plan shows
+        what the BLE pipe carries. macOS is not covered by this verdict:
+        IOBluetooth does expose RFCOMM.
 features:
   - type: "firmware_update"
     dfu:
@@ -206,6 +271,107 @@ features:
         names the BLE path; the Classic SPP path is the same vendor
         bootloader protocol. Latest MX+ firmware reported in the wild:
         5.12.x.
+
+bluetooth_classic:
+  pairing:
+    required: true
+    confidence: "medium"
+    security_mode: "unknown"
+    bonding: "required"
+    enter_pairing_mode:
+      required: true
+      window_seconds: 120
+      indicator: "Blue BT LED switches from a slow flash to a fast blink."
+      procedures:
+        - name: "Press the Connect button"
+          verified: false
+          basis: >
+            Vendor quick start guides (Android and iOS) and the vendor
+            spec sheet's "Connect button requires physical access to enable
+            Bluetooth pairing"; the app's setup wizard has a matching
+            press-the-pair-button page.
+          power_state: "on"
+          press_count: 1
+          description: >
+            With the adapter powered from the diagnostic connector (ignition
+            on), press the Connect button once. The BT LED switches to a fast
+            blink and the adapter is pairable for about 2 minutes; press
+            again to restart the window if the host needs more time.
+      notes: >
+        The adapter-side pairing-mode setting (Auto / Manual, set from the
+        vendor app) decides whether the MX+ also enters pairing mode on its
+        own at boot; Manual keeps it closed until the button is pressed.
+    notes: >
+      The Classic side, which is the one the vendor documents: the Android app locates the MX+ only among the host's
+      bonded devices and tells the user to pair it in Bluetooth Settings
+      first, so the SPP socket needs an OS-level bond made inside the
+      Connect-button window. The quick start guides show no PIN entry --
+      Android pops a pairing-request dialog the user accepts with OK, iOS
+      pairs from Settings under Other Devices -- which points at Secure
+      Simple Pairing rather than a legacy PIN, but the association model is
+      not established, hence `security_mode: unknown`. The BLE pipe's own
+      pairing story is `device.pairing`.
+  dual_mode: true
+  ble_role: "secondary_control"
+  address_shared_with_ble: "unknown"
+  profiles:
+    - profile: "spp"
+      uuid: "00001101-0000-1000-8000-00805f9b34fb"
+      role: "control"
+      secure: true
+      verification: "reported"
+      notes: >
+        Serial Port Profile; the SPP UUID is a string literal in the vendor
+        app's Classic driver. Secure: pairing is gated by the Connect button
+        per the vendor spec sheet, and the Android app connects only to a
+        host-bonded MX+, so open an authenticated socket to an adapter the
+        host has already paired. The app carries both the secure and the
+        insecure socket constructors, and which one it uses for the MX+ is
+        not recovered; a secure socket to a bonded adapter is the path the
+        vendor documents. The RFCOMM channel is resolved by SDP.
+    - profile: "iap2"
+      role: "undocumented"
+      verification: "reported"
+      notes: >
+        MFi path for iOS (the spec sheet lists iAP2; the adapter is sold as
+        iOS-compatible over Classic). Reached through the ExternalAccessory
+        framework by the vendor's own app only. Its SDP UUID, the accessory
+        protocol string and whether it carries the same ST/AT stream are
+        not recovered, so nothing here documents it -- `undocumented` records
+        that the profile exists, not that it is idle. See
+        `device.host_compatibility`.
+  serial:
+    profile_uuid: "00001101-0000-1000-8000-00805f9b34fb"
+    encoding: "ascii_lines"
+    line_terminator: "0d"
+    command_terminator: "0d"
+    prompt: "3e"
+    correlation: "in_order"
+    max_in_flight: 1
+    commands_from:
+      service: "0000fff0-0000-1000-8000-00805f9b34fb"
+      characteristic: "0000fff2-0000-1000-8000-00805f9b34fb"
+    framing:
+      length_prefix: false
+      checksum: "none"
+      notes: >
+        ELM327/STN framing: a reply is complete only when the '>' prompt
+        arrives, so buffer across reads until then. Echo is on until ATE0.
+    verification: "reported"
+    notes: >
+      The same ELM327 AT / STN ST command set the BLE pipe carries (the
+      commands under the FFF2 characteristic below are byte-for-byte the
+      same over SPP); the vendor app runs one ASCII command stream over
+      whichever transport is connected. The app raises a dedicated
+      needs-Classic error for some operations, so the Classic link is the
+      one to use when the BLE pipe refuses something.
+  verification: "reported"
+  notes: >
+    Classic v3.0 per the vendor spec sheet ("Profiles: SPP, iAP2"). The
+    device stays `protocol: ble` because the BLE GATT pipe is a complete
+    serial path a BLE-only client can drive; this block records the second,
+    vendor-primary path. Whether the BR/EDR address equals the BLE address
+    has not been checked.
 
 services:
   - uuid: "0000fff0-0000-1000-8000-00805f9b34fb"

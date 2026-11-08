@@ -4,22 +4,48 @@
 
 device:
   name: "Beurer Series 800 (Premium 800 / BM92) Blood Pressure Monitor"
-  manufacturer: "Beurer"
+  manufacturer: "Beurer GmbH"
   manufacturer_status: "active"
+  aliases: ["Series 800", "Premium 800", "BM92", "BC54W"]
+  distributors:
+    - name: "Beurer GmbH"
+      role: "manufacturer"
+      url: "https://www.beurer.com/"
+      notes: "Premium 800 / Series 800 upper-arm monitor; BC54W is the wrist sibling."
+    - name: "Beurer North America LP"
+      role: "distributor"
+      url: "https://www.shop-beurer.com/"
+      notes: "US distributor named in the 2023 BM92 instructions."
+  companion_apps:
+    - name: "beurer HealthManager Pro"
+      package: "com.beurer.healthmanager"
+      role: "primary"
+      platform: "cross_platform"
+      url: "https://play.google.com/store/apps/details?id=com.beurer.healthmanager"
+      notes: "Required current app for BM92; works locally without account registration."
+    - name: "beurer HealthManager"
+      package: "com.beurer.connect.healthmanager"
+      role: "historical"
+      platform: "android"
+      url: "https://play.google.com/store/apps/details?id=com.beurer.connect.healthmanager"
+      notes: "Older EU-generation app; useful record-format evidence, not the BM92 companion."
   testing:
     status: untested
     notes: >
-      No hardware was exercised for this spec. Everything here comes from
-      static analysis of the two vendor Android apps (HealthManager Pro and
-      classic HealthManager, both examined 2026-08) plus
-      community documentation of the closely related BM85 record format.
-      The cloud API version endpoint was probed live on 2026-08-18. The
-      exact BM92 0x2A35 payload tail, bonding type, and the presence of the
-      0x2A49 Blood Pressure Feature characteristic all remain open questions
-      that need one btsnoop capture of a real sync to settle.
+      No hardware was exercised for this spec. The protocol comes from static
+      analysis of the two vendor Android apps (HealthManager Pro and classic
+      HealthManager, both examined 2026-08) plus community documentation of
+      the closely related BM85 record format. The US BM92 manual and Pro
+      workflow were reviewed 2026-11-07: select a user before inflation, save
+      the result, then transfer it locally; this is not continuous pressure
+      streaming. The cloud API version endpoint was probed live on 2026-08-18.
+      The exact BM92 0x2A35 payload tail, bonding type, and the presence of
+      the 0x2A49 Blood Pressure Feature characteristic still need a real
+      capture; no BM92 packet capture has been reviewed.
   protocol: "ble"
   type: "blood-pressure-monitor"
   category: "health"
+  category_hierarchy: ["measurement", "health", "blood_pressure"]
   notes: >
     Covers the Beurer BM92, sold in the US as the "Series 800" and
     "Premium 800" upper-arm blood-pressure monitor (voice output in
@@ -31,20 +57,22 @@ device:
     is the older BM82, a sibling in the same HealthManager family.
 
     Headline protocol fact: the BM92 speaks the standard Bluetooth SIG Blood
-    Pressure Profile. Measurement transfer is service 0x1810, characteristic
-    0x2A35 (Blood Pressure Measurement) as INDICATIONS after the client
-    enables the CCCD; there is no custom vendor command protocol for readings.
+    Pressure Profile. Saved-measurement transfer is service 0x1810,
+    characteristic 0x2A35 (Blood Pressure Measurement) as INDICATIONS after
+    the client enables the CCCD; there is no custom vendor command protocol
+    for readings. The manual describes automatic transfer after a saved
+    measurement, not cuff control or continuous live-pressure streaming.
     Time sync is a write of Current Time 0x2A2B on the Current Time Service
     0x1805. Device info and battery are the standard DIS 0x180A and BAS
     0x180F/0x2A19.
 
     The record layout carries Beurer quirks recovered from the classic app's
-    BM85-family parser (parseDataForBM85) and independently documented by
-    smurfix/ble-stuff: the IEEE-11073 SFLOATs are sent BIG-ENDIAN (the app
-    byte-swaps them; smurfix documents the BM85 pulse value arriving with the
-    wrong byte order), the flags byte's bit0 means the values are in kPa and
-    the app multiplies by 7.50061683 to get mmHg, and Beurer appends a user
-    slot byte and a status byte (arrhythmia bit 0x04, bits 6-7 a resting /
+    BM85-family parser and independently documented by smurfix/ble-stuff:
+    the IEEE-11073 SFLOATs are sent BIG-ENDIAN (the app byte-swaps them;
+    smurfix documents the BM85 pulse value arriving with the wrong byte
+    order), the flags byte's bit0 means the values are in kPa and the app
+    multiplies by 7.50061683 to get mmHg, and Beurer appends a user slot byte
+    and a status byte (arrhythmia bit 0x04, bits 6-7 a resting /
     hemodynamic-stability indicator) past the standard fields. The Pro app's
     measurement model additionally tracks afib and triple-measurement flags,
     so BM92-era firmware may carry status bits or trailing bytes the BM85
@@ -66,13 +94,14 @@ device:
     exactly matches the BM85 layout (status at byte 18) or appends extra
     bytes for the afib/triple flags the Pro app models; (2) bonding type
     (JustWorks vs passkey) and whether indications require an encrypted
-    link — the app calls Android createBond() and no app-level PIN was found,
-    so JustWorks/Numeric Comparison is expected but unconfirmed; (3) whether
+    link — the app requests OS bonding and no app-level PIN was found, so
+    JustWorks/Numeric Comparison is expected but unconfirmed; (3) whether
     BM92 actually exposes 0x2A49 Blood Pressure Feature and what it claims;
     (4) FCC ID (device.report lists a 2023-08-30 filing but is bot-blocked;
     the printed manual should carry it); (5) whether a user-slot selection
-    write precedes sync — the Pro app has a user-selection view model, but
-    the relevant methods could not be read cleanly.
+    write precedes sync — the Pro app has a user-selection view, but its BLE
+    write path could not be established. Physical user selection before
+    inflation is documented in the manual.
   safety_advisory:
     severity: "warning"
     summary: >
@@ -133,36 +162,45 @@ device:
     required: false
     confidence: "medium"
     notes: >
-      Nothing to provision — no network, no account, no cloud. The monitor
-      is a BLE peripheral usable straight out of the box: connect, enable
-      indications on 0x2A35, and it streams its stored records. The Pro app
-      requests Android bonding (createBond()); no app-level PIN exists in the
-      code for blood-pressure devices, so bonding is expected to be
-      JustWorks or Numeric Comparison (unconfirmed against hardware). The
-      Pro app works locally without registering an account.
+      Nothing to provision — no network, no account, no cloud. Enable
+      Bluetooth in the monitor's settings, select user memory 1 or 2 before
+      inflation, and let the monitor save the result. It then transfers the
+      saved measurement automatically; this is not continuous live-pressure
+      streaming. The 2023 US manual says to hold MEMORY for three seconds
+      to reopen settings, while the Pro 1.17.2 tutorial says five seconds;
+      follow the prompt for the actual device/app version. The Pro app
+      requests OS bonding and no app-level PIN was found, so Just Works or
+      Numeric Comparison is expected but unconfirmed. It works locally
+      without registering an account.
     methods:
       - type: "ble_direct"
         verified: false
         description: >
-          Scan for the PREMIUM800 advertisement, connect, bond, enable
-          0x2A35 indications, and collect the stored measurements the
-          device streams.
+          Enable Bluetooth in the monitor settings, select a user memory,
+          take and save a measurement, then connect during the automatic
+          transfer window and collect saved records over 0x2A35 indications.
         ble:
           advertised_name: "PREMIUM800"
           pairing_required: true
           pin_source: "None found in either app; expected JustWorks/Numeric Comparison bonding (unconfirmed)."
         steps:
-          - action: "Take a measurement (or wake the device) so it advertises as PREMIUM800."
+          - action: "With the monitor switched on, hold MEMORY to enter settings. The US manual says three seconds; the Pro 1.17.2 tutorial says five seconds."
             actor: "user"
-            expect: "BLE advertisement with local name PREMIUM800 and/or service UUID 0x1810."
-          - action: "Connect and let the OS bond with the device."
+            expect: "Device settings open. Inserting batteries also opens them initially."
+          - action: "Advance through the settings until the Bluetooth icon flashes, select On with the arrow buttons, and confirm with START/STOP."
+            actor: "user"
+            expect: "Bluetooth transfer enabled. Set a valid date/time before taking offline measurements."
+          - action: "Select user memory 1 or 2 with the User button before inflation, then take a measurement and let the result save automatically."
+            actor: "user"
+            expect: "Saved result followed by automatic BLE transfer; do not power off during transfer."
+          - action: "Connect to the PREMIUM800 advertisement during transfer and let the OS bond with the device."
             actor: "client"
             request:
               protocol: "ble_gatt"
             notes: >
-              The vendor app calls Android createBond(). Whether the link
-              must be encrypted before indications flow is an open question.
-          - action: "Write the standard CTS Current Time (0x2A2B) so stored records get correct timestamps."
+              The vendor app requests OS bonding. Whether the link must be
+              encrypted before indications flow is an open question.
+          - action: "Write the standard CTS Current Time (0x2A2B) so subsequent stored records get correct timestamps."
             actor: "client"
             request:
               protocol: "ble_gatt"
@@ -174,7 +212,7 @@ device:
               protocol: "ble_gatt"
               service: "00001810-0000-1000-8000-00805f9b34fb"
               action: "Enable 0x2A35 indications"
-            expect: "The device streams one indication per stored record, newest or oldest first (ordering unverified)."
+            expect: "One indication per saved record; record count, ordering, and transfer completion behavior remain unverified."
     factory_reset:
       applicable: "unknown"
       confidence: "low"
@@ -237,20 +275,21 @@ services:
     name: "Blood Pressure Service"
     notes: >
       Standard Bluetooth SIG Blood Pressure Service 0x1810. This is the
-      whole measurement surface: the client enables indications on 0x2A35
-      and the device streams each stored record (the app enables the CCCD
-      0x2902 for indication, not notification). The same service/characteristic
-      pair serves the entire Beurer BP family (BM54/57/75/77/81/85/93/96,
-      BC54, SRBM1/788) per the classic app's supported-services table, which
-      is why the BM85 record parser is the reference for the format below.
+      documented saved-measurement transfer surface: the client enables
+      indications on 0x2A35 and the device sends saved records (the app
+      enables the CCCD 0x2902 for indication, not notification). The same
+      service/characteristic pair serves the entire Beurer BP family
+      (BM54/57/75/77/81/85/93/96, BC54, SRBM1/788) per the classic app's
+      supported-services table, which is why the BM85 record parser is the
+      reference for the format below.
     characteristics:
       - uuid: "00002a35-0000-1000-8000-00805f9b34fb"
         name: "Blood Pressure Measurement"
         properties: ["indicate"]
         notes: >
-          Standard Blood Pressure Measurement characteristic, streamed as
-          indications once the client writes 0x0002 (enable indications) to
-          its CCCD. Payload is the IEEE-11073-style blood-pressure record
+          Standard Blood Pressure Measurement characteristic, sent as saved-
+          record indications once the client writes 0x0002 (enable indications)
+          to its CCCD. Payload is the IEEE-11073-style blood-pressure record
           with Beurer quirks, recovered from the classic app's BM85-family
           parser and independently documented by smurfix/ble-stuff:
 
@@ -664,22 +703,24 @@ cloud:
 local_access:
   status: "native"
   summary: >
-    Fully local by design: the monitor speaks the standard Bluetooth SIG
-    Blood Pressure Profile over BLE and has no other radio. Any generic BLE
-    BP-profile client (or an ESPHome Bluetooth proxy plus a small parser for
-    the Beurer big-endian-SFLOAT quirk) reads measurements with no vendor
-    involvement at any point.
+    Local by design: the monitor speaks the standard Bluetooth SIG Blood
+    Pressure Profile over BLE and has no other radio. A BP-profile client
+    with the Beurer byte-order and unit handling can receive saved records
+    without the vendor cloud; the complete BM92 flow remains untested.
   covers:
-    - "full stored-measurement sync (systolic/diastolic/MAP/pulse/timestamp/user slot) via 0x2A35 indications"
+    - "post-measurement saved-record transfer (systolic/diastolic/MAP/pulse/timestamp/user slot) via 0x2A35 indications"
     - "clock sync via CTS 0x2A2B write"
     - "model/firmware/hardware identification via DIS"
     - "battery level via BAS"
   not_covered:
+    - "cuff inflation and continuous live pressure — no 0x2A2C intermediate-pressure path or remote measurement trigger is established"
+    - "a dedicated download-all-history gesture — powering on an already-paired monitor is not proven to export all missed records"
     - "cloud account sync/backup across devices (inherently a vendor-cloud feature, and optional)"
   notes: >
     smurfix/ble-stuff demonstrates third-party local sync of the sister BM85
-    with no vendor cloud, over the identical 0x1810/0x2A35 path — the
-    strongest available evidence that the local path is complete.
+    with no vendor cloud, over the identical 0x1810/0x2A35 path. That supports
+    the local route but does not establish BM92 history coverage or payload
+    details without a BM92 capture.
 
 helpful_urls:
   - title: "Beurer Premium 800 (BM92) product page"
@@ -726,6 +767,11 @@ helpful_urls:
       0x1810/0x2A35/0x2A49 structure, subject to the Beurer quirks this spec
       documents on top.
 
+  - title: "Beurer Premium 800 (BM92) instructions for use"
+    url: "https://www.shop-beurer.com/cdn/shop/files/101.55_BM92_2023-04-04_01_IM_BEU-USA.pdf?v=17104474228358017001"
+    kind: "manual"
+    description: >
+      Official 2023 US BM92 instructions covering Bluetooth setup, user-memory selection before measurement, automatic saved-result transfer and troubleshooting.
   - title: "Beurer BM 93 instructions for use"
     url: "https://www.manualslib.com/manual/2001931/Beurer-Bm-93.html"
     kind: "manual"

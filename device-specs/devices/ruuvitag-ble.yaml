@@ -16,6 +16,7 @@ device:
       company id 0x0499 are from Ruuvi's own published data-format documentation.
   protocol: "ble"
   category: "sensor"
+  category_hierarchy: ["measurement", "temperature"]
   pictogram: "air-quality"
   notes: >
     The RuuviTag is an open BLE environmental sensor. Ruuvi publishes its

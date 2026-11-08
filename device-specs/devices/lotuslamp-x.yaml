@@ -10,6 +10,7 @@ device:
     status: untested
   protocol: "ble"
   category: "light"
+  category_hierarchy: ["light", "led"]
   notes: >
     Addressable RGB LED strip/lamp controllers designed against the
     LotusLamp X app (com.szelk.ledlamppro, analyzed v5.19.08), sold under
@@ -121,14 +122,12 @@ device:
     framing) are unmapped — needs a live capture.
 
   identification:
-    service_uuids:
-      - "0000fff0-0000-1000-8000-00805f9b34fb"
+    local_name_prefixes: ["ELK", "MELK", "ELBU"]
+    notes: >
+      Names begin with these prefixes or an OEM variant; the shared FFF0
+      service is not an identity signal.
   discovery:
     methods:
-      - type: "ble_scan"
-        ble:
-          service_uuids:
-            - "0000fff0-0000-1000-8000-00805f9b34fb"
       - type: "ble_scan"
         ble:
           manufacturer_data:

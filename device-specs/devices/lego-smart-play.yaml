@@ -1,0 +1,1023 @@
+# LEGO Smart Play Smart Brick (docked app mode, WDX register protocol) device spec
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Evidence base (clean-room; derived facts only, in our own words):
+#   - nathankellenicki/node-smartplay research notes at main 5b46706
+#     (fetched 2026-09-28): research/notes/PROTOCOL.md first, with
+#     FIRMWARE.md (register response sizes), FILE_TRANSFER.md (the firmware
+#     update outline, not its bytes) and BACKEND.md (the role of the signing
+#     key). The upstream authors derived them from Android HCI captures of
+#     the vendor app, a decompile of that app and a disassembly of the brick's
+#     firmware. The GitHub repository carries no licence file (the npm
+#     package declares MIT), so every table below is paraphrased, not copied.
+#   - node-smartplay 1.0.0, the library built on those notes (npm tarball,
+#     digest in `evidence`): framing, CCCD order, handshake, polling and the
+#     name and volume writes as a working client performs them.
+#   - Arm/Packetcraft Cordio, the open-source (Apache-2.0) BLE stack whose
+#     WDX profile the brick runs: the standard meaning of registers
+#     0x01-0x25, the 0xFEF6 characteristic roles, and the
+#     connection-parameter update layout behind the idle-beacon hypothesis.
+# Nothing here was run against hardware by this project and no capture of
+# our own exists: every protocol fact is `reported` (or `hypothesis` where
+# marked) and the spec is `untested`.
+# Deliberately left out: brick-to-brick PAwR play and its internal
+# registers, WDX file-transfer bytes (firmware, telemetry, fault log),
+# firmware disassembly addresses, the public key upstream recovered and the
+# vendor's signing endpoint, and the example unit's MAC (only LEGO's OUI is
+# kept).
+
+device:
+  name: "LEGO Smart Play Smart Brick"
+  manufacturer: "LEGO"
+  manufacturer_status: "active"
+  openness:
+    status: "undocumented"
+    reverse_engineered: true
+  testing:
+    status: untested
+    notes: >
+      No capture and no hardware session by this project. The facts rest on
+      the node-smartplay research notes, whose authors report Android HCI
+      captures of the vendor app, and on the node-smartplay library, which
+      its author publishes as working for battery, volume, naming and device
+      info. That supports per-fact `verification: reported`, not this flag.
+  protocol: "ble"
+  transport: "ble-gatt"
+  model: "Smart Brick"
+  type: "interactive-toy-brick"
+  category: "other"
+  notes: >
+    The SMART Brick is the 2x4 electronic brick at the centre of LEGO's SMART
+    Play system (2026): speaker and sound synthesiser, LED array,
+    accelerometer, colour and light sensing, a microphone for sound pressure,
+    and coils that charge it wirelessly, read SMART Tags and SMART
+    Minifigures, and sense nearby bricks. It plays on its own with no phone.
+    The LEGO SMART Assist app is for grown-ups: it shows battery level,
+    registers the brick to a LEGO account and installs firmware updates.
+
+    This spec covers one mode only: the brick talking to a phone while it
+    sits on its SMART Charger. It is connectable only if it STARTED UP on the
+    charger. Upstream's firmware analysis says the brick checks for the dock
+    once, at boot, and only then turns on connectable advertising; nothing
+    later (motion, play, a timer, being placed on the charger while running)
+    turns it on. A brick that started off the charger either does not
+    advertise at all or, during multi-brick play, advertises "Smart Brick"
+    without accepting connections.
+
+    Everything runs over the WDX service (0xFEF6) of the Arm Cordio BLE
+    stack, which the brick's EM Microelectronic EM9305 SoC runs. One
+    characteristic, the Control Point
+    005f0002-2ff2-4ed5-b045-4c7463617865, carries a register protocol: read
+    is 01 RR, write is 02 RR VV..., and the brick answers 03 RR VV... by
+    notification. Registers 0x01-0x25 are the stock Cordio WDX device
+    configuration set; 0x80-0x96 are LEGO's. The unauthenticated surface is
+    real and useful: model, firmware version, battery, name (read and
+    write), volume (read and write), MAC, upgrade state and a keepalive.
+
+    Privileged operations (unlock, telemetry consent, factory reset, the
+    start of a firmware upgrade, diagnostics, ownership proof) need an ECDSA
+    P-256 signature over a per-connection nonce. The private key is held by
+    LEGO's servers, not by the app or the brick; the app asks LEGO's backend
+    to sign. No replacement client can do these offline, and this spec gives
+    no way round that: it documents the layout so an implementer recognises
+    the exchange and knows what it cannot do.
+
+    Out of scope: brick-to-brick play (Bluetooth 5.4 PAwR on a separate
+    address, with its own internal registers 0x1B, 0x1C and reuses of 0x25
+    and 0x26), the WDX file-transfer channels (firmware images, telemetry,
+    fault log), LEGO Powered Up / BOOST / SPIKE hubs (LWP3, a different
+    protocol) and MINDSTORMS NXT/EV3 (Bluetooth Classic). SMART Tag events
+    are not on the BLE surface at all: upstream's firmware analysis found no
+    register or notification that reports a tag.
+
+  identification:
+    local_names: ["Smart Brick"]
+    service_uuids:
+      - "0000fef6-0000-1000-8000-00805f9b34fb"
+    manufacturer_data:
+      company_id: 919
+      company_id_hex: "0x0397"
+      description: >
+        LEGO System A/S in the Bluetooth SIG company list. The payload after
+        the company id was 00 60 00 00 00 00 in upstream's capture; its
+        meaning is not known, so nothing matches on it.
+    notes: >
+      Match all three together. 0xFEF6 is a SIG member UUID assigned to
+      Wicentric (the stack's original author), so every product built on the
+      Cordio WDX profile advertises it. Company 0x0397 is on every LEGO BLE
+      product, the Powered Up hubs included. The name "Smart Brick" is the
+      brick's. The advertised address is an LE random address that rotates
+      often, so there is no usable MAC prefix on the air: the brick's real
+      MAC, under LEGO's OUI 9c:9a:c0, is only readable from register 0x84
+      after connecting. A "Smart Brick" advertisement that is not connectable
+      (ADV_NONCONN_IND) is a brick in multi-brick play, not one a client can
+      use.
+
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          local_name:
+            match: "exact"
+            value: "Smart Brick"
+          manufacturer_data:
+            company_id: 919
+            description: >
+              LEGO company id 0x0397 (little-endian 97 03 on the air). Payload
+              bytes after it are device-specific and undocumented.
+        notes: >
+          The service UUID 0000fef6-0000-1000-8000-00805f9b34fb is advertised
+          too, but it is shared by every Cordio WDX product, so it is left
+          out of this matcher on purpose (a ble_scan matcher ORs name and
+          service). Confirm with a connectable advertisement and, after
+          connecting, the Device Information manufacturer string "LEGO".
+    identity:
+      stable_keys: ["mac"]
+      display: "local_name"
+      notes: >
+        `mac` is the six bytes of register 0x84, read after connecting,
+        printed most-significant octet first (9c:9a:c0:dd:ee:ff as a
+        placeholder). The on-air address rotates and must be treated as a
+        connection locator only. Every brick advertises the same name; the
+        owner's chosen name is register 0x80.
+    static_ip_required: false
+
+  setup:
+    required: false
+    confidence: "medium"
+    notes: >
+      Nothing is provisioned for local use: no Wi-Fi, no account, no bond.
+      The one physical precondition is that the brick started up on its
+      SMART Charger (see pairing.enter_pairing_mode). The LEGO account,
+      registration and firmware updates exist only through the vendor app
+      and LEGO's backend. Confidence medium: upstream captures of the vendor
+      app plus a published open client, not replayed here.
+    methods:
+      - type: "ble_direct"
+        name: "Start the brick on its SMART Charger, then connect (no account)"
+        role: "primary"
+        verified: false
+        description: >
+          What node-smartplay does. With the brick started on the charger,
+          scan, connect, open notifications in the vendor app's order, run
+          the handshake reads, and keep the link alive with the keepalive
+          write. Model, firmware, MAC, battery, name and volume then work
+          with no signature and no pairing.
+        ble:
+          advertised_name: "Smart Brick"
+          advertised_name_match: "exact"
+          protocol: "Cordio WDX device-configuration registers (01/02/03 framing) on 0xFEF6"
+          service_uuid: "0000fef6-0000-1000-8000-00805f9b34fb"
+          write_characteristic: "005f0002-2ff2-4ed5-b045-4c7463617865"
+          read_characteristic: "005f0002-2ff2-4ed5-b045-4c7463617865"
+          pairing_required: false
+        steps:
+          - action: "Set the brick on a SMART Charger so that it starts up there (pairing.enter_pairing_mode)."
+            actor: "user"
+          - action: "Close the SMART Assist app on any phone near by, so it is not holding the brick."
+            actor: "user"
+          - action: "Scan for a connectable advertisement named exactly \"Smart Brick\" carrying company id 0x0397 and service 0xFEF6."
+            actor: "client"
+          - action: "Connect, discover services, and run the top-level `initialization` sequence (notifications, handshake reads, keepalive, MTU read)."
+            actor: "client"
+            request:
+              protocol: "ble_gatt"
+              service: "0000fef6-0000-1000-8000-00805f9b34fb"
+            expect: "Notifications on 005f0002 of the form 03 RR ..., one per read. The brick may send an unprompted 03 02 ... frame before any command (protocol_details.wdx_registers.idle_beacon)."
+          - action: "Every ~500 ms, read 0x93 (charging/connection state), send the keepalive 02 90 ea 00, and read 0x20 (battery)."
+            actor: "client"
+            request:
+              protocol: "ble_gatt"
+              action: "keepalive"
+            expect: "03 93 xx and 03 20 xx replies; nothing comes back for the keepalive."
+        timing:
+          poll_interval_ms: 500
+          cccd_retry_after_ms: 5000
+          request_timeout_ms: 10000
+          notes: >
+            500 ms is the vendor app's polling period as upstream captured it
+            and node-smartplay copies it. The first CCCD write to the Control
+            Point may fail; upstream retries after about 5 s. 10 s is
+            node-smartplay's per-request timeout, not a device constant.
+            Whether the brick drops the link when the keepalive stops is not
+            established.
+        troubleshooting:
+          - symptom: "A \"Smart Brick\" shows up in the scan but will not connect."
+            causes:
+              - "The brick started up off the charger. It checks for the dock once, at boot; putting a running brick on the charger does not make it connectable. Let it restart on the charger."
+              - "The brick is in multi-brick play: it advertises \"Smart Brick\" as non-connectable alongside its PAwR train."
+          - symptom: "No \"Smart Brick\" in the scan at all."
+            causes:
+              - "It is asleep, or it started off the charger with single-brick content, which does not advertise."
+              - "It is in firmware-update mode, which uses a different advertisement (not documented)."
+          - symptom: "Turning on notifications for the Control Point fails."
+            causes:
+              - "Upstream saw the first CCCD write to 005f0002 fail; wait about 5 s and write it again."
+          - symptom: "The phone suddenly asks to pair."
+            causes:
+              - "Something read register 0x86 (the signed-command nonce). That read makes the brick ask for link-layer pairing; node-smartplay avoids it for this reason. Nothing on the unauthenticated surface needs it."
+          - symptom: "A volume write does not take."
+            causes:
+              - "Register 0x85 was not 0: an update is in progress (1) or the battery is too low (2). The vendor app checks 0x85 before writing 0x81."
+              - "The value was not 10, 40 or 100, the three levels the app uses."
+      - type: "cloud_account"
+        name: "LEGO SMART Assist app with a LEGO account (registration, updates)"
+        role: "alternative"
+        verified: false
+        description: >
+          The vendor route. The app talks to the same docked brick over the
+          same registers, and adds what needs LEGO's backend: registering the
+          brick to a LEGO account (ownership), telemetry consent, factory
+          reset and firmware updates, each through a server-signed command.
+          It is not needed for the local read/control surface above, and none
+          of those operations can be done without LEGO's servers.
+        cloud:
+          provider: "LEGO (SMART Assist app and backend)"
+          local_alternative: >
+            Yes for battery, name, volume and device info (the primary
+            method). None known for registration, telemetry consent, factory
+            reset or firmware updates: each needs a signature only LEGO's
+            servers can make.
+        steps:
+          - action: "Install LEGO SMART Assist and sign in with a LEGO account."
+            actor: "user"
+          - action: "Start the brick on the SMART Charger and follow the app's steps to add or update it."
+            actor: "user"
+          - action: "For a privileged operation, the app reads the nonce (0x86), gets a signature from LEGO's backend, writes it to 0x87, then writes the operation's register."
+            actor: "client"
+            expect: "03 87 01 for an accepted signature, 03 87 00 for a rejected one."
+    factory_reset:
+      applicable: true
+      confidence: "low"
+      effect: >
+        Not established. The firmware has a factory-reset register (0x95)
+        that acts only after a server-signed command; what it clears
+        (registration, name, volume, consent, bonds) is not documented.
+        Firmware is not expected to change.
+      description: >
+        Upstream's register map and signed-command table show the reset
+        exists and is gated by a signature only LEGO's backend can produce,
+        so the vendor app is the only route. No button or charger gesture is
+        known to reset the brick; the brick has no buttons.
+      procedures:
+        - name: "Factory reset from the SMART Assist app (server-signed)"
+          verified: false
+          basis: "node-smartplay research/notes/PROTOCOL.md register map (factory reset, auth required) and its signed-command table (type 3, factory reset); where the option sits in the app is not documented here."
+          power_state: "on"
+          steps:
+            - action: "Start the brick on the SMART Charger, open SMART Assist signed in to the account that registered it, and choose the app's reset option."
+              actor: "user"
+            - action: "The app reads 0x86, obtains a signature for a factory-reset command from LEGO's backend, writes it to 0x87, then writes register 0x95."
+              actor: "client"
+              expect: "03 87 01 after the signature write; the brick then resets."
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        There is no network to rejoin, and the local surface is bound to no
+        phone: any client can read and set it once the brick has started on
+        the charger. Moving the brick between LEGO accounts is a
+        registration question for the vendor app and LEGO's backend (the
+        ownership-proof register is signature-gated), not a BLE one.
+    credentials:
+      wifi_passphrase_protection: "not_applicable"
+      stored_on_device:
+        - "The ECDSA P-256 public key the firmware checks signed commands against (fixed in firmware; public, not a secret)."
+        - "Registration/ownership and consent state set by signed commands (contents not documented)."
+        - "Link-layer bond data if a central has paired (upstream's flash-layout notes list a parameter area holding it)."
+      issued_to_client: []
+      notes: >
+        No Wi-Fi. A local client needs no credential for the unauthenticated
+        surface and cannot obtain one for the signed surface: each signature
+        covers one per-connection nonce and is made by LEGO's backend for the
+        signed-in owner.
+
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "app_layer"
+    bonding: "optional"
+    exclusivity:
+      single_connection: "unknown"
+      single_bond: "unknown"
+      recovery: >
+        Close the SMART Assist app (or disconnect the other client) before
+        connecting. If a phone has bonded with the brick and misbehaves,
+        forget the brick in that phone's Bluetooth settings.
+      notes: "Neither upstream source says how many centrals the brick accepts at once."
+    enter_pairing_mode:
+      required: true
+      advertised_name: "Smart Brick"
+      advertised_name_match: "exact"
+      indicator: >
+        None documented on the brick. The charger's LED shows the battery
+        state (red, yellow or green), not connectability. A scan shows a
+        connectable "Smart Brick" advertisement with service 0xFEF6.
+      procedures:
+        - name: "Start the brick on the SMART Charger"
+          verified: false
+          basis: "node-smartplay research/notes/PROTOCOL.md, 'When Is The Brick Connectable?' (firmware analysis plus radio captures); LEGO's getting-started page for shake-to-wake and the charger."
+          power_state: "booting"
+          steps:
+            - action: "With the brick asleep, set it on a SMART Charger and wake it there. LEGO's guide says a SMART Brick wakes when shaken; whether being set on the charger alone starts it is not documented."
+              actor: "user"
+            - action: "Scan for a connectable \"Smart Brick\" advertisement."
+              actor: "client"
+              expect: "Connectable advertising with 0xFEF6 and company 0x0397."
+      notes: >
+        "Pairing mode" here means connectable mode: the brick accepts a
+        connection only if it booted on the dock. Upstream reads the firmware
+        as checking the dock type once at boot (two dock types qualify) and
+        never again, and restarting advertising after every disconnect
+        without re-checking, so a brick that started docked probably stays
+        connectable when lifted off. That last point is upstream's inference,
+        not an observation.
+    unpair:
+      supported: "unknown"
+      notes: >
+        The stock WDX register set has a delete-bonds register (0x07, write),
+        but neither upstream source says LEGO's firmware implements it or
+        that the app uses it. Forgetting the brick in the phone's Bluetooth
+        settings drops the phone's half of a bond.
+    notes: >
+      Link layer: nothing is required. node-smartplay connects and drives the
+      whole unauthenticated surface with no pairing. Reading register 0x86
+      (the signed-command nonce) makes the brick request link-layer pairing;
+      the association model (Just Works or otherwise) and whether the vendor
+      app keeps the bond are not documented, hence `bonding: optional`. The
+      real authorisation is application-layer: the ECDSA P-256 signed command
+      in protocol_details.signed_command, which only LEGO's backend can
+      produce.
+
+  host_compatibility:
+    - stack: "android"
+      status: "compatible"
+      verification: "reported"
+      basis: "node-smartplay's captures are Android HCI snoop logs of the vendor app connecting to and driving a docked brick."
+
+initialization:
+  - characteristic: "005f000a-3ff2-4ed5-b045-4c7463617865"
+    subscribe: true
+    notes: "First in the vendor app's CCCD order. This channel then sends empty notifications now and then; their purpose is unknown."
+  - characteristic: "005f0002-2ff2-4ed5-b045-4c7463617865"
+    subscribe: true
+    notes: "The Control Point. Upstream saw the first CCCD write here fail at times; retry after about 5 s."
+  - characteristic: "005f0003-2ff2-4ed5-b045-4c7463617865"
+    subscribe: true
+  - characteristic: "005f0004-2ff2-4ed5-b045-4c7463617865"
+    subscribe: true
+  - characteristic: "005f0005-2ff2-4ed5-b045-4c7463617865"
+    subscribe: true
+  - characteristic: "00002a05-0000-1000-8000-00805f9b34fb"
+    subscribe: true
+    notes: "Service Changed, last in the vendor app's order. Opening the file-transfer and Service Changed channels is copied from the app; nothing here uses them."
+  - characteristic: "005f0002-2ff2-4ed5-b045-4c7463617865"
+    write: [0x01, 0x22]
+    notes: "Handshake read of the firmware revision: reply 03 22 + a 16-byte null-padded ASCII string. The vendor app runs this four-read handshake three times; node-smartplay runs it once and also reads the model (0x21) and battery (0x20)."
+  - characteristic: "005f0002-2ff2-4ed5-b045-4c7463617865"
+    write: [0x01, 0x81]
+    notes: "Handshake read of the volume: reply 03 81 + 0x0a, 0x28 or 0x64."
+  - characteristic: "005f0002-2ff2-4ed5-b045-4c7463617865"
+    write: [0x01, 0x84]
+    notes: "Handshake read of the brick's MAC: reply 03 84 + six bytes, most-significant first. This is the stable identity."
+  - characteristic: "005f0002-2ff2-4ed5-b045-4c7463617865"
+    write: [0x01, 0x80]
+    notes: "Handshake read of the brick's name: reply 03 80 + up to 12 bytes of UTF-8, null-padded."
+  - characteristic: "005f0002-2ff2-4ed5-b045-4c7463617865"
+    write: [0x02, 0x90, 0xEA, 0x00]
+    notes: "Keepalive. No reply. The app then repeats it in its ~500 ms polling loop."
+  - characteristic: "005f0002-2ff2-4ed5-b045-4c7463617865"
+    write: [0x01, 0x08]
+    notes: "ATT MTU read: reply 03 08 + uint16 little-endian (f4 00 = 244 in upstream's capture). The app does not read the nonce (0x86) unless it is about to sign; neither should a local client."
+
+services:
+  - uuid: "00001800-0000-1000-8000-00805f9b34fb"
+    name: "Generic Access"
+    characteristics:
+      - uuid: "00002a00-0000-1000-8000-00805f9b34fb"
+        name: "Device Name"
+        properties: ["read"]
+        notes: "\"Smart Brick\" per upstream. Whether it follows the name set in register 0x80 is not documented."
+      - uuid: "00002a01-0000-1000-8000-00805f9b34fb"
+        name: "Appearance"
+        properties: ["read"]
+        notes: "0x0000 (unknown) per upstream."
+
+  - uuid: "00001801-0000-1000-8000-00805f9b34fb"
+    name: "Generic Attribute"
+    notes: "Present by implication: upstream's CCCD order ends with Service Changed. Properties are the Bluetooth core default, not observed."
+    characteristics:
+      - uuid: "00002a05-0000-1000-8000-00805f9b34fb"
+        name: "Service Changed"
+        properties: ["indicate"]
+
+  - uuid: "0000180a-0000-1000-8000-00805f9b34fb"
+    name: "Device Information"
+    notes: "Standard Device Information strings. The same firmware version is also in register 0x22."
+    characteristics:
+      - uuid: "00002a29-0000-1000-8000-00805f9b34fb"
+        name: "Manufacturer Name String"
+        properties: ["read"]
+        notes: "\"LEGO\"."
+      - uuid: "00002a24-0000-1000-8000-00805f9b34fb"
+        name: "Model Number String"
+        properties: ["read"]
+        notes: "\"Smart Brick\"."
+      - uuid: "00002a26-0000-1000-8000-00805f9b34fb"
+        name: "Firmware Revision String"
+        properties: ["read"]
+        notes: "Version string, e.g. \"2.29.2\" in upstream's capture."
+      - uuid: "00002a28-0000-1000-8000-00805f9b34fb"
+        name: "Software Revision String"
+        properties: ["read"]
+        notes: "Same string as the firmware revision in upstream's capture."
+
+  - uuid: "0000fef6-0000-1000-8000-00805f9b34fb"
+    name: "WDX (Cordio Wireless Data Exchange)"
+    notes: >
+      The Cordio stack's WDX service; its four characteristics share the
+      base 005fxxxx-2ff2-4ed5-b045-4c7463617865 (the trailing bytes spell
+      "exactLE" backwards, the stack's original name). The UUIDs and
+      properties below match the open-source Cordio definitions exactly,
+      where 0002 is Device Configuration, 0003 File Transfer Control, 0004
+      File Transfer Data and 0005 Authentication. Upstream observed 0003 and
+      0004 carrying file transfers and 0005 idle in normal use. Only 0002 is
+      needed for this spec's surface.
+    characteristics:
+      - uuid: "005f0002-2ff2-4ed5-b045-4c7463617865"
+        name: "Control Point (WDX device configuration)"
+        properties: ["write", "notify"]
+        role: "command"
+        notes: >
+          Every register read and write goes here as an ATT Write Request
+          (node-smartplay writes with response). Frames: read 01 RR, write
+          02 RR VV..., reply 03 RR VV... by notification, where RR is the
+          register byte and VV its value. A reply echoes the register it
+          answers, so match replies to requests by register and keep one
+          request per register outstanding. There is no status or error code
+          in a reply. Replies to writes are not reliable to wait for: the
+          keepalive gets none, node-smartplay does not wait after a name
+          write, and does wait for a 03 81 reply after a volume write; upstream
+          shows none for that write. Confirm a write with a read. The full
+          register map is protocol_details.wdx_registers. The `format` below
+          decodes battery replies only (03 20 xx); other replies are laid out
+          in the register map.
+        format_match:
+          offset: 1
+          value: 0x20
+          notes: "Only 03 20 frames (battery level) are decoded by `format`."
+        format:
+          - offset: 0
+            length: 1
+            name: "frame_type"
+            type: "uint8"
+            values:
+              3: "reply/update"
+          - offset: 1
+            length: 1
+            name: "register"
+            type: "uint8"
+          - offset: 2
+            length: 1
+            name: "battery_level"
+            type: "uint8"
+            unit: "%"
+            device_class: "battery"
+            notes: "0-100."
+        commands:
+          read_battery_level:
+            description: "Read register 0x20, battery level. Reply 03 20 + uint8 percent (0-100)."
+            verification: "reported"
+            value: [0x01, 0x20]
+          read_model:
+            description: "Read register 0x21, the model identifier. Reply 03 21 + a null-terminated string in an 18-byte field (upstream's firmware reply sizes; the Cordio stack's standard model length). Its content is not quoted upstream."
+            verification: "reported"
+            value: [0x01, 0x21]
+          read_firmware_revision:
+            description: "Read register 0x22, firmware version. Reply 03 22 + 16 bytes, ASCII, null-padded (e.g. \"2.29.2\")."
+            verification: "reported"
+            value: [0x01, 0x22]
+          read_name:
+            description: "Read register 0x80, the brick's name. Reply 03 80 + up to 12 bytes UTF-8, null-terminated or null-padded; stop at the first 0x00. Default \"Smart Brick\"."
+            verification: "reported"
+            value: [0x01, 0x80]
+          set_name:
+            description: >
+              Write register 0x80: the new name as raw UTF-8, at most 12
+              bytes, no terminator (what node-smartplay sends). Do not wait
+              for a reply; read 0x80 back to confirm. Whether a shorter name
+              leaves stale bytes behind is not documented; the read-back
+              shows it.
+            verification: "reported"
+            template: [0x02, 0x80, "{name}"]
+            parameters:
+              name:
+                type: "string"
+                min_length: 1
+                max_length: 12
+                description: "UTF-8; the limit is 12 BYTES, not characters, so multi-byte characters count more than once."
+          read_volume:
+            description: "Read register 0x81, volume. Reply 03 81 + uint8: 10 (0x0a) low, 40 (0x28) medium, 100 (0x64) high."
+            verification: "reported"
+            value: [0x01, 0x81]
+          set_volume:
+            description: >
+              Write register 0x81. The vendor app first reads 0x85 and writes
+              only when it is 0 (ready), then reads 0x81 back to confirm.
+              Only the three levels below are known; other values are
+              untested.
+            verification: "reported"
+            template: [0x02, 0x81, "{level}"]
+            parameters:
+              level:
+                type: "uint8"
+                allowed: [10, 40, 100]
+                labels: ["low", "medium", "high"]
+                description: "Volume level code. The numbers look like percentages but only these three are used."
+          read_mac_address:
+            description: "Read register 0x84, the brick's MAC. Reply 03 84 + six bytes, most-significant octet first (upstream's example starts 9c 9a c0, LEGO's OUI). The stable identity; the advertised address is random."
+            verification: "reported"
+            value: [0x01, 0x84]
+          read_upgrade_state:
+            description: "Read register 0x85. Reply 03 85 + uint8: 0 ready, 1 update in progress, 2 battery too low. The app requires 0 before writing volume."
+            verification: "reported"
+            value: [0x01, 0x85]
+          read_update_fingerprint:
+            description: "Read register 0x88. Reply 03 88 + 20 bytes that upstream reads as a SHA-1-sized fingerprint and reports identical across bricks, so it describes the firmware build rather than the unit. Upstream's backend notes use a value of the same role to select a firmware download."
+            verification: "reported"
+            value: [0x01, 0x88]
+          read_build_stage:
+            description: "Read register 0x89. Reply 03 89 + uint8, the build pipeline stage (development, QA, staging or release). The number-to-stage mapping is not documented."
+            verification: "reported"
+            value: [0x01, 0x89]
+          read_charging_state:
+            description: "Read register 0x93, charging/connection state. Reply 03 93 + uint8. Only 0xa1 has been reported (a docked, connected brick); the meaning of the bits is unknown."
+            verification: "reported"
+            value: [0x01, 0x93]
+          keepalive:
+            description: "Write register 0x90 with ea 00. No reply. The vendor app sends it once after the handshake and then in every ~500 ms poll."
+            verification: "reported"
+            value: [0x02, 0x90, 0xEA, 0x00]
+          read_att_mtu:
+            description: "Read register 0x08, the link's ATT MTU. Reply 03 08 + uint16 little-endian (f4 00 = 244 in upstream's capture; varies with the central)."
+            verification: "reported"
+            value: [0x01, 0x08]
+          read_connection_parameters:
+            description: >
+              Read register 0x02, the current connection parameters. The
+              register is reported upstream; the reply layout is a
+              hypothesis from the Cordio WDX source: 03 02, status (uint8),
+              connection interval (uint16 LE, x1.25 ms), peripheral latency
+              (uint16 LE, events), supervision timeout (uint16 LE, x10 ms).
+              See payload_formats.ConnectionParameters.
+            verification: "hypothesis"
+            value: [0x01, 0x02]
+
+      - uuid: "005f0003-2ff2-4ed5-b045-4c7463617865"
+        name: "WDX file transfer control"
+        properties: ["write_without_response", "notify"]
+        notes: >
+          Upstream calls it data channel 1 and saw it carry file-transfer
+          requests and acknowledgements (on-device files: firmware, fault
+          log, telemetry). Cordio's name for it is File Transfer Control.
+          Upstream calls its own description of the transfer format
+          inferred. Not documented here; do not write to it.
+      - uuid: "005f0004-2ff2-4ed5-b045-4c7463617865"
+        name: "WDX file transfer data"
+        properties: ["write_without_response", "notify"]
+        notes: "Upstream's data channel 2: the file payload stream. Cordio's File Transfer Data. Not documented here."
+      - uuid: "005f0005-2ff2-4ed5-b045-4c7463617865"
+        name: "WDX authentication"
+        properties: ["write", "notify"]
+        notes: >
+          Upstream's data channel 3, idle in normal use. Cordio's
+          Authentication characteristic (its own challenge scheme); LEGO's
+          signed commands go through register 0x87 on the Control Point
+          instead. Whether anything uses this one is unknown.
+
+  - uuid: "005f0001-3ff2-4ed5-b045-4c7463617865"
+    name: "LEGO custom service (3ff2 base)"
+    notes: >
+      A second service on the base 005fxxxx-3ff2-4ed5-b045-4c7463617865
+      (service UUID as node-smartplay declares it). Purpose unknown; the
+      vendor app subscribes to 000a first of all.
+    characteristics:
+      - uuid: "005f0009-3ff2-4ed5-b045-4c7463617865"
+        name: "Unknown write-only input"
+        properties: ["write"]
+        notes: "Accepts writes without visible effect or reply (upstream). Purpose unknown; nothing here writes to it."
+      - uuid: "005f000a-3ff2-4ed5-b045-4c7463617865"
+        name: "Unknown bidirectional channel"
+        properties: ["read", "write", "notify"]
+        notes: "Sends empty notifications periodically once subscribed (upstream). Purpose unknown."
+
+features:
+  - type: "firmware_update"
+    dfu:
+      mechanisms: ["vendor_ble"]
+      transport: "ble"
+      image:
+        signing: "signed"
+        algorithm: "unknown"
+        source: "vendor_cloud"
+        notes: >
+          The app downloads firmware from LEGO's backend. Upstream's notes
+          list a signature field in the update image header and find the
+          signed-command public key inside the firmware image; the image
+          signature algorithm itself is not established. The header also
+          names a second product (upstream reads it as the charging panel).
+      enter:
+        how: "in_place"
+        notes: >
+          Upstream's outline (which it calls inferred from the decompiled
+          app): check 0x85 == 0, upload the image through the WDX
+          file-transfer characteristics (005f0003 / 005f0004) in chunks of at
+          most 100 bytes, verify it, then write register 0x26, which
+          disconnects, arms the update and resets the brick. Starting an
+          upgrade needs a server-signed command (type 4), and 0x26 is
+          signature-gated too. No entry or transfer bytes are declared here:
+          a replacement client cannot sign, and a broken transfer is the one
+          way to damage the brick over BLE.
+      dfu_mode:
+        notes: "Upstream's firmware analysis names a distinct update-mode advertisement; its name and contents are not documented."
+      recovery:
+        interrupted: "unknown"
+      verification: "reported"
+      notes: >
+        Recorded so a client knows updates exist, arrive only through the
+        vendor app with LEGO's signature, and must not be interrupted. The
+        LEGO SMART Assist page for the August 2026 Pokémon release says
+        bricks from earlier sets needed an app update to play with the new
+        sets.
+
+entities:
+  - platform: "sensor"
+    name: "Battery"
+    device_class: "battery"
+    unit: "%"
+    state_characteristic: "005f0002-2ff2-4ed5-b045-4c7463617865"
+    state_command: "read_battery_level"
+    state_mapping:
+      value: "battery_level"
+    notes: >
+      The brick answers only when asked: send read_battery_level (01 20) and
+      decode the 03 20 xx reply. The vendor app polls every ~500 ms along
+      with the keepalive.
+  - platform: "select"
+    name: "Volume"
+    command_characteristic: "005f0002-2ff2-4ed5-b045-4c7463617865"
+    state_mapping:
+      options:
+        "10": "low"
+        "40": "medium"
+        "100": "high"
+    commands:
+      select_option: "set_volume"
+    notes: >
+      Read the current level with read_volume (reply 03 81 xx); the
+      Control Point's `format` decodes battery frames only, so that reply is
+      parsed by register (protocol_details.wdx_registers). Check
+      read_upgrade_state is 0 before writing, as the vendor app does.
+
+payload_formats:
+  Advertisement:
+    description: >
+      Manufacturer-specific AD data. On the air: 97 03 (company 0x0397,
+      little-endian) then a payload. Upstream captured the whole structure
+      as 97 03 00 60 00 00 00 00 from a docked brick.
+    fields:
+      - index: 0
+        name: "payload"
+        description: "Bytes after the company id: 00 60 00 00 00 00 in the one capture published. Meaning unknown; do not match on it."
+    parse_rules:
+      - "Require company id 0x0397 (919), the exact local name \"Smart Brick\" and a connectable advertising PDU."
+      - "AD flags 0x06 (LE General Discoverable, BR/EDR not supported)."
+      - "The address is LE random and rotates; do not store it as identity."
+  RegisterReply:
+    description: "Every Control Point notification: 03, the register byte, then the value in the layout the register map gives."
+    fields:
+      - index: 0
+        name: "frame_type"
+        description: "0x03 = reply or unsolicited update (01 and 02 are the request types and never come back)."
+      - index: 1
+        name: "register"
+        description: "The register the value belongs to."
+      - index: 2
+        name: "value"
+        description: "Register-specific; lengths in protocol_details.wdx_registers.registers."
+    parse_rules:
+      - "Match by register, not by order: the brick may send 03 02 ... before any request."
+      - "No status byte: a rejected write is noticed only by reading the register back."
+    example: "03 20 57  (battery 0x57 = 87 %)"
+  ConnectionParameters:
+    description: >
+      Hypothesis: the value of register 0x02 and of the unprompted "idle
+      beacon", laid out as the open-source Cordio WDX profile sends its
+      connection-parameter update (wdxs_dc.c). Upstream reports the register
+      and the beacon bytes; the field meanings below are ours, from the
+      stack source, and unconfirmed on a brick.
+    fields:
+      - index: 2
+        name: "status"
+        description: "uint8, HCI status of the last connection update; 0 = success."
+      - index: 3
+        name: "connection_interval"
+        description: "uint16 little-endian, units of 1.25 ms."
+      - index: 5
+        name: "peripheral_latency"
+        description: "uint16 little-endian, connection events."
+      - index: 7
+        name: "supervision_timeout"
+        description: "uint16 little-endian, units of 10 ms."
+    example: "03 02 00 0c 00 00 00 f4 01  (status 0; interval 12 x 1.25 = 15 ms; latency 0; timeout 500 x 10 = 5000 ms)"
+  SignedCommand:
+    description: "The 75-byte value written to register 0x87 (77 bytes on the Control Point with the 02 87 prefix)."
+    fields:
+      - index: 0
+        name: "nonce_echo"
+        description: "Bytes 0-7: the 8-byte nonce just read from register 0x86, unchanged."
+      - index: 8
+        name: "command_suffix"
+        description: "Bytes 8-10: 02 02 01 in every published capture."
+      - index: 11
+        name: "signature_r"
+        description: "Bytes 11-42: ECDSA r, 32 bytes, big-endian."
+      - index: 43
+        name: "signature_s"
+        description: "Bytes 43-74: ECDSA s, 32 bytes, big-endian."
+    parse_rules:
+      - "Signed message: SHA-256 over nonce (8 bytes) || command_suffix (3 bytes), 11 bytes in all."
+      - "Signature: ECDSA P-256 over that digest with LEGO's server-held private key, r || s, 64 bytes."
+      - "Brick's reply: 03 87 01 accepted, 03 87 00 rejected."
+    example: "02 87 01 23 45 67 89 ab cd ef 02 02 01 <32 bytes r> <32 bytes s>  (invented nonce; SHA-256 of 0123456789abcdef020201 = 5c8468499fbcba5e62727e9301ff46ec15ad99f4ba916376a81f1705b6592bf6)"
+
+protocol_details:
+  wdx_registers:
+    description: >
+      The register protocol on the Control Point, restated in our own words
+      from node-smartplay's PROTOCOL.md and FIRMWARE.md, with the standard
+      meaning of 0x01-0x25 cross-checked against the open-source Cordio WDX
+      profile (wdx_defs.h, wdxs_dc.c). Sizes are value bytes, without the
+      03 RR header. `auth` means the brick acts only after a server-signed
+      command in the same connection.
+    framing:
+      read: "01 RR"
+      write: "02 RR VV..."
+      reply: "03 RR VV... (notification on the same characteristic)"
+      stack_origin: "Cordio WDX device-configuration operations get (0x01), set (0x02) and update (0x03)."
+      notes: >
+        One frame per ATT write, never split. Every request on the
+        unauthenticated surface fits a default 23-byte MTU (the longest,
+        a 12-byte name write, is 14 bytes). The 0x87 signed command is 77
+        bytes, so it needs an ATT MTU of at least 80; upstream's capture
+        shows 244.
+    idle_beacon:
+      bytes: "03 02 00 0c 00 00 00 f4 01"
+      verification: "hypothesis"
+      observed: "Sent by the brick unprompted, before any request (upstream calls it an idle beacon; node-smartplay treats it as an unsolicited notification)."
+      interpretation: >
+        It has the exact shape of the stock Cordio WDX connection-parameter
+        update, which that stack sends on every link connection-update event
+        (wdxs_main.c): register 0x02, status 0, interval 15 ms, latency 0,
+        supervision timeout 5 s. If so it is not a beacon at all but the
+        brick reporting the parameters the central just negotiated, and it
+        may recur whenever they change. Unconfirmed on a brick.
+    registers:
+      - {register: 0x01, access: "write", size: 8, auth: false, scope: "stock WDX", role: "Ask for a connection-parameter update", notes: "Cordio layout: min interval, max interval, latency, timeout, each uint16 LE (hypothesis). Not used by the app."}
+      - {register: 0x02, access: "read", size: 7, auth: false, scope: "stock WDX", role: "Current connection parameters", notes: "Layout is a hypothesis (payload_formats.ConnectionParameters)."}
+      - {register: 0x03, access: "write", auth: false, scope: "stock WDX", role: "Ask the brick to disconnect"}
+      - {register: 0x04, access: "read", size: 1, auth: false, scope: "stock WDX", role: "Link security level"}
+      - {register: 0x05, access: "write", auth: false, scope: "stock WDX", role: "Ask the brick to start link security"}
+      - {register: 0x06, access: "read", auth: false, scope: "stock WDX", role: "Service changed"}
+      - {register: 0x07, access: "write", auth: false, scope: "stock WDX", role: "Delete bonds", notes: "Whether LEGO implements it is not documented."}
+      - {register: 0x08, access: "read", size: 2, type: "uint16 LE", auth: false, scope: "stock WDX", role: "ATT MTU, bytes"}
+      - {register: 0x09, access: "write", size: 5, auth: false, scope: "stock WDX", role: "Ask for a PHY update"}
+      - {register: 0x0A, access: "read", auth: false, scope: "stock WDX", role: "Current PHY", notes: "Upstream's firmware sizes show no value bytes; unclear."}
+      - {register: 0x20, access: "read", size: 1, type: "uint8", unit: "%", auth: false, scope: "stock WDX", role: "Battery level, 0-100"}
+      - {register: 0x21, access: "read", size: 18, type: "string, null-terminated", auth: false, scope: "stock WDX", role: "Model identifier"}
+      - {register: 0x22, access: "read", size: 16, type: "ASCII, null-padded", auth: false, scope: "stock WDX", role: "Firmware version"}
+      - {register: 0x23, access: "write", auth: true, scope: "stock WDX", role: "Enter diagnostic mode"}
+      - {register: 0x24, access: "read", auth: true, scope: "stock WDX", role: "Diagnostic mode complete"}
+      - {register: 0x25, access: "write", auth: true, scope: "stock WDX", role: "Disconnect and reset", notes: "Upstream also lists 0x25 among the PAwR play registers handled by a separate internal path; that use is out of scope."}
+      - {register: 0x26, access: "write", auth: true, scope: "LEGO", role: "Disconnect, arm firmware update, reset", notes: "The last step of a firmware update. Also reused internally for PAwR play (out of scope). No bytes documented here."}
+      - {register: 0x80, access: "read/write", size: 12, type: "UTF-8, null-padded", auth: false, scope: "LEGO", role: "Brick name"}
+      - {register: 0x81, access: "read/write", size: 1, type: "uint8 code", auth: false, scope: "LEGO", role: "Volume: 10 low, 40 medium, 100 high"}
+      - {register: 0x82, access: "read", size: 6, auth: false, scope: "LEGO", role: "File-transfer write offset", notes: "Part of the file-transfer machinery; layout not documented here."}
+      - {register: 0x83, access: "read", auth: false, scope: "LEGO (not used by the app)", role: "Unknown internal state", notes: "Upstream's two tables disagree on its size (4 bytes vs a 4-byte reply including the header)."}
+      - {register: 0x84, access: "read", size: 6, type: "MAC, most-significant octet first", auth: false, scope: "LEGO", role: "Brick MAC (OUI 9c:9a:c0, LEGO System A/S)"}
+      - {register: 0x85, access: "read", size: 1, type: "uint8 code", auth: false, scope: "LEGO", role: "Upgrade state: 0 ready, 1 in progress, 2 low battery"}
+      - {register: 0x86, access: "read", size: 8, auth: false, scope: "LEGO", role: "Signed-command nonce, fresh per connection", notes: "Reading it makes the brick request link-layer pairing."}
+      - {register: 0x87, access: "write", size: 75, auth: false, scope: "LEGO", role: "Signed command (payload_formats.SignedCommand)", notes: "Write-only; reply 03 87 01 accepted / 00 rejected."}
+      - {register: 0x88, access: "read", size: 20, auth: false, scope: "LEGO", role: "Firmware build fingerprint (same on every brick upstream checked)"}
+      - {register: 0x89, access: "read", size: 1, type: "uint8 code", auth: false, scope: "LEGO", role: "Build pipeline stage", notes: "Code-to-stage mapping unknown."}
+      - {register: 0x90, access: "write", size: 2, auth: false, scope: "LEGO", role: "Keepalive, value ea 00, no reply"}
+      - {register: 0x91, access: "write", auth: true, scope: "LEGO", role: "Ownership proof"}
+      - {register: 0x92, access: "read", size: 1, auth: false, scope: "LEGO (not used by the app)", role: "Unknown; upstream guesses tag-reader status", notes: "Not tag data: it is one byte."}
+      - {register: 0x93, access: "read", size: 1, type: "uint8", auth: false, scope: "LEGO", role: "Charging/connection state", notes: "Only 0xa1 reported; bit meanings unknown."}
+      - {register: 0x94, access: "read", size: 1, auth: false, scope: "LEGO (not used by the app)", role: "Unknown; upstream reads it as a hardware timer"}
+      - {register: 0x95, access: "write", size: 0, auth: true, scope: "LEGO", role: "Factory reset"}
+      - {register: 0x96, access: "read/write", auth: false, scope: "LEGO", role: "Travel (shipping) mode", notes: "Upstream's firmware table shows an empty write; the effect and read layout are not documented. Not declared as a command."}
+    out_of_scope:
+      - "0x1B and 0x1C, and the PAwR reuse of 0x25 and 0x26: brick-to-brick play, handled by a separate internal path, not used by the app."
+      - "The file-transfer protocol on 005f0003 / 005f0004 (firmware, fault log, telemetry)."
+  lifecycle:
+    description: "The vendor app's connection as upstream captured it; node-smartplay follows it."
+    cccd_order:
+      - "005f000a-3ff2-4ed5-b045-4c7463617865"
+      - "005f0002-2ff2-4ed5-b045-4c7463617865"
+      - "005f0003-2ff2-4ed5-b045-4c7463617865"
+      - "005f0004-2ff2-4ed5-b045-4c7463617865"
+      - "005f0005-2ff2-4ed5-b045-4c7463617865"
+      - "00002a05-0000-1000-8000-00805f9b34fb"
+    cccd_note: "The first CCCD write to 005f0002 may fail; retry after about 5 s."
+    handshake_reads: [0x22, 0x81, 0x84, 0x80]
+    handshake_note: "The app runs the four reads three times over. node-smartplay reads 0x21, 0x22, 0x81, 0x84, 0x80, 0x20 once."
+    setup_writes:
+      - "02 90 ea 00 (keepalive, no reply)"
+      - "01 08 (ATT MTU)"
+    polling:
+      interval_ms: 500
+      sequence: ["01 93", "02 90 ea 00", "01 20"]
+    set_volume_sequence: ["01 85 -> expect 03 85 00", "02 81 <level>", "01 81 -> expect 03 81 <level>"]
+    set_name_sequence: ["02 80 <up to 12 bytes UTF-8>", "01 80 -> expect 03 80 <name>"]
+    connectable_rule:
+      - "Booted on a charger (one of two dock types): connectable advertising."
+      - "Booted off the charger, single-brick content: no advertising."
+      - "Booted off the charger, multi-brick content: non-connectable \"Smart Brick\" advertising alongside PAwR on another address."
+      - "Lifted off after booting docked: probably stays connectable (upstream inference; advertising restarts after each disconnect without re-checking the dock)."
+      - "Firmware update: its own update-mode advertising only."
+  signed_command:
+    description: >
+      Challenge-response for the privileged operations. The brick verifies an
+      ECDSA P-256 signature against a public key built into its firmware;
+      the matching private key exists only on LEGO's servers, which sign for
+      the signed-in owner when the app asks. Upstream recovered the public
+      key from captured signatures and found it in the firmware; it is not
+      reproduced here because a client has no use for it. Upstream also
+      checked that each captured signature used a fresh random value (all r
+      values distinct), which rules out recovering the private key through
+      reuse.
+    algorithm: "ECDSA P-256 (secp256r1) over SHA-256"
+    flow:
+      - "1. Read 0x86: reply 03 86 + an 8-byte nonce, fresh per connection. This read makes the brick request link-layer pairing."
+      - "2. message = nonce (8 bytes) || 02 02 01."
+      - "3. digest = SHA-256(message); signature = ECDSA-P256-sign(LEGO private key, digest) as r || s, 32 bytes each, big-endian."
+      - "4. Write 02 87 + nonce + 02 02 01 + r + s (75 value bytes)."
+      - "5. Reply 03 87 01 = verified, 03 87 00 = rejected. Then write the operation's register."
+    command_types:
+      - {type: 1, operation: "unlock"}
+      - {type: 2, operation: "enable telemetry consent"}
+      - {type: 3, operation: "factory reset"}
+      - {type: 4, operation: "start firmware upgrade"}
+    command_types_note: >
+      Upstream lists the four types but publishes only one suffix, 02 02 01,
+      with its captures. Whether that suffix's last byte is the type (1 =
+      unlock) is not established.
+    requires_signature: ["unlock", "telemetry consent", "factory reset", "firmware upgrade (start and 0x26)", "diagnostic mode (0x23/0x24)", "disconnect and reset (0x25)", "ownership proof (0x91)"]
+    works_without_signature: ["device info (0x21, 0x22, DIS)", "battery (0x20)", "name read and write (0x80)", "volume read and write (0x81)", "MAC (0x84)", "upgrade state (0x85)", "keepalive (0x90)", "charging state (0x93)"]
+    test_vector:
+      nonce: "01 23 45 67 89 ab cd ef (invented)"
+      message: "0123456789abcdef020201"
+      sha256: "5c8468499fbcba5e62727e9301ff46ec15ad99f4ba916376a81f1705b6592bf6"
+      note: "Checks message construction only; no valid signature can be given without LEGO's key."
+
+evidence:
+  public_research: >
+    node-smartplay research notes (nathankellenicki, main 5b46706, fetched
+    2026-09-28). PROTOCOL.md: advertisement, GATT layout, framing, register
+    map, connection lifecycle, volume sequence, signed-command layout and
+    what needs it; its authors say it comes from Android HCI captures and a
+    decompile of the vendor app, may contain errors, and that some payloads
+    are encrypted. FIRMWARE.md: reply sizes per register and the
+    connectable-at-boot analysis (addresses deliberately not carried over).
+    FILE_TRANSFER.md: the firmware-update outline, which it labels inferred.
+    BACKEND.md: that the signing key is server-held and the app only relays
+    the nonce. HARDWARE.md: the EM9305 SoC and the custom LEGO ASIC. The
+    repository has no licence file; nothing is copied verbatim.
+  community_implementations: >
+    node-smartplay 1.0.0 (npm, declares MIT; the same code as the GitHub
+    main branch): scan filter (0xFEF6 plus company 0x0397), CCCD order,
+    handshake, keepalive, 500 ms polling, set-volume with the 0x85 check,
+    set-name with a 12-byte limit and read-back, and the note that reading
+    0x86 triggers pairing. Its author lists battery, volume, naming and
+    device info as supported and authentication as not.
+  open_source_stack: >
+    Packetcraft/Arm Cordio (packetcraft-inc/stacks master 3656312, Apache-2.0):
+    wdx_defs.h (base UUID, characteristic roles, device-configuration ops
+    and parameter ids 0x01-0x25, lengths), wdxs_dc.c (reply layouts,
+    including the connection-parameter update) and wdxs_main.c (update sent
+    on each connection-update event), svc_wdxs.c (characteristic
+    properties). The match between those and upstream's register map is
+    exact for 0x01-0x25; that is why the stock meanings are carried here.
+  identifiers_checked: >
+    Bluetooth SIG assigned numbers (fetched 2026-09-28): company 0x0397 =
+    LEGO System A/S; member UUID 0xFEF6 = Wicentric, Inc. IEEE OUI
+    9C:9A:C0 = LEGO System A/S (this repository's registries/ieee-oui.tsv).
+  documentation_review: >
+    LEGO's SMART Play getting-started page, SMART Assist app page and
+    "How we made" article (Wayback copies, 2026): shake to wake, charger
+    LED battery colours, wireless charging of up to two bricks, the sensor
+    list, the app's role (battery, registration, updates) and the August
+    2026 firmware release. No user manual PDF for the brick or charger was
+    found, and LEGO's help-centre articles are not archived.
+  fcc: >
+    Our manuals pass recorded grant NPI106929 ("Smart brick", LEGO System
+    A/S, 2025-12-10) on fccid.co, with label, test-report, RF-exposure and
+    antenna exhibits and no user manual. The grant page could not be
+    re-fetched when this spec was written (fccid.co answered 404, fccid.io
+    403), so the ID is carried as unconfirmed.
+  open_questions: >
+    Everything is unreplayed here. Open in upstream too: the 3ff2 service,
+    the idle beacon (our Cordio reading is a hypothesis), 0x93's bits, the
+    undocumented 0x83/0x92/0x94, the file-transfer format, the 0x02 layout,
+    whether writes are answered, whether the keepalive is required, and the
+    signed-command suffix.
+  artifacts:
+    - type: "public_research"
+      artifact: "nathankellenicki/node-smartplay research/notes/PROTOCOL.md at 5b467064cceeea372506bf54a6671c94980318ad"
+      url: "https://github.com/nathankellenicki/node-smartplay/blob/main/research/notes/PROTOCOL.md"
+      sha256: "b52741b0f092ea9844b4c678fafa919bc69f63cf9dd2e107da225b9fc7035180"
+      obtained_via: "raw.githubusercontent.com fetch, 2026-09-28"
+      description: "The primary source: advertisement, services, framing, register map, lifecycle, signed commands."
+    - type: "public_research"
+      artifact: "nathankellenicki/node-smartplay research/notes FIRMWARE.md, FILE_TRANSFER.md, BACKEND.md, HARDWARE.md at 5b46706"
+      url: "https://github.com/nathankellenicki/node-smartplay/tree/main/research/notes"
+      obtained_via: "raw.githubusercontent.com fetch, 2026-09-28"
+      description: "Reply sizes, the connectable-at-boot rule, the firmware-update outline, the server-held key, the chipset."
+    - type: "public_implementation"
+      artifact: "node-smartplay 1.0.0 (npm tarball node-smartplay-1.0.0.tgz)"
+      url: "https://registry.npmjs.org/node-smartplay"
+      sha256: "cdd1a1960c124c1ec784dd9df17af30c26813b26700b36805bef30c9de7b95bd"
+      obtained_via: "npm registry, 2026-09-28"
+      description: "Working client: framing, CCCD order, handshake, polling, name and volume writes. Declares MIT."
+    - type: "public_implementation"
+      artifact: "packetcraft-inc/stacks (Cordio) at 3656312d6b73e2a2c1c8b33ee0385bc199dd97e6"
+      url: "https://github.com/packetcraft-inc/stacks"
+      obtained_via: "raw.githubusercontent.com fetch, 2026-09-28"
+      description: "Open-source WDX profile: the stock register set, characteristic roles and the connection-parameter update layout."
+    - type: "vendor_documentation"
+      artifact: "LEGO SMART Play getting-started page (Wayback 20260406021009)"
+      url: "https://web.archive.org/web/20260406021009/https://www.lego.com/en-us/smart-play/getting-started"
+      obtained_via: "Internet Archive, 2026-09-28"
+      description: "Shake to wake, charger LED colours, wireless charging, sensors, the app's role."
+
+remaining_unknowns:
+  - "Nothing has been run against a brick by this project. First check: connect to a brick started on the charger, run the handshake, read 0x20 and 0x84."
+  - "What the 3ff2 service is for: 005f0009 (write-only) and the empty periodic notifications on 005f000a."
+  - "Whether the unprompted 03 02 ... frame is the Cordio connection-parameter update this spec guesses (and so recurs on every parameter change), and the true layout of register 0x02."
+  - "What the bits of 0x93 mean (only 0xa1 reported)."
+  - "What the undocumented registers 0x83, 0x92 and 0x94 hold; whether 0x92 changes when a SMART Tag is placed."
+  - "Which writes the brick answers: the volume write (node-smartplay waits for 03 81; upstream shows no reply), the name write, and writes to unknown registers."
+  - "Whether the brick drops the link, or stops being connectable, when the keepalive stops."
+  - "Whether volume values other than 10, 40 and 100 are accepted, and what a short name write leaves in the name field."
+  - "Whether the 0x87 suffix 02 02 01 encodes the signed-command type, and how types 2-4 are sent."
+  - "The link-layer association model when reading 0x86 triggers pairing, whether a bond is kept, and whether 0x07 (delete bonds) works."
+  - "How many centrals the brick accepts at once."
+  - "What a factory reset clears, and what travel mode (0x96) does and how it is left."
+  - "The model string in 0x21, and the number-to-stage mapping of 0x89."
+  - "The WDX file-transfer format, the firmware image signature algorithm, the update-mode advertisement, and what an interrupted update does. Deliberately not probed."
+  - "How to make a running brick restart on the charger without waiting for it to sleep; whether placing a sleeping brick on the charger wakes it."
+  - "FCC ID: NPI106929 recorded by our manuals pass but not re-fetched."
+
+helpful_urls:
+  - title: "LEGO: Tips for getting started with SMART Play sets (archived)"
+    url: "https://web.archive.org/web/20260406021009/https://www.lego.com/en-us/smart-play/getting-started"
+    kind: "vendor_support"
+    description: >
+      LEGO's own getting-started page for the SMART Brick and SMART Charger
+      (Wayback copy): shake to wake, battery colours on the charger, wireless
+      charging, the sensors, and what the SMART Assist app is for. LEGO
+      publishes no PDF manual for the brick itself.
+  - title: "node-smartplay: PROTOCOL.md"
+    url: "https://github.com/nathankellenicki/node-smartplay/blob/main/research/notes/PROTOCOL.md"
+    kind: "protocol_writeup"
+    description: "The upstream BLE protocol write-up this spec paraphrases: advertisement, services, register map, lifecycle, signed commands."
+  - title: "node-smartplay: FILE_TRANSFER.md"
+    url: "https://github.com/nathankellenicki/node-smartplay/blob/main/research/notes/FILE_TRANSFER.md"
+    kind: "protocol_writeup"
+    description: "Upstream's notes on the WDX data channels, on-device files and the firmware-update outline (not carried into this spec)."
+  - title: "node-smartplay: HARDWARE.md"
+    url: "https://github.com/nathankellenicki/node-smartplay/blob/main/research/notes/HARDWARE.md"
+    kind: "teardown"
+    description: "Chipset (EM9305 plus a custom LEGO ASIC), tags and play-engine notes from teardown photos and firmware."
+  - title: "node-smartplay"
+    url: "https://github.com/nathankellenicki/node-smartplay"
+    kind: "implementation"
+    description: "Node.js/TypeScript client for the docked brick: device info, battery, name and volume, no authentication."
+  - title: "node-smartplay: smart-brick.ts"
+    url: "https://github.com/nathankellenicki/node-smartplay/blob/main/src/devices/smart-brick.ts"
+    kind: "implementation"
+    description: "The handshake, polling loop and the name and volume writes as a working client does them."
+  - title: "Cordio WDX definitions (wdx_defs.h)"
+    url: "https://github.com/packetcraft-inc/stacks/blob/master/ble-profiles/sources/profiles/include/wdx_defs.h"
+    kind: "implementation"
+    description: "Open-source definitions of the WDX service the brick runs: UUID base, characteristic roles, register ids 0x01-0x25."
+  - title: "Cordio WDX device configuration (wdxs_dc.c)"
+    url: "https://github.com/packetcraft-inc/stacks/blob/master/ble-profiles/sources/profiles/wdxs/wdxs_dc.c"
+    kind: "implementation"
+    description: "Reply layouts of the stock registers, including the connection-parameter update behind the idle-beacon hypothesis."
+  - title: "Bluetooth SIG assigned numbers"
+    url: "https://www.bluetooth.com/specifications/assigned-numbers/"
+    kind: "standard"
+    description: "Company identifiers (0x0397 is LEGO System A/S) and member service UUIDs (0xFEF6 is Wicentric)."

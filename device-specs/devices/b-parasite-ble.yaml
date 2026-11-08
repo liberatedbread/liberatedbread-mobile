@@ -17,6 +17,7 @@ device:
       ESPHome b_parasite component.
   protocol: "ble"
   category: "sensor"
+  category_hierarchy: ["measurement", "environmental"]
   notes: >
     b-parasite is an open-source (nRF52840/nRF52833) BLE soil-moisture sensor
     that also reports air temperature/humidity, light and battery. Passive BLE

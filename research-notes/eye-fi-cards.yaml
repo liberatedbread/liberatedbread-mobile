@@ -1,37 +1,115 @@
-# Eye-Fi cards — structured research note (2026-10-31)
+# Eye-Fi cards — structured research note, consolidated 2026-11-06
 
 device:
   id: eye-fi-cards
   name: Eye-Fi X2 and Mobi Wi-Fi SD cards
   manufacturer: Eye-Fi (services discontinued)
   category: camera_storage
+  testing:
+    status: source_validated_only
+    hardware_capture: false
+    upstream_offline_checks: 86
+    note: "Public implementations were exercised offline, including one four-call loopback receiver session. No physical card or real photograph was used."
 
 receiver:
-  direction: card initiates upload to host
-  transport: cleartext HTTP/SOAP on TCP 59278
+  direction: card_initiates_upload_to_host
+  transport: cleartext_http_soap_tcp_59278
   soap_path: /api/soap/eyefilm/v1
   upload_path: /api/soap/eyefilm/v1/upload
-  sequence: StartSession, GetPhotoStatus, UploadPhoto, MarkLastPhotoInRoll
-  payload: multipart SOAPENVELOPE and FILENAME tar archive
+  sequence: [StartSession, GetPhotoStatus, UploadPhoto, MarkLastPhotoInRoll]
+  upload_multipart_fields: [SOAPENVELOPE, FILENAME]
+  archive: tar_media_first_optional_event_log_second
+  roll_completion:
+    eyefiserver2: empty_success_response
+    reviewed_mobi_server: not_implemented
+    historical_windows: soap_fault_2_last_photo_then_close
+    compatibility_choice: unverified
+  security:
+    reject_dtd_external_entities_and_duplicate_fields: true
+    bind_nonces_to_card_session_item: true
+    constant_time_second_credential_check: true
+    local_only_upsyncallowed: false
 
 credentials:
-  algorithm: concatenate hex strings, hex-decode, MD5, lowercase hex
+  algorithm: concatenate_hex_strings_hex_decode_md5_lowercase_hex
   x2_start_session: MD5_bytes(mac + cnonce + upload_key)
   x2_photo_status: MD5_bytes(mac + upload_key + snonce)
-  mobi_reviewed: same formulas with 32 ASCII zeroes as upload key
+  reviewed_mobi_placeholder: 32 ASCII zeroes, decoded as 16 zero bytes
+  mobi_pro_infrastructure: real upload key may replace placeholder; export from configured card token 0xfd
+  test_vectors:
+    mac: "00005e005301"
+    cnonce: "0102030405060708090a0b0c0d0e0f10"
+    snonce: "ffeeddccbbaa99887766554433221100"
+    x2_upload_key: "00112233445566778899aabbccddeeff"
+    mobi_zero_key: "00000000000000000000000000000000"
+    x2_start_session_credential: "a2e99d07358fce61e94b3c61dbb62e20"
+    x2_photo_status_credential: "a833dcc5cc4339f13432a5385d2b73c2"
+    mobi_start_session_credential: "7c3f7fe880fb9ebbcc92fc9ed5b4517e"
+    mobi_photo_status_credential: "0bcb84813e4933dfbfd17b3770668b75"
+
+resume:
+  state_key: filesignature
+  algorithm: unknown
+  new_destination_offset: spooled_bytes_rounded_down_to_4_kib
+  complete_item_offset: filesize
+  filesize_semantics: tar_bytes
+  conservative_initial_implementation: offset_zero
+  hardware_interruption_capture_required: true
+  integrity_digest:
+    algorithm: invert_internet_checksum_per_512_byte_tar_block_concatenate_u16_values_md5_with_16_byte_upload_key
+    verification: reported_unverified_on_hardware
+
+safe_archive_handling:
+  bounded_temporary_spool: true
+  validate_before_extract: true
+  reject:
+    - absolute_traversal_and_backslash_paths
+    - symbolic_and_hard_links
+    - devices_fifos_and_unknown_member_types
+    - normalized_and_case_folded_collisions
+    - oversized_requests_members_and_expanded_totals
+  initial_profile: jpeg_only_single_card
+  skip_geolocation_sidecar: true
+  exclusive_create_remove_partial_output: true
+
+direct_mode:
+  ssid_format: "Eye-Fi Card  + last six MAC hex digits"
+  security: WPA2_with_card_activation_code
+  dhcp_supplied_by: card
+  listener_selection: active/profile_and_global_hints_then_bounded_subnet_candidates
+  manual_listener_provisioning_candidate: "O 0x06; not first-party or hardware-verified"
+  reset_card_upload_key_creation: unsolved
 
 configuration:
   channel: mounted FAT EyeFi/reqm, reqc, rspm, rspc records
-  capabilities: identity/key export, networks, logs, transfer and direct-mode fields
-  unresolved: direct-mode discovery, resume/dedup, signatures, model coverage
-
-implementation_cautions:
-  trusted_lan_only: true
-  reject_tar_traversal_links_special_files_and_oversize: true
-  scope_nonces_per_card_session: true
-  no_geolocation_sidecar_upload: true
+  buffer_bytes: 16384
+  padding: zero
+  information_request: ASCII o + one-byte subcommand
+  one_byte_write: ASCII O + subcommand + 01 + value
+  sequence:
+    seed_if_zero: 0x1234
+    increment_before_use: true
+    reference_endianness: native_u32_little_endian_on_reference_linux
+    poll_count: 50
+    poll_interval_ms: 300
+  read_tokens:
+    "0x01": card_mac_private
+    "0x02": firmware
+    "0x04": upload_api_address
+    "0x11": transfer_mode
+    "0x22": direct_mode_ssid_private
+    "0x23": direct_mode_passphrase_private
+    "0x24": direct_mode_wait_for_connection
+    "0x25": direct_mode_wait_after_transfer
+    "0xfd": owner_only_upload_key_export
+  cautions:
+    - backup_and_owner_consent_before_any_write
+    - compiler_reported_possible_use_after_free_in_mount_path_handling
+    - network_change_ap_start_and_reboot_unverified
 
 status:
-  evidence: three community implementations; no hardware capture
+  evidence: three community implementations plus historical vendor app and desktop analysis
   app_transport: secure receiver required, not an outbound camera client
   validated_spec: null
+  remaining_milestone: single_card_jpeg_only_read_only_network_receiver_with_strict_session_and_archive_handling
+  reset_card_offline_activation: unsolved

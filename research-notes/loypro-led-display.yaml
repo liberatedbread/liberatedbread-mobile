@@ -1,0 +1,44 @@
+# LOYPRO matching research — 2026-11-07
+
+observation:
+  advertised_name: LOY5265115155
+  advertised_service: 0000fff0-0000-1000-8000-00805f9b34fb
+  service_data: {}
+  manufacturer_data: {}
+  rssi_dbm: -59
+  address_retained: false
+  gatt_discovery_completed: false
+  writes_pairing_reset_or_firmware: false
+
+best_match:
+  spec: loypro-led-display
+  app: com.yskj.loypro
+  reason: LOYPRO explicitly accepts the LOY prefix
+  exact_model_and_geometry: unverified
+
+matching_fix:
+  root_cause: local_name and service_uuids are alternative match axes
+  shared_service_not_identity: 0000fff0-0000-1000-8000-00805f9b34fb
+  action: remove FFF0 from identification and scan discovery, retain it in services
+  production_candidate: LOY prefix only until read-only corroboration
+  example_fixture_excluded_from_production: true
+
+rejected_candidates:
+  AUTOBABA: YS/TL name mismatch; protocol relative only
+  Aurora: FS name and single-characteristic layout mismatch
+  CoolLEDX: name and required manufacturer evidence mismatch
+  ELK_and_Lotus_families: name and FFF3/FFF4 layout mismatch
+  iBBQ: name, five-characteristic profile and credential model mismatch
+  iDeal_and_Shining: custom d44bc439 channels and TR manufacturer data absent
+  Inkbird: sps/tps names, readings and command map mismatch
+  OBD: name, transport and AT/serial protocol mismatch
+  Quicklynks_BM2: name, FFF4 notify and encrypted advertisements mismatch
+  UREVO: URTM/SYWP names and BluePack protocol mismatch
+  Example_Smart_Bulb: example fixture, not production identification
+
+next_evidence:
+  - complete read-only GATT enumeration
+  - confirm FFF2 write-without-response and FFF1 notify if offered
+  - source-derived AA55 information query only after candidate selection
+  - decode model firmware width height before enabling control
+  - do not probe another protocol or maintenance service

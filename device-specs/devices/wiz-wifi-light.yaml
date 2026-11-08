@@ -17,6 +17,7 @@ device:
       from OpenWiz; the JSON method dialect is from both pywizlight and OpenWiz.
   protocol: "wifi"
   category: "light"
+  category_hierarchy: ["light", "led"]
   transport: "udp"
   notes: >
     WiZ is Signify's (Philips) budget smart-lighting line — bulbs, light strips

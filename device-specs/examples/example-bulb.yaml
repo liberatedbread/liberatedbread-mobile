@@ -17,8 +17,6 @@ device:
   notes: "This is an example spec for documentation purposes."
   identification:
     local_name_prefix: "ACME_"
-    service_uuids:
-      - "0000fff0-0000-1000-8000-00805f9b34fb"
 
 helpful_urls:
   - title: "Example teardown notes"

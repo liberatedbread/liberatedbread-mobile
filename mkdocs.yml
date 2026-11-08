@@ -160,6 +160,41 @@ nav:
           - Quicklynks BM2 Battery Monitor: devices/quicklynks-bm2.md
           - WaterRower ComModule / SmartRow: devices/waterrower-smartrow.md
           - Oral-B iO Smart Brush and iO Sense Charger: devices/oral-b-io-smartbrush.md
+          - "Acaia Coffee Scales (Pearl / Lunar / Pyxis)": devices/acaia-coffee-scale.md
+          - "AC Infinity UIS Controller (BLE)": devices/acinfinity-uis-controller.md
+          - "Anova Precision Cooker (original, Bluetooth: 800 W and 900 W)": devices/anova-precision-cooker.md
+          - "Beddit Sleep Monitor 3 / 3.5": devices/beddit-sleep-monitor.md
+          - "Blueair Cabin P2i Car Air Purifier": devices/blueair-cabin-p2i.md
+          - "BlueDriver Bluetooth Pro OBD-II Scan Tool": devices/bluedriver-obd2.md
+          - "Blueriiot Blue Connect (Go / Plus)": devices/blueriiot-blue-connect.md
+          - "Boosted Boards and Boosted Rev": devices/boosted-boards.md
+          - "Eurotronic Comet Blue Radiator Thermostat": devices/eurotronic-comet-blue.md
+          - "Even Realities G1 Smart Glasses": devices/even-g1-glasses.md
+          - "Exway Electric Skateboards": devices/exway-eskate.md
+          - "Fisher-Price Lumalou": devices/fisher-price-lumalou.md
+          - "Gocycle G4 / G4i / G4i+": devices/gocycle-ebike.md
+          - "Hestan Cue Smart Cooking System": devices/hestan-cue.md
+          - "HT36 Smartwatch": devices/ht36-smartwatch.md
+          - "HumsiENK Smart BMS": devices/humsienk-bms.md
+          - "InMotion Electric Unicycles": devices/inmotion-euc.md
+          - "Insta360 360° and Action Cameras": devices/insta360-camera.md
+          - "iopool EcO / EcO Salt": devices/iopool-eco.md
+          - "ChefSteps Joule Sous Vide": devices/joule-sous-vide.md
+          - "Kinsa Smart Thermometers": devices/kinsa-thermometer.md
+          - "LEGO Smart Play Smart Brick": devices/lego-smart-play.md
+          - "Lippert OneControl BLE Gateway": devices/lippert-onecontrol-ble.md
+          - "Marshall Bluetooth Headphones, Earbuds and Speakers": devices/marshall-bluetooth.md
+          - "Meizu MYVU / Star Air AR Glasses": devices/meizu-myvu-glasses.md
+          - "Pix Backpack / Pix Mini": devices/pix-backpack.md
+          - "Weber iGrill Bluetooth Thermometers": devices/weber-igrill.md
+          - "LOY / LOYPRO LED Displays": devices/loypro-led-display.md
+      - Bluetooth Classic Devices:
+          - Quin / Daviky Smart Pill Boxes: devices/quin-pillcalendar.md
+          - "94Fifty Smart Sensor Basketball": devices/94fifty-basketball.md
+          - "AB Shutter 3 and Generic Bluetooth HID Remotes": devices/ab-shutter-3.md
+          - "Anker soundcore Earbuds, Headphones and Speakers": devices/anker-soundcore.md
+          - "Beddit Sleep Tracker (Classic generation)": devices/beddit-2-sleep-tracker.md
+          - "Brother P-touch Cube Label Printers": devices/brother-ptouch-cube.md
       - WiFi Devices:
           - Belkin Wemo Smart Devices: devices/wemo-devices.md
           - Anki Vector Robot: devices/vector-robot.md
@@ -245,6 +280,9 @@ nav:
           - SolarEdge Inverters (Modbus TCP / SunSpec): devices/solaredge-modbus-tcp.md
           - Apple AirPort Extreme / Time Capsule / Express (ACP): devices/apple-airport-acp.md
           - Philips Wi-Fi Air Purifiers and Humidifiers (encrypted CoAP): devices/philips-air-coap.md
+          - "Big Ass Fans i6 / es6 / Haiku (firmware 3.x)": devices/big-ass-fans-i6.md
+          - "Big Ass Fans Haiku with SenseME (legacy)": devices/big-ass-fans-senseme.md
+          - "Furbo Dog Camera": devices/furbo-dog-camera.md
       - Zigbee Devices:
           - Zigbee Soil Tester (TS0601 family): devices/zigbee-soil-tester.md
       - Z-Wave Devices:
@@ -272,6 +310,7 @@ nav:
       - Pairing, Bonding and Unpairing: protocols/pairing.md
       - Firmware Update (DFU / OTA): protocols/firmware-update.md
       - Common BLE Patterns: protocols/ble-common.md
+      - Common Bluetooth Classic Patterns: protocols/bluetooth-classic-common.md
       - Common WiFi Patterns: protocols/wifi-common.md
       - Common OBD-II Patterns: protocols/obd2-common.md
       - Standards & References: protocols/standards-and-references.md

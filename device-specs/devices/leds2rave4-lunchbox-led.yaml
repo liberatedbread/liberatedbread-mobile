@@ -3,13 +3,57 @@
 # SPDX-License-Identifier: Apache-2.0
 
 device:
-  name: "SP107E/SP110E LED Controller"
+  name: "LEDs2RAVE4 / Lunchbox Dream LED (SP107E/SP110E/SPOTLED)"
   manufacturer: "Shenzhen Sperll Optoelectronic (SPLED)"
   manufacturer_status: "unsupported"
+  aliases: ["LEDs2RAVE4", "Lunchbox Dream LED", "Dream LED Skin", "DreamSkin", "DreamPanel", "Lunchbox backpack", "SP107E", "SP110E", "SPOTLED"]
+  distributors:
+    - name: "LEDs 2 RAVE 4"
+      role: "brand"
+      url: "https://leds2rave4.com/"
+      notes: "DreamSkin and DreamPanel product line, created with Lunchbox Packs."
+    - name: "Lunchbox Packs"
+      role: "retailer"
+      url: "https://www.lunchboxpacks.com/"
+      notes: "Lunchbox backpack retailer and setup-guide publisher."
+    - name: "Shenzhen Sperll Optoelectronic Technology Co., Ltd. (SPLED)"
+      role: "manufacturer"
+      notes: "SP107E / SP110E controllers and LED CHORD / LED Hue apps."
+    - name: "Host No.4 Technology (Chengdu) Co., Ltd."
+      role: "manufacturer"
+      notes: "SPOTLED panels and app for v2 and early v3 generations."
+    - name: "Shenzhen I-ledshow Technology Co., Ltd."
+      role: "manufacturer"
+      notes: "iLEDColor app used by recent DreamPanel v3 boards."
+  companion_apps:
+    - name: "LED CHORD"
+      package: "com.spled.pzse"
+      role: "variant"
+      platform: "android"
+      url: "https://play.google.com/store/apps/details?id=com.spled.pzse"
+      notes: "Dream LED Skin v1 and SP107E; SP110E uses LED Hue instead."
+    - name: "SPOTLED"
+      package: "com.led.spotled"
+      role: "primary"
+      platform: "android"
+      url: "https://play.google.com/store/apps/details?id=com.led.spotled"
+      notes: "Dream LED Skin 2.0 and early DreamPanel v3. Deprecated on recent Android."
+    - name: "iLEDColor"
+      package: "com.led.iledcolor"
+      role: "alternative"
+      platform: "ios"
+      url: "https://apps.apple.com/us/app/iledcolor/id6737223690"
+      notes: "Recent DreamPanel v3 boards; horizontal serial number selects this app."
+    - name: "PIXELY GLOW"
+      role: "alternative"
+      platform: "android"
+      url: "https://leds2rave4.com/blogs/animated-gifs/spotled-android-fix"
+      notes: "Vendor-suggested alternative when SPOTLED cannot be installed on recent Android."
   testing:
     status: untested
   protocol: "ble"
-  category: "light"
+  category: "display"
+  category_hierarchy: ["display", "led_matrix"]
   notes: >
     SPI LED pixel controllers used in LEDs2RAVE4 / Lunchbox Dream LED products.
     Two distinct variants that do NOT share the same BLE service UUID:

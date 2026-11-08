@@ -1,0 +1,1531 @@
+# Big Ass Fans i6 / es6 / Haiku (firmware 3.x, the "i6 protocol") — Device Specification
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Sources (clean-room: derived facts only, nothing copied):
+#   - jfroy/aiobafi6 (Apache-2.0), the reference client Home Assistant ships:
+#     aiobafi6/wireutils.py (SLIP framing), aiobafi6/device.py (connect, query,
+#     commit and merge loop), aiobafi6/discovery.py (mDNS service and TXT keys),
+#     aiobafi6/protoprop.py (value transforms and bounds), proto/aiobafi6.proto
+#     (field numbers). The .proto is NOT reproduced: the message tree and field
+#     numbers this spec needs are restated as our own tables in
+#     protocol_details.baf_i6_api, under our own names.
+#   - home-assistant/core homeassistant/components/baf (Apache-2.0): which
+#     properties Home Assistant exposes, its UI bounds and its zeroconf matcher.
+#   - oogje/homebridge-i6-bigassfans (MIT) src/platformAccessory.ts: fields
+#     aiobafi6 leaves unnamed (light selector, UV-C, capability bits, Wi-Fi
+#     RSSI). Anything only that project states is marked `hypothesis`.
+#   - The vendor Android app (Big Ass Fans v3.3.4 and 3.4.0), checked statically for the
+#     transport, framing, mDNS browse, BLE channel, colour presets and the
+#     firmware-upload port. Everything from it is `reported`; no vendor class,
+#     method or path is recorded here.
+#   - Big Ass Fans' published i6 manual and support pages (factory reset,
+#     remote pairing, onboarding).
+#
+# Scope: fans, lights and wall controls on firmware 3.x (April 2022 onward).
+# The legacy SenseME ASCII firmware is a different protocol and a different
+# spec (big-ass-fans-senseme). Out of scope here: the vendor cloud beyond its
+# role, OTA image bytes, and the Bluetooth remote's own pairing.
+#
+# TRANSPORT GAP: the control surface is SLIP-framed protobuf on a plain TCP
+# socket. No `commands.transport` value in schema.json names that, so the
+# commands below carry NO transport, exactly as android-tv-remote.yaml does for
+# its protobuf session: each carries its parameters, its protobuf field in
+# `notes`, and the exact frame it produces in `example_body` (hex). A consumer
+# that only speaks HTTP/SOAP must treat them as unsendable. The placeholder
+# `http_endpoints` entry exists only for the one-access-surface rule.
+
+device:
+  name: "Big Ass Fans i6 / es6 / Haiku (firmware 3.x)"
+  manufacturer: "Big Ass Fans (Delta T LLC)"
+  manufacturer_status: "active"
+  openness:
+    status: "undocumented"
+    reverse_engineered: true
+    source_code: "https://github.com/jfroy/aiobafi6"
+    license: "Apache-2.0 (aiobafi6); MIT (oogje/homebridge-i6-bigassfans)"
+    notes: >
+      Big Ass Fans publishes no local API. The protocol was worked out by the
+      community: aiobafi6 (jfroy, with bdraco suggesting protobuf) and the
+      homebridge plugin by oogje. Home Assistant has shipped aiobafi6 in its
+      `baf` integration since 2022.6, so this protocol runs in production. The
+      schema lives only in aiobafi6's hobbyist .proto; nothing here comes from
+      a vendor document. Current smart boards also ship with a Matter QR
+      sticker (vendor board-replacement instructions), so Matter is a second,
+      standard local path on newer units. This spec does not cover it.
+  testing:
+    status: untested
+    notes: >
+      No Big Ass Fans hardware has been driven from this file by this project,
+      and the research store holds no capture of real traffic. The byte
+      sequences are aiobafi6's serializer, reproduced with an independent
+      standard-library encoder (varint, length-delimited fields, RFC 1055
+      SLIP). The two agree on every example_body and test vector here. The
+      transport (plain TCP to 31415, no TLS), the SLIP escapes, the _api._tcp
+      browse, the BLE channel and the colour-preset table were cross-checked
+      statically against the vendor Android app v3.3.4 and 3.4.0. Checking against real
+      hardware should start with three things: whether the fan accepts more
+      than one property per commit, the humidity scaling (aiobafi6 and oogje
+      disagree), and whether the fan serves several TCP clients at once.
+  protocol: "wifi"
+  category: "climate"
+  pictogram: "ceiling-fan"
+  type: "ceiling-fan"
+  transport: "tcp"
+  notes: >
+    Big Ass Fans' residential line (Haiku H/I and L series, i6, es6) and its
+    Haiku lights and wall controls, on firmware 3.x. In April 2022 Big Ass
+    Fans moved the Haiku line to the protocol the i6 already spoke, retired
+    the old Haiku (SenseME) app, and the legacy ASCII protocol stopped
+    answering on those fans. Integrations built on it (aiosenseme, Hubitat
+    drivers) broke. The Big Ass Fans app is the vendor client for this
+    generation.
+
+    LOCAL AND ACCOUNT-FREE. The fan announces itself as `_api._tcp` over mDNS
+    and accepts a plain TCP connection on port 31415 (no TLS, no key, no
+    login). Every message in either direction is one protobuf message in a
+    SLIP frame (0xc0 ... 0xc0, with 0xc0 and 0xdb escaped). A client sends
+    two kinds of message: a QUERY for a group of properties, and a COMMIT
+    that sets one property. The fan answers queries with property sets, and
+    PUSHES a property set to connected clients whenever something changes.
+    That includes the fan confirming a commit: there is no separate
+    acknowledgement. The field-level map is in protocol_details.baf_i6_api;
+    the exact bytes of every command are in its example_body.
+
+    WHAT A CLIENT CAN DO. Everything the vendor app exposes for the fan: power
+    and Auto (fan mode off/on/auto), speed 1-7, Reverse, Whoosh, Eco (Haiku),
+    Auto Comfort (on/off, ideal temperature in hundredths of a degree
+    Celsius, minimum and maximum speed), Heat Assist (on/off and its own
+    speed), motion sensing, and return-to-Auto timeouts. For the light: mode
+    off/on/auto, brightness 0-100 %, colour temperature (the app's presets
+    run from Warm 2200 K to Daylight 6500 K, including Soft White 3000 K and
+    Bright White 4000 K, filtered to what the light kit reports it can do),
+    and dim-to-warm. Readings: temperature, humidity, fan RPM, and two
+    occupancy flags (firmware 3.1, API version 5 and later). Schedules and
+    sleep mode exist on the device, but their wire format is unknown.
+
+    WHERE THE SENSORS ARE. On some models the temperature and humidity come
+    from the Bluetooth remote or wall control, not the fan (Home Assistant's
+    documentation; oogje says so for the i6). When the fan loses its remote,
+    those readings and Auto Comfort stop updating while the fan itself stays
+    reachable.
+
+    CLOUD. api.bigassfans.com handles account claim, off-LAN control, voice
+    assistants, thermostat links and firmware downloads. LAN control does not
+    touch it. See `cloud`.
+
+    BLE. The fan also carries a vendor BLE service. The app uses it to find
+    unprovisioned fans and to push Wi-Fi credentials, and it can send the
+    same SLIP-framed protobuf messages over it when the LAN path is
+    unavailable (reported, from the app). Only the UUIDs and chunking are
+    recorded here, in setup.methods[0].ble and protocol_details. Earlier notes
+    said three vendor "BLE UUIDs" belonged to the wall-remote pairing. That
+    was wrong: those three strings are thermostat-integration identifiers in
+    the app, not GATT UUIDs, and they are left out on purpose.
+  identification:
+    mdns_service_type: "_api._tcp.local."
+    mdns_txt_match:
+      - key: "api version"
+        match: "present"
+        description: >
+          The fan publishes its protocol API version under a TXT key with a
+          space in it. That key is the distinctive part of this record set;
+          `_api._tcp` is a generic-sounding type another product could use.
+      - key: "model"
+        match: "regex"
+        value: "^(i6|es6|Haiku|Turbo6|Mammoth|Bison|Speakeasy)"
+        case_sensitive: false
+        description: >
+          Model strings the vendor app recognises (i6, es6, Haiku H/I Series,
+          Haiku L Series, Haiku Light, Haiku Switch, and the Turbo6, Mammoth,
+          Bison and Speakeasy fans). Home Assistant matches only `haiku*` and
+          `i6*`, so its matcher misses es6.
+    default_port: 31415
+    service_uuids: ["e0fc1000-1fb1-4168-96df-b3f057a86e01"]
+    mac_prefixes:
+      - prefix: "20:F8:5E"
+        confidence: "low"
+        notes: >
+          Delta Electronics' block (IEEE registry). It appears, with the NIC
+          half zeroed, in the example fan configuration of the
+          homebridge-i6-bigassfans README. That suggests the smart board's
+          Wi-Fi module comes from Delta Electronics, but no unit has been seen
+          by this project. The block belongs to a large electronics maker and
+          says nothing about the product on its own.
+    notes: >
+      Primary identity is the mDNS record. The BLE service UUID is what the
+      vendor app filters its scan on when adding a product, so it also
+      identifies a fan that is not yet on Wi-Fi. Whether a provisioned fan
+      keeps advertising it has not been established. The `uuid` TXT value
+      equals the fan's own reported service UUID (property field 10), and it
+      is the stable identity; the display name is the TXT `name`.
+
+  variants:
+    - model: "i6"
+      identification: { model_prefix: "i6" }
+    - model: "es6"
+      identification: { model_prefix: "es6" }
+    - model: "Haiku H/I Series"
+      identification: { model_prefix: "Haiku H/I" }
+    - model: "Haiku L Series"
+      identification: { model_prefix: "Haiku L" }
+    - model: "Haiku Light"
+      identification: { model_prefix: "Haiku Light" }
+
+  discovery:
+    methods:
+      - type: "mdns"
+        mdns:
+          service_type: "_api._tcp.local."
+          port: 31415
+          txt_record_keys: ["name", "model", "uuid", "api version"]
+          txt_match:
+            - key: "api version"
+              match: "present"
+              description: >
+                Read by both aiobafi6 (discovery.py) and the vendor app, which
+                defaults it to 0 when absent. aiobafi6 ignores services whose
+                value is below 4. Occupancy readings need 5 or later.
+            - key: "model"
+              match: "regex"
+              value: "^(i6|es6|Haiku|Turbo6|Mammoth|Bison|Speakeasy)"
+              case_sensitive: false
+              description: >
+                The vendor app's model table (reported). The app falls back to
+                "i6" when the key is missing.
+          identity_mapping:
+            stable_keys:
+              - source: "txt:uuid"
+                key: "uuid"
+            display:
+              source: "txt:name"
+        notes: >
+          aiobafi6 keys services by TXT uuid rather than by instance name,
+          because a renamed fan's old record lingers until its TTL expires. It
+          also checks after connecting that the fan's own field-10 value
+          matches, and drops the connection if it does not. The vendor app
+          also browses `_http._tcp`, for a reason not established. Do not
+          treat `_http._tcp` as a fan signal.
+      - type: "ble_scan"
+        ble:
+          service_uuids: ["e0fc1000-1fb1-4168-96df-b3f057a86e01"]
+        notes: >
+          Setup-time discovery only: the vendor app's Add Product flow scans
+          for this service (reported). Use it to find a fan that is not yet on
+          Wi-Fi. Day-to-day control is the mDNS/TCP path above.
+    identity:
+      stable_keys: ["uuid", "mac"]
+      display: "name"
+    static_ip_required: false
+
+  setup:
+    required: true
+    confidence: "low"
+    notes: >
+      A factory-fresh fan has to be put on Wi-Fi by the Big Ass Fans app. The
+      vendor help page describes the flow: Add Product, the app searches over
+      Bluetooth, Identify makes the chosen fan beep and flash, then Wi-Fi is
+      entered and the fan is named. The app's BLE channel and its framing are
+      known (reported). The Wi-Fi credential message itself has not been
+      established, so this cannot yet be done without the app. Whether the
+      app lets onboarding finish without signing in to a Big Ass Fans account
+      is also not established. The app has a cloud claim step, and a review
+      describes backing out of sign-up to reach local devices. Once the fan is
+      on the LAN, nothing on the control path needs an account. The app also
+      offers a "Wi-Fi (before 2023)" route for Haiku L fans bought before
+      2023, which join over Wi-Fi rather than Bluetooth. That route's
+      mechanism is not documented here.
+    methods:
+      - type: "ble_provisioning"
+        name: "Big Ass Fans app: find the fan over Bluetooth, send it Wi-Fi"
+        role: "primary"
+        verified: false
+        description: >
+          The only onboarding route established for 2023-and-later units, and
+          the one the vendor documents. The app finds the fan by its vendor BLE
+          service, confirms it with an audible and visual Identify, sends the
+          home network credentials, and then finds the fan again on the LAN.
+          The app writes SLIP-framed protobuf to the write characteristic in
+          20-byte pieces and reads replies from notifications. It requests a
+          250-byte MTU and calls no bonding API (reported, from the app).
+        ble:
+          protocol: "Vendor BLE channel carrying the same SLIP-framed protobuf messages as TCP 31415"
+          service_uuid: "e0fc1000-1fb1-4168-96df-b3f057a86e01"
+          write_characteristic: "e0fc1003-1fb1-4168-96df-b3f057a86e01"
+          read_characteristic: "e0fc1004-1fb1-4168-96df-b3f057a86e01"
+          pairing_required: false
+        steps:
+          - action: "Install the fan and power it at the wall switch or breaker."
+            actor: "user"
+            expect: "The fan beeps once on power-up, unless beeps have been turned off in the app."
+          - action: "In the Big Ass Fans app choose Add Product. The app scans for devices advertising service e0fc1000-1fb1-4168-96df-b3f057a86e01 and lists what it finds."
+            actor: "client"
+          - action: "Press Identify on the fan the app offers."
+            actor: "user"
+            expect: "The chosen fan beeps and flashes its LEDs."
+          - action: "Pick the home network and enter its passphrase. The app sends it to the fan over the BLE channel."
+            actor: "user"
+            expect: "The app reports the fan connected to the network."
+          - action: "Name the fan."
+            actor: "user"
+          - action: "Browse _api._tcp.local., match the TXT uuid, and open TCP 31415."
+            actor: "client"
+            expect: "A query_all answered with the fan's properties. Field 10 equals the TXT uuid."
+            timeout_seconds: 30
+        troubleshooting:
+          - symptom: "The app cannot find the fan over Bluetooth on Android."
+            causes:
+              - "Android 12 and later Bluetooth/location permissions. A reviewer (an Android developer) could only add the fan from an iPhone, after which Android control worked."
+              - "The fan is already on a network. A provisioned fan does not re-enter setup until its network settings are reset (the app's own advice)."
+          - symptom: "The fan joins, then the app says it could not find the device on the network."
+            causes:
+              - "The phone is on a VPN. The app detects VPNs and asks for them to be turned off, because mDNS and the LAN socket do not cross one."
+              - "The phone changed networks during setup. One reviewer had to turn phone Wi-Fi off while the fan joined."
+              - "The router blocks multicast between clients (AP or client isolation), so _api._tcp never arrives."
+          - symptom: "The fan will not accept the Wi-Fi password."
+            causes:
+              - "The passphrase contains a double quote, which the product does not support (the app warns about this)."
+    factory_reset:
+      applicable: true
+      confidence: "medium"
+      effect: >
+        Erases all settings, including the fan's name and its Wi-Fi network
+        (i6 manual). The fan leaves the LAN and must be added again with the
+        app. Whether a Bluetooth remote's pairing survives is not stated.
+      description: >
+        The i6 manual documents two routes: one from the paired remote, and one
+        by cycling power at the wall. Both end with the fan's LED turning green.
+        The Haiku board instructions only point at the support site, so
+        applying these to Haiku and es6 is unestablished. The app also refers
+        to a network-only reset ("reset its network settings") without giving
+        its procedure here.
+      procedures:
+        - name: "Remote: hold fan power, then press fan minus"
+          verified: false
+          basis: "Big Ass Fans i6 operation and maintenance manual, troubleshooting section."
+          applies_to: ["i6"]
+          hold_seconds: 5
+          power_state: "on"
+          indicator: "The fan beeps and its LED blinks slowly; the reset is complete when the LED blinks green."
+          steps:
+            - action: "Press and hold the fan power button on the paired remote for 5 seconds."
+              actor: "user"
+              expect: "The remote LEDs start blinking and the fan beeps."
+            - action: "Press the fan minus button on the remote."
+              actor: "user"
+              expect: "The fan beeps and its LED indicator blinks slowly for a few moments, then blinks green."
+        - name: "Wall switch or breaker: four off/on cycles"
+          verified: false
+          basis: "Big Ass Fans i6 operation and maintenance manual, troubleshooting section (reset without the remote)."
+          applies_to: ["i6"]
+          power_state: "on"
+          indicator: "The fan's LED indicator turns green."
+          steps:
+            - action: "Turn the fan's wall switch or breaker off and wait about 5 seconds."
+              actor: "user"
+            - action: "Turn it back on and wait about 5 seconds."
+              actor: "user"
+            - action: "Repeat the off/on cycle three more times, four cycles in all."
+              actor: "user"
+              expect: "The fan's LED indicator turns green: the reset is complete."
+    rejoin:
+      in_place_supported: false
+      requires_factory_reset: true
+      notes: >
+        The app's advice for reconnecting a product is to reset its network
+        settings and then Add Product again. No in-place path to change Wi-Fi
+        over the LAN socket is known. The only reset documented for the i6
+        clears everything, name included. Identity survives in the sense that
+        field 10 and the TXT uuid are the fan's own; whether they change on
+        reset is not established.
+    credentials:
+      wifi_passphrase_protection: "unknown"
+      stored_on_device:
+        - "Home Wi-Fi credentials"
+        - "Fan name, room/group membership and every setting in the property table"
+        - "Bluetooth remote / wall control pairing"
+      issued_to_client: []
+      notes: >
+        Nothing is issued to a LAN client. Port 31415 is unauthenticated, so
+        anything on the LAN can drive the fan. How the passphrase is protected
+        on the BLE channel is not established: the channel is unbonded, and no
+        encryption layer was seen above the SLIP frames.
+
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "none"
+    bonding: "none"
+    notes: >
+      Nothing pairs on the control path. The TCP socket on 31415 takes any LAN
+      client with no key, token or handshake (aiobafi6, oogje, and the vendor
+      app's plain socket). The BLE setup channel is also used without a bond
+      (reported). The Bluetooth remote and wall control are a separate,
+      device-to-device pairing and are not part of this protocol. Press any
+      remote button near the fan to pair. Hold fan power and fan minus until
+      the remote's LEDs flash to clear the remote's pairings. The fan plays a
+      jingle when a remote pairs (vendor support pages, i6 manual).
+
+local_access:
+  status: native
+  summary: >
+    Fully local as shipped. mDNS finds the fan, a plain TCP socket controls
+    it, and state is pushed. There is no account, token or cloud relay on the
+    path, and the fan keeps running its local surface with the internet down.
+  covers:
+    - "Fan mode, speed, direction, Whoosh, Eco"
+    - "Auto Comfort ideal temperature, minimum and maximum speed, Heat Assist"
+    - "Motion sensing and return-to-Auto settings for fan and light"
+    - "Light mode, brightness, colour temperature, dim-to-warm"
+    - "Temperature, humidity, RPM and occupancy readings, pushed on change"
+  not_covered:
+    - "Initial Wi-Fi onboarding (the app's BLE credential message is not documented)"
+    - "Firmware downloads (token-gated vendor cloud)"
+    - "Off-LAN control, voice assistants and thermostat links"
+    - "Schedules and sleep mode (wire format unknown)"
+  notes: >
+    Matter is a second local route on units whose smart board carries a
+    Matter QR code. This spec does not cover it.
+
+cloud:
+  required: false
+  vendor_service: "Big Ass Fans cloud"
+  hosts: ["https://api.bigassfans.com"]
+  auth:
+    scheme: "OAuth 2 access token from POST /oauth/access_token; requests carry a versioned vendor media type in Accept (v1, JSON)"
+  endpoints:
+    - path: "/devices"
+      method: "POST"
+      name: "Claim a device to the account"
+      verification: "reported"
+    - path: "/devices"
+      method: "GET"
+      name: "List the account's devices"
+      verification: "reported"
+    - path: "/firmware"
+      method: "GET"
+      name: "Firmware lookup"
+      returns: "A token that resolves to a download URL for the image; needs a valid account and claim."
+      verification: "reported"
+    - path: "/v1/alexa"
+      name: "Alexa account linking"
+      verification: "reported"
+  failure_mode: >
+    If the service goes away, account claim, off-LAN control, Alexa/Google
+    linking, thermostat links and firmware downloads stop. The fan keeps
+    working on the LAN: the app finds it by mDNS and drives it over 31415 with
+    no account. One review reports schedules not firing during a cloud outage.
+    Whether schedules depend on the cloud or that was a coincidence is not
+    established.
+  data_leaves_device:
+    - "Not established. The fan reports a cloud endpoint (field 11) and a cloud identifier (field 9), which suggests it holds its own connection to the vendor service."
+  notes: >
+    Endpoint shapes are from the vendor app (reported), recorded as evidence of
+    the dependency. They are not a control surface and are not needed for
+    anything this spec documents.
+
+features:
+  - type: "firmware_update"
+    dfu:
+      mechanisms: ["http_upload"]
+      transport: ["http"]
+      image:
+        signing: "unknown"
+        source: "vendor_cloud"
+        format: "Not established. No image is held."
+        notes: >
+          The app fetches a token from the cloud firmware lookup, downloads the
+          image, and uploads it to the fan over the LAN (reported, from the
+          app). The app carries two upload generations. Download URLs are
+          token-gated, so a replacement client cannot fetch images without an
+          account.
+      enter:
+        how: "in_place"
+        notes: >
+          The running fan receives the image from the phone on an HTTP server
+          at TCP 31416 (reported, from the app). The request path and body
+          format are deliberately left out. Whether a protobuf message
+          prepares the fan first is not established; an app error named
+          "preparation failed" suggests one.
+      dfu_mode:
+        notes: "Not established. The fan's appearance and mDNS record during an update have not been observed."
+      recovery:
+        interrupted: "unknown"
+        notes: >
+          Reviews report fans that stopped working after the 3.0 update until
+          vendor support talked the owner through recovery, and a light kit
+          that vanished after a 2026 update. The app can also downgrade a
+          Haiku to the legacy firmware (support-directed only), which factory
+          resets the fan and needs the old Haiku app to re-add it.
+      verification: "reported"
+      notes: >
+        Firmware update is the one path here that can leave a fan unusable, and
+        no client other than the vendor app should attempt it. It is recorded
+        so a reader knows port 31416 exists and what it is for.
+
+# The fan's LAN protocol, in our own words and tables. Lives under
+# `protocol_details`, the schema's namespace for single-spec protocol blocks.
+protocol_details:
+  baf_i6_api:
+    transport: "Plain TCP, port 31415 (the SRV port of _api._tcp). No TLS, no authentication."
+    connection:
+      rules:
+        - "Connect to the address and port from the _api._tcp record. The vendor app uses a 10 s connect timeout and turns on TCP keepalive (reported); aiobafi6 and oogje also set keepalive."
+        - "Send query_all right after connecting. The fan answers with its whole property set, spread over one or more frames."
+        - "Keep the socket open. The fan pushes a property set on every change, which is how commits are confirmed (aiobafi6 device.py)."
+        - "Re-query now and then for values the fan does not push, such as RPM and clock. aiobafi6 defaults to every 60 s; Home Assistant uses 300 s. The vendor app repeats query group 3 on a timer, about every 15 s according to oogje."
+        - "Expect the fan to drop the connection occasionally (oogje). Reconnect, and retry a command that was sent at the moment of the drop: oogje suggests after about 2 s. aiobafi6 waits 30 s between connect attempts."
+        - "Whether the fan accepts several clients at once is not documented. Home Assistant and the vendor app are routinely used together, which suggests it does."
+    framing:
+      scheme: "RFC 1055 SLIP around each protobuf message"
+      frame_delimiter: "0xc0 before and after every message"
+      escapes:
+        - "0xc0 inside a message is sent as 0xdb 0xdc"
+        - "0xdb inside a message is sent as 0xdb 0xdd"
+      max_message_bytes: 4096
+      notes: >
+        No length prefix and no checksum: the delimiters are the only
+        boundaries. A TCP read can hold part of a frame or several frames.
+        aiobafi6 refuses an empty frame (c0 c0) and drops the connection. The
+        vendor app's decoder skips it instead (reported), so skip it. The
+        4096-byte ceiling is aiobafi6's receive-buffer limit ("no message is
+        ever expected to be larger"), not a documented maximum. The same
+        framing crosses the BLE channel, chunked into 20-byte writes
+        (reported).
+    encoding:
+      format: "Protocol Buffers (proto2) binary encoding"
+      varint: "Base-128, least-significant 7-bit group first, high bit set on every byte but the last. Every number and boolean on this protocol is a varint (wire type 0); strings and nested messages are length-delimited (wire type 2)."
+      booleans: "0 = false, 1 = true."
+      signed: "Fields are int32. A negative value (a temperature below 0 C) is sign-extended to a 10-byte varint, per protobuf int32 rules."
+      unknown_fields: "The fan sends many fields no client names. Skip them. aiobafi6 discards them before merging, because merging would treat unknown fields as repeated and grow without bound."
+    message_tree:
+      description: >
+        Every frame, in both directions, is the same outer message. Only one
+        path through it is used per frame. Field numbers from aiobafi6's
+        .proto, cross-checked against oogje's hand-built frames. Names are
+        ours.
+      outer:
+        field_2: "envelope (length-delimited). The only field of the outer message."
+      envelope:
+        field_2: "commit (length-delimited). Client to fan: set properties."
+        field_3: "query (length-delimited). Client to fan: ask for a property group."
+        field_4: "query_result (length-delimited). Fan to client: answers and pushes."
+      commit:
+        field_3: "property set (length-delimited): a property-set message carrying the field(s) to change."
+      query:
+        field_1: "group (varint). See query_groups."
+      query_result:
+        field_2: "property set (length-delimited, repeated). Merge each one into the client's copy, later values winning."
+        field_3: "schedule (length-delimited, repeated). Returned for query group 5. Contents unknown."
+    query_groups:
+      0: "Everything. What aiobafi6 sends on connect and on its timer, and the app's full refresh (reported)."
+      1: "Fan properties (aiobafi6's name)."
+      2: "Light properties (aiobafi6's name)."
+      3: "Firmware, clock and API properties (aiobafi6's name). The vendor app sends this one repeatedly, which makes it the app's keepalive (reported; oogje copies it)."
+      4: "Network properties (aiobafi6's name)."
+      5: "Schedules (aiobafi6's name). Replies carry query_result field 3."
+      6: "Sensors (aiobafi6's name). oogje sends this first on connect and calls it capabilities."
+      7: "Exists in the vendor app's query enum (which runs 0-8). Meaning unknown."
+      8: "Exists in the vendor app's query enum. Meaning unknown."
+    commit_rules:
+      - "Put one property in each commit. aiobafi6 always does and says it is unknown whether the firmware accepts more than one per commit."
+      - "Do not update local state on send. Wait for the fan to push the new value back."
+      - "Speed and fan mode are separate properties. To run the fan at a chosen speed, Home Assistant commits fan_mode = 1 (on) when the mode is anything else, then commits speed. Whether a speed commit alone takes the fan out of Auto is not established."
+      - "Committing speed 0 stops rotation, and committing light brightness 0 turns the light off (oogje). oogje first commits 1 and then 0, so that turning on again later restores a low level instead of the previous one; that is a HomeKit workaround, not a protocol rule."
+    properties:
+      # One row per field of the property-set message this spec relies on.
+      # type: the protobuf scalar or message; every scalar is a varint.
+      # access: r = read/pushed only, rw = committed by clients.
+      # source: which project names the field. `oogje` alone = hypothesis.
+      - {field: 1, name: "name", type: "string", access: "r", source: "aiobafi6", verification: "reported", notes: "User-assigned device name."}
+      - {field: 2, name: "model", type: "string", access: "r", source: "aiobafi6", verification: "reported", notes: "Same strings as the TXT model record."}
+      - {field: 4, name: "local_time", type: "string", access: "r", source: "aiobafi6", verification: "reported", notes: "ISO 8601 local time. Changes every read; exclude it from change detection."}
+      - {field: 5, name: "utc_time", type: "string", access: "r", source: "aiobafi6", verification: "reported", notes: "ISO 8601 UTC time. Volatile, as field 4."}
+      - {field: 6, name: "time_zone", type: "string", access: "r", source: "oogje", verification: "hypothesis"}
+      - {field: 7, name: "firmware_version", type: "string", access: "r", source: "aiobafi6", verification: "reported", notes: "oogje has seen it arrive zero-length."}
+      - {field: 8, name: "mac_address", type: "string", access: "r", source: "aiobafi6", verification: "reported"}
+      - {field: 9, name: "cloud_id", type: "string", access: "r", source: "oogje", verification: "hypothesis"}
+      - {field: 10, name: "service_uuid", type: "string", access: "r", source: "aiobafi6", verification: "reported", notes: "Equals the TXT uuid on _api._tcp. aiobafi6 refuses a connection whose value does not match the service it resolved."}
+      - {field: 11, name: "cloud_endpoint", type: "string", access: "r", source: "aiobafi6", verification: "reported", notes: "oogje sees the vendor cloud's API host here."}
+      - {field: 13, name: "api_version", type: "string", access: "r", source: "aiobafi6", verification: "reported", notes: "Decimal string. aiobafi6 needs 4 or later; occupancy fields need 5 or later (firmware 3.1)."}
+      - {field: 15, name: "device_type_id", type: "int32", access: "r", source: "oogje", verification: "hypothesis"}
+      - {field: 16, name: "firmware_detail", type: "message", access: "r", source: "aiobafi6", verification: "reported", notes: "Sub-fields: 2 version string, 3 bootloader version, 4 MAC (aiobafi6). oogje reads sub-field 1 as the component (0 host, 1 Wi-Fi, 2 light, 3 motor), so the field may repeat once per component."}
+      - {field: 17, name: "capabilities", type: "message", access: "r", source: "aiobafi6", verification: "reported", notes: "Boolean sub-fields. See capability_flags."}
+      - {field: 43, name: "fan_mode", type: "int32", access: "rw", values: {0: "off", 1: "on", 2: "auto"}, source: "aiobafi6", verification: "reported"}
+      - {field: 44, name: "reverse", type: "bool", access: "rw", source: "aiobafi6", verification: "reported", notes: "0 = forward (the normal downdraft), 1 = reverse. oogje maps 1 to HomeKit clockwise. The vendor app offers Reverse but recommends never using it and running slowly forward in winter instead."}
+      - {field: 45, name: "speed_percent", type: "int32", access: "r", unit: "%", min: 0, max: 100, source: "aiobafi6", verification: "reported"}
+      - {field: 46, name: "speed", type: "int32", access: "rw", min: 0, max: 7, source: "aiobafi6", verification: "reported", notes: "The app's seven speeds; 0 stops rotation. aiobafi6 rejects values outside 0-7. Firmware 3.x replaced the legacy firmware's finer steps with these seven."}
+      - {field: 47, name: "comfort_enabled", type: "bool", access: "rw", source: "aiobafi6", verification: "reported", notes: "Auto Comfort on/off."}
+      - {field: 48, name: "comfort_ideal_temperature", type: "int32", access: "rw", unit: "C", scale: 0.01, source: "aiobafi6", verification: "reported", notes: "Hundredths of a degree Celsius on the wire whatever the app displays: 2350 = 23.50 C. The app's own bounds are not established."}
+      - {field: 50, name: "comfort_min_speed", type: "int32", access: "rw", min: 0, max: 7, source: "aiobafi6", verification: "reported", notes: "0 = no minimum (the app's No Min)."}
+      - {field: 51, name: "comfort_max_speed", type: "int32", access: "rw", min: 0, max: 7, source: "aiobafi6", verification: "reported", notes: "7 = no maximum (the app's No Max)."}
+      - {field: 52, name: "fan_motion_sense", type: "bool", access: "rw", source: "aiobafi6", verification: "reported", notes: "Fan Auto responds to motion. The app requires at least one of Comfort, Motion or a thermostat link to stay enabled while Auto is on."}
+      - {field: 53, name: "fan_motion_timeout", type: "int32", access: "rw", unit: "s", source: "aiobafi6", verification: "reported"}
+      - {field: 54, name: "fan_return_to_auto", type: "bool", access: "rw", source: "aiobafi6", verification: "reported"}
+      - {field: 55, name: "fan_return_to_auto_timeout", type: "int32", access: "rw", unit: "s", source: "aiobafi6", verification: "reported"}
+      - {field: 58, name: "whoosh", type: "bool", access: "rw", source: "aiobafi6", verification: "reported", notes: "Whoosh latches the current speed and varies it around that point (Home Assistant documentation)."}
+      - {field: 60, name: "heat_assist", type: "bool", access: "rw", source: "aiobafi6", verification: "reported"}
+      - {field: 61, name: "heat_assist_speed", type: "int32", access: "rw", min: 1, max: 7, source: "aiobafi6", verification: "reported", notes: "Bounds are Home Assistant's; aiobafi6 does not validate this field."}
+      - {field: 62, name: "heat_assist_reverse", type: "bool", access: "rw", source: "aiobafi6", verification: "reported", notes: "Direction used during Heat Assist. Home Assistant does not expose it, and whether the app does is not established."}
+      - {field: 63, name: "target_rpm", type: "int32", access: "r", unit: "rpm", source: "aiobafi6", verification: "reported"}
+      - {field: 64, name: "current_rpm", type: "int32", access: "r", unit: "rpm", source: "aiobafi6", verification: "reported", notes: "Not pushed on change; re-query for it."}
+      - {field: 65, name: "eco", type: "bool", access: "rw", source: "aiobafi6", verification: "reported", notes: "oogje: Haiku fans. Capability bit 14 per oogje."}
+      - {field: 66, name: "fan_occupancy", type: "bool", access: "r", source: "aiobafi6", verification: "reported", notes: "API version 5+. Clears about 4.5 minutes after the last detection (aiobafi6); Home Assistant says about 5 minutes."}
+      - {field: 68, name: "light_mode", type: "int32", access: "rw", values: {0: "off", 1: "on", 2: "auto"}, source: "aiobafi6", verification: "reported", notes: "Acts on the light(s) chosen by field 82 on a fan with both an uplight and a downlight (oogje)."}
+      - {field: 69, name: "light_brightness", type: "int32", access: "rw", unit: "%", min: 0, max: 100, source: "aiobafi6", verification: "reported", notes: "The app's brightness percentage. 0 turns the light off (oogje)."}
+      - {field: 70, name: "light_brightness_level", type: "int32", access: "rw", min: 0, max: 16, source: "aiobafi6", verification: "reported", notes: "The same brightness as 17 steps. Home Assistant drives this one (level / 16 x 255)."}
+      - {field: 71, name: "light_color_temperature", type: "int32", access: "rw", unit: "K", source: "aiobafi6", verification: "reported", notes: "Kelvin, not mireds. See light_color_presets."}
+      - {field: 72, name: "light_motion_sense", type: "bool", access: "rw", source: "oogje", verification: "hypothesis"}
+      - {field: 73, name: "light_motion_timeout", type: "int32", access: "rw", unit: "s", source: "aiobafi6", verification: "reported"}
+      - {field: 74, name: "light_return_to_auto", type: "bool", access: "rw", source: "aiobafi6", verification: "reported"}
+      - {field: 75, name: "light_return_to_auto_timeout", type: "int32", access: "rw", unit: "s", source: "aiobafi6", verification: "reported"}
+      - {field: 77, name: "light_dim_to_warm", type: "bool", access: "rw", source: "aiobafi6", verification: "reported"}
+      - {field: 78, name: "light_warmest_color_temperature", type: "int32", access: "r", unit: "K", source: "aiobafi6", verification: "reported"}
+      - {field: 79, name: "light_coolest_color_temperature", type: "int32", access: "r", unit: "K", source: "aiobafi6", verification: "reported"}
+      - {field: 82, name: "light_target", type: "int32", access: "rw", values: {0: "both", 1: "downlight", 2: "uplight"}, source: "oogje", verification: "hypothesis", notes: "Which light later light commits act on, for fans with both lights. oogje commits it before each light command."}
+      - {field: 83, name: "standby_led", type: "message", access: "rw", source: "oogje", verification: "hypothesis", notes: "Sub-fields: 1 colour preset, 2 enabled, 3 percent, 4/5/6 red/green/blue."}
+      - {field: 85, name: "light_occupancy", type: "bool", access: "r", source: "aiobafi6", verification: "reported", notes: "API version 5+. Clears about 9.5 minutes after the last detection."}
+      - {field: 86, name: "temperature", type: "int32", access: "r", unit: "C", scale: 0.01, source: "aiobafi6", verification: "reported", notes: "On some models this comes from the Bluetooth remote or wall control, not the fan."}
+      - {field: 87, name: "humidity", type: "int32", access: "r", unit: "%", source: "aiobafi6", verification: "reported", notes: "Disputed scaling. aiobafi6 (and so Home Assistant) reads whole percent and treats values outside 0-100 as no sensor; oogje divides by 100. Check against hardware."}
+      - {field: 95, name: "fan_timer_remaining", type: "int32", access: "r", unit: "min", source: "oogje", verification: "hypothesis"}
+      - {field: 120, name: "ip_address", type: "string", access: "r", source: "aiobafi6", verification: "reported"}
+      - {field: 124, name: "wifi", type: "message", access: "r", source: "aiobafi6", verification: "reported", notes: "Sub-field 1 SSID (aiobafi6); sub-field 2 RSSI in dBm (oogje, hypothesis)."}
+      - {field: 134, name: "led_indicators", type: "bool", access: "rw", source: "aiobafi6", verification: "reported"}
+      - {field: 135, name: "beep", type: "bool", access: "rw", source: "aiobafi6", verification: "reported", notes: "The power-on beep the manual says can be turned off in the app."}
+      - {field: 136, name: "legacy_ir_remote", type: "bool", access: "rw", source: "aiobafi6", verification: "reported"}
+      - {field: 140, name: "thermostat_assist", type: "int32", access: "rw", values: {0: "nothing", 1: "heating", 2: "cooling", 3: "both"}, source: "oogje", verification: "hypothesis"}
+      - {field: 152, name: "remote_firmware", type: "message", access: "r", source: "aiobafi6", verification: "reported", notes: "The paired remote or wall control. Sub-fields 2 version, 3 bootloader, 4 MAC (aiobafi6); oogje reads sub-field 1 as the kind (0 Bluetooth remote, 1 Bluetooth wall control)."}
+      - {field: 156, name: "stats", type: "message", access: "r", source: "aiobafi6", verification: "reported", notes: "Sub-field 1 is uptime in minutes (volatile). oogje: 2 total reboots, 3 reboots since power-on, 4 last reboot reason."}
+      - {field: 171, name: "group", type: "message", access: "r", source: "oogje", verification: "hypothesis", notes: "Room/group membership: sub-field 2 uuid, 3 name."}
+      - {field: 172, name: "uvc_enabled", type: "bool", access: "rw", source: "oogje", verification: "hypothesis", notes: "UV-C uplight option; the manual says it lights only while the fan spins."}
+    capability_flags:
+      description: >
+        Boolean sub-fields of field 17. Prefer these over the model table when
+        deciding which controls to draw. The two open projects disagree on
+        sub-field 6.
+      flags:
+        1: "Temperature sensor (oogje). aiobafi6 calls it comfort flag 1; Home Assistant offers Auto Comfort only when 1 and 3 are both set."
+        2: "Humidity sensor (oogje)."
+        3: "Occupancy sensor (oogje). aiobafi6 calls it comfort flag 3."
+        4: "Downlight (oogje); has-light (aiobafi6). On an uplight-only fan it is unset, yet the light fields still drive the uplight."
+        5: "Light sensor (oogje)."
+        6: "CONFLICT: colour-temperature control (oogje) or has-uplight (aiobafi6, seen on Haiku H/I with an uplight module)."
+        7: "Fan (oogje)."
+        8: "Speaker (oogje)."
+        9: "Piezo buzzer (oogje)."
+        10: "LED indicators (oogje)."
+        11: "Uplight (oogje)."
+        12: "UV-C (oogje)."
+        13: "Standby LED (oogje)."
+        14: "Eco mode (oogje)."
+    light_color_presets:
+      description: >
+        The vendor app's colour picker offers these presets, dropping any
+        outside the range the light reports in fields 78 (warmest) and 79
+        (coolest). Picking one commits field 71 with the Kelvin value.
+        Reported, from the app.
+      presets:
+        2200: "Warm"
+        2700: "Warm White"
+        3000: "Soft White"
+        3500: "Natural White"
+        4000: "Bright White"
+        5000: "Cool White"
+        6500: "Daylight"
+    ble_channel:
+      service: "e0fc1000-1fb1-4168-96df-b3f057a86e01"
+      write: "e0fc1003-1fb1-4168-96df-b3f057a86e01 (write with response, 20-byte pieces of a SLIP frame)"
+      notify: "e0fc1004-1fb1-4168-96df-b3f057a86e01 (notifications carry SLIP frames; enable the 0x2902 descriptor)"
+      notes: >
+        Reported, from the vendor app, which also reads Model Number and Serial
+        Number from the standard Device Information service. The app uses this
+        channel for Add Product and, when it has no LAN path to a fan, to send
+        the same protobuf messages. The Wi-Fi credential message is not
+        established. The app's code names further slots on the same UUID base
+        (0x1001, 0x1002, 0x1100-0x1102); their roles are unknown.
+    test_vectors:
+      description: >
+        Generated with an independent standard-library encoder and checked
+        byte for byte against aiobafi6's own serializer. Hex, as sent on the
+        socket.
+      vectors:
+        - {name: "query_all", frame: "c0 12 04 1a 02 08 00 c0"}
+        - {name: "query group 3 (the vendor app's timer query)", frame: "c0 12 04 1a 02 08 03 c0"}
+        - {name: "commit speed = 3", frame: "c0 12 07 12 05 1a 03 f0 02 03 c0"}
+        - {name: "commit fan_mode = 2 (auto)", frame: "c0 12 07 12 05 1a 03 d8 02 02 c0"}
+        - {name: "commit comfort_ideal_temperature = 23.50 C (raw 2350)", frame: "c0 12 08 12 06 1a 04 80 03 ae 12 c0"}
+        - {name: "commit light_color_temperature = 4000 K", frame: "c0 12 08 12 06 1a 04 b8 04 a0 1f c0"}
+        - name: "fan push: speed 3, then temperature 22.40 C (raw 2240)"
+          frame: "c0 12 0d 22 0b 12 03 f0 02 03 12 04 b0 05 db dc 11 c0"
+          notes: >
+            The escape case. 2240 encodes as varint c0 11, and the c0 goes out
+            as db dc. Un-escaped: 12 0d | 22 0b | 12 03 f0 02 03 | 12 04 b0 05
+            c0 11. That is two property sets in one query_result: field 46 =
+            3, then field 86 = 2240.
+      encoding_recipe:
+        - "property = varint(field << 3 | 0) || varint(value)   (field 46 -> f0 02; field 48 -> 80 03; field 71 -> b8 04)"
+        - "commit frame payload = 12 len(A) A, where A = 12 len(B) B and B = 1a len(property) property"
+        - "query frame payload = 12 04 1a 02 08 <group>   (group below 128)"
+        - "frame = c0 || SLIP-escape(payload) || c0"
+
+http_endpoints:
+  - method: "GET"
+    path: "/"
+    status: "placeholder"
+    name: "Local API Placeholder"
+    description: >
+      Placeholder only. Nothing on 31415 is HTTP: control is SLIP-framed
+      protobuf on a raw TCP socket (protocol_details.baf_i6_api). The fan's
+      HTTP server on 31416 takes firmware uploads and is deliberately not
+      documented as an endpoint.
+
+payload_formats:
+  PropertySet:
+    description: >
+      What the fan sends: the outer message, then envelope field 4
+      (query_result), holding one or more property sets. The fields below are
+      the ones the entities bind, named as in protocol_details.baf_i6_api.
+      Units and scaling are for the decoded value.
+    parse_rules:
+      - "Split the byte stream on 0xc0, skip empty frames, then un-escape db dc -> c0 and db dd -> db."
+      - "Decode the protobuf message: outer field 2 -> envelope field 4 -> repeated field 2 property sets."
+      - "Merge every property set into one running copy, field by field, later values winning. A push carries only what changed."
+      - "Ignore field numbers you do not know, and do not merge them."
+      - "Treat fields 4, 5, 64 and stats (156) as volatile. They change without anything happening, so leave them out of change detection (aiobafi6)."
+    example: "c0 12 0d 22 0b 12 03 f0 02 03 12 04 b0 05 db dc 11 c0"
+    fields:
+      - {name: "fan_mode", description: "Field 43, varint.", values: {0: "off", 1: "on", 2: "auto"}}
+      - {name: "speed", description: "Field 46, varint 0-7."}
+      - {name: "reverse", description: "Field 44, varint 0/1."}
+      - {name: "whoosh", description: "Field 58, varint 0/1."}
+      - {name: "eco", description: "Field 65, varint 0/1."}
+      - {name: "comfort_enabled", description: "Field 47, varint 0/1."}
+      - {name: "comfort_ideal_temperature", description: "Field 48, int32 varint.", unit: "C", scale: 0.01}
+      - {name: "comfort_min_speed", description: "Field 50, varint 0-7; 0 = no minimum."}
+      - {name: "comfort_max_speed", description: "Field 51, varint 0-7; 7 = no maximum."}
+      - {name: "heat_assist", description: "Field 60, varint 0/1."}
+      - {name: "heat_assist_speed", description: "Field 61, varint."}
+      - {name: "fan_motion_sense", description: "Field 52, varint 0/1."}
+      - {name: "fan_motion_timeout", description: "Field 53, varint.", unit: "s"}
+      - {name: "fan_return_to_auto", description: "Field 54, varint 0/1."}
+      - {name: "fan_return_to_auto_timeout", description: "Field 55, varint.", unit: "s"}
+      - {name: "current_rpm", description: "Field 64, varint.", unit: "rpm"}
+      - {name: "fan_occupancy", description: "Field 66, varint 0/1. API version 5+."}
+      - {name: "light_mode", description: "Field 68, varint.", values: {0: "off", 1: "on", 2: "auto"}}
+      - {name: "light_brightness", description: "Field 69, varint 0-100.", unit: "%"}
+      - {name: "light_color_temperature", description: "Field 71, varint.", unit: "K"}
+      - {name: "light_dim_to_warm", description: "Field 77, varint 0/1."}
+      - {name: "light_occupancy", description: "Field 85, varint 0/1. API version 5+."}
+      - {name: "temperature", description: "Field 86, int32 varint.", unit: "C", scale: 0.01}
+      - {name: "humidity", description: "Field 87, varint. Whole percent per aiobafi6; oogje divides by 100 (unresolved).", unit: "%"}
+
+initialization:
+  - command: "query_all"
+    description: >
+      Once per connection, straight after the TCP connect: ask for every
+      property. The reply is the client's starting state, and pushes keep it
+      current from then on. A client that also wants the vendor app's
+      keepalive can repeat query_group with group 3 on a timer.
+
+# Every command: NO transport (see the header's TRANSPORT GAP). The protobuf
+# field is in `notes`; `example_body` is the exact frame, hex, as it goes on
+# the socket. Parameters are in decoded units; the raw varint is
+# round(value / scale) where a scale is given.
+commands:
+  query_all:
+    description: "Ask for every property. The fan answers with one or more PropertySet frames."
+    notes: "Query group 0: outer field 2, envelope field 3, query field 1 = 0."
+    example_body: "c0 12 04 1a 02 08 00 c0"
+    returns:
+      - name: "PropertySet"
+        type: "protobuf"
+        description: "Frames decoded as payload_formats.PropertySet."
+    verification: "reported"
+  query_group:
+    description: "Ask for one property group."
+    notes: "Query field 1 = group. The frame is c0 12 04 1a 02 08 <group> c0 for any group below 128."
+    parameters:
+      group:
+        type: "integer"
+        required: true
+        min: 0
+        max: 8
+        values: {"0": "all", "1": "fan", "2": "light", "3": "firmware, clock and API (the vendor app's timer query)", "4": "network", "5": "schedules", "6": "sensors", "7": "unknown", "8": "unknown"}
+        description: "Query group; see protocol_details.baf_i6_api.query_groups."
+    example_body: "c0 12 04 1a 02 08 03 c0"
+    example_notes: "Rendered with group = 3."
+    verification: "reported"
+
+  fan_set_mode:
+    description: "Set the fan's power mode: off, on (manual speed) or Auto."
+    notes: "Commit field 43, varint. Auto hands speed to Auto Comfort and motion sensing."
+    parameters:
+      mode:
+        type: "integer"
+        required: true
+        values: {"0": "off", "1": "on", "2": "auto"}
+        description: "0 off, 1 on at the stored speed, 2 Auto."
+    example_body: "c0 12 07 12 05 1a 03 d8 02 02 c0"
+    example_notes: "Rendered with mode = 2 (auto). Off is ... d8 02 00 c0, on is ... d8 02 01 c0."
+    verification: "reported"
+  fan_set_speed:
+    description: "Set the fan speed on the app's 1-7 scale; 0 stops rotation."
+    notes: >
+      Commit field 46, varint. If fan_mode is not 1 (on), commit fan_mode = 1
+      first, as Home Assistant does. aiobafi6 rejects anything outside 0-7 and
+      so should a client: these are the only speeds the vendor app offers.
+    parameters:
+      speed:
+        type: "integer"
+        required: true
+        min: 0
+        max: 7
+        description: "Speed step. 1 is slowest and 7 fastest; 0 stops rotation."
+    example_body: "c0 12 07 12 05 1a 03 f0 02 03 c0"
+    example_notes: "Rendered with speed = 3."
+    verification: "reported"
+  fan_set_reverse:
+    description: "Run the fan in reverse (updraft) or forward (downdraft)."
+    notes: >
+      Commit field 44, varint 0/1. The vendor app offers Reverse but advises
+      against it, recommending a slow forward speed in winter instead.
+    parameters:
+      reverse:
+        type: "integer"
+        required: true
+        values: {"0": "forward", "1": "reverse"}
+        description: "0 forward, 1 reverse."
+    example_body: "c0 12 07 12 05 1a 03 e0 02 01 c0"
+    example_notes: "Rendered with reverse = 1."
+    verification: "reported"
+  fan_set_whoosh:
+    description: "Turn Whoosh on or off (speed varies around the current setting to feel like a breeze)."
+    notes: "Commit field 58, varint 0/1."
+    parameters:
+      enabled:
+        type: "integer"
+        required: true
+        values: {"0": "off", "1": "on"}
+        description: "0 off, 1 on."
+    example_body: "c0 12 07 12 05 1a 03 d0 03 01 c0"
+    example_notes: "Rendered with enabled = 1."
+    verification: "reported"
+  fan_set_eco:
+    description: "Turn Eco mode on or off (Haiku fans)."
+    notes: "Commit field 65, varint 0/1. Present when capability flag 14 is set (oogje)."
+    parameters:
+      enabled:
+        type: "integer"
+        required: true
+        values: {"0": "off", "1": "on"}
+        description: "0 off, 1 on."
+    example_body: "c0 12 07 12 05 1a 03 88 04 01 c0"
+    example_notes: "Rendered with enabled = 1."
+    verification: "reported"
+
+  comfort_set_enabled:
+    description: "Turn Auto Comfort on or off."
+    notes: "Commit field 47, varint 0/1."
+    parameters:
+      enabled:
+        type: "integer"
+        required: true
+        values: {"0": "off", "1": "on"}
+        description: "0 off, 1 on."
+    example_body: "c0 12 07 12 05 1a 03 f8 02 01 c0"
+    example_notes: "Rendered with enabled = 1."
+    verification: "reported"
+  comfort_set_ideal_temperature:
+    description: "Set Auto Comfort's ideal temperature."
+    notes: >
+      Commit field 48, int32 varint in hundredths of a degree Celsius,
+      whatever unit the app displays. Home Assistant turns Auto Comfort on
+      first if it is off. The app's allowed range is not established; stay
+      within ordinary room temperatures.
+    parameters:
+      temperature:
+        type: "integer"
+        required: true
+        unit: "C"
+        scale: 0.01
+        description: "Ideal temperature in degrees Celsius; raw = round(temperature / 0.01)."
+    example_body: "c0 12 08 12 06 1a 04 80 03 ae 12 c0"
+    example_notes: "Rendered with temperature = 23.5 C, raw 2350, varint ae 12."
+    verification: "reported"
+  comfort_set_min_speed:
+    description: "Set the lowest speed Auto Comfort may choose (0 = no minimum)."
+    notes: "Commit field 50, varint. aiobafi6 allows 0-7; Home Assistant offers 0-6."
+    parameters:
+      speed:
+        type: "integer"
+        required: true
+        min: 0
+        max: 7
+        description: "Speed step; 0 means no minimum."
+    example_body: "c0 12 07 12 05 1a 03 90 03 02 c0"
+    example_notes: "Rendered with speed = 2."
+    verification: "reported"
+  comfort_set_max_speed:
+    description: "Set the highest speed Auto Comfort may choose (7 = no maximum)."
+    notes: "Commit field 51, varint. aiobafi6 allows 0-7; Home Assistant offers 1-7."
+    parameters:
+      speed:
+        type: "integer"
+        required: true
+        min: 0
+        max: 7
+        description: "Speed step; 7 means no maximum."
+    example_body: "c0 12 07 12 05 1a 03 98 03 07 c0"
+    example_notes: "Rendered with speed = 7."
+    verification: "reported"
+  comfort_set_heat_assist:
+    description: "Turn Heat Assist on or off (gently push warm air down when the room is well below the ideal temperature)."
+    notes: "Commit field 60, varint 0/1."
+    parameters:
+      enabled:
+        type: "integer"
+        required: true
+        values: {"0": "off", "1": "on"}
+        description: "0 off, 1 on."
+    example_body: "c0 12 07 12 05 1a 03 e0 03 01 c0"
+    example_notes: "Rendered with enabled = 1."
+    verification: "reported"
+  comfort_set_heat_assist_speed:
+    description: "Set the speed Heat Assist runs at."
+    notes: "Commit field 61, varint. Bounds are Home Assistant's (1-7); aiobafi6 does not check them."
+    parameters:
+      speed:
+        type: "integer"
+        required: true
+        min: 1
+        max: 7
+        description: "Speed step."
+    example_body: "c0 12 07 12 05 1a 03 e8 03 01 c0"
+    example_notes: "Rendered with speed = 1."
+    verification: "reported"
+
+  fan_set_motion_sense:
+    description: "Let the fan's Auto mode respond to motion."
+    notes: "Commit field 52, varint 0/1."
+    parameters:
+      enabled:
+        type: "integer"
+        required: true
+        values: {"0": "off", "1": "on"}
+        description: "0 off, 1 on."
+    example_body: "c0 12 07 12 05 1a 03 a0 03 01 c0"
+    example_notes: "Rendered with enabled = 1."
+    verification: "reported"
+  fan_set_motion_timeout:
+    description: "How long the fan keeps running after the last motion."
+    notes: "Commit field 53, varint seconds. Bounds are Home Assistant's (1 min to 1 day); the app's own range is not established."
+    parameters:
+      seconds:
+        type: "integer"
+        required: true
+        unit: "s"
+        min: 60
+        max: 86400
+        description: "Timeout in seconds."
+    example_body: "c0 12 08 12 06 1a 04 a8 03 d8 04 c0"
+    example_notes: "Rendered with seconds = 600, varint d8 04."
+    verification: "reported"
+  fan_set_return_to_auto:
+    description: "After a manual change, return the fan to Auto once a timeout passes."
+    notes: "Commit field 54, varint 0/1."
+    parameters:
+      enabled:
+        type: "integer"
+        required: true
+        values: {"0": "off", "1": "on"}
+        description: "0 off, 1 on."
+    example_body: "c0 12 07 12 05 1a 03 b0 03 01 c0"
+    example_notes: "Rendered with enabled = 1."
+    verification: "reported"
+  fan_set_return_to_auto_timeout:
+    description: "How long after a manual change the fan returns to Auto."
+    notes: "Commit field 55, varint seconds. Bounds are Home Assistant's (1 min to 12 h)."
+    parameters:
+      seconds:
+        type: "integer"
+        required: true
+        unit: "s"
+        min: 60
+        max: 43200
+        description: "Timeout in seconds."
+    example_body: "c0 12 08 12 06 1a 04 b8 03 90 1c c0"
+    example_notes: "Rendered with seconds = 3600, varint 90 1c."
+    verification: "reported"
+
+  light_set_mode:
+    description: "Set the light's mode: off, on or Auto."
+    notes: "Commit field 68, varint. On a fan with both an uplight and a downlight, field 82 picks which light this acts on (oogje, hypothesis)."
+    parameters:
+      mode:
+        type: "integer"
+        required: true
+        values: {"0": "off", "1": "on", "2": "auto"}
+        description: "0 off, 1 on, 2 Auto."
+    example_body: "c0 12 07 12 05 1a 03 a0 04 01 c0"
+    example_notes: "Rendered with mode = 1 (on)."
+    verification: "reported"
+  light_set_brightness:
+    description: "Set light brightness as a percentage."
+    notes: "Commit field 69, varint 0-100. 0 turns the light off (oogje). Field 70 carries the same value as 0-16 steps."
+    parameters:
+      brightness:
+        type: "integer"
+        required: true
+        unit: "%"
+        min: 0
+        max: 100
+        description: "Brightness percent."
+    example_body: "c0 12 07 12 05 1a 03 a8 04 32 c0"
+    example_notes: "Rendered with brightness = 50."
+    verification: "reported"
+  light_set_color_temperature:
+    description: "Set the light's colour temperature in kelvin."
+    notes: >
+      Commit field 71, varint kelvin (NOT mireds). Keep within the light's own
+      range, fields 78 (warmest) to 79 (coolest). The vendor app offers only
+      the preset values in protocol_details.baf_i6_api.light_color_presets.
+    parameters:
+      kelvin:
+        type: "integer"
+        required: true
+        unit: "K"
+        min: 2200
+        max: 6500
+        description: "Colour temperature in kelvin."
+    example_body: "c0 12 08 12 06 1a 04 b8 04 a0 1f c0"
+    example_notes: "Rendered with kelvin = 4000 (Bright White), varint a0 1f."
+    verification: "reported"
+  light_set_color_preset:
+    description: "Pick one of the vendor app's named colour presets (Soft White, Bright White, and so on)."
+    notes: >
+      The same commit as light_set_color_temperature (field 71), limited to the
+      app's preset table. The app hides presets outside the light's reported
+      range (fields 78 and 79), and so should a client.
+    parameters:
+      kelvin:
+        type: "integer"
+        required: true
+        unit: "K"
+        values: {"2200": "Warm", "2700": "Warm White", "3000": "Soft White", "3500": "Natural White", "4000": "Bright White", "5000": "Cool White", "6500": "Daylight"}
+        description: "Preset, as its kelvin value."
+    example_body: "c0 12 08 12 06 1a 04 b8 04 b8 17 c0"
+    example_notes: "Rendered with kelvin = 3000 (Soft White), varint b8 17."
+    verification: "reported"
+  light_set_dim_to_warm:
+    description: "Turn dim-to-warm on or off (the light warms as it dims)."
+    notes: "Commit field 77, varint 0/1."
+    parameters:
+      enabled:
+        type: "integer"
+        required: true
+        values: {"0": "off", "1": "on"}
+        description: "0 off, 1 on."
+    example_body: "c0 12 07 12 05 1a 03 e8 04 01 c0"
+    example_notes: "Rendered with enabled = 1."
+    verification: "reported"
+  light_set_motion_timeout:
+    description: "How long the light stays on after the last motion in Auto."
+    notes: "Commit field 73, varint seconds. Bounds are Home Assistant's (1 min to 1 day)."
+    parameters:
+      seconds:
+        type: "integer"
+        required: true
+        unit: "s"
+        min: 60
+        max: 86400
+        description: "Timeout in seconds."
+    example_body: "c0 12 08 12 06 1a 04 c8 04 d8 04 c0"
+    example_notes: "Rendered with seconds = 600."
+    verification: "reported"
+  light_set_return_to_auto:
+    description: "After a manual change, return the light to Auto once a timeout passes."
+    notes: "Commit field 74, varint 0/1."
+    parameters:
+      enabled:
+        type: "integer"
+        required: true
+        values: {"0": "off", "1": "on"}
+        description: "0 off, 1 on."
+    example_body: "c0 12 07 12 05 1a 03 d0 04 01 c0"
+    example_notes: "Rendered with enabled = 1."
+    verification: "reported"
+  light_set_return_to_auto_timeout:
+    description: "How long after a manual change the light returns to Auto."
+    notes: "Commit field 75, varint seconds. Bounds are Home Assistant's (1 min to 12 h)."
+    parameters:
+      seconds:
+        type: "integer"
+        required: true
+        unit: "s"
+        min: 60
+        max: 43200
+        description: "Timeout in seconds."
+    example_body: "c0 12 08 12 06 1a 04 d8 04 90 1c c0"
+    example_notes: "Rendered with seconds = 3600."
+    verification: "reported"
+
+entities:
+  # Bindings resolve to the transportless commands above. State comes from
+  # query_all and from pushes; each state_mapping path names a field of
+  # payload_formats.PropertySet (field numbers in protocol_details).
+  # Controls are scoped to the models that have the hardware. At run time,
+  # the capability flags (field 17) are the better test.
+  - platform: "fan"
+    name: "Fan"
+    variants: ["i6", "es6", "Haiku H/I Series", "Haiku L Series"]
+    state_command: "query_all"
+    state_mapping:
+      is_on: "fan_mode"
+      on_value: 1
+      speed: "speed"
+      direction: "reverse"
+    commands:
+      turn_on: { command: "fan_set_mode", values: { mode: 1 } }
+      turn_off: { command: "fan_set_mode", values: { mode: 0 } }
+      set_speed: "fan_set_speed"
+    notes: >
+      Seven speeds. fan_mode 2 (Auto) counts as neither on nor off here; the
+      Fan Mode select shows it. To set a speed from any mode, send
+      fan_set_mode 1 and then fan_set_speed, as Home Assistant does.
+  - platform: "select"
+    name: "Fan Mode"
+    variants: ["i6", "es6", "Haiku H/I Series", "Haiku L Series"]
+    state_command: "query_all"
+    state_mapping:
+      value: "fan_mode"
+      options: {0: "off", 1: "on", 2: "auto"}
+    commands:
+      select_option: "fan_set_mode"
+  - platform: "switch"
+    name: "Reverse"
+    icon: "mdi:rotate-left"
+    variants: ["i6", "es6", "Haiku H/I Series", "Haiku L Series"]
+    state_command: "query_all"
+    state_mapping:
+      is_on: "reverse"
+    commands:
+      turn_on: { command: "fan_set_reverse", values: { reverse: 1 } }
+      turn_off: { command: "fan_set_reverse", values: { reverse: 0 } }
+    notes: "The vendor app offers this but recommends never reversing."
+  - platform: "switch"
+    name: "Whoosh"
+    icon: "mdi:weather-windy"
+    variants: ["i6", "es6", "Haiku H/I Series", "Haiku L Series"]
+    state_command: "query_all"
+    state_mapping:
+      is_on: "whoosh"
+    commands:
+      turn_on: { command: "fan_set_whoosh", values: { enabled: 1 } }
+      turn_off: { command: "fan_set_whoosh", values: { enabled: 0 } }
+  - platform: "switch"
+    name: "Eco Mode"
+    icon: "mdi:leaf"
+    variants: ["Haiku H/I Series", "Haiku L Series"]
+    state_command: "query_all"
+    state_mapping:
+      is_on: "eco"
+    commands:
+      turn_on: { command: "fan_set_eco", values: { enabled: 1 } }
+      turn_off: { command: "fan_set_eco", values: { enabled: 0 } }
+    notes: "Haiku fans per oogje. Capability flag 14 is the run-time test."
+  - platform: "climate"
+    name: "Auto Comfort"
+    unit: "C"
+    temp_step: 0.5
+    variants: ["i6", "es6", "Haiku H/I Series", "Haiku L Series"]
+    state_command: "query_all"
+    state_mapping:
+      current_temperature: "temperature"
+      target_temperature: "comfort_ideal_temperature"
+      hvac_mode: "comfort_enabled"
+      scale: 0.01
+    commands:
+      set_temperature: "comfort_set_ideal_temperature"
+      turn_on: { command: "comfort_set_enabled", values: { enabled: 1 } }
+      turn_off: { command: "comfort_set_enabled", values: { enabled: 0 } }
+    notes: >
+      Both temperatures are hundredths of a degree Celsius on the wire (the
+      entity-level scale). Offer this only when capability flags 1 and 3 are
+      both set, as Home Assistant does. On some models the room temperature
+      comes from the remote, so this entity can go stale while the fan stays
+      reachable. temp_step is a UI choice, not a device resolution. The app
+      shows whole degrees; the wire carries hundredths.
+  - platform: "number"
+    name: "Comfort Min Speed"
+    min: 0
+    max: 7
+    step: 1
+    variants: ["i6", "es6", "Haiku H/I Series", "Haiku L Series"]
+    state_command: "query_all"
+    state_mapping:
+      value: "comfort_min_speed"
+    commands:
+      set_value: "comfort_set_min_speed"
+    notes: "0 = no minimum."
+  - platform: "number"
+    name: "Comfort Max Speed"
+    min: 0
+    max: 7
+    step: 1
+    variants: ["i6", "es6", "Haiku H/I Series", "Haiku L Series"]
+    state_command: "query_all"
+    state_mapping:
+      value: "comfort_max_speed"
+    commands:
+      set_value: "comfort_set_max_speed"
+    notes: "7 = no maximum."
+  - platform: "switch"
+    name: "Heat Assist"
+    icon: "mdi:heat-wave"
+    variants: ["i6", "es6", "Haiku H/I Series", "Haiku L Series"]
+    state_command: "query_all"
+    state_mapping:
+      is_on: "heat_assist"
+    commands:
+      turn_on: { command: "comfort_set_heat_assist", values: { enabled: 1 } }
+      turn_off: { command: "comfort_set_heat_assist", values: { enabled: 0 } }
+  - platform: "number"
+    name: "Heat Assist Speed"
+    min: 1
+    max: 7
+    step: 1
+    variants: ["i6", "es6", "Haiku H/I Series", "Haiku L Series"]
+    state_command: "query_all"
+    state_mapping:
+      value: "heat_assist_speed"
+    commands:
+      set_value: "comfort_set_heat_assist_speed"
+  - platform: "switch"
+    name: "Fan Motion Sense"
+    icon: "mdi:motion-sensor"
+    variants: ["i6", "es6", "Haiku H/I Series", "Haiku L Series"]
+    state_command: "query_all"
+    state_mapping:
+      is_on: "fan_motion_sense"
+    commands:
+      turn_on: { command: "fan_set_motion_sense", values: { enabled: 1 } }
+      turn_off: { command: "fan_set_motion_sense", values: { enabled: 0 } }
+  - platform: "number"
+    name: "Fan Motion Timeout"
+    unit: "s"
+    min: 60
+    max: 86400
+    step: 1
+    variants: ["i6", "es6", "Haiku H/I Series", "Haiku L Series"]
+    state_command: "query_all"
+    state_mapping:
+      value: "fan_motion_timeout"
+    commands:
+      set_value: "fan_set_motion_timeout"
+  - platform: "switch"
+    name: "Fan Return to Auto"
+    variants: ["i6", "es6", "Haiku H/I Series", "Haiku L Series"]
+    state_command: "query_all"
+    state_mapping:
+      is_on: "fan_return_to_auto"
+    commands:
+      turn_on: { command: "fan_set_return_to_auto", values: { enabled: 1 } }
+      turn_off: { command: "fan_set_return_to_auto", values: { enabled: 0 } }
+  - platform: "number"
+    name: "Fan Return to Auto Timeout"
+    unit: "s"
+    min: 60
+    max: 43200
+    step: 1
+    variants: ["i6", "es6", "Haiku H/I Series", "Haiku L Series"]
+    state_command: "query_all"
+    state_mapping:
+      value: "fan_return_to_auto_timeout"
+    commands:
+      set_value: "fan_set_return_to_auto_timeout"
+
+  - platform: "light"
+    name: "Light"
+    variants: ["i6", "es6", "Haiku H/I Series", "Haiku L Series", "Haiku Light"]
+    state_command: "query_all"
+    state_mapping:
+      is_on: "light_mode"
+      on_value: 1
+      brightness: "light_brightness"
+    commands:
+      turn_on: { command: "light_set_mode", values: { mode: 1 } }
+      turn_off: { command: "light_set_mode", values: { mode: 0 } }
+      set_brightness: "light_set_brightness"
+      set_color_temperature: "light_set_color_temperature"
+    notes: >
+      Brightness is a percentage, 0-100, not 0-255. A fan's light kit is
+      optional: draw this only when capability flag 4 (downlight) or the
+      uplight flag is set. On an uplight-only fan the downlight flag is unset,
+      yet these fields still drive the uplight (aiobafi6).
+  - platform: "select"
+    name: "Light Mode"
+    variants: ["i6", "es6", "Haiku H/I Series", "Haiku L Series", "Haiku Light"]
+    state_command: "query_all"
+    state_mapping:
+      value: "light_mode"
+      options: {0: "off", 1: "on", 2: "auto"}
+    commands:
+      select_option: "light_set_mode"
+  - platform: "select"
+    name: "Light Colour"
+    icon: "mdi:palette"
+    variants: ["i6", "es6", "Haiku H/I Series", "Haiku L Series", "Haiku Light"]
+    state_command: "query_all"
+    state_mapping:
+      value: "light_color_temperature"
+      options: {2200: "Warm", 2700: "Warm White", 3000: "Soft White", 3500: "Natural White", 4000: "Bright White", 5000: "Cool White", 6500: "Daylight"}
+    commands:
+      select_option: "light_set_color_preset"
+    notes: >
+      The vendor app's picker. Hide options outside the light's reported range
+      (fields 78 to 79). A light whose range is two presets wide shows only
+      Soft White and Bright White, as in the app's store screenshots.
+  - platform: "switch"
+    name: "Dim to Warm"
+    variants: ["i6", "es6", "Haiku H/I Series", "Haiku L Series", "Haiku Light"]
+    state_command: "query_all"
+    state_mapping:
+      is_on: "light_dim_to_warm"
+    commands:
+      turn_on: { command: "light_set_dim_to_warm", values: { enabled: 1 } }
+      turn_off: { command: "light_set_dim_to_warm", values: { enabled: 0 } }
+  - platform: "number"
+    name: "Light Motion Timeout"
+    unit: "s"
+    min: 60
+    max: 86400
+    step: 1
+    variants: ["i6", "es6", "Haiku H/I Series", "Haiku L Series", "Haiku Light"]
+    state_command: "query_all"
+    state_mapping:
+      value: "light_motion_timeout"
+    commands:
+      set_value: "light_set_motion_timeout"
+  - platform: "switch"
+    name: "Light Return to Auto"
+    variants: ["i6", "es6", "Haiku H/I Series", "Haiku L Series", "Haiku Light"]
+    state_command: "query_all"
+    state_mapping:
+      is_on: "light_return_to_auto"
+    commands:
+      turn_on: { command: "light_set_return_to_auto", values: { enabled: 1 } }
+      turn_off: { command: "light_set_return_to_auto", values: { enabled: 0 } }
+  - platform: "number"
+    name: "Light Return to Auto Timeout"
+    unit: "s"
+    min: 60
+    max: 43200
+    step: 1
+    variants: ["i6", "es6", "Haiku H/I Series", "Haiku L Series", "Haiku Light"]
+    state_command: "query_all"
+    state_mapping:
+      value: "light_return_to_auto_timeout"
+    commands:
+      set_value: "light_set_return_to_auto_timeout"
+
+  - platform: "sensor"
+    name: "Temperature"
+    device_class: "temperature"
+    unit: "C"
+    precision: 0.1
+    state_command: "query_all"
+    state_mapping:
+      value: "temperature"
+      scale: 0.01
+    notes: "Hundredths of a degree Celsius on the wire. Pushed on change. On some models it comes from the remote."
+  - platform: "sensor"
+    name: "Humidity"
+    device_class: "humidity"
+    unit: "%"
+    state_command: "query_all"
+    state_mapping:
+      value: "humidity"
+    notes: >
+      Whole percent per aiobafi6, which Home Assistant ships; a value outside
+      0-100 means no sensor. oogje divides the raw value by 100, so the
+      scaling is unresolved until someone reads a real unit.
+  - platform: "sensor"
+    name: "Fan Speed RPM"
+    unit: "rpm"
+    icon: "mdi:fan"
+    variants: ["i6", "es6", "Haiku H/I Series", "Haiku L Series"]
+    state_command: "query_all"
+    state_mapping:
+      value: "current_rpm"
+    notes: "Not pushed on change; refreshed only by a query."
+  - platform: "binary_sensor"
+    name: "Fan Occupancy"
+    device_class: "occupancy"
+    variants: ["i6", "es6", "Haiku H/I Series", "Haiku L Series"]
+    state_command: "query_all"
+    state_mapping:
+      is_on: "fan_occupancy"
+    notes: "API version 5 or later (firmware 3.1). Clears about 4.5-5 minutes after the last motion."
+  - platform: "binary_sensor"
+    name: "Light Occupancy"
+    device_class: "occupancy"
+    variants: ["i6", "es6", "Haiku H/I Series", "Haiku L Series", "Haiku Light"]
+    state_command: "query_all"
+    state_mapping:
+      is_on: "light_occupancy"
+    notes: "API version 5 or later. Clears about 9.5 minutes after the last motion."
+
+helpful_urls:
+  - title: "Big Ass Fans i6 operation and maintenance manual (PDF)"
+    url: "https://bigassfans.widen.net/view/pdf/aex819i2mz/i6-operation-maintenance-manual.pdf"
+    kind: "manual"
+    description: >
+      Vendor manual for the i6 (MK-i61-* models). It covers remote pairing and
+      re-pairing, the remote and breaker factory resets used in this spec, the
+      remote reboot, and what a reset erases.
+  - title: "Big Ass Fans i6 installation guide (PDF)"
+    url: "https://bigassfans.widen.net/view/pdf/cwocvvmrju/i6-install-guide.pdf"
+    kind: "manual"
+    description: >
+      Vendor installation guide for the i6 (MK-i61-* models), EN/FR/ES. Notes
+      that 0-10 V wiring disables the remote and the app.
+  - title: "Big Ass Fans es6 installation guide (PDF)"
+    url: "https://bigassfans.widen.net/view/pdf/qddmwtqbbr/es6-install-guide.pdf"
+    kind: "manual"
+    description: >
+      Vendor installation guide for the es6 (MK-ES62-052306/062306/072306),
+      EN/FR/ES, including the remote and app pointers.
+  - title: "Big Ass Fans Haiku installation guide (PDF)"
+    url: "https://bigassfans.widen.net/view/pdf/3id7cxbxkj/haiku-install-guide.pdf"
+    kind: "manual"
+    description: >
+      Vendor installation guide for the current Haiku (MK-HK4-* models),
+      EN/FR/ES: remote functions, uplight/downlight selection, and which
+      settings need the app.
+  - title: "Big Ass Fans Haiku L installation guide (PDF)"
+    url: "https://bigassfans.widen.net/view/pdf/zq0muwn7zn/haiku-l-install-guide.pdf"
+    kind: "manual"
+    description: >
+      Vendor installation guide for the Haiku L (FR112C-U1H, FR127C-U1H/J,
+      FR150C-U1H/J). Notes that the app needs the fan's Wi-Fi module installed.
+  - title: "Big Ass Fans Haiku i installation guide (PDF)"
+    url: "https://bigassfans.widen.net/view/pdf/xkq3irtwao/haiku-i-install-guide.pdf"
+    kind: "manual"
+    description: >
+      Vendor installation guide for the Haiku i (K3127-S0, K3127-X2, K3150-A2,
+      K3150-S0, K3150-X2), multilingual.
+  - title: "BAF app: how to add a fan to your Wi-Fi network"
+    url: "https://bigassfans.com/support/baf-app/how-to-add-fan-to-wifi/"
+    kind: "vendor_support"
+    description: >
+      The onboarding flow this spec's primary setup method follows: Add
+      Product, Bluetooth search, Identify (beep and flash), Wi-Fi, name.
+  - title: "Bluetooth remote setup and pairing"
+    url: "https://bigassfans.com/support/controls/bluetooth-remote/set-up-and-pairing/"
+    kind: "vendor_support"
+    description: >
+      Clearing and pairing the residential Bluetooth remote with a fan. This is
+      the device-to-device pairing, separate from the LAN protocol.
+  - title: "Bluetooth remote disconnecting"
+    url: "https://bigassfans.com/support/controls/bluetooth-remote/disconnecting/"
+    kind: "vendor_support"
+    description: "Erasing a remote's pairings without touching the fan."
+  - title: "jfroy/aiobafi6"
+    url: "https://github.com/jfroy/aiobafi6"
+    kind: "implementation"
+    description: >
+      Apache-2.0 Python client for this protocol and the library Home
+      Assistant uses. wireutils.py has the SLIP framing, device.py the
+      query/commit/merge loop, discovery.py the mDNS TXT keys, and
+      proto/aiobafi6.proto the field numbers this spec restates.
+  - title: "Home Assistant: Big Ass Fans integration"
+    url: "https://www.home-assistant.io/integrations/baf/"
+    kind: "implementation"
+    description: >
+      Local-push integration over aiobafi6. Its page notes that climate and
+      temperature can come from the remote on some models, and gives the
+      occupancy hold time.
+  - title: "home-assistant/core: baf integration source"
+    url: "https://github.com/home-assistant/core/tree/dev/homeassistant/components/baf"
+    kind: "implementation"
+    description: "Where the speed, timeout and brightness bounds quoted in this spec come from (fan.py, number.py, light.py, const.py)."
+  - title: "oogje/homebridge-i6-bigassfans"
+    url: "https://github.com/oogje/homebridge-i6-bigassfans"
+    kind: "implementation"
+    description: >
+      MIT Homebridge plugin for i6, es6, Haiku H/I and Haiku L on firmware 3.0+.
+      src/platformAccessory.ts builds frames by hand and names fields aiobafi6
+      does not (light selector, UV-C, capability bits).
+  - title: "bdraco/aiosenseme"
+    url: "https://github.com/bdraco/aiosenseme"
+    kind: "implementation"
+    description: >
+      The legacy SenseME ASCII client, archived after firmware 3.x replaced
+      that protocol. Useful only to tell the two generations apart; see the
+      big-ass-fans-senseme spec.
+
+evidence:
+  artifacts:
+    - type: "public_implementation"
+      artifact: "jfroy/aiobafi6, main branch as of 2026-08-31"
+      url: "https://github.com/jfroy/aiobafi6"
+    - type: "public_implementation"
+      artifact: "home-assistant/core homeassistant/components/baf (dev branch, 2026-09; requires aiobafi6 0.9.0)"
+      url: "https://github.com/home-assistant/core/tree/dev/homeassistant/components/baf"
+    - type: "public_implementation"
+      artifact: "oogje/homebridge-i6-bigassfans 0.6.1-beta10 (2026-02-23)"
+      url: "https://github.com/oogje/homebridge-i6-bigassfans"
+    - type: "static_analysis"
+      artifact: "Big Ass Fans Android app (package com.baf.i6) v3.3.4 and 3.4.0"
+      obtained_via: "third-party APK mirror, 2026-09 and 2026-11"
+      description: >
+        Version 3.4.0 (versionCode 1467127165), SHA-256
+        2d5985ef7cb9b29b2e0543fba0312766343c70e7be1293001c54e02a768a382b,
+        preserved the model aliases and both local protocol roles. Seven
+        unrelated decompile errors limit coverage; no protocol-selection
+        change was found. No fan was contacted.
+    - type: "vendor_documentation"
+      artifact: "i6 operation and maintenance manual; i6, es6, Haiku, Haiku i and Haiku L installation guides; BAF app and Bluetooth remote support pages"
+  app_static_analysis: >
+    A targeted check of the vendor app, not a full analysis. It confirms that
+    the app browses `_api._tcp` (and `_http._tcp`) with Android NSD, reads the
+    TXT keys name, uuid, model and "api version", and opens a plain TCP
+    socket to port 31415 with a 10 s connect timeout and keepalive. Its frame
+    encoder and decoder are SLIP (0xc0 delimiters, 0xdb 0xdc / 0xdb 0xdd
+    escapes). Its query message takes values 0-8, and it sends 0 for a full
+    refresh and 3 on a timer. It carries the colour-preset table and filters
+    it by the light's warmest and coolest values. It scans BLE for service
+    e0fc1000-..., writes 20-byte chunks to e0fc1003-..., takes notifications
+    on e0fc1004-..., and requests a 250-byte MTU. It uploads firmware over
+    HTTP to port 31416. An earlier note in the research store said the app
+    speaks only legacy UDP ASCII. That is wrong for this generation: the
+    ASCII vocabulary is also present, for the legacy fans, but the 3.x path
+    is the one above.
+  documentation_review: >
+    Manuals give the reset and remote-pairing procedures. The support pages
+    give the onboarding sequence. No FCC ID is printed in the manuals held,
+    and no Big Ass Fans / Delta T grantee was found on fccid.co.
+  open_questions:
+    - "Does the fan accept more than one property in a single commit?"
+    - "Humidity scaling: whole percent (aiobafi6) or hundredths (oogje)?"
+    - "How many simultaneous TCP clients does the fan serve, and does every connection get pushes?"
+    - "Which capability sub-field is the uplight: 6 (aiobafi6) or 11 (oogje)?"
+    - "What protobuf message carries the Wi-Fi SSID and passphrase over the BLE channel, and is anything encrypted above the SLIP layer?"
+    - "What do query groups 7 and 8 return?"
+    - "What is the schedule message format (query group 5, query_result field 3), and do schedules fire with the cloud unreachable?"
+    - "Does a provisioned fan keep advertising its BLE service?"
+    - "Does the i6 manual's reset apply unchanged to es6 and Haiku, and is there a network-only reset?"
+
+remaining_unknowns:
+  - "The Wi-Fi credential message on the BLE channel. Without it onboarding still needs the vendor app."
+  - "The schedule and sleep-mode wire formats. Schedules are stored on the device and fetched with query group 5, but no project decodes them."
+  - "Whether the fan applies more than one property per commit. Every known client sends one at a time."
+  - "Humidity scaling (aiobafi6 and oogje disagree) and the capability bit for the uplight (sub-field 6 or 11)."
+  - "The ideal-temperature range the app allows, and the app's own bounds for the motion and return-to-Auto timeouts. The bounds here are Home Assistant's."
+  - "What query groups 7 and 8 mean, and the meaning of fields 67 and 109, which oogje logs as 'fan on means auto' and 'light on means auto'."
+  - "How the pre-2023 Haiku L 'Wi-Fi' onboarding route works."
+  - "Whether a firmware update is prepared by a protobuf message before the HTTP upload on 31416, and what an interrupted update leaves behind. Upload framing is out of scope on purpose."
+  - "Whether Matter and the 31415 API run side by side on current smart boards, and from which firmware."
+  - "The connection limit, and whether the occasional drops oogje reports are the fan closing idle sockets."
+  - "Whether the Turbo6, Mammoth, Bison and Speakeasy model strings in the app's table speak this protocol with the same fields. They are matched by identification but not declared as variants."
+  - "Whether the Haiku Switch model string is the Wi-Fi wall control, and what it exposes. It is matched but has no variant or entities."

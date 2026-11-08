@@ -19,6 +19,7 @@ device:
       the xled client (tested there on TW105S-EU and Twinkly 210 RGB+W).
   protocol: "wifi"
   category: "light"
+  category_hierarchy: ["light", "led"]
   transport: "http"
   notes: >
     Twinkly are app-controlled decorative RGB/RGBW string, curtain and matrix

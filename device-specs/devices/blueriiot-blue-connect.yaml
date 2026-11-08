@@ -1,0 +1,1054 @@
+# Blueriiot Blue Connect / Blue Connect Go / Plus pool analyser device spec
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Sources (clean-room: derived facts only, every table written in our own
+# words, no vendor code, strings or firmware reproduced):
+#   - Static analysis of the vendor's Flutter app (Android, v4.17.0): GATT map,
+#     command opcodes, message header, converter scalings, firmware-version
+#     layout, discovery filter and the update-mode name. Described by role;
+#     no class, method or source-path names from the app appear here.
+#   - adamantivm/BlueConnect (MIT) Home Assistant integration:
+#     BlueConnectGo/parser.py, BlueConnectGo/const.py, config_flow.py.
+#   - Home Assistant community thread "Blue Connect pool measurements"
+#     (topic 118901): raw notification frames posted beside the values the
+#     vendor app showed for the same sample. Used as test vectors.
+#   - Vendor user manuals, technical sheets and help-centre articles for
+#     activation, standby, restart, range and the Extender's LED/reset.
+#   - Infineon/Cypress BLE component datasheet for the stock bootloader
+#     service UUIDs.
+# Nothing here has been run against hardware by this project.
+
+device:
+  name: "Blueriiot Blue Connect (Go / Plus) pool analyser"
+  manufacturer: "Blueriiot (Riiot Labs SA, now Fluidra)"
+  manufacturer_status: "active"
+  testing:
+    status: untested
+  protocol: "ble"
+  category: "sensor"
+  category_hierarchy: ["measurement", "environmental"]
+  type: "Floating pool and spa water analyser (temperature, pH, ORP, conductivity) with Sigfox and BLE uplinks"
+  safety_advisory:
+    severity: "caution"
+    summary: "Readings decoded from this spec are uncalibrated; pool chemicals dosed on a wrong pH or ORP reading can irritate skin and eyes."
+    detail: >
+      The pH and ORP scalings below are the electrode's raw response. The
+      vendor app applies a per-unit calibration (pH 7 / pH 4 / ORP reference
+      solutions) that this spec does not reproduce, and a community sample
+      shows the uncalibrated pH 0.04 below what the app displayed. Check a
+      reading against a test strip before adding acid, chlorine or salt, and
+      follow the chemical supplier's handling instructions. This spec is
+      independent of Blueriiot and Fluidra.
+    advisory_url: "https://s3-eu-west-1.amazonaws.com/riiotlabs-manuals/RIIOT_BlueConnect-UserManual-A4-EN.pdf"
+  notes: >
+    A floating (or in-line, with the Blue Fit50 clamp) pool and spa analyser
+    from Riiot Labs, sold as Blue Connect, Blue Connect Plus (4-in-1:
+    temperature, pH, ORP, conductivity/salinity) and Blue Connect Go
+    (3-in-1: no conductivity probe). It has three uplinks: Sigfox straight to
+    the vendor cloud (the primary path, gated by the Plus pack or a Premium
+    subscription), BLE on demand from a phone within about 10 m, and an
+    optional Blue Extender that relays BLE readings to Wi-Fi. Only the BLE
+    path is local, and it is what this spec documents. Sigfox, the cloud
+    (api.riiotlabs.com) and Extender Wi-Fi provisioning are out of scope.
+
+    EVIDENCE BASE. Everything below is `reported`: recovered from the vendor
+    app (v4.17.0), from the MIT-licensed adamantivm/BlueConnect Home
+    Assistant integration, and from raw frames community members posted in
+    the Home Assistant forum beside the values the vendor app showed. No
+    capture is held by this project and nothing has been replayed here.
+
+    THE READ PATH (the whole local surface most clients need). Connect with
+    no pairing, enable notifications on f3300003-f0a2-9b06-0c59-1bc4763b5c00,
+    write the single byte 0x01 with response to
+    f3300002-f0a2-9b06-0c59-1bc4763b5c00, and wait. The analyser powers its
+    probe, samples and answers with ONE notification about 8 s later (the
+    Home Assistant integration waits up to 15 s). Then disconnect. The app
+    does exactly this, and it is also what the integration and the forum's
+    gatttool scripts do.
+
+    MEASUREMENT FRAME. Byte 0 is a header: the low nibble is the message
+    type and the high nibble a format version. Measure-now replies are type 3:
+    header 0x23 (version 2, 11 bytes) on firmware up to 2.2.x, and 0x33
+    (version 3, 12 bytes) on firmware 2.3.0, which appended one byte.
+    Bytes 1-10 are five little-endian u16 fields: water temperature
+    (x0.01 C), pH electrode (raw; mV = raw x 0.25 - 512), ORP (x0.25 mV),
+    a conductivity raw value, and battery voltage in mV. The app's own
+    converters apply the temperature, pH-electrode and ORP scalings exactly
+    as stated. The uncalibrated pH, pH = 7 - mV / 58 (identically
+    (2048 - raw) / 232 + 7), is the community formula and matches the
+    app's display to within about 0.05. See protocol_details for the other
+    message types, the advertisement and the test vectors.
+
+    CONDUCTIVITY is not linear. The integration computes
+    uS/cm = 1 / (raw x 1e-6) x 1.0615, i.e. 1061500 / raw, which gives
+    8846 uS/cm for a sample the cloud reported as 8742. On a Go (no probe) the
+    field reads 0 or 1, and the integration's "0 means no probe" guard misses
+    the 1. The author of that integration marks all its conversion
+    constants as needing review.
+
+    OTHER SURFACES. A command characteristic (f3300020) takes one-byte
+    opcodes: software reset 0x31, which the app offers as "restart my
+    analyser"; region selection 0x20 (US) and 0x21 (AU), which pick the
+    Sigfox radio zone; and 0x50, which reboots the analyser into its Cypress
+    PSoC 4 bootloader. The region and bootloader opcodes are `advanced`. A
+    production-info service (f3320001) exposes the BLE part's firmware
+    version (f3320011). Two flash-settings characteristics (f3300008, older
+    firmware, and f3300012, added with 2.3.0) carry the analyser's
+    configuration record: wake period, Sigfox, beacon and active flags, a
+    debug flag and low-battery thresholds. Its byte layout is not decoded
+    here, and the app's standby mode for winter is a rewrite of that record
+    followed by a software reset.
+
+    SHARED UUID BASE. The -f0a2-9b06-0c59-1bc4763b5c00 base is also used by
+    iopool's EcO probe (f3a0xxxx, f400xxxx and f410xxxx; see
+    research-notes/iopool-eco.md), so never identify on the base alone.
+
+    NOT THIS PROTOCOL. The Zodiac-branded "Blue Connect" Gold/Silver
+    analysers advertise as BC3..., serve different vendor services (70ea...
+    and 1fb2... bases) and gate on-demand measurement behind a 9-character
+    access code (per the GPLv3 Adrien40/ha-blue-connect-local-test project;
+    cited as evidence only, no code used). They are a separate, future spec.
+
+  identification:
+    mac_prefixes:
+      - prefix: "00:A0:50"
+        confidence: "low"
+        notes: >
+          Cypress Semiconductor's MA-L block, which belongs to the BLE SoC
+          vendor, not Blueriiot, so every Cypress-based product shares it.
+          Community users' units answer at 00:A0:50:xx:xx:xx (Home Assistant
+          forum topic 118901, post 175), and the adamantivm integration's
+          manual-add flow filters on the first two octets. Rank on it, never
+          promote on it.
+    notes: >
+      The strong signal is the advertised local name, which the vendor app
+      matches as ^B([12])([0-9A-Fa-f]{8})$: "B", a one-digit analyser
+      generation (2 for the Blue Connect family; 1 is presumably the
+      first-generation "blue by Riiot"), then eight hex digits of per-unit
+      identifier. A regex has no identification form, so it lives in
+      discovery.methods[0].ble.local_name. The app's fallback, when the name
+      does not match, is manufacturer data whose company ID is 0x0131 (305).
+      That ID belongs to Cypress Semiconductor, the SoC vendor, and is
+      deliberately not declared as an identification key, because it would
+      claim every Cypress-based product in range. Whether the vendor
+      service f3300001 is advertised is not established.
+
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          local_name:
+            match: "regex"
+            value: "^B[12][0-9A-Fa-f]{8}$"
+    identity:
+      stable_keys: ["address"]
+      display: "local_name"
+    static_ip_required: false
+    notes: >
+      Name pattern from the vendor app's scanner (reported). In update mode
+      the analyser advertises as "blue v2 - OTA" instead; see the
+      firmware_update feature's dfu_mode. A Blue Extender near the pool
+      connects to the analyser over BLE on its own schedule, and while it
+      holds the link the analyser may not answer a second central (not
+      established).
+
+  setup:
+    required: false
+    confidence: "medium"
+    notes: >
+      Nothing is provisioned over BLE. The cloud activation (the app scans
+      the QR code on the storage cap, or takes the printed key and the last
+      three serial digits) links the unit to a vendor account and to Sigfox.
+      It is not needed for a local BLE read. The one physical step is
+      waking a new unit, which the manual does by shaking it. Confidence
+      medium: the flow is implemented by an open integration and by
+      community scripts that were run on real units, but not by this project,
+      and whether a never-activated unit answers BLE before the shake is not
+      established.
+    methods:
+      - type: "ble_direct"
+        verified: false
+        description: >
+          Measure on demand: connect (no pairing), subscribe to f3300003,
+          write 0x01 to f3300002, read the single reply notification,
+          disconnect. Each measurement powers the probe and costs battery,
+          so poll sparingly. The integration defaults to every 30 minutes,
+          and the vendor's help centre warns that frequent BLE measurements
+          drain the battery.
+        ble:
+          pairing_required: false
+          service_uuid: "f3300001-f0a2-9b06-0c59-1bc4763b5c00"
+          write_characteristic: "f3300002-f0a2-9b06-0c59-1bc4763b5c00"
+          read_characteristic: "f3300003-f0a2-9b06-0c59-1bc4763b5c00"
+        steps:
+          - action: "If the analyser is new, or is coming out of winter standby, shake it with one sharp movement."
+            actor: user
+            expect: "Two beeps: the unit is activated (vendor manual, Blue Connect installation step 2)."
+          - action: "Keep the top of the analyser out of the water and stay within about 10 m of it."
+            actor: user
+            notes: "The antenna is in the top part. The vendor help centre gives about 10 m for BLE, and reviewers call the range short."
+          - action: "Scan for a local name matching ^B[12][0-9A-Fa-f]{8}$, or, as a ranking hint only, an address in 00:A0:50."
+            actor: client
+            request:
+              protocol: "ble_gatt"
+          - action: "Connect without pairing and enable notifications on f3300003-f0a2-9b06-0c59-1bc4763b5c00."
+            actor: client
+            request:
+              protocol: "ble_gatt"
+          - action: "Write 0x01, with response, to f3300002-f0a2-9b06-0c59-1bc4763b5c00."
+            actor: client
+            request:
+              protocol: "ble_gatt"
+          - action: "Power the probe, sample, and notify one measurement frame on f3300003."
+            actor: device
+            expect: "One 11-byte (header 0x23) or 12-byte (header 0x33) notification about 8 s after the write."
+            timeout_seconds: 15
+          - action: "Decode the frame (see the f3300003 format block) and disconnect."
+            actor: client
+        timing:
+          measurement_seconds: 8
+          reply_timeout_seconds: 15
+          suggested_poll_interval_seconds: 1800
+          notes: >
+            8 s is what forum users observed between the write and the
+            notification. 15 s is the Home Assistant integration's timeout.
+            1800 s is that integration's default poll interval, not a device
+            limit. Fewer measurements mean longer battery life.
+        troubleshooting:
+          - symptom: "The write succeeds but no notification arrives within 15 s."
+            causes:
+              - "Notifications on f3300003 were not enabled before the 0x01 write."
+              - "Another central holds the analyser: the vendor app, or a Blue Extender relaying to Wi-Fi."
+              - "The top of the analyser is under water, or the client is out of range."
+              - "The analyser has hung. The vendor's fix is a forced restart: disconnect the battery for about 10 s (help-centre article 138). A forum user needed the same after a firmware update."
+          - symptom: "Conductivity reads about a million uS/cm."
+            causes:
+              - "A Go with no conductivity probe reports 1 in that field. Treat 0 and 1 as 'no probe'."
+          - symptom: "pH or ORP differs slightly from the vendor app."
+            causes:
+              - "The app, or the cloud behind it, applies a per-unit calibration that this spec does not reproduce. The spec's values are the uncalibrated electrode response."
+          - symptom: "The vendor app refuses to measure over Bluetooth."
+            causes:
+              - "Older Android builds of the app required location services to be on before a BLE measurement (store review, 2020). This is the usual Android BLE-scan permission, not a device requirement."
+    factory_reset:
+      applicable: "unknown"
+      confidence: "low"
+      effect: >
+        No user factory reset of the analyser is documented. The account
+        link lives in the vendor cloud, and the BLE surface stores no bond or
+        credential, so there is nothing local that a reset is needed to
+        clear.
+      description: >
+        The vendor documents a forced restart (battery disconnect) and a
+        standby/reactivate cycle, but no reset that restores the analyser's
+        configuration record to its factory state. The restart below is the
+        closest documented step. It is not known to clear anything
+        persistent.
+      procedures:
+        - name: "Forced restart by battery disconnect"
+          verified: false
+          basis: "Vendor help centre, 'I cannot connect to my analyzer via Bluetooth' (article 138), and the battery-replacement steps in the user manual."
+          power_state: "on"
+          description: >
+            A restart, not a reset. The vendor prescribes it when the analyser
+            stops answering Bluetooth. The upper housing has a left-hand
+            thread, and its seal must be reseated or water gets in.
+          steps:
+            - action: "Take the analyser out of the water, remove the usage cap and rubber ring, and dry it."
+              actor: user
+            - action: "Remove the tape and unscrew the upper part clockwise (left-hand thread)."
+              actor: user
+            - action: "Unplug the white battery connector, wait about 10 seconds, and plug it back in."
+              actor: user
+            - action: "Check the seal, screw the upper part back on anticlockwise, refit the ring and cap, and return the analyser to the water."
+              actor: user
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        No network or bond binds the BLE surface. Any client in range can
+        connect and measure, so changing controllers means only connecting
+        from the new one. Moving the unit to another vendor account is a
+        cloud operation (out of scope). A Blue Extender is re-linked from the
+        app after its own reset (see protocol_details.blue_extender).
+    credentials:
+      wifi_passphrase_protection: "not_applicable"
+      stored_on_device: []
+      issued_to_client: []
+      notes: >
+        The analyser has no Wi-Fi and the BLE surface has no authentication:
+        anything in radio range can trigger a measurement and write the
+        command characteristic. The key printed on the storage cap is a
+        cloud-activation credential. The advertised name's 8 hex digits are a
+        per-unit identifier, and whether they equal that key is not
+        established.
+
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "none"
+    bonding: "none"
+    exclusivity:
+      single_connection: "unknown"
+      single_bond: false
+      recovery: >
+        Close the vendor app and unplug any Blue Extender, then retry. If the
+        analyser still does not answer, do the forced restart in
+        setup.factory_reset.
+      notes: >
+        Nothing bonds, so a second phone never has to be forgotten. Whether
+        the analyser accepts more than one central at a time is not
+        established. The Extender is a second BLE central by design.
+    enter_pairing_mode:
+      required: false
+    notes: >
+      The vendor's help centre says the analyser uses Bluetooth without
+      pairing and so never appears in the phone's Bluetooth device list
+      (article 80). The adamantivm integration connects with no bond. Both
+      are consistent with open GATT.
+
+  host_compatibility:
+    - stack: "bluez"
+      status: "compatible"
+      verification: "reported"
+      basis: >
+        adamantivm/BlueConnect drives it through Home Assistant's bleak
+        backend on Linux, and forum users on a Raspberry Pi read it with
+        gatttool (Home Assistant community topic 118901, posts 175 and 178).
+        Third-party reports, not reproduced here.
+    - stack: "android"
+      status: "compatible"
+      verification: "reported"
+      basis: "The vendor's Android app measures over BLE through the platform stack."
+    - stack: "corebluetooth"
+      status: "compatible"
+      verification: "reported"
+      basis: >
+        The vendor's iOS app measures over BLE, and a forum user read raw
+        frames with a generic iPhone BLE scanner app (topic 118901, post 175).
+
+  variants:
+    - model: "Blue Connect Plus"
+      notes: >
+        4-in-1 (temperature, pH, ORP, conductivity/salinity), 868 MHz Sigfox
+        in the EU and a 920 MHz AU edition (tech sheet 73661). Earlier units
+        sold as plain "Blue Connect" report the same fields. Conductivity
+        comes from the f3300003 conductivity_raw field.
+    - model: "Blue Connect Go"
+      notes: >
+        3-in-1 (temperature, pH, ORP). The conductivity field reads 0 or 1.
+        Sigfox only with a Premium subscription, so BLE is often its only
+        uplink.
+    - model: "blue by Riiot (first generation)"
+      notes: >
+        The 2017 predecessor. The app's name filter admits a generation digit
+        1 and carries a version-1 status layout (see protocol_details), but
+        no first-generation frame or advertisement has been seen. Treat
+        everything in this spec as unverified for it.
+
+initialization:
+  - characteristic: "f3300003-f0a2-9b06-0c59-1bc4763b5c00"
+    subscribe: true
+    notes: >
+      Enable notifications before writing the measure request. The single
+      reply arrives only as a notification, and the app, the integration and
+      the forum scripts all subscribe first.
+
+services:
+  - uuid: "f3300001-f0a2-9b06-0c59-1bc4763b5c00"
+    name: "Analyser service"
+    notes: >
+      The analyser's vendor service (reported: vendor app, adamantivm
+      integration, forum gatttool sessions). The base
+      -f0a2-9b06-0c59-1bc4763b5c00 is shared with iopool's products, so the
+      service UUID says "this design house", not "a Blue Connect".
+    characteristics:
+      - uuid: "f3300002-f0a2-9b06-0c59-1bc4763b5c00"
+        name: "Measure request"
+        properties: ["write"]
+        commands:
+          ask_sensor_data:
+            description: >
+              Start one measurement cycle. The analyser powers the probe,
+              samples for about 8 s and notifies one frame on f3300003. The
+              app always writes 0x01 (its log calls it a measurement with the
+              capacitor loaded), and the integration and forum scripts do the
+              same. Whether any other value does anything is not established.
+              Write with response.
+            verification: "reported"
+            value: [0x01]
+      - uuid: "f3300003-f0a2-9b06-0c59-1bc4763b5c00"
+        name: "Measurement notification"
+        properties: ["notify"]
+        role: "notify"
+        format:
+          - name: "message_type"
+            offset: 0
+            length: 1
+            type: "uint8"
+            mask: 0x0F
+            values: {3: "measurement status"}
+            notes: "Low nibble of the header. 3 in every measure-now reply seen. The app's full type table is in protocol_details.message_framing."
+          - name: "format_version"
+            offset: 0
+            length: 1
+            type: "uint8"
+            mask: 0xF0
+            notes: "High nibble of the header: 2 (frame 0x23, 11 bytes) on firmware up to 2.2.x, 3 (frame 0x33, 12 bytes) on 2.3.0 (forum post 201). Bytes 1-10 are laid out identically in both."
+          - name: "water_temperature"
+            offset: 1
+            length: 2
+            type: "uint16"
+            endianness: "little"
+            scale: 0.01
+            unit: "C"
+            device_class: "temperature"
+            notes: "App converter: raw / 100. Signedness is not established. The rated range is 5-50 C, so it never matters in service."
+          - name: "ph_electrode_voltage"
+            offset: 3
+            length: 2
+            type: "uint16"
+            endianness: "little"
+            scale: 0.25
+            value_offset: -512
+            unit: "mV"
+            device_class: "voltage"
+            notes: "App converter: (raw - 2048) / 4 mV, the pH electrode's potential, which falls as pH rises. Raw 2048 = 0 mV = pH 7."
+          - name: "ph"
+            offset: 3
+            length: 2
+            type: "uint16"
+            endianness: "little"
+            scale: -0.004310344827586207
+            value_offset: 15.827586206896552
+            device_class: "ph"
+            notes: >
+              Same bytes as ph_electrode_voltage, as UNCALIBRATED pH:
+              (2048 - raw) / 232 + 7, i.e. 7 - mV / 58, an ideal electrode
+              at about 20 C (community formula, adamantivm parser.py and
+              forum post 175). The app shows a calibrated value that can
+              differ by a few hundredths.
+          - name: "orp"
+            offset: 5
+            length: 2
+            type: "uint16"
+            endianness: "little"
+            scale: 0.25
+            unit: "mV"
+            device_class: "voltage"
+            notes: "App converter: raw / 4 mV. The integration subtracts a further 5 mV as an empirical correction. Forum samples decode to within about 3 mV of the app's display (mostly slightly below it), so the correction is left out here."
+          - name: "conductivity_raw"
+            offset: 7
+            length: 2
+            type: "uint16"
+            endianness: "little"
+            notes: >
+              Not linear, so no scale is declared: uS/cm = 1061500 / raw
+              (adamantivm parser.py), flagged there as needing review. 0 or 1
+              on a Go (no probe). Salinity is an estimate derived from
+              conductivity (the manual expresses it as g/L TDS assuming NaCl),
+              and its formula is not established.
+          - name: "battery_voltage"
+            offset: 9
+            length: 2
+            type: "uint16"
+            endianness: "little"
+            scale: 0.001
+            unit: "V"
+            device_class: "voltage"
+            notes: >
+              Millivolts on the wire. The cell is a 3.6 V lithium thionyl
+              chloride primary, and samples read 3.62-3.63 V. The integration
+              maps 3.40-3.64 V to 0-100 %, but has a bug that pins it at
+              100 %, and the discharge curve of this chemistry is too flat
+              for a voltage-derived percentage to mean much.
+          - name: "v3_trailing_byte"
+            offset: 11
+            length: 1
+            type: "uint8"
+            notes: "Present only in version-3 (0x33) frames. The app reads it as one extra byte, and its meaning is not established. A forum user guessed battery percent: 0x22 = 34 on a unit reading 3.63 V."
+      - uuid: "f3300020-f0a2-9b06-0c59-1bc4763b5c00"
+        name: "Command"
+        properties: ["write"]
+        role: "command"
+        commands:
+          software_reset:
+            description: >
+              Reboot the analyser. One opcode byte, written with response.
+              The app offers it to users as a restart (help centre: Settings >
+              My Analyzer > Restart my analyzer), uses it after rewriting the
+              flash-settings record (standby), and suggests it for battery
+              drain. The BLE link drops. Reconnect after a few seconds.
+            verification: "reported"
+            value: [0x31]
+          set_region_us:
+            description: >
+              Select the US Sigfox radio zone. One opcode byte. The app names
+              this opcode's role and nothing more is documented here: not
+              when the app sends it, not what the unit does next, and not
+              whether an EU-hardware unit accepts it.
+            verification: "reported"
+            advanced: true
+            advanced_reason: >
+              Changes the Sigfox radio zone the analyser transmits in. Sending
+              the wrong zone for the unit's hardware or country can put it
+              outside the band it is certified for (a regulatory violation) and
+              cut it off from the Sigfox network until it is corrected.
+            value: [0x20]
+          set_region_au:
+            description: >
+              Select the Australian Sigfox radio zone. One opcode byte. Same
+              caveats as set_region_us.
+            verification: "reported"
+            advanced: true
+            advanced_reason: >
+              Changes the Sigfox radio zone the analyser transmits in. Sending
+              the wrong zone for the unit's hardware or country can put it
+              outside the band it is certified for (a regulatory violation) and
+              cut it off from the Sigfox network until it is corrected.
+            value: [0x21]
+          enter_bootloader:
+            description: >
+              Reboot into the Cypress PSoC 4 bootloader for a firmware update.
+              The analyser then advertises as "blue v2 - OTA" and serves only
+              the bootloader service, and it takes no measurements until an
+              image is written and it restarts. One opcode byte, written with
+              response.
+            verification: "reported"
+            advanced: true
+            advanced_reason: >
+              Leaves the analyser in its bootloader, unable to measure,
+              until a complete firmware image is delivered through the
+              bootloader service. An interrupted or wrong image can leave it
+              there. Only a client that can finish a Cypress bootloader update
+              should send it.
+            value: [0x50]
+      - uuid: "f3300008-f0a2-9b06-0c59-1bc4763b5c00"
+        name: "Flash settings (older firmware)"
+        properties: ["read", "write"]
+        notes: >
+          The analyser's configuration record as the app reads and writes it
+          on firmware before 2.3.0. It carries a wake (measurement) period,
+          Sigfox, beacon and active flags, a debug flag and low-battery
+          threshold, hysteresis and delta settings. The byte layout is not
+          decoded in this spec. Standby for winter is a read-modify-write
+          of this record (clearing the active flag) followed by
+          software_reset. A wrong write can silence the beacon or Sigfox, so
+          a generic client should treat it as read-only. Properties
+          reported, not enumerated from hardware.
+      - uuid: "f3300012-f0a2-9b06-0c59-1bc4763b5c00"
+        name: "Flash settings (firmware 2.3.0 and later)"
+        properties: ["read", "write"]
+        notes: >
+          The same configuration record on firmware 2.3.0, where a forum user
+          saw this characteristic appear after the update (post 201). The
+          app's current settings format is read and written here. Layout not
+          decoded; treat as read-only in a generic client.
+
+  - uuid: "f3320001-f0a2-9b06-0c59-1bc4763b5c00"
+    name: "Production information service"
+    characteristics:
+      - uuid: "f3320011-f0a2-9b06-0c59-1bc4763b5c00"
+        name: "BLE firmware version"
+        properties: ["read"]
+        notes: >
+          The PSoC's firmware version. Layout from the app's parser
+          (reported). The app renders it as v<major>.<minor>, the build date
+          and the hash, and weighs it when deciding whether to offer an
+          update. A forum user's app showed "v0.2 2019-11-12/<hash>" beside
+          product firmware 2.2.1 (post 202), so major.minor is the BLE part's
+          own numbering, not the product version.
+        format:
+          - name: "major"
+            offset: 0
+            length: 1
+            type: "uint8"
+          - name: "minor"
+            offset: 1
+            length: 1
+            type: "uint8"
+          - name: "build_year"
+            offset: 2
+            length: 2
+            type: "uint16"
+            endianness: "little"
+          - name: "build_day"
+            offset: 4
+            length: 1
+            type: "uint8"
+          - name: "build_month"
+            offset: 5
+            length: 1
+            type: "uint8"
+          - name: "build_minute"
+            offset: 6
+            length: 1
+            type: "uint8"
+          - name: "build_hour"
+            offset: 7
+            length: 1
+            type: "uint8"
+            notes: "Build timestamp is UTC. The app reads byte 5 as the month, byte 4 as the day, byte 7 as the hour and byte 6 as the minute, in that order."
+          - name: "build_hash"
+            offset: 8
+            length: 8
+            type: "bytes"
+            notes: "The rest of the value, rendered as hex, is a source-revision hash. 8 bytes matches the app's reference for its bundled image, but the characteristic's exact length on hardware is not established. The app renders each byte without zero padding, so its display can be shorter than 16 hex digits."
+
+  - uuid: "00060000-f8ce-11e4-abf4-0002a5d5c51b"
+    name: "Cypress bootloader service (update mode only)"
+    notes: >
+      Cypress's stock BLE bootloader service (Infineon BLE component
+      datasheet). The app talks to it only after enter_bootloader, when the
+      analyser advertises as "blue v2 - OTA". Whether the application
+      firmware also serves it is not established. It belongs to the update
+      path: list it read-only and never write it from a generic client.
+    characteristics:
+      - uuid: "00060001-f8ce-11e4-abf4-0002a5d5c51b"
+        name: "Bootloader command"
+        properties: ["write", "notify"]
+        notes: >
+          Carries Cypress bootloader host-protocol packets (start of packet,
+          command, length, data, checksum, end of packet). The bootloader
+          answers by notification on the same characteristic. The app
+          drives the stock sequence by role: enter bootloader, read flash
+          size, program and verify each row of the .cyacd image, verify the
+          application checksum, exit bootloader. No packet bytes are given
+          here; see features[firmware_update].
+
+  - uuid: "f3380001-f0a2-9b06-0c59-1bc4763b5c00"
+    name: "Blue Extender service (served by the Extender, not the analyser)"
+    notes: >
+      The Blue Extender bridge's own GATT, listed by role only so a scanner
+      that meets an Extender knows what it is. Its command set, and the Wi-Fi
+      provisioning it carries, are not documented here.
+    characteristics:
+      - uuid: "f3380002-f0a2-9b06-0c59-1bc4763b5c00"
+        name: "Extender command"
+        properties: ["write"]
+        notes: "Command write for the Extender (app's role name). Opcodes and framing are not established."
+      - uuid: "f3380003-f0a2-9b06-0c59-1bc4763b5c00"
+        name: "Extender command notifications"
+        properties: ["notify"]
+        notes: "Replies to Extender commands. Format not established."
+
+features:
+  - type: "firmware_update"
+    dfu:
+      mechanisms: ["custom"]
+      transport: "ble"
+      image:
+        signing: "unknown"
+        source: "bundled_in_app"
+        format: "Cypress .cyacd bootloader image: a text header plus one hex-encoded flash row per line, with per-row checksums."
+        notes: >
+          The app bundles firmware 2.3.0 as a .cyacd image, and the image
+          stays in the app. Newer builds presumably come from the vendor cloud
+          (not established). The app sends the bootloader's enter command
+          without a security key, and the image carries only checksums.
+          That points to an unsigned image, but nobody has tried a modified
+          one, so signing stays unknown.
+      enter:
+        how: "command"
+        command: "enter_bootloader"
+        notes: "0x50 on the command characteristic f3300020 (advanced)."
+      dfu_mode:
+        local_names: ["blue v2 - OTA"]
+        notes: >
+          In update mode the analyser advertises exactly "blue v2 - OTA" and
+          serves Cypress's bootloader service
+          00060000-f8ce-11e4-abf4-0002a5d5c51b. The app finds it by that
+          name alone. Whether the address changes, and whether the service
+          is advertised, are not established. The name does not collide with
+          the normal ^B[12]... pattern.
+      recovery:
+        interrupted: "stays_in_bootloader"
+        notes: >
+          Reported from the app's behaviour: when it sees a unit advertising
+          the update-mode name that it did not just put there, it shows a
+          banner offering to finish the update. Whether the bootloader ever
+          times out back to the old application is not established.
+      verification: "reported"
+      notes: >
+        Mechanism: Cypress's PSoC 4 BLE bootloader (no enum value exists
+        for it yet, hence `custom`). Transport by role only: the client
+        writes bootloader host-protocol packets to
+        00060001-f8ce-11e4-abf4-0002a5d5c51b and reads replies from
+        notifications on it. The row-programming sequence and any bytes that
+        would flash the part are deliberately left out. A forum user reports
+        the vendor app updating a Go from 2.2.3 to 2.3.0 with the phone held
+        near the unit, after which it beeped and kept answering the same
+        measure request (post 201). Another reports a unit that stopped
+        answering after an update until its battery was reconnected
+        (post 195).
+
+entities:
+  - platform: "sensor"
+    name: "Water Temperature"
+    device_class: "temperature"
+    unit: "C"
+    state_characteristic: "f3300003-f0a2-9b06-0c59-1bc4763b5c00"
+    state_mapping:
+      value: "water_temperature"
+    commands:
+      poll: "ask_sensor_data"
+    notes: "Each poll is a full measurement cycle (about 8 s, costs battery). One poll fills every sensor below."
+  - platform: "sensor"
+    name: "pH"
+    device_class: "ph"
+    state_characteristic: "f3300003-f0a2-9b06-0c59-1bc4763b5c00"
+    state_mapping:
+      value: "ph"
+    commands:
+      poll: "ask_sensor_data"
+    notes: "Uncalibrated (see the safety advisory). The vendor app's ideal band is 7.2-7.6."
+  - platform: "sensor"
+    name: "ORP"
+    device_class: "voltage"
+    unit: "mV"
+    state_characteristic: "f3300003-f0a2-9b06-0c59-1bc4763b5c00"
+    state_mapping:
+      value: "orp"
+    commands:
+      poll: "ask_sensor_data"
+    notes: "Oxidation-reduction potential, uncalibrated. The vendor app's ideal band is 650-750 mV."
+  - platform: "sensor"
+    name: "pH Electrode Voltage"
+    device_class: "voltage"
+    unit: "mV"
+    state_characteristic: "f3300003-f0a2-9b06-0c59-1bc4763b5c00"
+    state_mapping:
+      value: "ph_electrode_voltage"
+    commands:
+      poll: "ask_sensor_data"
+    notes: "The raw electrode potential the pH is computed from, for a client that applies its own two-point calibration."
+  - platform: "sensor"
+    name: "Battery Voltage"
+    device_class: "voltage"
+    unit: "V"
+    state_characteristic: "f3300003-f0a2-9b06-0c59-1bc4763b5c00"
+    state_mapping:
+      value: "battery_voltage"
+    commands:
+      poll: "ask_sensor_data"
+    notes: "The vendor rates the battery at about two years and warranties it for one."
+  - platform: "button"
+    name: "Restart Analyser"
+    commands:
+      press: "software_reset"
+    notes: "The same restart the vendor app offers. The BLE link drops."
+
+protocol_details:
+  message_framing:
+    description: >
+      The analyser's messages share one header byte whether they arrive as a
+      notification on f3300003 or inside the advertisement's manufacturer
+      data. Low nibble = message type, high nibble = format version. The app
+      picks a decoder by the (type, version) pair. The table below is derived
+      from the app (reported). Only type 3 versions 2 and 3 have been seen in
+      real traffic.
+    header: "byte 0 = (format_version << 4) | message_type"
+    types:
+      - type: 0x1
+        versions: [2, 3]
+        payload: "Status record, same layout as type 3 of the same version."
+      - type: 0x2
+        versions: "any"
+        payload: "Maintenance information record. Layout not decoded here."
+      - type: 0x3
+        versions: [1, 2, 3]
+        payload: >
+          Status record, sent in reply to the 0x01 measure request (type 3 in
+          every captured reply). v2/v3: see the f3300003 format block. v1 (first
+          generation, never seen): four 16-bit fields at payload offsets 3, 5,
+          7 and 9 (temperature x0.01 C, pH electrode, ORP x0.25 mV, and one
+          more integer), byte order not established, with no conductivity.
+      - type: 0x8
+        versions: [2]
+        payload: "Status record, version-2 layout."
+      - type: 0x9
+        versions: [1, 2, 3]
+        payload: "Compressed status record. Bit layout not decoded here."
+      - type: 0xA
+        versions: [1]
+        payload: "Compressed status record. Bit layout not decoded here."
+      - type: 0xB
+        versions: [1]
+        payload: "Compressed status record. Bit layout not decoded here."
+    notes: >
+      Offsets in 'payload' count from the byte after the header. The type
+      numbers 1 and 8 are not explained by anything in the app beyond the
+      decoder they select, and which uplink carries which type is not
+      established.
+  advertisement:
+    description: >
+      The app also reads measurements from the advertisement. The
+      manufacturer-specific data is laid out as follows: company ID 0x0131
+      (little-endian 31 01; Cypress Semiconductor's ID, not a Blueriiot
+      one), then one analyser message (the header byte above plus its
+      payload), then two trailing bytes the app does not decode as part of
+      the message. Reported from the app's parser. No advertisement capture
+      has been seen, and which message types are advertised (the compressed
+      ones are the likely candidates) is not established.
+    parse_rules:
+      - "Take the manufacturer-specific AD value including its two company-ID bytes. Require 31 01."
+      - "Message = bytes [2, length - 2). Decode its header nibble pair as in message_framing."
+      - "The last two bytes are not part of the message. Their role is not established."
+  measurement_test_vectors:
+    description: >
+      Raw f3300003 notifications posted in the Home Assistant community
+      thread (topic 118901) beside the values the vendor app or cloud showed,
+      decoded with this spec's formulas. ph = (2048 - raw) / 232 + 7;
+      conductivity uS/cm = 1061500 / raw. None come from this project's
+      hardware.
+    vectors:
+      - frame: "23 ab 09 32 07 ab 0a 78 00 24 0e"
+        source: "post 131 (a unit with a conductivity probe, 2021)"
+        decoded: {type: 3, version: 2, water_temperature_c: 24.75, ph_electrode_mv: -51.5, ph: 7.888, orp_mv: 682.75, conductivity_raw: 120, conductivity_us_cm: 8845.8, battery_v: 3.620}
+        vendor_showed: {temperature_c: 24.8, ph: 7.93, orp_mv: 685, conductivity_us_cm: 8742, salinity_g_l: 4.9}
+      - frame: "23 a9 0b ff 07 aa 08 01 00 25 0e"
+        source: "post 175 (Blue Connect Go, firmware 2.2.3)"
+        decoded: {type: 3, version: 2, water_temperature_c: 29.85, ph_electrode_mv: -0.25, ph: 7.004, orp_mv: 554.5, conductivity_raw: 1, battery_v: 3.621}
+        vendor_showed: {temperature_c: 29.8, ph: 7.0, orp_mv: 554}
+      - frame: "23 18 0b 7f 07 0d 0a 00 00 2b 0e"
+        source: "post 175 (Blue Connect Go)"
+        decoded: {type: 3, version: 2, water_temperature_c: 28.40, ph_electrode_mv: -32.25, ph: 7.556, orp_mv: 643.25, conductivity_raw: 0, battery_v: 3.627}
+        vendor_showed: {temperature_c: 28.4, ph: 7.6, orp_mv: 645}
+      - frame: "33 a5 0a b0 07 bc 0a 01 00 2c 0e 22"
+        source: "post 201 (Blue Connect Go, firmware 2.3.0)"
+        decoded: {type: 3, version: 3, water_temperature_c: 27.25, ph_electrode_mv: -20.0, ph: 7.345, orp_mv: 687.0, conductivity_raw: 1, battery_v: 3.628, v3_trailing_byte: 34}
+  blue_extender:
+    description: >
+      The optional Blue Extender is a mains-powered BLE-to-Wi-Fi bridge
+      placed between the router and the pool. It connects to the analyser
+      over BLE, collects measurements and forwards them to the vendor cloud
+      over 2.4 GHz Wi-Fi. Its own GATT service is f3380001 (command write
+      f3380002, notify f3380003). The command set and the Wi-Fi provisioning
+      exchange (SSID and password written from the app over BLE) are out of
+      scope and not established.
+    leds: >
+      From the vendor help centre: blinking blue while searching for the
+      analyser, blinking green while trying Wi-Fi, steady green once a
+      measurement is sent, red after blue for a Bluetooth failure (too far
+      from the analyser), red after green for a Wi-Fi failure.
+    factory_reset: >
+      Unplug it, hold the top button while plugging it back in, and release
+      once the blue, green and red lights have lit in turn (vendor help
+      centre article 52 and Extender manual). Afterwards, re-link it from
+      the app.
+    wifi_security_modes: "OPEN, WEP, WPA-PSK, WPA2-PSK, mixed WPA/WPA2-PSK and WPA2-Enterprise, 2.4 GHz (vendor help centre)."
+  radio:
+    description: >
+      Per the user manual: Sigfox transmits at 868.13 MHz and 14 dBm and
+      receives at 869.525 MHz in the EU, with 902/920 MHz editions for the
+      US and AU. BLE is rated 10 dBm. The EU declaration of conformity lists
+      EN 300 220 (Sigfox SRD) and EN 300 328 (BLE). The manual carries an
+      FCC Part 15 statement "for devices with a serial number that begins
+      with a 4", but no FCC ID is printed and no grant was found.
+
+evidence:
+  app_static_analysis: >
+    The vendor's Android app (Flutter, v4.17.0), with its Dart snapshot
+    recovered. It established the GATT map (f3300001/02/03/08/12/20,
+    f3320001/11, f3380001/02/03, and Cypress's 00060000/00060001); the four
+    command opcodes and their one-byte framing (written with response); the
+    measure request (subscribe first, write 0x01 with response, await one
+    notification); the header nibble split and the (type, version) decoder
+    table; the version-2/3 status layout and its temperature /100,
+    pH electrode (raw - 2048) / 4 mV and ORP / 4 mV scalings; the firmware-
+    version record layout; the advertisement framing and company ID; the
+    local-name filter; the update-mode name; the enter-bootloader call
+    carrying no key; and the flash-settings record's field roles. Not
+    decoded, deliberately: the compressed-status and maintenance layouts,
+    the flash-settings byte layout, and the bootloader row sequence. The
+    bundled firmware image was not opened beyond identifying its format.
+    Nothing was copied.
+  open_source_review: >
+    adamantivm/BlueConnect at a63744ff (MIT): parser.py gives the frame
+    offsets, the pH (2048 - raw) / 232 + 7 and conductivity reciprocal
+    formulas, the ORP -5 mV correction and the 3.40-3.64 V battery mapping,
+    and carries its own note that the conversions need review. Its battery
+    percentage multiplies by 100 twice before clamping, so it reads 100 %
+    for any voltage above about 3.4 V. const.py gives the two UUIDs and the
+    15 s timeout, and config_flow.py filters manual adds to addresses
+    starting 00:A0.
+  community_captures: >
+    Home Assistant community topic 118901: raw frames beside the vendor app's
+    or cloud's values (posts 131, 139, 175, 178, 201), gatttool usage on a
+    Raspberry Pi, the 00:A0:50 address block, the 8 s measurement time, the
+    0x23 to 0x33 header change and the extra byte with firmware 2.3.0, and
+    f3300012 appearing with that update. These are third-party observations,
+    not our captures, so the facts they support stay `reported`.
+  documentation_review: >
+    Vendor user manuals (Blue Connect Dec 2019 and Nov 2018 editions, blue
+    by Riiot 2017, Blue Extender 2019), the Plus, Plus AU and Go technical
+    sheets, the EU declaration of conformity and the help-centre articles.
+    Together they cover activation by shaking, standby and reactivation,
+    calibration, battery and probe replacement, the forced restart, the
+    no-pairing statement, BLE range, the Extender's LEDs, reset and Wi-Fi
+    modes, and the radio figures.
+  negative_findings: >
+    No FCC grant under Blueriiot, Riiot Labs or Fluidra on fccid.co. No
+    public vendor protocol documentation. No advertisement capture anywhere
+    in the sources, and no first-generation frame.
+  open_questions: >
+    See remaining_unknowns. The cheapest first checks with a unit in hand:
+    a scan (name, whether f3300001 is advertised, the manufacturer data),
+    one measure-now against the vectors above, a read of f3320011, and
+    whether a second central can connect while the vendor app is connected.
+  artifacts:
+    - type: "static_analysis"
+      artifact: "com.riiotlabs.blue v4.17.0 (Blueriiot, Flutter; Android XAPK)"
+      obtained_via: "third-party APK mirror, 2026-09-01"
+      description: "Source of the GATT map, opcodes, header table, converter scalings, firmware-version layout, discovery filter, update-mode name and flash-settings field roles. It bundles a 2.3.0 .cyacd image, which stays in the app."
+    - type: "public_implementation"
+      artifact: "adamantivm/BlueConnect @ a63744ff (MIT, Home Assistant custom integration v0.1.8)"
+      url: "https://github.com/adamantivm/BlueConnect"
+      obtained_via: "raw file fetch, 2026-09-28"
+      description: "The implementable read path and the community conversion formulas. Its author flags the constants as unreviewed."
+    - type: "community_thread"
+      artifact: "Home Assistant community, 'Blue Connect pool measurements' (topic 118901), posts 131-202"
+      url: "https://community.home-assistant.io/t/blue-connect-pool-measurements/118901?page=9"
+      obtained_via: "Discourse JSON, 2026-09-28"
+      description: "Real notification frames beside the app's values, used as this spec's test vectors. Also the Cypress address block, the timing and the firmware 2.3.0 frame change."
+    - type: "vendor_documentation"
+      artifact: "Blue Connect user manual, EN, Dec 2019 (23 pp)"
+      url: "https://s3-eu-west-1.amazonaws.com/riiotlabs-manuals/RIIOT_BlueConnect-UserManual-A4-EN.pdf"
+      obtained_via: "vendor S3 bucket, 2026-09-28"
+      description: "Activation by shaking, standby, calibration, battery and probe replacement, radio figures and the FCC Part 15 statement with no FCC ID."
+    - type: "vendor_documentation"
+      artifact: "Blueriiot help centre (support-blueriiot.helpshift.com), articles 46, 51, 52, 80, 90, 138, 148, 151"
+      url: "https://support-blueriiot.helpshift.com/hc/en/3-blueriiot/faq/80-my-analyzer-does-not-appear-in-the-list-of-bluetooth-connected-devices-what-should-i-do/"
+      obtained_via: "fetched 2026-09"
+      description: "No pairing, the forced restart, BLE range and battery guidance, and the Extender's installation, LEDs, reset and Wi-Fi modes."
+    - type: "vendor_documentation"
+      artifact: "Infineon BLE_PDL component datasheet (002-29159), Bootloader Service configuration"
+      url: "https://www.infineon.com/assets/row/public/documents/cross-divisions/396/infineon-component-bluetooth-low-energy-ble-pdl-2.20-software-module-datasheets-en.pdf"
+      obtained_via: "fetched 2026-09-28"
+      description: "The stock bootloader service and command-characteristic UUIDs, and the packet's field roles."
+
+remaining_unknowns:
+  - "The local name has never been seen on air. The ^B[12][0-9A-Fa-f]{8}$ pattern is the app's filter, and whether the 8 hex digits are the cap's activation key, the Sigfox ID or something else is not established."
+  - "Whether f3300001 is in the advertisement or only in the GATT table."
+  - "The advertisement's message types and the compressed-status bit layouts (types 0x9-0xB). The app decodes them, and this spec does not."
+  - "The maintenance-information record (type 0x2) and what message types 0x1 and 0x8 are for."
+  - "The meaning of the extra byte in version-3 (firmware 2.3.0) frames."
+  - "The conductivity-to-uS/cm and salinity conversions. The reciprocal formula is community-fitted (8846 against the cloud's 8742 on one sample), and the app's own conversion was not traced."
+  - "The per-unit calibration the app or cloud applies to pH and ORP, and whether it is stored on the device (for example in the flash-settings record) or only in the cloud."
+  - "The flash-settings byte layout (f3300008 / f3300012), and therefore standby and reactivation over BLE, the measurement interval and the Sigfox and beacon switches."
+  - "Whether a factory-fresh unit answers BLE before its activation shake, and whether a unit in standby still advertises."
+  - "Whether the analyser accepts a second central while the vendor app or an Extender is connected."
+  - "What set_region_us / set_region_au do on hardware, and whether an EU unit accepts them."
+  - "Whether the bootloader verifies anything beyond checksums (image signing), its update-mode address, and whether it times out back to the application."
+  - "The Blue Extender's command set and its Wi-Fi provisioning exchange (out of scope here)."
+  - "The first-generation blue by Riiot's frames (version 1) and advertisement. None has been seen."
+
+helpful_urls:
+  - title: "Blue Connect user manual (EN, Dec 2019)"
+    url: "https://s3-eu-west-1.amazonaws.com/riiotlabs-manuals/RIIOT_BlueConnect-UserManual-A4-EN.pdf"
+    kind: "manual"
+    description: >
+      Vendor-hosted manual for the Blue Connect, Plus and Go analysers:
+      activation by shaking, standby for winter, calibration, battery and
+      probe replacement, radio specifications. The source of this spec's
+      setup steps.
+  - title: "Blue Connect user manual (EN, earlier edition)"
+    url: "https://s3-eu-west-1.amazonaws.com/riiotlabs-manuals/old/RIIOT_BlueConnect-UserManual-A4-EN.pdf"
+    kind: "manual"
+    description: "The Nov 2018 Blue Connect manual, from before the Plus/Go names. Same procedures."
+  - title: "blue by Riiot operating instructions (EN, 2017)"
+    url: "https://s3-eu-west-1.amazonaws.com/riiotlabs-manuals/RIIOT_BlueByRiiot_UserManual-A4-EN.pdf"
+    kind: "manual"
+    description: "Manual for the first-generation analyser this spec lists as an unverified variant."
+  - title: "Smart Water Analyzer Plus quick start guide (EN, 2021)"
+    url: "https://s3-eu-west-1.amazonaws.com/riiotlabs-manuals/RIIOT_SmartWaterAnalyzerPlus-GuickStartGuide-A6-EN.pdf"
+    kind: "manual"
+    description: "Quick start for the Blue Connect Plus (sold as Smart Water Analyzer Plus). The pages are images, with no text layer."
+  - title: "Blue Extender operating instructions (EN, 2019)"
+    url: "https://s3-eu-west-1.amazonaws.com/riiotlabs-manuals/RIIOT_BlueExtender_UserManual-A4-EN.pdf"
+    kind: "manual"
+    description: "Manual for the Blue Extender BLE-to-Wi-Fi bridge: setup, LED colour codes and the power-on button reset."
+  - title: "Blue Connect Go technical sheet"
+    url: "https://www.blueriiot.com/uploads/73014-Blue-Connect-Go-Technical-sheet.pdf"
+    kind: "vendor_support"
+    description: "Go (ref. 73014): 3-in-1 sensor ranges, dimensions and box contents."
+  - title: "Blue Connect Plus technical sheet"
+    url: "https://www.blueriiot.com/uploads/71663-Blue-Connect-Plus-Technical-sheet.pdf"
+    kind: "vendor_support"
+    description: "Plus (ref. 71663): 4-in-1 sensor ranges including conductivity/salinity."
+  - title: "Blue Connect Plus Australia technical sheet (rev C)"
+    url: "https://www.blueriiot.com/uploads/73661-Blue-Connect-Plus-Australia-Technical-Sheet-Rev-C.pdf"
+    kind: "vendor_support"
+    description: "The AU edition (ref. 73661) on the Australian Sigfox zone."
+  - title: "Declaration of conformity, Smart Pool Analyzer"
+    url: "https://www.blueriiot.com/uploads/Declaration-of-conformity-Smart-pool-analyzer-1.pdf"
+    kind: "vendor_support"
+    description: "EU declaration listing EN 300 220 (Sigfox) and EN 300 328 (BLE)."
+  - title: "Help centre: my analyzer does not appear in the list of Bluetooth devices"
+    url: "https://support-blueriiot.helpshift.com/hc/en/3-blueriiot/faq/80-my-analyzer-does-not-appear-in-the-list-of-bluetooth-connected-devices-what-should-i-do/"
+    kind: "vendor_support"
+    description: "The vendor's statement that the analyser uses Bluetooth without pairing: the basis of this spec's pairing block."
+  - title: "Help centre: I cannot connect to my analyzer via Bluetooth"
+    url: "https://support-blueriiot.helpshift.com/hc/en/3-blueriiot/faq/138-i-cannot-connect-to-my-analyzer-via-bluetooth/"
+    kind: "vendor_support"
+    description: "The forced restart by battery disconnect."
+  - title: "Help centre: how to activate the Blue Connect"
+    url: "https://support-blueriiot.helpshift.com/hc/en/3-blueriiot/faq/81-how-to-activate-the-blue-connect-and-setup-my-account/"
+    kind: "vendor_support"
+    description: "Cloud activation by QR code or key and serial, and the activation shake with its two beeps."
+  - title: "Help centre: I can not take a measurement"
+    url: "https://support-blueriiot.helpshift.com/hc/en/3-blueriiot/faq/90-i-can-not-take-a-measurement-i-do-not-receive-the-measurements/"
+    kind: "vendor_support"
+    description: "BLE range (about 10 m), the in-app restart, and the Sigfox and Extender alternatives."
+  - title: "Help centre: reduce battery consumption"
+    url: "https://support-blueriiot.helpshift.com/hc/en/3-blueriiot/faq/148-how-to-reduce-battery-consumption-on-your-blue-connect-device/"
+    kind: "vendor_support"
+    description: "Why a local client should poll sparingly: BLE measurements are the expensive ones."
+  - title: "Help centre: how to install the Extender"
+    url: "https://support-blueriiot.helpshift.com/hc/en/3-blueriiot/faq/46-how-to-install-the-extender/"
+    kind: "vendor_support"
+    description: "Extender placement, app-driven Wi-Fi setup over BLE, and the button range test."
+  - title: "Help centre: factory reset of the Extender"
+    url: "https://support-blueriiot.helpshift.com/hc/en/3-blueriiot/faq/52-how-to-make-a-factory-reset-of-the-extender/"
+    kind: "vendor_support"
+    description: "Hold the top button while plugging in until the three lights cycle."
+  - title: "adamantivm/BlueConnect"
+    url: "https://github.com/adamantivm/BlueConnect"
+    kind: "implementation"
+    description: "MIT Home Assistant custom integration for the Blue Connect Go over BLE, and the working reference for the measure-now path."
+  - title: "adamantivm/BlueConnect: BlueConnectGo/parser.py"
+    url: "https://github.com/adamantivm/BlueConnect/blob/main/custom_components/blueconnect/BlueConnectGo/parser.py"
+    kind: "implementation"
+    description: "The subscribe-write-wait sequence and the frame decode, including the conductivity reciprocal and the battery-percent bug noted here."
+  - title: "adamantivm/BlueConnect: BlueConnectGo/const.py"
+    url: "https://github.com/adamantivm/BlueConnect/blob/main/custom_components/blueconnect/BlueConnectGo/const.py"
+    kind: "implementation"
+    description: "The two characteristic UUIDs and the 15 s notify timeout."
+  - title: "Home Assistant community: Blue Connect pool measurements (page 9)"
+    url: "https://community.home-assistant.io/t/blue-connect-pool-measurements/118901?page=9"
+    kind: "forum"
+    description: "The thread where the BLE frame was worked out, with raw frames beside the vendor app's values."
+  - title: "Home Assistant community: post 175 (frame decode and gatttool recipe)"
+    url: "https://community.home-assistant.io/t/blue-connect-pool-measurements/118901/175"
+    kind: "forum"
+    description: "Derivation of the temperature, pH and ORP scalings from paired samples, the Cypress address block and the 8 s reply."
+  - title: "Home Assistant community: post 201 (firmware 2.3.0 frame change)"
+    url: "https://community.home-assistant.io/t/blue-connect-pool-measurements/118901/201"
+    kind: "forum"
+    description: "The 0x23 to 0x33 header change, the appended byte and the new f3300012 characteristic."
+  - title: "Infineon BLE_PDL component datasheet (Bootloader Service)"
+    url: "https://www.infineon.com/assets/row/public/documents/cross-divisions/396/infineon-component-bluetooth-low-energy-ble-pdl-2.20-software-module-datasheets-en.pdf"
+    kind: "standard"
+    description: "Cypress's stock bootloader service 00060000-f8ce-11e4-abf4-0002a5d5c51b and command characteristic 00060001, and the packet's fields. What the analyser serves in update mode."
+  - title: "Adrien40/ha-blue-connect-local-test (Zodiac Blue Connect Gold/Silver)"
+    url: "https://github.com/Adrien40/ha-blue-connect-local-test"
+    kind: "implementation"
+    description: >
+      GPLv3 integration for the Zodiac-branded Gold/Silver analysers, cited
+      only as evidence that they speak a different, access-code-gated
+      protocol that this spec does not cover. No code used.
+  - title: "Blueriiot app on Google Play"
+    url: "https://play.google.com/store/apps/details?id=com.riiotlabs.blue"
+    kind: "other"
+    description: "The vendor app (com.riiotlabs.blue) whose BLE behaviour this spec documents."

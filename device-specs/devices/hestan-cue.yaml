@@ -1,0 +1,1778 @@
+# Hestan Cue Smart Cooking System (induction burner + smart cookware) device spec
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Sources (clean-room; derived facts only, every table written in our own
+# words, no vendor code, strings or identifiers of our own hardware):
+#   - Static analysis of the vendor's Android app (Hestan Cue 1.5.x, retired
+#     2025-07-21), obtained from a third-party mirror. Byte layouts were read
+#     from the app's GATT parsers and writers. Two of them, the burner-mode
+#     writer and the burner characteristic dispatcher, did not decompile
+#     cleanly and were reconstructed from the instruction dump.
+#   - The vendor's support portal (support.hestancue.com): sunset notices,
+#     setup, Control Mode, power, firmware and troubleshooting articles.
+#   - FCC ID 2AYY4-41701 (Hestan Cue Smart Probe) exhibits on fccid.co.
+#   - The Bluetooth SIG company-identifier registry (0x03F1).
+# No captures exist. Every protocol fact is `verification: reported`.
+
+device:
+  name: "Hestan Cue Smart Cooking System (induction burner + smart cookware)"
+  manufacturer: "Hestan Smart Cooking"
+  manufacturer_status: "abandoned"
+  type: "induction-cooktop-and-smart-cookware"
+  category: "appliance"
+  protocol: "ble"
+  transport: "ble-gatt"
+  testing:
+    status: untested
+    notes: >-
+      Nobody on this project has driven a Cue burner, pan, pot or probe from
+      this document, and the research store holds no capture of one. Every
+      byte layout below was read out of the vendor's Android app, so each
+      protocol fact is `reported`, never `confirmed`.
+  safety_advisory:
+    severity: "warning"
+    summary: >-
+      This drives a 1600 W induction burner remotely. An empty pan left
+      heating can reach several hundred degrees before the burner's own
+      cut-out trips.
+    detail: >-
+      The vendor warns never to leave Cue cookware unattended, never to let
+      it boil dry, and never to use Cue cookware or the Smart Probe in an
+      oven, under a broiler or on a non-Cue cooktop. Its own figures are
+      that Cue pans are safe empty to about 400 °F (204 °C) and should not
+      exceed 450 °F (232 °C) with food in them. It also says an unattended
+      stainless pan on a burner at full power can pass 750 °F (400 °C)
+      before the burner overheats and shuts off. The app's Control Mode let
+      users set up to 260 °C (500 °F), above that 450 °F guidance. The
+      burner will not heat for an app until someone standing at it presses
+      its power button and then its next button (the two-touch
+      confirmation, see device.notes), and this spec declares nothing that
+      skips that. Stay at the burner while it heats, keep to the vendor's
+      temperature guidance, and send disable_heating when you are done.
+      This spec is not affiliated with Hestan, and Hestan's own safety
+      instructions govern how the hardware is used.
+    advisory_url: "https://support.hestancue.com/en/support/solutions/articles/19000126757"
+  notes: >
+    Hestan Cue is a guided-cooking system: a portable induction burner, pans
+    and pots with a Bluetooth "capsule" in the handle, a later clip-on Smart
+    Probe, and a phone app. Every part is a separate BLE peripheral that the
+    phone talks to directly. There is no hub. The vendor cloud held accounts,
+    recipes and firmware images, but the control paths below are local. The
+    vendor retired the app on 2025-07-21. Its support articles say the
+    burner still works as a plain induction hob from its own touch controls,
+    and that every "smart" function (temperature control, guided recipes)
+    ended with the app.
+
+    WHO CLOSES THE LOOP. The app does not compute burner power itself. It
+    routes one piece of cookware to the burner (the burner's 00001542
+    characteristic takes the cookware's 6-byte id, which is the cookware's
+    BLE address least-significant byte first), then writes a mode record to
+    00001543 carrying the target temperature in °C and six controller gains.
+    The burner then takes readings from the routed cookware and holds the
+    target itself. It relays each reading back to the app as an event on
+    00001546. The app supervises: it keeps control, watches events and
+    faults, and rewrites the target when a recipe step changes. Event codes
+    about decrypting the cookware and rewriting its id with a new IV
+    suggest that the cookware-to-burner link is encrypted. Nothing in the
+    app carries key material for it, so a client only passes the id.
+
+    THE TWO-TOUCH CONFIRMATION. The burner does not let an app heat until a
+    person confirms at the burner. The app asks with opcode 0x08 on
+    00001547. The burner then raises events asking for a press of its power
+    button (0x6013) and then its next button (0x6014), and finally reports
+    control granted (0x6015) or revoked (0x6016). Status byte 1 of 00001545
+    tracks the same state, and the app writes no setpoint until it reads 3
+    (app has control). The app's names for these events suggest the gate is
+    a safety-listing requirement. The confirmation is what keeps a stray
+    client from heating an empty pan, and this spec declares no command that
+    skips it (see the advanced commands on 00001547).
+
+    CLIENT RULES (from the app's burner supervisor):
+      1. Know the burner's firmware version before any 00001547 command. The
+         app refuses to send one until it has read 00001537 in the DFU
+         service or seen a type-3 advertisement.
+      2. Enable indications on 00001546 and notifications on 00001545, then
+         read 00001545, 00001542 and 00001543. The app treats the burner as
+         not ready until indications are on and both 00001543 and the
+         control byte of 00001545 have been read.
+      3. On the first pass after connecting, if 00001543 reports any mode
+         other than 4 (disabled), send the idle-light-off opcode and write
+         mode 4 (disable_heating) before anything else.
+      4. Compare 00001542 with the cookware you mean to use. Write it only
+         when it differs and the cookware is in range, then read it back.
+      5. If the burner reports mode 0 (manual) while cooking, the user has
+         taken over at the burner's own controls. The app stops driving it.
+      6. Ask for control (opcode 0x08) only from mode 4. Wait for control
+         byte 3, then write the setpoint and read 00001543 back to confirm
+         it.
+      7. Every write carries a 16-bit request id. The app draws them from one
+         app-wide counter that runs 1 to 32767 and then wraps to 0.
+      8. Stop with the idle-light-off opcode followed by mode 4 and timeout
+         0. The app never writes mode 3 (off).
+    The app re-runs this check every 250 ms while the burner is not ready and
+    every 2.5 s once it is. It arms a 60 s timer when it starts connecting.
+
+    READ-ONLY FIRST. The cookware and the probe broadcast their temperature
+    in their advertisements (manufacturer data under the Hestan Smart
+    Cooking company id 0x03F1), so a thermometer client needs no
+    connection, no write and no burner. Start there. Driving the burner is
+    the second step, and it needs someone standing at it.
+
+    SCOPE. In scope: the Cue induction burner, and the cookware and probe
+    that carry the handle service 0000fa81-8a11-4222-9610-53f79479ca03. The
+    app's product table lists four burner builds (US, a 220 V build, a 220
+    V build for a partner, and a 100 V build). All four share one status
+    parser, but only the base US layout is evidenced by anything beyond that
+    table. The app gives every thermometer device type the same thermometer
+    class, the Smart Probe included, so the probe shares the handle service
+    and parser (reported, from the app, not from a probe). Out of scope: the
+    built-in and Wi-Fi cooktops of other brands that the same app drove (a
+    different status layout, bonded BLE or Wi-Fi), the smart-oven stub the
+    app references, every cloud API, and the firmware image transfer beyond
+    naming the Nordic DFU stacks.
+
+    FLOATS. Temperatures, gains and the power position are IEEE 754 binary32
+    values, little-endian, on the wire. The schema has no float type yet. So
+    a float that a command sends is declared as a uint32 parameter whose
+    allowed values are the float's bit patterns, and a float that is only
+    read is declared as a 4-byte `bytes` field whose notes say how to read
+    it. Reinterpret those four bytes as a float and never scale the integer
+    (see protocol_details.float_encoding).
+
+  identification:
+    manufacturer_data:
+      company_id: 1009
+      company_id_hex: "0x03F1"
+      description: >-
+        A real SIG assignment: 0x03F1 is registered to Hestan Smart Cooking
+        Inc. The app accepts an advertisement's manufacturer data only under
+        this id. The payload after the id is a 4-byte field, a frame counter,
+        a frame type (1 first-generation cookware, 2 second-generation
+        cookware or probe, 3 burner) and a type-specific body (see
+        payload_formats.Advertisement_Cookware_V1, Advertisement_Cookware_V2
+        and Advertisement_Burner). The app takes a burner that advertises
+        without this block to be on older firmware, and it tolerates a
+        missing block only for the burner builds and the first-generation
+        pan and pot.
+    service_uuids:
+      - "00001530-0000-1000-8000-00805f9b34fb"
+    notes: >-
+      The app's scanner reads the incomplete 16-bit service list (AD type
+      0x02) and recognises two values there: 0x1530, the 16-bit alias of the
+      Nordic legacy DFU service base, and 0xfe59, Nordic's Secure DFU service.
+      It logs anything else as an unknown DFU service. 0xfe59 is on many
+      unrelated Nordic products, so it is not an identifier here. The
+      advertised local name is 8 characters of standard base64 that decode
+      to 6 bytes: the device's BLE address least-significant byte first,
+      with the top two bits of the last byte replaced by a device type (00
+      pan, 01 pot, 10 burner). OR-ing 0xC0 back into that byte gives the
+      random static address. The app refuses a device whose name-derived
+      address does not match its connection address (payload_formats.Local_Name).
+      An 8-character base64 name is too weak to match on alone, so it is a
+      check after scanning, not a matcher.
+
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          manufacturer_data:
+            company_id: 1009
+            description: >-
+              Hestan Smart Cooking's own id. Byte 5 of the payload (after the
+              company id) is the frame type: 1 first-generation cookware,
+              2 second-generation cookware or probe, 3 burner.
+        notes: >-
+          The usual path. Cookware and probe frames carry a live temperature,
+          so the scan result alone is a thermometer reading.
+      - type: "ble_scan"
+        ble:
+          service_uuids:
+            - "00001530-0000-1000-8000-00805f9b34fb"
+        notes: >-
+          Fallback for burners on older firmware, and for first-generation
+          pans and pots, which the app accepts without manufacturer data.
+          Confirm the match by decoding the local name (payload_formats.Local_Name)
+          and checking that the device type bits and the address agree.
+    identity:
+      stable_keys: ["address"]
+      display: "address"
+      notes: >-
+        The address is a random static address, and the local name encodes
+        it, so the two identify the same unit. The name is base64 and means
+        nothing to a person, so show the decoded device type and address
+        rather than the name. Whether a unit keeps its address across a
+        battery change or a firmware update is not recorded.
+    static_ip_required: false
+
+  setup:
+    required: false
+    confidence: "low"
+    notes: >-
+      Nothing to provision for the BLE path: no Wi-Fi, no credential, no
+      account and no bond. One caveat is no longer fixable. The vendor
+      says a factory-fresh burner and cookware needed a firmware update from
+      the app before they would cook "or even be turned on", and the
+      firmware came from the retired cloud. The app ships no images. A unit
+      that was never updated may therefore be stuck, and nobody has checked
+      what its factory firmware answers over BLE. Confidence is low because
+      the whole flow comes from the app and has never been replayed.
+    methods:
+      - type: "ble_direct"
+        name: "Direct BLE, no account: read cookware, heat after two-touch at burner"
+        role: "primary"
+        verified: false
+        description: >-
+          Read the cookware or probe from its advertisements. To heat,
+          connect to the burner, route the cookware to it, ask for control,
+          have someone press the burner's power button and then its next
+          button, and write a setpoint. No pairing at any stage.
+        ble:
+          service_uuid: "00001541-6209-4984-454e-f27d42fb55e3"
+          write_characteristic: "00001543-6209-4984-454e-f27d42fb55e3"
+          read_characteristic: "00001546-6209-4984-454e-f27d42fb55e3"
+          pairing_required: false
+        steps:
+          - action: "Fit a fresh AAA cell in the pan or pot handle and screw the end cap fully home (a quarter-turn back switches the capsule off), or a CR2450 in the Smart Probe. Plug the burner into its own outlet."
+            actor: user
+          - action: "Scan for manufacturer data under company id 1009 (0x03F1). Frame type 1 or 2 is cookware or probe, and it carries the reading. Frame type 3 is the burner and carries its firmware version and product id."
+            actor: client
+            expect: "A live temperature from the cookware with no connection. See payload_formats.Advertisement_Cookware_V2."
+          - action: "Place the cookware centred on the burner. Connect to the burner and run the burner service's initialization (firmware version, indications on 00001546-6209-4984-454e-f27d42fb55e3, notifications on 00001545-6209-4984-454e-f27d42fb55e3, reads of 00001545, 00001542 and 00001543)."
+            actor: client
+            timeout_seconds: 60
+          - action: "If 00001543-6209-4984-454e-f27d42fb55e3 reports any mode but 4, send set_next_button_light (off) and disable_heating."
+            actor: client
+          - action: "Read 00001542-6209-4984-454e-f27d42fb55e3. If it does not hold the cookware's address (least-significant byte first), send route_cookware and read it back."
+            actor: client
+          - action: "Send ask_for_app_control (opcode 0x08 on 00001547-6209-4984-454e-f27d42fb55e3)."
+            actor: client
+            expect: "Event 0x6013 on 00001546: the burner wants its power button pressed."
+          - action: "At the burner, press the power button, then the next button when asked."
+            actor: user
+            expect: "Event 0x6014 after the first press, then 0x6015 (control granted). Byte 1 of 00001545 reads 3."
+          - action: "Send set_target_temperature (or set_power_position), then read 00001543-6209-4984-454e-f27d42fb55e3 back to confirm the mode and target."
+            actor: client
+          - action: "The burner heats and relays cookware readings as event 0x7005 on 00001546. It reports burner and power-stage telemetry as 0x7003 and 0x7002."
+            actor: device
+          - action: "To stop, send set_next_button_light (off) and then disable_heating (mode 4, timeout 0)."
+            actor: client
+        timing:
+          supervisor_poll_not_ready_ms: 250
+          supervisor_poll_ready_ms: 2500
+          connect_give_up_s: 60
+          gatt_operation_timeout_s: 8
+          basis: "The app's burner supervisor and GATT queue. Each queued read, write or CCCD write times out after 8 s."
+        troubleshooting:
+          - symptom: "The burner ignores every command."
+            causes:
+              - "The client sent a 00001547 command before learning the firmware version. Read 00001537 first (client rule 1)."
+              - "The burner's firmware was never updated. The vendor says a new burner will not even power on until it is, and the update source is gone (setup.notes)."
+          - symptom: "A setpoint is written but nothing heats."
+            causes:
+              - "Nobody completed the two-touch confirmation. Byte 1 of 00001545 is not 3."
+              - "The burner was not in mode 4 when control was requested. The app always disables first."
+              - "The cookware is not induction-compatible or not centred. Byte 6 of 00001545 reports whether cookware is present."
+              - "The burner is in an overheat state. The vendor's fix is to let it cool, then unplug it and plug it back in."
+          - symptom: "The burner switches itself off mid-cook."
+            causes:
+              - "The controls are capacitive. The vendor says a pan slid over them, or clothing near them, can press them. Turn the burner so the controls are to the side."
+              - "An event whose code the app treats as stop-cooking arrived (protocol_details.event_codes), such as over-temperature or a failed handshake."
+          - symptom: "A second phone cannot find the burner or the cookware."
+            causes:
+              - "Another phone still holds a connection. The vendor's advice is to turn Bluetooth off on other phones and tablets."
+              - "On Android, location services are off. The vendor's own troubleshooting requires them for BLE scanning."
+      - type: "cloud_account"
+        name: "Vendor app registration and firmware update (retired 2025-07-21)"
+        role: "historical"
+        verified: false
+        description: >-
+          The vendor's flow: install the Hestan Cue app, sign in to a vendor
+          account (AWS Cognito), add each device from the Profile screen,
+          install the firmware the app downloaded, then cook guided recipes
+          or use Control Mode. The app, account service, recipe feed and
+          firmware metadata service are all retired, so this route cannot be
+          completed. It is kept because every vendor article still describes
+          it.
+        cloud:
+          provider: "Hestan Smart Cooking (retired)"
+          local_alternative: "The ble_direct method above. It needs no account and no network."
+        steps:
+          - action: "Install the Hestan Cue app, sign in, and add the burner and cookware under Profile."
+            actor: user
+          - action: "Tap Update Firmware for each device and accept the pairing prompt if the phone shows one."
+            actor: user
+            notes: "For the burner builds and the first-generation pan, the app asks the phone to bond before the update, and it retries the bond every minute until one exists."
+          - action: "Cook a guided recipe or use Control Mode."
+            actor: user
+    factory_reset:
+      applicable: "unknown"
+      confidence: low
+      effect: >-
+        No factory reset is documented for the burner, the cookware or the
+        probe. The only persistent client-visible state is the cookware id
+        the burner last had routed to it (00001542), which the next client
+        overwrites. Whether that id survives a power cycle is not recorded.
+        Unplugging the burner clears an overheat lock-out, according to the
+        vendor.
+      description: >-
+        Basis for "unknown": the vendor's support portal was searched for
+        reset, pairing, firmware and power-button articles, and none
+        describes a reset beyond unplugging the burner. The app sends no
+        reset command. This is a finding from those sources, not a test.
+      procedures:
+        - name: "Power-cycle the burner"
+          verified: false
+          basis: "Vendor support articles on the overheating error and on a burner that does not turn on: unplug it, wait, plug it back in."
+          power_state: "on"
+          description: "Clears an overheat state. Nothing says it clears anything else."
+          steps:
+            - action: "Let the burner cool with its fan running, unplug it, wait a few moments and plug it back in."
+              actor: user
+        - name: "Switch the cookware capsule off and on"
+          verified: false
+          basis: "Vendor support article on turning Cue cookware off: a quarter-turn of the handle's end cap switches it off, and tightening it switches it back on."
+          power_state: "on"
+          steps:
+            - action: "Turn the end cap on the handle back about a quarter-turn, then tighten it fully again."
+              actor: user
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >-
+        Nothing binds the burner or the cookware to a phone or an account on
+        the BLE path. A new client connects, routes its cookware with
+        route_cookware and asks for control again. A phone that bonded for a
+        legacy firmware update should forget the device in its Bluetooth
+        settings (device.pairing.unpair).
+    credentials:
+      wifi_passphrase_protection: not_applicable
+      stored_on_device: []
+      issued_to_client: []
+      notes: >-
+        No credential crosses the BLE path. Event codes and status codes
+        mention a handshake, a key and cookware encryption between the burner
+        and the cookware (protocol_details.event_codes), but no key reaches or
+        leaves the app, so there is nothing a client can supply or has to
+        protect.
+
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "none"
+    bonding: "optional"
+    exclusivity:
+      single_connection: "unknown"
+      single_bond: "unknown"
+      recovery: >-
+        Close the vendor app if it is still installed and turn Bluetooth off
+        on other phones and tablets, which the vendor says can hold an old
+        connection. Then unplug the burner, or turn the cookware's end cap
+        off and on, and scan again.
+      notes: >-
+        Whether the burner accepts two centrals at once is not recorded. The
+        app holds one connection per device.
+    enter_pairing_mode:
+      required: false
+      notes: >-
+        Nothing to enter. The burner advertises whenever it is plugged in.
+        The cookware advertises while its end cap is screwed fully home with
+        a live battery, and the probe while its battery is fitted.
+    unpair:
+      supported: true
+      requires_factory_reset: false
+      clears: "The phone-side bond left by a legacy firmware update. The device keeps no bond that matters on the control path."
+      procedures:
+        - name: "Forget the device in the phone's Bluetooth settings"
+          verified: false
+          basis: "The app's firmware-update path, which bonds the burner builds and the first-generation pan before a legacy DFU, and the vendor's advice not to pair Cue devices from the OS settings."
+          power_state: "on"
+          steps:
+            - action: "Open the phone's Bluetooth settings and forget the burner or pan."
+              actor: user
+    notes: >-
+      The app's product table marks the Cue burner and all Cue cookware as
+      unpaired Bluetooth devices. It connects, discovers services and talks
+      with no bond, and the vendor's support articles tell owners not to pair
+      Cue devices from the phone's settings. The one exception is firmware
+      update. Before a legacy-DFU update of a burner build or a
+      first-generation pan, the app asks the phone to bond, and the vendor's
+      firmware article says to accept a pairing prompt if one appears. The
+      pairing method used then is not recorded. Some Android phones only
+      found Cue devices after an OS pair-then-unpair, which the vendor
+      documents as a workaround rather than a requirement.
+
+  host_compatibility:
+    - stack: android
+      status: compatible
+      verification: reported
+      basis: "The vendor's Android app, which this spec was read from, drove the burner and cookware with no bond."
+      notes: >-
+        The vendor's troubleshooting articles say location services must be
+        on for scanning, and that some phones only saw Cue devices after a
+        pair-then-unpair in the OS settings.
+    - stack: corebluetooth
+      status: compatible
+      verification: reported
+      basis: "The vendor shipped an iOS app (3.1.2 or later for the Smart Probe, per its support article) that drove the same hardware."
+    - stack: bluez
+      status: unknown
+      verification: hypothesis
+      basis: "No Linux client has been reported. Nothing in the GATT layout suggests a problem."
+
+  variants:
+    - model: "Cue burner (US)"
+      notes: >-
+        Product id 32 (0x0020) in the burner advertisement. Vendor model
+        41000: 110-120 V, 60 Hz, up to 1600 W, ungrounded polarised plug. The
+        only burner layout evidenced beyond the app's product table.
+    - model: "Cue burner (220 V)"
+      notes: >-
+        Product id 47 (0x002f). The vendor lists models 41004 to 41009 for
+        EU, UK, Oceania and Asia at 240 V, 50 Hz. The app parses its status
+        with the same layout as the US build. Not otherwise evidenced.
+    - model: "Cue burner (220 V, partner edition)"
+      notes: >-
+        Product id 48 (0x0030), a 220 V build whose setup the app files under
+        Thermomix as partner. Same status parser. Not otherwise evidenced.
+    - model: "Cue burner (100 V)"
+      notes: >-
+        Product id 96 (0x0060). Same status parser. Not otherwise evidenced.
+    - model: "Cue cookware (first generation)"
+      notes: >-
+        The 11-inch fry pan (product id 0) and the 5.5 qt chef's pot (product
+        id 1). AAA cell in the handle end cap. Frame type 1 advertisements,
+        or no manufacturer data at all. The pan uses the Nordic legacy DFU
+        stack.
+    - model: "Cue cookware (second generation)"
+      notes: >-
+        The 11-inch fry pan (8), 5.5 qt chef's pot (9), 3.5 qt pot (10) and
+        11-inch non-stick fry pan (18). The app's table also lists a
+        partner-branded pan, pot and small pot (14, 16, 17) whose brand is not
+        established from public sources. Frame type 2 advertisements carry
+        the product id and firmware version.
+    - model: "Hestan Cue Smart Probe"
+      notes: >-
+        Product id 13, FCC ID 2AYY4-41701 (granted 2021-04-14, model number
+        417 in its manual), CR2450 cell, rated by the vendor for 1.7-204 °C.
+        It needs a Cue burner to control heat. The app handles it with the
+        same thermometer class as the pans, so it shares the handle service
+        and frames (reported, from the app only). The app's table also lists
+        a partner-branded probe (11).
+
+services:
+  - uuid: "00001541-6209-4984-454e-f27d42fb55e3"
+    name: "Cue burner control"
+    notes: >-
+      Served by the burner only. Every write goes to this service. The five
+      characteristics share the vendor base
+      0000154x-6209-4984-454e-f27d42fb55e3. Each write starts with a 16-bit
+      little-endian request id (client rule 7). The app queues one GATT
+      operation at a time and waits for each write's completion callback
+      before the next. Whether these characteristics also accept
+      write-without-response is not recorded.
+    initialization:
+      - characteristic: "00001537-1212-efde-1523-785feabcd123"
+        read: true
+        notes: >-
+          Firmware version (u16 LE) from the DFU service. The app sends no
+          00001547 command until it has a version from here or from a type-3
+          advertisement. The app reads it only when the DFU service is
+          present.
+      - characteristic: "00001535-1212-efde-1523-785feabcd123"
+        read: true
+        notes: "Device type and revision (two u16 LE)."
+      - characteristic: "00001546-6209-4984-454e-f27d42fb55e3"
+        subscribe: true
+        notes: "Indications (CCCD 0x0002). Required: the app treats the burner as not ready without them."
+      - characteristic: "00001545-6209-4984-454e-f27d42fb55e3"
+        subscribe: true
+        notes: "Notifications (CCCD 0x0001)."
+      - characteristic: "00001545-6209-4984-454e-f27d42fb55e3"
+        read: true
+        notes: "Status, including the app-control byte the app waits for."
+      - characteristic: "00001542-6209-4984-454e-f27d42fb55e3"
+        read: true
+        notes: "The cookware id currently routed to the burner."
+      - characteristic: "00001543-6209-4984-454e-f27d42fb55e3"
+        read: true
+        notes: "Current mode record."
+      - characteristic: "00001543-6209-4984-454e-f27d42fb55e3"
+        description: >-
+          If the mode just read is not 4 (disabled), send
+          set_next_button_light with the off value, then disable_heating,
+          before anything else. The app does this on the first pass after
+          every connection.
+    characteristics:
+      - uuid: "00001542-6209-4984-454e-f27d42fb55e3"
+        name: "cookware_route"
+        properties: ["read", "write"]
+        notes: >-
+          Which cookware or probe the burner takes readings from. Written as
+          a 20-byte record: request id, the cookware's 6-byte id, then 12 zero
+          bytes. The id is the cookware's BLE address least-significant byte
+          first, exactly as the address string reads right to left (address
+          C1:23:45:67:89:AB gives ab 89 67 45 23 c1). The app reads this back
+          after connecting and after every write, and rewrites it only when
+          it differs from the cookware in use.
+        commands:
+          route_cookware:
+            description: >-
+              Route one pan, pot or probe to the burner. Example with
+              request id 7 and the cookware at C1:23:45:67:89:AB: 07 00 ab 89
+              67 45 23 c1 followed by 12 bytes of 00.
+            template: ["{request_id}", "{cookware_id}", 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+            fixed_length: 20
+            verification: "reported"
+            parameters:
+              request_id:
+                type: "uint16"
+                endianness: "little"
+                auto: "sequence"
+                description: "App-wide request counter, 1 to 32767, then wraps to 0."
+              cookware_id:
+                type: "bytes"
+                min_length: 6
+                max_length: 6
+                description: "The cookware's BLE address, least-significant byte first."
+        format:
+          - name: "request_id"
+            offset: 0
+            length: 2
+            type: "uint16"
+            endianness: "little"
+          - name: "cookware_id"
+            offset: 2
+            length: 6
+            type: "bytes"
+            notes: "Address least-significant byte first. The remaining 12 bytes are unused."
+
+      - uuid: "00001543-6209-4984-454e-f27d42fb55e3"
+        name: "burner_mode"
+        properties: ["read", "write"]
+        notes: >-
+          A 36-byte little-endian record, written and read back with one
+          layout: request id (u16), mode (u8), target (float32), six
+          controller gains (float32 each), a flag byte, and a timeout in
+          seconds (u32). The target is °C in mode 1 and a power position as a
+          fraction of full (0.0-1.0) in mode 2. It is zero otherwise, and so
+          are the gains outside mode 1. The app always writes 1 in the flag
+          byte, and its readback parser labels that byte as a thermocouple
+          selector. The app re-reads this characteristic after every write.
+          The writer did not decompile cleanly and was reconstructed from the
+          instruction dump. The reader decompiled cleanly and agrees with it
+          byte for byte.
+        commands:
+          set_target_temperature:
+            description: >-
+              Mode 1: hold the routed cookware at a temperature. The target
+              goes out in °C whatever unit the user picked (the app converts
+              °F first). The gains are the app's built-in fallback set (kp
+              0.008, ki 0.006, kd 0.06, repeated for the second set). The app
+              used that set whenever the retired catalogue offered none for
+              the heat source. The allowed targets are 37-260 °C in 1 °C
+              steps, the app's Control Mode range. Example, 200 °C for one
+              hour with request id 8: 08 00 01 00 00 48 43 6f 12 03 3c a6 9b
+              c4 3b 8f c2 75 3d 6f 12 03 3c a6 9b c4 3b 8f c2 75 3d 01 10 0e
+              00 00. Needs app control (status byte 1 = 3).
+            template: ["{request_id}", 0x01, "{target_c}", 0x6f, 0x12, 0x03, 0x3c, 0xa6, 0x9b, 0xc4, 0x3b, 0x8f, 0xc2, 0x75, 0x3d, 0x6f, 0x12, 0x03, 0x3c, 0xa6, 0x9b, 0xc4, 0x3b, 0x8f, 0xc2, 0x75, 0x3d, 0x01, "{timeout_s}"]
+            fixed_length: 36
+            verification: "reported"
+            packet_layout:
+              "0": "request id, u16 LE"
+              "2": "mode 0x01 (hold temperature)"
+              "3": "target, float32 LE, °C"
+              "7": "six controller gains, float32 LE each (fixed: the app's fallback set)"
+              "31": "flag byte, always 0x01 from the app"
+              "32": "timeout, u32 LE, seconds"
+            parameters:
+              request_id:
+                type: "uint16"
+                endianness: "little"
+                auto: "sequence"
+                description: "App-wide request counter, 1 to 32767, then wraps to 0."
+              target_c:
+                type: "uint32"
+                endianness: "little"
+                description: >-
+                  Target temperature in °C as the bit pattern of an IEEE 754
+                  binary32 float, sent as its four little-endian bytes. The
+                  allowed values are the patterns of 37.0 to 260.0 in 1 °C
+                  steps (37.0 is 0x42140000, 200.0 is 0x43480000, 260.0 is
+                  0x43820000). Pick a label, never send a °C number as the
+                  integer.
+                allowed: [
+                  1108606976, 1108869120, 1109131264, 1109393408, 1109655552, 1109917696, 1110179840, 1110441984,
+                  1110704128, 1110966272, 1111228416, 1111490560, 1111752704, 1112014848, 1112276992, 1112539136,
+                  1112801280, 1113063424, 1113325568, 1113587712, 1113849856, 1114112000, 1114374144, 1114636288,
+                  1114898432, 1115160576, 1115422720, 1115684864, 1115815936, 1115947008, 1116078080, 1116209152,
+                  1116340224, 1116471296, 1116602368, 1116733440, 1116864512, 1116995584, 1117126656, 1117257728,
+                  1117388800, 1117519872, 1117650944, 1117782016, 1117913088, 1118044160, 1118175232, 1118306304,
+                  1118437376, 1118568448, 1118699520, 1118830592, 1118961664, 1119092736, 1119223808, 1119354880,
+                  1119485952, 1119617024, 1119748096, 1119879168, 1120010240, 1120141312, 1120272384, 1120403456,
+                  1120534528, 1120665600, 1120796672, 1120927744, 1121058816, 1121189888, 1121320960, 1121452032,
+                  1121583104, 1121714176, 1121845248, 1121976320, 1122107392, 1122238464, 1122369536, 1122500608,
+                  1122631680, 1122762752, 1122893824, 1123024896, 1123155968, 1123287040, 1123418112, 1123549184,
+                  1123680256, 1123811328, 1123942400, 1124073472, 1124139008, 1124204544, 1124270080, 1124335616,
+                  1124401152, 1124466688, 1124532224, 1124597760, 1124663296, 1124728832, 1124794368, 1124859904,
+                  1124925440, 1124990976, 1125056512, 1125122048, 1125187584, 1125253120, 1125318656, 1125384192,
+                  1125449728, 1125515264, 1125580800, 1125646336, 1125711872, 1125777408, 1125842944, 1125908480,
+                  1125974016, 1126039552, 1126105088, 1126170624, 1126236160, 1126301696, 1126367232, 1126432768,
+                  1126498304, 1126563840, 1126629376, 1126694912, 1126760448, 1126825984, 1126891520, 1126957056,
+                  1127022592, 1127088128, 1127153664, 1127219200, 1127284736, 1127350272, 1127415808, 1127481344,
+                  1127546880, 1127612416, 1127677952, 1127743488, 1127809024, 1127874560, 1127940096, 1128005632,
+                  1128071168, 1128136704, 1128202240, 1128267776, 1128333312, 1128398848, 1128464384, 1128529920,
+                  1128595456, 1128660992, 1128726528, 1128792064, 1128857600, 1128923136, 1128988672, 1129054208,
+                  1129119744, 1129185280, 1129250816, 1129316352, 1129381888, 1129447424, 1129512960, 1129578496,
+                  1129644032, 1129709568, 1129775104, 1129840640, 1129906176, 1129971712, 1130037248, 1130102784,
+                  1130168320, 1130233856, 1130299392, 1130364928, 1130430464, 1130496000, 1130561536, 1130627072,
+                  1130692608, 1130758144, 1130823680, 1130889216, 1130954752, 1131020288, 1131085824, 1131151360,
+                  1131216896, 1131282432, 1131347968, 1131413504, 1131479040, 1131544576, 1131610112, 1131675648,
+                  1131741184, 1131806720, 1131872256, 1131937792, 1132003328, 1132068864, 1132134400, 1132199936,
+                  1132265472, 1132331008, 1132396544, 1132462080, 1132494848, 1132527616, 1132560384, 1132593152
+                ]
+                labels: [
+                  "37 °C", "38 °C", "39 °C", "40 °C", "41 °C", "42 °C", "43 °C", "44 °C", "45 °C", "46 °C", "47 °C", "48 °C",
+                  "49 °C", "50 °C", "51 °C", "52 °C", "53 °C", "54 °C", "55 °C", "56 °C", "57 °C", "58 °C", "59 °C", "60 °C",
+                  "61 °C", "62 °C", "63 °C", "64 °C", "65 °C", "66 °C", "67 °C", "68 °C", "69 °C", "70 °C", "71 °C", "72 °C",
+                  "73 °C", "74 °C", "75 °C", "76 °C", "77 °C", "78 °C", "79 °C", "80 °C", "81 °C", "82 °C", "83 °C", "84 °C",
+                  "85 °C", "86 °C", "87 °C", "88 °C", "89 °C", "90 °C", "91 °C", "92 °C", "93 °C", "94 °C", "95 °C", "96 °C",
+                  "97 °C", "98 °C", "99 °C", "100 °C", "101 °C", "102 °C", "103 °C", "104 °C", "105 °C", "106 °C", "107 °C", "108 °C",
+                  "109 °C", "110 °C", "111 °C", "112 °C", "113 °C", "114 °C", "115 °C", "116 °C", "117 °C", "118 °C", "119 °C", "120 °C",
+                  "121 °C", "122 °C", "123 °C", "124 °C", "125 °C", "126 °C", "127 °C", "128 °C", "129 °C", "130 °C", "131 °C", "132 °C",
+                  "133 °C", "134 °C", "135 °C", "136 °C", "137 °C", "138 °C", "139 °C", "140 °C", "141 °C", "142 °C", "143 °C", "144 °C",
+                  "145 °C", "146 °C", "147 °C", "148 °C", "149 °C", "150 °C", "151 °C", "152 °C", "153 °C", "154 °C", "155 °C", "156 °C",
+                  "157 °C", "158 °C", "159 °C", "160 °C", "161 °C", "162 °C", "163 °C", "164 °C", "165 °C", "166 °C", "167 °C", "168 °C",
+                  "169 °C", "170 °C", "171 °C", "172 °C", "173 °C", "174 °C", "175 °C", "176 °C", "177 °C", "178 °C", "179 °C", "180 °C",
+                  "181 °C", "182 °C", "183 °C", "184 °C", "185 °C", "186 °C", "187 °C", "188 °C", "189 °C", "190 °C", "191 °C", "192 °C",
+                  "193 °C", "194 °C", "195 °C", "196 °C", "197 °C", "198 °C", "199 °C", "200 °C", "201 °C", "202 °C", "203 °C", "204 °C",
+                  "205 °C", "206 °C", "207 °C", "208 °C", "209 °C", "210 °C", "211 °C", "212 °C", "213 °C", "214 °C", "215 °C", "216 °C",
+                  "217 °C", "218 °C", "219 °C", "220 °C", "221 °C", "222 °C", "223 °C", "224 °C", "225 °C", "226 °C", "227 °C", "228 °C",
+                  "229 °C", "230 °C", "231 °C", "232 °C", "233 °C", "234 °C", "235 °C", "236 °C", "237 °C", "238 °C", "239 °C", "240 °C",
+                  "241 °C", "242 °C", "243 °C", "244 °C", "245 °C", "246 °C", "247 °C", "248 °C", "249 °C", "250 °C", "251 °C", "252 °C",
+                  "253 °C", "254 °C", "255 °C", "256 °C", "257 °C", "258 °C", "259 °C", "260 °C"
+                ]
+                notes: >-
+                  The app's Control Mode offered 100-500 °F or 37-260 °C. The
+                  vendor's cookware guidance tops out at 450 °F (232 °C) with
+                  food in the pan (device.safety_advisory).
+              timeout_s:
+                type: "uint32"
+                endianness: "little"
+                min: 1
+                max: 86400
+                default: 3600
+                description: >-
+                  Seconds the burner keeps this mode. The app sent 86400 (one
+                  day) from Control Mode, 3600 to hold a recipe temperature,
+                  and a step's remaining seconds plus 1000 during a timed step.
+                  What the burner does when the timeout runs out is not
+                  recorded.
+          set_target_temperature_custom_gains:
+            description: >-
+              Mode 1 with caller-supplied controller gains. This is what the
+              app did when its retired catalogue supplied per-heat-source or
+              per-recipe gains. Those tables are gone, and nothing here
+              reproduces them.
+            template: ["{request_id}", 0x01, "{target_c}", "{gains}", 0x01, "{timeout_s}"]
+            fixed_length: 36
+            advanced: true
+            advanced_reason: >-
+              The six gains tune the burner's own temperature controller.
+              Wrong gains can make it overshoot the target, oscillate, or
+              drive the pan far hotter than asked before the burner's
+              over-temperature cut-out trips. The only gains this spec
+              vouches for are the app's fallback set in
+              set_target_temperature.
+            verification: "reported"
+            parameters:
+              request_id:
+                type: "uint16"
+                endianness: "little"
+                auto: "sequence"
+                description: "App-wide request counter."
+              target_c:
+                type: "uint32"
+                endianness: "little"
+                min: 1108606976
+                max: 1132593152
+                description: >-
+                  Target in °C as the bit pattern of a binary32 float. For a
+                  positive float the pattern rises with the value, so this
+                  range is exactly 37.0-260.0 °C.
+              gains:
+                type: "bytes"
+                min_length: 24
+                max_length: 24
+                description: >-
+                  Six binary32 floats, little-endian: proportional, integral
+                  and derivative gain, then a second set in the same order.
+                  The app's fallback is 0.008, 0.006, 0.06 for both sets. What
+                  distinguishes the two sets is not established.
+              timeout_s:
+                type: "uint32"
+                endianness: "little"
+                min: 1
+                max: 86400
+                default: 3600
+                description: "Seconds the burner keeps this mode."
+          set_power_position:
+            description: >-
+              Mode 2: a fixed power position, like turning a knob. This is the
+              app's Power tab. There is no temperature feedback, so the pan
+              keeps heating for as long as power is applied (the vendor's
+              Control Mode article). Allowed positions are the app's own:
+              levels 1-10 at 10-100 %, and the 5 % idle position the app sent
+              for level 0 and when a cook started. Example, level 5 for a day
+              with request id 9: 09 00 02 00 00 00 3f, then 24 bytes of 00,
+              then 01 80 51 01 00. Needs app control.
+            template: ["{request_id}", 0x02, "{position}", 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, "{timeout_s}"]
+            fixed_length: 36
+            verification: "reported"
+            parameters:
+              request_id:
+                type: "uint16"
+                endianness: "little"
+                auto: "sequence"
+                description: "App-wide request counter."
+              position:
+                type: "uint32"
+                endianness: "little"
+                description: >-
+                  Power position as the bit pattern of a binary32 fraction of
+                  full power (percent / 100). The app validates 0-100 % and
+                  divides by 100 before writing.
+                allowed: [1028443341, 1036831949, 1045220557, 1050253722, 1053609165, 1056964608, 1058642330, 1060320051, 1061997773, 1063675494, 1065353216]
+                labels: ["Idle (5 %)", "1 (10 %)", "2 (20 %)", "3 (30 %)", "4 (40 %)", "5 (50 %)", "6 (60 %)", "7 (70 %)", "8 (80 %)", "9 (90 %)", "10 (100 %)"]
+              timeout_s:
+                type: "uint32"
+                endianness: "little"
+                min: 1
+                max: 86400
+                default: 3600
+                description: "Seconds the burner keeps this mode. The app sent 86400 from the Power tab and 9000 with the idle position."
+          disable_heating:
+            description: >-
+              Mode 4 (disabled) with zero target, zero gains and timeout 0. It
+              is the app's way to stop and its safe state at startup. The app
+              sends set_next_button_light with the off value first. Example
+              with request id 10: 0a 00 04, then 28 bytes of 00, then 01 00 00
+              00 00.
+            template: ["{request_id}", 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00]
+            fixed_length: 36
+            verification: "reported"
+            parameters:
+              request_id:
+                type: "uint16"
+                endianness: "little"
+                auto: "sequence"
+                description: "App-wide request counter."
+        format:
+          - name: "request_id"
+            offset: 0
+            length: 2
+            type: "uint16"
+            endianness: "little"
+          - name: "mode"
+            offset: 2
+            length: 1
+            type: "uint8"
+            values:
+              0: "manual (the user is at the burner's own controls)"
+              1: "hold temperature"
+              2: "fixed power position"
+              3: "off"
+              4: "disabled (idle, the app's safe state)"
+          - name: "target_bits"
+            offset: 3
+            length: 4
+            type: "uint32"
+            endianness: "little"
+            notes: >-
+              Bit pattern of a binary32 float: °C in mode 1, a fraction of
+              full power in mode 2, 0 otherwise. Reinterpret it as a float and
+              never scale it as an integer. It is typed as an integer so that
+              the Power Position select can match it against its allowed
+              patterns.
+          - name: "controller_gains"
+            offset: 7
+            length: 24
+            type: "bytes"
+            notes: "Six binary32 floats, little-endian (see set_target_temperature_custom_gains)."
+          - name: "sensor_flag"
+            offset: 31
+            length: 1
+            type: "uint8"
+            notes: "The app always writes 1. Its reader labels this byte as a thermocouple selector."
+          - name: "timeout_s"
+            offset: 32
+            length: 4
+            type: "uint32"
+            endianness: "little"
+            unit: "s"
+
+      - uuid: "00001545-6209-4984-454e-f27d42fb55e3"
+        name: "burner_status"
+        properties: ["read", "notify"]
+        notes: >-
+          A 20-byte record whose first eight bytes are one enumerated code
+          each. The app ignores bytes 8-19. It reads this characteristic
+          after connecting and after every app-control event, and subscribes
+          to its notifications. The app's mock burner (a test double built
+          into the app) writes bytes 5 and 6 in the opposite order to the
+          real parser. This spec follows the parser.
+        format:
+          - name: "app_control_permission"
+            offset: 0
+            length: 1
+            type: "uint8"
+            values:
+              0: "allowed"
+              1: "not allowed"
+          - name: "app_control_state"
+            offset: 1
+            length: 1
+            type: "uint8"
+            values:
+              0: "no app control"
+              1: "waiting for the power button"
+              2: "waiting for the next button"
+              3: "app has control"
+          - name: "line_voltage_status"
+            offset: 2
+            length: 1
+            type: "uint8"
+            values:
+              0: "ok"
+              1: "too low"
+              2: "too high"
+          - name: "power_stage_temperature_status"
+            offset: 3
+            length: 1
+            type: "uint8"
+            values:
+              0: "normal"
+              1: "power limited"
+              2: "over temperature, shutting down"
+              3: "thermistor open or shorted"
+          - name: "glass_temperature_status"
+            offset: 4
+            length: 1
+            type: "uint8"
+            values:
+              0: "normal"
+              1: "reducing power"
+              2: "reducing power further"
+              3: "over temperature, shutting down"
+              4: "thermistor not working"
+              5: "thermistor open or shorted"
+          - name: "power_limit_status"
+            offset: 5
+            length: 1
+            type: "uint8"
+            values:
+              0: "no limit"
+              1: "reduced by one step"
+              2: "limited to a fixed level"
+              3: "intermittent"
+              4: "no power"
+            notes: "The app's label for value 2 names the number one thousand, plausibly a 1000 W cap (hypothesis)."
+          - name: "cookware_presence"
+            offset: 6
+            length: 1
+            type: "uint8"
+            values:
+              0: "present"
+              1: "not detected"
+              2: "timed out, shutting down"
+          - name: "cookware_sensor_status"
+            offset: 7
+            length: 1
+            type: "uint8"
+            values:
+              0: "missing"
+              1: "ok"
+              2: "corrupt"
+              3: "open circuit"
+              4: "too high"
+              5: "too low"
+              6: "not initialised"
+              7: "computation error"
+              8: "high but usable"
+              9: "low but usable"
+
+      - uuid: "00001546-6209-4984-454e-f27d42fb55e3"
+        name: "burner_events"
+        properties: ["indicate"]
+        notes: >-
+          The burner's event stream, and the one thing the app cannot do
+          without. Every indication is exactly 20 bytes: request id (u16 LE),
+          event code (u16 LE), then a body that depends on the code
+          (payload_formats.Burner_Event_*). Codes are grouped by their top
+          nibble: 0x2 cookware errors, 0x5 burner errors, 0x6 state changes
+          and button presses, 0x7 telemetry. The full table, with the codes
+          the app treats as stop-cooking, is in protocol_details.event_codes.
+          The app's mock burner numbers its own events from 0x8001 upward,
+          which suggests the burner uses the top half of the id space for
+          events it raises itself (hypothesis).
+        format:
+          - name: "request_id"
+            offset: 0
+            length: 2
+            type: "uint16"
+            endianness: "little"
+          - name: "event_code"
+            offset: 2
+            length: 2
+            type: "uint16"
+            endianness: "little"
+            values:
+              8706: "0x2202 cookware frame arrived damaged"
+              20481: "0x5001 battery error"
+              20489: "0x5009 temperature too high (stop cooking)"
+              20490: "0x500a unspecified error"
+              20491: "0x500b temperature below what the power position should give"
+              20493: "0x500d event queue overflowed"
+              20494: "0x500e position queue overflowed"
+              20495: "0x500f handshake needed first (stop cooking)"
+              20496: "0x5010 handshake rejected (stop cooking)"
+              20497: "0x5011 cookware could not be decrypted (stop cooking)"
+              20498: "0x5012 last command could not be decrypted (stop cooking)"
+              20499: "0x5013 cookware id must be rewritten with a new IV"
+              24580: "0x6004 next button pressed"
+              24581: "0x6005 next button held"
+              24582: "0x6006 next button released"
+              24584: "0x6008 status changed"
+              24585: "0x6009 status delta"
+              24586: "0x600a user took control at the burner"
+              24587: "0x600b power button pressed"
+              24588: "0x600c burner switched off"
+              24589: "0x600d power button released"
+              24590: "0x600e no cookware"
+              24591: "0x600f cookware back"
+              24592: "0x6010 cookware timed out"
+              24593: "0x6011 handshake succeeded"
+              24594: "0x6012 key written"
+              24595: "0x6013 app control: press the power button"
+              24596: "0x6014 app control: press the next button"
+              24597: "0x6015 app control granted"
+              24598: "0x6016 app control revoked"
+              28673: "0x7001 heartbeat"
+              28674: "0x7002 power-stage telemetry"
+              28675: "0x7003 burner telemetry"
+              28676: "0x7004 routed cookware identity"
+              28677: "0x7005 routed cookware reading"
+
+      - uuid: "00001547-6209-4984-454e-f27d42fb55e3"
+        name: "burner_command"
+        properties: ["write"]
+        notes: >-
+          Three-byte commands: request id (u16 LE) and a one-byte opcode.
+          Opcodes 0x02-0x04 set how the next button's light idles, and 0x08
+          asks for app control. The app sends only those, and 0x05-0x07 are
+          defined in its table but never sent. The app will not send any of
+          them before it knows the firmware version (client rule 1).
+        commands:
+          set_next_button_light:
+            description: >-
+              How the burner's next button light behaves while idle. The app
+              turned it on at a recipe step that waits for the user to press
+              next, and off everywhere else, including just before
+              disable_heating.
+            template: ["{request_id}", "{light}"]
+            verification: "reported"
+            parameters:
+              request_id:
+                type: "uint16"
+                endianness: "little"
+                auto: "sequence"
+                description: "App-wide request counter."
+              light:
+                type: "uint8"
+                min: 2
+                max: 4
+                labels: ["on", "off", "blinking"]
+                description: "Opcode 0x02 on, 0x03 off, 0x04 blinking."
+          ask_for_app_control:
+            description: >-
+              Opcode 0x08. Starts the two-touch confirmation. The burner
+              raises 0x6013 (press power), then 0x6014 (press next), then
+              0x6015 (granted) or 0x6016 (revoked), and byte 1 of 00001545
+              follows. The app sends it only from mode 4, and only while
+              control is neither held nor in progress. It is an ordinary
+              command because it only asks: nothing heats until a person at
+              the burner presses both buttons.
+            template: ["{request_id}", 0x08]
+            verification: "reported"
+            parameters:
+              request_id:
+                type: "uint16"
+                endianness: "little"
+                auto: "sequence"
+                description: "App-wide request counter."
+          declare_app_in_control:
+            description: >-
+              Opcode 0x05. The app's command table names it as the app
+              having control. The app never sends it, and what the burner does
+              with it (whether it skips the two-touch confirmation) is not
+              known.
+            template: ["{request_id}", 0x05]
+            advanced: true
+            advanced_reason: >-
+              Never sent by the vendor app. If the burner honours it, it may
+              hand heating control to a client with nobody at the burner,
+              bypassing the two-touch confirmation that exists to stop a
+              remote client heating an empty or unattended pan.
+            verification: "reported"
+            parameters:
+              request_id:
+                type: "uint16"
+                endianness: "little"
+                auto: "sequence"
+                description: "App-wide request counter."
+          lock_out_app:
+            description: >-
+              Opcode 0x06. The app's table names an app lockout. Never sent
+              by the app, and its effect is not known.
+            template: ["{request_id}", 0x06]
+            advanced: true
+            advanced_reason: >-
+              Never sent by the vendor app. It may lock app control out until
+              a power cycle or leave the burner in a state no known command
+              undoes.
+            verification: "reported"
+            parameters:
+              request_id:
+                type: "uint16"
+                endianness: "little"
+                auto: "sequence"
+                description: "App-wide request counter."
+          clear_burner_status:
+            description: >-
+              Opcode 0x07. The app's table names it as clearing status.
+              Never sent by the app.
+            template: ["{request_id}", 0x07]
+            advanced: true
+            advanced_reason: >-
+              Never sent by the vendor app. It may clear an over-temperature
+              or fault state the burner latched for a reason. The vendor's
+              own remedy for an overheat is to let the burner cool and
+              power-cycle it.
+            verification: "reported"
+            parameters:
+              request_id:
+                type: "uint16"
+                endianness: "little"
+                auto: "sequence"
+                description: "App-wide request counter."
+
+  - uuid: "0000fa81-8a11-4222-9610-53f79479ca03"
+    name: "Cue cookware handle / probe thermometer"
+    notes: >-
+      Served by the pan and pot handle capsules and, per the app, by the
+      Smart Probe. Characteristics share the base
+      0000fa8x-8a11-4222-9610-53f79479ca03. The app never writes to this
+      service. It enables indications on 0000fa85, reads 0000fa84 once, and
+      parses 20-byte thermometer frames from 0000fa83 whenever they arrive.
+      The app also takes the same readings from the cookware's
+      advertisements. Whether it keeps a connection to the cookware during
+      a cook is not established. The research notes filed with the APK
+      called 0000fa84 the temperature path. The app's parser shows the
+      frame on 0000fa83, and 0000fa84 is a 6-byte value it only
+      length-checks.
+    initialization:
+      - characteristic: "00001537-1212-efde-1523-785feabcd123"
+        read: true
+        notes: "Firmware version (u16 LE). The app reads it only when the DFU service is present."
+      - characteristic: "00001535-1212-efde-1523-785feabcd123"
+        read: true
+        notes: "Device type and revision."
+      - characteristic: "0000fa85-8a11-4222-9610-53f79479ca03"
+        subscribe: true
+        notes: "Indications (CCCD 0x0002), as the app does. What arrives on them is not recorded."
+      - characteristic: "0000fa84-8a11-4222-9610-53f79479ca03"
+        read: true
+        notes: "Six bytes. The app checks the length and logs the value."
+    characteristics:
+      - uuid: "0000fa83-8a11-4222-9610-53f79479ca03"
+        name: "thermometer_frame"
+        properties: ["notify"]
+        notes: >-
+          A 20-byte little-endian frame. The app rejects any other length. Of
+          the frame the app keeps the second temperature (offset 12), the
+          fault byte at offset 18 and the battery byte. The first
+          temperature, the sensor slots and the second fault byte only reach
+          its log. The properties are not recorded. The app's mock burner
+          treats this as a notify characteristic, while the real app enables
+          only 0000fa85, so how frames are triggered on a live connection is
+          an open question. Example (invented readings): 04 82 01 04 40 e2 01
+          00 00 00 cc 41 00 40 3b 43 00 01 00 00 is a base temperature of
+          187.25 °C.
+        format:
+          - name: "frame_version"
+            offset: 0
+            length: 1
+            type: "uint8"
+          - name: "battery_raw"
+            offset: 1
+            length: 1
+            type: "uint8"
+            notes: "The app calls this the battery voltage and forwards it raw. The scale is not recorded. The app's mock sends 130."
+          - name: "frame_counter"
+            offset: 2
+            length: 1
+            type: "uint8"
+          - name: "cold_junction_raw"
+            offset: 3
+            length: 1
+            type: "uint8"
+            notes: "Thermocouple cold-junction reading, raw. The scale is not recorded."
+          - name: "timestamp_raw"
+            offset: 4
+            length: 4
+            type: "uint32"
+            endianness: "little"
+            notes: "The app only logs it. The unit is not recorded."
+          - name: "temperature_aux"
+            offset: 8
+            length: 4
+            type: "bytes"
+            notes: "binary32 LE, °C. The app logs it but does not use it."
+          - name: "temperature_base"
+            offset: 12
+            length: 4
+            type: "bytes"
+            notes: >-
+              binary32 LE, °C: the cookware's base temperature, which the app
+              uses. The value -999.0 (bytes 00 c0 79 c4) is the app's own
+              marker for no reading. Its burner-relay parser drops a reading
+              that decodes to it, and this direct parser does not check.
+          - name: "sensor_slot_a"
+            offset: 16
+            length: 1
+            type: "uint8"
+          - name: "sensor_slot_b"
+            offset: 17
+            length: 1
+            type: "uint8"
+          - name: "fault_base"
+            offset: 18
+            length: 1
+            type: "uint8"
+            notes: "The fault code the app forwards with the base temperature. Plausibly the thermocouple codes of Advertisement_Cookware_V2 (0 no fault)."
+          - name: "fault_other"
+            offset: 19
+            length: 1
+            type: "uint8"
+      - uuid: "0000fa84-8a11-4222-9610-53f79479ca03"
+        name: "handle_info"
+        properties: ["read"]
+        notes: >-
+          Exactly 6 bytes, little-endian per the app's buffer. The app checks
+          the length and logs the value, nothing more. Its meaning is not
+          established. It is the same length as the cookware id the burner
+          takes, but nothing ties the two.
+        format:
+          - name: "value"
+            offset: 0
+            length: 6
+            type: "bytes"
+      - uuid: "0000fa85-8a11-4222-9610-53f79479ca03"
+        name: "handle_events"
+        properties: ["indicate"]
+        notes: >-
+          The app writes the indication-enable value (0x0002) to this
+          characteristic's last descriptor on connect. It has no parser for
+          anything arriving here.
+
+  - uuid: "00001530-1212-efde-1523-785feabcd123"
+    name: "Nordic legacy DFU service (with vendor identity characteristics)"
+    notes: >-
+      Nordic's legacy DFU service base. Nordic's stock layout has control
+      point 00001531, packet 00001532 and version 00001534 (see
+      docs/protocols/firmware-update.md). Those belong to the stock DFU
+      library the app embeds and are deliberately not declared here: no
+      bootloader entry or image bytes appear in this spec. The app reads two
+      further characteristics that are not part of Nordic's stock service,
+      and they carry identity.
+    characteristics:
+      - uuid: "00001535-1212-efde-1523-785feabcd123"
+        name: "device_identity"
+        properties: ["read"]
+        notes: "Exactly 4 bytes. The app keeps the revision."
+        format:
+          - name: "device_type"
+            offset: 0
+            length: 2
+            type: "uint16"
+            endianness: "little"
+          - name: "device_revision"
+            offset: 2
+            length: 2
+            type: "uint16"
+            endianness: "little"
+      - uuid: "00001537-1212-efde-1523-785feabcd123"
+        name: "firmware_version"
+        properties: ["read"]
+        notes: >-
+          Exactly 2 bytes. Advertisements carry the same number as two bytes,
+          major then minor, and the app forms (major << 8) | minor. So this
+          u16 is presumably major in its high byte (hypothesis). The burner
+          must have one before it accepts 00001547 commands (client rule 1).
+        format:
+          - name: "firmware_version"
+            offset: 0
+            length: 2
+            type: "uint16"
+            endianness: "little"
+
+payload_formats:
+  Local_Name:
+    description: >-
+      The advertised local name of the burner and the cookware: 8 characters
+      of standard base64 (RFC 4648 alphabet, with + and /) that decode to 6
+      bytes.
+    fields:
+      - name: "address_bytes"
+        description: "Bytes 0-5: the BLE address least-significant byte first. Byte 5's top two bits are replaced by the device type."
+      - name: "device_type"
+        description: "Byte 5 AND 0xC0: 0x00 pan, 0x40 pot, 0x80 burner. The app rejects 0xC0."
+    parse_rules:
+      - "Base64-decode the name. Anything but 6 bytes is not a Cue device."
+      - "device_type = byte5 & 0xC0 (0x00 pan, 0x40 pot, 0x80 burner)."
+      - "address = byte5 | 0xC0, byte4, byte3, byte2, byte1, byte0, written most-significant first."
+      - "Check the address against the one the scan reported. The app rejects a mismatch. It also computes the reported address minus one, apparently to accept a unit advertising from its bootloader address, but that comparison did not decompile cleanly."
+      - "Second-generation cookware and the probe advertise a product id (Advertisement_Cookware_V2), which overrides the device type from the name."
+    example: "q4lnRSOB decodes to ab 89 67 45 23 81: a burner at C1:23:45:67:89:AB (invented address)"
+  Advertisement_Header:
+    description: >-
+      Manufacturer-specific data (AD type 0xFF) under company id 0x03F1.
+      Offsets are counted from the first byte after the two company-id
+      bytes. All fields are little-endian.
+    fields:
+      - name: "unknown_u32"
+        description: "Bytes 0-3, u32 LE. The app reads it and discards it."
+      - name: "frame_counter"
+        description: "Byte 4, u8."
+      - name: "frame_type"
+        description: "Byte 5, u8: 1 first-generation cookware, 2 second-generation cookware or probe, 3 burner. The app rejects any other value."
+    values:
+      "1": "Advertisement_Cookware_V1"
+      "2": "Advertisement_Cookware_V2"
+      "3": "Advertisement_Burner"
+  Advertisement_Cookware_V1:
+    description: "Frame type 1. Offsets after the company id, continuing Advertisement_Header."
+    fields:
+      - name: "battery_raw"
+        description: "Byte 6, u8. The scale is not recorded."
+      - name: "cold_junction_raw"
+        description: "Byte 7, one byte. The scale is not recorded."
+      - name: "temperature_aux"
+        unit: "C"
+        description: "Bytes 8-11, binary32 LE, °C. The app does not use it."
+      - name: "temperature_base"
+        unit: "C"
+        description: "Bytes 12-15, binary32 LE, °C. The reading the app uses."
+      - name: "fault_base"
+        description: "Byte 19, u8. The fault code the app forwards with the reading. Bytes 16-18 are read and ignored."
+  Advertisement_Cookware_V2:
+    description: >-
+      Frame type 2, from second-generation cookware and the Smart Probe.
+      Offsets after the company id.
+    fields:
+      - name: "firmware_major"
+        description: "Byte 6, u8. The app's firmware version is (major << 8) | minor."
+      - name: "firmware_minor"
+        description: "Byte 7, u8."
+      - name: "product_id"
+        description: "Bytes 8-9, u16 LE: 8 fry pan, 9 chef's pot, 10 3.5 qt pot, 13 Smart Probe, 18 non-stick fry pan, and 11, 14, 16 and 17 for the partner-branded line (device.variants)."
+      - name: "battery_raw"
+        description: "Byte 10, u8. The scale is not recorded."
+      - name: "temperature"
+        unit: "C"
+        description: "Bytes 11-14, binary32 LE, °C."
+      - name: "cold_junction_raw"
+        description: "Byte 15, u8. The scale is not recorded."
+      - name: "thermocouple_status"
+        description: "Byte 16, u8: 0 no fault, 1 open circuit, 2 too high, 3 too low, 4 not initialised, 5 computation error. The app rejects any other value."
+    parse_rules:
+      - "Check the company id (0x03F1), then frame_type == 2 at byte 5."
+      - "temperature = struct.unpack('<f', payload[11:15]) in °C. Report it only when thermocouple_status is 0."
+    example: "f1 03 00 00 00 00 05 02 01 04 08 00 96 00 40 3b 43 1e 00 (with the company id, invented values): pan product 8, firmware 1.4, 187.25 °C, no fault"
+  Advertisement_Burner:
+    description: "Frame type 3, from the burner. Offsets after the company id."
+    fields:
+      - name: "firmware_major"
+        description: "Byte 6, u8."
+      - name: "firmware_minor"
+        description: "Byte 7, u8. Firmware version = (major << 8) | minor. This satisfies client rule 1."
+      - name: "product_id"
+        description: "Bytes 8-9, u16 LE: 32 US, 47 220 V, 48 220 V partner edition, 96 100 V."
+      - name: "unused"
+        description: "Byte 10, if present. The app skips it."
+      - name: "flag"
+        description: "Byte 11, if present: non-zero reads as true. The app keeps it but never uses it. Meaning unknown."
+  Burner_Event_Heartbeat:
+    description: "00001546 event 0x7001. Offsets from the start of the 20-byte indication."
+    fields:
+      - name: "counter"
+        description: "Bytes 4-7, binary32 LE. A heartbeat counter, carried as a float. The app's mock counts up from 1."
+  Burner_Event_Power_Stage:
+    description: "00001546 event 0x7002: power-stage telemetry."
+    fields:
+      - name: "current"
+        unit: "A"
+        description: "Bytes 4-7, binary32 LE. The app labels it current. Amperes is a hypothesis."
+      - name: "line_voltage"
+        unit: "V"
+        description: "Bytes 8-11, binary32 LE. Volts is a hypothesis."
+      - name: "energy_applied"
+        description: "Bytes 12-15, binary32 LE. The unit is not recorded."
+      - name: "pan_detect_pulses"
+        description: "Byte 16, u8. A count from the coil's pan-detection."
+      - name: "glass_temperature"
+        unit: "C"
+        description: "Byte 17, u8. °C is a hypothesis."
+      - name: "power_stage_temperature"
+        unit: "C"
+        description: "Bytes 18-19, signed 16-bit LE. The power transistor's temperature. °C is a hypothesis."
+  Burner_Event_Burner:
+    description: "00001546 event 0x7003: burner telemetry."
+    fields:
+      - name: "position"
+        description: "Bytes 4-7, binary32 LE: the current power position as a fraction of full. The app multiplies by 100 for a percentage."
+      - name: "controller_temperature"
+        unit: "C"
+        description: "Byte 8, u8. The app labels it an IC temperature. °C is a hypothesis."
+  Burner_Event_Cookware_Identity:
+    description: "00001546 event 0x7004: identity of the routed cookware, relayed by the burner."
+    fields:
+      - name: "device_type"
+        description: "Bytes 4-5, u16 LE."
+      - name: "device_revision"
+        description: "Bytes 6-7, u16 LE."
+      - name: "software_version"
+        description: "Bytes 8-9, u16 LE."
+  Burner_Event_Cookware_Reading:
+    description: >-
+      00001546 event 0x7005: the routed cookware's reading, relayed by the
+      burner. The body is the thermometer frame with the timestamp removed
+      and the first three bytes in a different order. The app's two parsers
+      disagree on that order, and this follows the relay parser.
+    fields:
+      - name: "frame_counter"
+        description: "Byte 4, u8."
+      - name: "frame_version"
+        description: "Byte 5, u8."
+      - name: "battery_raw"
+        description: "Byte 6, u8."
+      - name: "cold_junction_raw"
+        description: "Byte 7, u8."
+      - name: "temperature_aux"
+        unit: "C"
+        description: "Bytes 8-11, binary32 LE, °C."
+      - name: "temperature_base"
+        unit: "C"
+        description: "Bytes 12-15, binary32 LE, °C. The reading the app uses. -999.0 means no reading."
+      - name: "sensor_slots"
+        description: "Bytes 16-17, u8 each."
+      - name: "fault_base"
+        description: "Byte 18, u8."
+      - name: "fault_other"
+        description: "Byte 19, u8."
+    example: "01 80 05 70 01 02 82 04 00 40 3b 43 00 40 3b 43 00 01 00 00 (invented): 187.25 °C"
+  Burner_Event_Status_Change:
+    description: "00001546 event 0x6008: three status codes and an action word."
+    fields:
+      - name: "counter"
+        description: "Bytes 4-5, u16 LE."
+      - name: "status_1"
+        description: "Bytes 6-7, u16 LE, a code from protocol_details.status_codes. 0x0000 means all is well."
+      - name: "status_2"
+        description: "Bytes 8-9, u16 LE, same table."
+      - name: "status_3"
+        description: "Bytes 10-11, u16 LE, same table."
+      - name: "action"
+        description: "Bytes 12-15, u32 LE bit field: 0 nothing, bit 0 set means the burner switched off (the app stops the cook), bit 1 set means its history overflowed (a warning)."
+
+entities:
+  - platform: "select"
+    name: "Target Temperature"
+    icon: "mdi:thermometer"
+    variants: ["Cue burner (US)", "Cue burner (220 V)", "Cue burner (220 V, partner edition)", "Cue burner (100 V)"]
+    command_characteristic: "00001543-6209-4984-454e-f27d42fb55e3"
+    commands:
+      select_option: "set_target_temperature"
+    notes: >-
+      37-260 °C in 1 °C steps. The options come from the command's allowed
+      bit patterns and labels. Writing one needs app control (status byte 1
+      = 3) and a routed cookware. The current target is target_bits of
+      00001543 in mode 1, a binary32 float.
+  - platform: "select"
+    name: "Power Position"
+    icon: "mdi:knob"
+    variants: ["Cue burner (US)", "Cue burner (220 V)", "Cue burner (220 V, partner edition)", "Cue burner (100 V)"]
+    state_characteristic: "00001543-6209-4984-454e-f27d42fb55e3"
+    state_mapping:
+      value: "target_bits"
+      options:
+        1028443341: "Idle (5 %)"
+        1036831949: "1 (10 %)"
+        1045220557: "2 (20 %)"
+        1050253722: "3 (30 %)"
+        1053609165: "4 (40 %)"
+        1056964608: "5 (50 %)"
+        1058642330: "6 (60 %)"
+        1060320051: "7 (70 %)"
+        1061997773: "8 (80 %)"
+        1063675494: "9 (90 %)"
+        1065353216: "10 (100 %)"
+    commands:
+      select_option: "set_power_position"
+    notes: >-
+      The app's Power tab. Meaningful only while 00001543 reports mode 2. In
+      mode 1 target_bits holds a temperature and matches no option. Open-loop:
+      the pan keeps heating.
+  - platform: "button"
+    name: "Turn Heating Off"
+    icon: "mdi:stove"
+    variants: ["Cue burner (US)", "Cue burner (220 V)", "Cue burner (220 V, partner edition)", "Cue burner (100 V)"]
+    commands:
+      press: "disable_heating"
+    notes: "Mode 4, timeout 0. The app sends the next-button light off first."
+  - platform: "button"
+    name: "Ask For App Control"
+    icon: "mdi:gesture-tap-button"
+    variants: ["Cue burner (US)", "Cue burner (220 V)", "Cue burner (220 V, partner edition)", "Cue burner (100 V)"]
+    commands:
+      press: "ask_for_app_control"
+    notes: "Starts the two-touch confirmation. Someone must then press the burner's power and next buttons."
+  - platform: "select"
+    name: "Next Button Light"
+    icon: "mdi:led-on"
+    variants: ["Cue burner (US)", "Cue burner (220 V)", "Cue burner (220 V, partner edition)", "Cue burner (100 V)"]
+    command_characteristic: "00001547-6209-4984-454e-f27d42fb55e3"
+    commands:
+      select_option: "set_next_button_light"
+    notes: "Write-only. No readback of the light state is known."
+  - platform: "sensor"
+    name: "Burner Mode"
+    icon: "mdi:stove"
+    variants: ["Cue burner (US)", "Cue burner (220 V)", "Cue burner (220 V, partner edition)", "Cue burner (100 V)"]
+    state_characteristic: "00001543-6209-4984-454e-f27d42fb55e3"
+    state_mapping:
+      value: "mode"
+    notes: "0 means the user took over at the burner, and the app stops driving it then."
+  - platform: "sensor"
+    name: "App Control"
+    icon: "mdi:account-check"
+    variants: ["Cue burner (US)", "Cue burner (220 V)", "Cue burner (220 V, partner edition)", "Cue burner (100 V)"]
+    state_characteristic: "00001545-6209-4984-454e-f27d42fb55e3"
+    state_mapping:
+      value: "app_control_state"
+  - platform: "sensor"
+    name: "Cookware On Burner"
+    icon: "mdi:pot"
+    variants: ["Cue burner (US)", "Cue burner (220 V)", "Cue burner (220 V, partner edition)", "Cue burner (100 V)"]
+    state_characteristic: "00001545-6209-4984-454e-f27d42fb55e3"
+    state_mapping:
+      value: "cookware_presence"
+  - platform: "sensor"
+    name: "Glass Temperature Status"
+    icon: "mdi:thermometer-alert"
+    variants: ["Cue burner (US)", "Cue burner (220 V)", "Cue burner (220 V, partner edition)", "Cue burner (100 V)"]
+    state_characteristic: "00001545-6209-4984-454e-f27d42fb55e3"
+    state_mapping:
+      value: "glass_temperature_status"
+  - platform: "sensor"
+    name: "Cookware Temperature"
+    device_class: "temperature"
+    unit: "C"
+    variants: ["Cue cookware (first generation)", "Cue cookware (second generation)", "Hestan Cue Smart Probe"]
+    state_characteristic: "0000fa83-8a11-4222-9610-53f79479ca03"
+    state_mapping:
+      value: "temperature_base"
+    notes: >-
+      A binary32 float in °C, which the schema cannot type yet
+      (device.notes, FLOATS). A consumer must reinterpret the four bytes.
+      The same reading arrives with no connection in the advertisement
+      (payload_formats.Advertisement_Cookware_V2), and relayed by the burner
+      as event 0x7005.
+  - platform: "sensor"
+    name: "Firmware Version"
+    icon: "mdi:chip"
+    state_characteristic: "00001537-1212-efde-1523-785feabcd123"
+    state_mapping:
+      value: "firmware_version"
+    notes: "Raw u16. Advertisements give the same number as major.minor bytes."
+
+features:
+  - type: "firmware_update"
+    dfu:
+      mechanisms: ["nordic_legacy_dfu", "nordic_secure_dfu"]
+      transport: "ble"
+      image:
+        signing: "unknown"
+        source: "vendor_cloud"
+        notes: >-
+          The app asked the vendor cloud for the current firmware build for
+          each product id and downloaded a Nordic DFU zip. That cloud is
+          retired, and the app ships no image. Legacy-DFU images are
+          unsigned by the stack's design. Whether the second-generation
+          images were signed is not recorded.
+      enter:
+        how: "stack_characteristic"
+        notes: >-
+          The app hands the update to Nordic's stock Android DFU library,
+          which enters the bootloader through the stack's own buttonless
+          entry (docs/protocols/firmware-update.md). No entry bytes are
+          declared in this spec. The burner builds and the first-generation
+          pan are legacy-DFU devices (service 00001530-1212-efde-1523-785feabcd123),
+          and the app bonds them first. The other devices are presumably
+          Secure DFU (0000fe59-0000-1000-8000-00805f9b34fb), which the
+          scanner recognises in advertisements (hypothesis).
+      dfu_mode:
+        address_offset: 1
+        notes: >-
+          The app's name check computes the reported address minus one,
+          which fits a bootloader advertising at the application address +1
+          (hypothesis). The bootloader's advertised name is not recorded.
+      services: ["00001530-1212-efde-1523-785feabcd123"]
+      recovery:
+        interrupted: "unknown"
+      verification: "reported"
+      notes: >-
+        The vendor says a device with an interrupted update ("even 99 %
+        done") misbehaves until a full update succeeds. With the image source
+        gone, do not start an update you cannot finish.
+
+protocol_details:
+  float_encoding:
+    rule: "Every temperature, gain and power position on this protocol is an IEEE 754 binary32 float, little-endian. The schema has no float type, so commands carry the float's bit pattern as a uint32 parameter and read-only fields carry it as 4 raw bytes."
+    encode_python: "struct.pack('<f', value)   # e.g. 200.0 -> 00 00 48 43"
+    decode_python: "struct.unpack('<f', four_bytes)[0]"
+    bit_pattern_python: "struct.unpack('<I', struct.pack('<f', value))[0]   # 200.0 -> 1128792064 (0x43480000)"
+    ordering: "For positive floats the bit pattern rises with the value, so a min/max on the pattern bounds the value exactly."
+  control_model:
+    loop: "The burner runs the temperature controller. The app routes cookware (00001542), writes target, gains and timeout (00001543) and supervises the event stream. It does not compute power in mode 1."
+    app_constants:
+      control_mode_range_c: "37-260 (100-500 °F), 1-degree steps in the user's unit. The app applies this range whenever a Cue burner connects; the retired catalogue may have narrowed it per cookware."
+      fallback_gains: "0.008, 0.006, 0.06, 0.008, 0.006, 0.06"
+      idle_position_percent: 5
+      timeouts_s: "86400 Control Mode (temperature or power), or the Control Mode timer's remaining seconds + 1 when one is set; 3600 recipe hold; 9000 idle position at cook start; remaining step seconds + 1000 during a timed step; 0 with disable_heating"
+      request_id: "one app-wide counter shared by every device, 1-32767, then 0"
+    supervisor_sequence:
+      - "Connect (give up after 60 s)."
+      - "Wait for indications on 00001546, a read of 00001543 and the control byte of 00001545."
+      - "First pass only: if the mode is not 4, set the next-button light off and write mode 4."
+      - "Read 00001542. If it is not the chosen cookware's id and that cookware is in range, write it and read it back."
+      - "If not cooking, report ready."
+      - "If cooking and the mode is 0, the user took over: stop."
+      - "If control is neither held nor in progress: from any mode but 4, write mode 4 first. From mode 4, send opcode 0x08 and show the two-touch prompt."
+      - "Once control is held: write the pending setpoint (position or temperature), or the 5 % idle position if none is pending, then re-send any pending light command."
+      - "Re-run every 250 ms until ready, then every 2.5 s."
+    on_app_control_event: "For 0x6013-0x6016 the app updates its control state, then re-reads 00001543 and 00001545."
+  event_codes:
+    stop_cooking: ["0x5009", "0x500f", "0x5010", "0x5011", "0x5012"]
+    errors: ["0x2202", "0x5001", "0x5009", "0x500a", "0x500b", "0x500d", "0x500e", "0x500f", "0x5010", "0x5011", "0x5012"]
+    app_control_events: ["0x6013", "0x6014", "0x6015", "0x6016"]
+    unknown_code_handling: "The app maps an unrecognised code to 0x500a (unspecified error)."
+    notes: "Labels for every code are in the event_code values of 00001546. The app also stops a cook on a status_change event whose action has bit 0 set."
+  status_codes:
+    notes: "The u16 codes in event 0x6008. The top nibble is severity (1 warning, 2 error, 3 fatal) and the second nibble the source (1 burner, 2 cookware). Labels are our own."
+    "0x0000": "all well"
+    "0x1101": "warning: no data from the burner"
+    "0x1140": "warning: no cookware on the coil"
+    "0x1141": "warning: glass over temperature"
+    "0x1142": "warning: power transistor over temperature"
+    "0x1149": "warning: power reduced"
+    "0x114b": "warning: handshake needed"
+    "0x1201": "warning: no data from the cookware"
+    "0x1245": "warning: cookware battery critical"
+    "0x2101": "error: no data from the burner"
+    "0x2141": "error: glass over temperature"
+    "0x2142": "error: power transistor over temperature"
+    "0x2143": "error: line voltage low"
+    "0x2148": "error: controller shut down automatically"
+    "0x214a": "error: burner shut down automatically"
+    "0x2201": "error: no data from the cookware"
+    "0x2240": "error: cookware thermocouple open"
+    "0x2246": "error: wrong cookware"
+    "0x2247": "error: cookware key invalid"
+    "0x2248": "error: cookware needs a firmware update"
+    "0x3145": "fatal: power transistor thermistor open or shorted (stop cooking)"
+    "0x3146": "fatal: glass thermistor broken (stop cooking)"
+    "0x3147": "fatal: glass thermistor open or shorted (stop cooking)"
+    "0xf000": "the app's own marker for a code it does not know"
+  product_ids:
+    "0": "11-inch fry pan, first generation (legacy DFU)"
+    "1": "5.5 qt chef's pot, first generation"
+    "8": "11-inch fry pan, second generation"
+    "9": "5.5 qt chef's pot, second generation"
+    "10": "3.5 qt pot, second generation"
+    "11": "probe, partner-branded line"
+    "13": "Hestan Cue Smart Probe"
+    "14": "fry pan, partner-branded line"
+    "16": "pot, partner-branded line"
+    "17": "small pot, partner-branded line"
+    "18": "11-inch non-stick fry pan"
+    "32": "Cue burner, US (legacy DFU)"
+    "47": "Cue burner, 220 V (legacy DFU)"
+    "48": "Cue burner, 220 V partner edition (legacy DFU)"
+    "96": "Cue burner, 100 V (legacy DFU)"
+    other: "The table also lists Hestan's own built-in KICS induction cooktops (bonded BLE), GE Appliances Café, Profile and Monogram ranges and cooktops (Wi-Fi, which the vendor's support site also documents), and built-in induction hobs from three European brands with a different 00001545 layout. All are out of scope."
+  decompile_gaps:
+    burner_mode_writer: "The 36-byte writer failed to decompile. It was reconstructed from the instruction dump: u16 request id, a one-byte mode, a float target (position / 100 in mode 2, °C in mode 1, else 0), six float gains (mode 1) or six zeros, one byte = 1, u32 timeout. The one-byte writes are confirmed by the writer helper, which stores a single byte, and by the 36-byte buffer size, which leaves no room for 16-bit fields."
+    burner_dispatcher: "The burner's characteristic dispatcher (00001546 bodies, 00001545 and 00001542 routing) was recovered only with jadx's bad-code output. The byte reads are unambiguous, but the control flow around them is not."
+    name_check: "The name-versus-address comparison did not decompile cleanly (payload_formats.Local_Name)."
+    triage_corrections: "An earlier triage read the thermometer fields and the mode byte as u16. The app's reader helper reads one unsigned byte for each, which is what makes the 20-byte frame and the 36-byte record add up. It also placed the firmware version in 00001545, but the app reads it from 00001537 or the advertisement."
+  mock_burner:
+    notes: "The app contains a mock burner for testing. Its frames broadly agree with the real parsers, and they are useful as shape examples. It writes bytes 5 and 6 of 00001545 in the opposite order to the real parser, and it builds a burner-telemetry event with a rounded temperature in the controller-temperature byte."
+  cloud:
+    notes: "Accounts (AWS Cognito), recipes, per-heat-source gain tables and firmware-build metadata all came from vendor services that are now retired. No endpoint is given here, because none serves anything."
+
+evidence:
+  app_static_analysis: >-
+    The vendor's Android app (Hestan Cue 1.5.x; the vendor says Android
+    1.5.1 or later supports the Smart Probe) was decompiled.
+    From it: the GATT writers and readers for the burner, handle and DFU
+    services; the advertisement scanner and the name decoder; the product
+    and device-type tables; the burner status, event, status-change and
+    action code tables; the connection supervisor; the Control Mode ranges
+    and timeouts; and the firmware-update and bonding path. Two methods
+    needed the instruction dump (evidence.decompile). Nothing was run
+    against hardware.
+  decompile: >-
+    Methods that failed to decompile normally were re-read with jadx's
+    bad-code output or from the instruction dump in the decompiler's
+    comments (protocol_details.decompile_gaps). Every field width was
+    checked against the reader and writer helpers and the fixed buffer
+    lengths (20 and 36 bytes).
+  documentation_review: >-
+    The vendor's support portal, read 2026-09-28: the app sunset notices,
+    manual mode, hardware setup, pairing and Android troubleshooting,
+    firmware update, power requirements (models 41000 and 41004-41009),
+    Control Mode, overheating, capacitive controls, cookware battery and
+    end cap, cookware temperature limits, signal range, and the Smart Probe
+    setup, detection and range articles.
+  fcc_review: >-
+    FCC ID 2AYY4-41701 (Hestan Cue Smart Probe, granted 2021-04-14). The
+    grant is filed as a Part 15B digital device, and its test report lists
+    a 2402-2480 MHz GFSK BLE radio powered by a battery. Its two user-manual
+    exhibits (quick start and safety instructions, model number 417) were
+    read. No grant was found for the burner or the pan and pot capsules
+    under Hestan's grantee code.
+  open_questions: >-
+    See remaining_unknowns. The first thing to settle with hardware is a
+    capture of the burner's 00001543 readback and one 0x7005 event, then
+    whether the burner accepts a setpoint after the two-touch confirmation
+    with the fallback gains.
+  artifacts:
+    - type: "static_analysis"
+      artifact: "Hestan Cue Android app 1.5.x (package com.hestan.cue)"
+      obtained_via: "third-party APK mirror, 2026-08"
+      description: "Source of every byte layout in this spec. The app was retired 2025-07-21."
+    - type: "vendor_documentation"
+      artifact: "Hestan Cue support portal articles"
+      url: "https://support.hestancue.com/en/support/solutions/articles/19000166286"
+      obtained_via: "fetched 2026-09-28"
+      description: "Sunset dates, setup, manual mode, firmware, power, Control Mode, overheating, capacitive-control and probe articles."
+    - type: "fcc_filing"
+      artifact: "FCC ID 2AYY4-41701 (Hestan Cue Smart Probe)"
+      url: "https://fccid.co/fcc/2AYY4-41701"
+      obtained_via: "fccid.co, harvested 2026-09-26"
+      description: "Grant, test report, internal and external photos, and two user-manual exhibits."
+    - type: "public_research"
+      artifact: "Archived Google Play listing for the Hestan Cue app (2024-07-20)"
+      url: "https://web.archive.org/web/20240720010437/https://play.google.com/store/apps/details?id=com.hestan.cue"
+      obtained_via: "Wayback Machine"
+      description: "The last vendor description of the system: cookware, burner and app all on Bluetooth, and Control Mode."
+    - type: "standard"
+      artifact: "Bluetooth SIG assigned numbers, company identifiers"
+      url: "https://www.bluetooth.com/specifications/assigned-numbers/"
+      obtained_via: "fetched 2026-09-28"
+      description: "0x03F1 is registered to Hestan Smart Cooking Inc."
+
+remaining_unknowns:
+  - "Advertising: the exact on-air layout (which structures are in the advertisement and which in the scan response), whether burners on current firmware carry the 0x1530 16-bit service, and what the 4-byte field at the start of the manufacturer payload is."
+  - "Whether the burner needs anything beyond the firmware-version gate, the two-touch confirmation and mode 4 before it accepts a setpoint. The status and event tables name a handshake, a key and 'handshake required' and 'handshake invalid' errors that the app never drives."
+  - "What 'encryption' means between the burner and the cookware: the events name decrypting the handle and rewriting its id with a new IV, but the app carries no key."
+  - "What the burner does when a mode's timeout runs out, and whether mode 3 (off) behaves differently from mode 4 (disabled)."
+  - "What opcodes 0x05 (app in control), 0x06 (lockout) and 0x07 (clear status) do. The app never sends them."
+  - "The semantics of the 6 bytes of 0000fa84-8a11-4222-9610-53f79479ca03, what 0000fa85 indicates, and how 0000fa83 frames are delivered on a live connection."
+  - "Scales for the battery, cold-junction and timestamp fields, the units of the power-stage telemetry, and what separates the two controller gain sets."
+  - "Whether the 220 V, 220 V partner-edition and 100 V burners, and the second-generation cookware, differ from the base layout in anything but product id. Only the app's product table ties them together."
+  - "Whether the Smart Probe really serves 0000fa81-8a11-4222-9610-53f79479ca03. The app routes it through the same thermometer class, but no probe has been examined."
+  - "The order of the first three bytes of the thermometer frame: the direct parser reads version, battery, counter, and the burner-relay parser reads counter, version, battery."
+  - "Whether a burner or cookware that never received the app's first firmware update can be used at all, now that the images are gone."
+  - "Whether the burner accepts more than one central, and whether it keeps the routed cookware id across a power cycle."
+
+helpful_urls:
+  - title: "Hestan Cue Smart Probe quick start guide (FCC exhibit, PDF)"
+    url: "https://fccid.co/api/files/s1/2ayy4_41701_usersmanual_5205822_9a3cbbb602.pdf"
+    kind: "manual"
+    description: >-
+      The two-page 'Welcome / Start Here' guide for the Hestan Cue Smart
+      Probe (FCC ID 2AYY4-41701), filed with its grant: CR2450 battery, app
+      setup, and the requirement for a Cue-enabled induction cooktop. Probe
+      only; no burner or pan manual has been found.
+  - title: "Hestan Cue Smart Probe safety instructions (FCC exhibit, PDF)"
+    url: "https://fccid.co/api/files/s1/2ayy4_41701_usersmanual_5205823_55bc75cbf9.pdf"
+    kind: "manual"
+    description: >-
+      The 20-page safety and warnings booklet for the Hestan Cue Smart Probe
+      (model 417), in English, French, Spanish and German. It covers the
+      system-wide warnings (no oven, no third-party cooktop, never
+      unattended) and battery handling. Probe only.
+  - title: "FCC ID 2AYY4-41701: Hestan Cue Smart Probe"
+    url: "https://fccid.co/fcc/2AYY4-41701"
+    kind: "other"
+    description: "The probe's FCC grant (Hestan Smart Cooking Inc., 2021-04-14), with the test report, internal photos and both manuals."
+  - title: "Hestan Cue support: What is happening to the Hestan Cue app?"
+    url: "https://support.hestancue.com/en/support/solutions/articles/19000166286"
+    kind: "vendor_support"
+    description: "The vendor's sunset notice for the whole system: the app retired on 2025-07-21 and its content was discontinued."
+  - title: "Hestan Cue support: Will I still be able to use my Hestan Cue cooktop and cookware after the app is sunset?"
+    url: "https://support.hestancue.com/en/support/solutions/articles/19000166287"
+    kind: "vendor_support"
+    description: "Covers the Cue burner and cookware: manual mode only after the sunset, with no smart functions."
+  - title: "Hestan Cue support: How do I use the induction burner (offline / manual mode)?"
+    url: "https://support.hestancue.com/en/support/solutions/articles/19000061944"
+    kind: "vendor_support"
+    description: "The Cue induction burner's own touch controls: power button, then slide the power bar."
+  - title: "Hestan Cue support: What is Control Mode?"
+    url: "https://support.hestancue.com/en/support/solutions/articles/19000054374"
+    kind: "vendor_support"
+    description: "The app's Temp and Power tabs for the Cue burner, which this spec's set_target_temperature and set_power_position reproduce."
+  - title: "Hestan Cue support: What is the power/voltage requirement?"
+    url: "https://support.hestancue.com/en/support/solutions/articles/19000044461"
+    kind: "vendor_support"
+    description: "Cue burner model numbers and ratings: 41000 (US, 110 V, up to 1600 W) and 41004-41009 (240 V regions)."
+  - title: "Hestan Cue support: How do I update firmware for my burner and cookware?"
+    url: "https://support.hestancue.com/en/support/solutions/articles/19000074350"
+    kind: "vendor_support"
+    description: "The retired firmware flow for the Cue burner, cookware and probe, including the pairing prompt."
+  - title: "Hestan Cue support: I got an overheating error. Now what?"
+    url: "https://support.hestancue.com/en/support/solutions/articles/19000086778"
+    kind: "vendor_support"
+    description: "The Cue burner's overheat recovery: let it cool, unplug it and plug it back in."
+  - title: "Hestan Cue support: What are the temperature limits of Hestan Cue cookware?"
+    url: "https://support.hestancue.com/en/support/solutions/articles/19000126757"
+    kind: "vendor_support"
+    description: "Safe temperatures for Cue stainless and non-stick pans, and what an unattended burner does to them."
+  - title: "Hestan Cue support: What is the temperature range of the Smart Probe?"
+    url: "https://support.hestancue.com/en/support/solutions/articles/19000124628"
+    kind: "vendor_support"
+    description: "The Hestan Cue Smart Probe measures 35-400 °F (1.7-204 °C)."
+  - title: "Hestan Cue support: How can I turn off my Cue cookware?"
+    url: "https://support.hestancue.com/en/support/solutions/articles/19000091230"
+    kind: "vendor_support"
+    description: "Cue pan and pot handles: a quarter-turn of the end cap switches the capsule off."
+  - title: "Hestan Cue support: I can't pair my devices with the app"
+    url: "https://support.hestancue.com/en/support/solutions/articles/19000061597"
+    kind: "vendor_support"
+    description: "The vendor's Bluetooth troubleshooting for the Cue burner and cookware: range, other phones holding a connection, Android location services, and the pair-then-unpair workaround."
+  - title: "Hestan Cue app on Google Play (archived 2024-07-20)"
+    url: "https://web.archive.org/web/20240720010437/https://play.google.com/store/apps/details?id=com.hestan.cue"
+    kind: "other"
+    description: "The delisted app's last archived store listing."

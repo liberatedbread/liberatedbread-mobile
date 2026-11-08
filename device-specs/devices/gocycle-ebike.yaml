@@ -1,0 +1,1629 @@
+# Gocycle G4-family e-bike (GocycleConnect BLE) device spec
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Recovered by static analysis of the official GocycleConnect Android app
+# (v9.6.2; clean-room, no app artifacts committed). Gocycle's own product
+# manuals and help-centre articles, and Silicon Labs' public BGX13 module
+# documentation, fill in around it. What each source contributed:
+#   the app           the frame format in both directions, the opcode
+#                     numbers, every reply layout below, the riding-mode
+#                     presets and how the app selects them, the lights / DRL
+#                     / predictive-shifting controls, trip reset, the
+#                     BLE-versus-Classic routing and the firmware-update role
+#   vendor docs       what the riding modes do, Factory and Delivery State,
+#                     the Bluetooth reset, the forced-update button, the
+#                     region classes and the beep codes
+#   Silicon Labs      what the three GATT characteristics are (the stock
+#                     BGX13 Xpress Streaming Service), the Mode values, flow
+#                     control and the module's pairing and bond-table defaults
+# Nothing here has been run against a bike, and every byte is `reported`.
+#
+# SAFETY: this spec leaves out the writes for max speed, the on-demand
+# (throttle) permission, the miles and time limits, the frame number, the
+# factory state, the controller locks and the anti-theft flag, along with
+# every firmware-flashing step. They are named by role only, in
+# protocol_details.omitted_operations. Riding-mode selection is documented
+# but deliberately has no sendable frame. See set_mode_definition.
+
+device:
+  name: "Gocycle G4 / G4i / G4i+ e-bike (GocycleConnect BLE)"
+  manufacturer: "Karbon Kinetics Ltd (Gocycle)"
+  manufacturer_status: "active"
+  testing:
+    status: untested
+  protocol: "ble"
+  category: "vehicle"
+  type: "folding-ebike"
+  notes: >
+    Folding pedelecs from Karbon Kinetics, sold as Gocycle. The G4 family
+    (G4, G4i, G4i+, and the "Mk2" builds the app also names) talks to the
+    GocycleConnect app over Bluetooth LE. The radio is a Silicon Labs BGX13
+    "Bluetooth Xpress" module used as a transparent serial bridge. The app
+    writes framed binary commands into the module's Peripheral RX
+    characteristic and reads framed replies from its Peripheral TX
+    notifications. Behind the module, the bike's junction box and motor
+    controller speak a 16-bit opcode protocol that is older than the BLE
+    link. The G2, G3, G3+, G3C, GS, GX and GXi bikes carry the same opcode
+    set over Bluetooth Classic SPP. That path is summarised in
+    protocol_details.classic_legacy_path and not specified in full here.
+
+
+    WHICH BIKES ARE BLE. The app picks the transport from the bike's cloud
+    build record, not from the radio. A model code beginning "G4" goes to
+    the BLE scan, and anything else goes to the Classic serial flow. The
+    vendor's own articles split the families the same way: firmware 2.x for
+    G4/G4i/G4i+ against V8x for GXi/GX/G3/GS/G2, a separate diagnostics flow
+    for each, and a Bluetooth-reset article that covers only G4/G4i/G4i+. So
+    the GX and GXi are Classic bikes, not BLE ones. The CX/CXi cargo bikes
+    appear nowhere in the app, and whether they carry G4-family electronics
+    is not established.
+
+
+    WHAT A CLIENT CAN DO FROM THIS SPEC. Poll the live dash block (battery,
+    speed, cadence, gear, odometer, trip, energy, moving time). Read the
+    firmware versions, the identity reply and the hardware-type byte. Turn
+    the integrated front and rear lights on or off. Set DRL flashing, the DRL
+    default mode and the "DRL switch controls lights" selector. Toggle
+    predictive shifting, reset the trip, read the riding-mode definitions
+    and pull the diagnostic counters. Riding-mode selection (Eco / City /
+    Turbo / Demand) is fully documented in protocol_details.riding_modes but
+    is not declared as a sendable frame. The record the app writes to select
+    a mode also carries that mode's speed ceiling and its
+    pedalling-required flag. A client has to copy both from the bike's own
+    record rather than send a constant. See set_mode_definition.
+
+
+    ACCESS CONTROL. There is none above the link layer. Nothing in the app
+    signs, encrypts or authenticates a frame. Registration and ownership are
+    enforced by the app against the vendor cloud before it lets a user
+    connect, not by the bike. The link itself is the BGX module's: Silicon
+    Labs documents its streaming service as requiring an encrypted, paired
+    link, and the vendor's Bluetooth-reset article implies the bike stores
+    bonds (see device.pairing). All of this is inferred from the decompile
+    and the module documentation, and none of it has been observed.
+
+
+    A NEW BIKE. A bike shipped straight from Gocycle is in Factory State,
+    with the motor disabled. A dealer-prepared bike is in Delivery State,
+    with 60 miles (100 km) of assist. Either stays that way until the owner
+    completes Setup in the vendor app. Those state changes are cloud-gated
+    writes this spec omits, so it cannot activate a bike. It reads and
+    controls a bike that is already activated (see device.setup).
+
+
+    EVIDENCE BASE. Static analysis of GocycleConnect 9.6.2. It is a
+    Capacitor app, and its bike logic ships as plain JavaScript, so the
+    frame builder, the notification parser and every screen that sends a
+    command were read directly rather than inferred. There is no capture,
+    no FCC grant (none found under Gocycle or Karbon Kinetics) and no
+    open-source client. The vendor manuals print no FCC ID. See `evidence`.
+
+  identification:
+    local_name_prefixes: ["Gocycle", "GOCYCLE"]
+    notes: >
+      The advertised name is "Gocycle" followed by the bike's six-digit frame
+      number. The app takes characters 7 to 12 as the frame number, and some
+      units advertise the stem in upper case. When the advertisement carries
+      only the seven-letter stem, the app gets the full name another way. It
+      reads GAP Device Name (00002a00-0000-1000-8000-00805f9b34fb in
+      00001800-0000-1000-8000-00805f9b34fb) after connecting, or reuses the
+      frame number it cached for that address. The app filters its scan on
+      service 331a36f5-2459-45ea-9d95-6142f0c4b307, so the bike advertises
+      that service. It is, however, the stock Silicon Labs BGX13 Xpress
+      Streaming Service UUID, shared by every BGX13 product (the BlueDriver
+      scanner in this catalogue is another). It is therefore deliberately not
+      an identification axis. The app also accepts names beginning "BGX", the
+      module's factory-default name. Such a name means "an unconfigured BGX
+      module", not "a Gocycle", so it is not an axis either.
+
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          local_name:
+            match: "prefix"
+            values: ["Gocycle", "GOCYCLE"]
+    identity:
+      stable_keys: ["address"]
+      display: "local_name"
+    static_ip_required: false
+
+  setup:
+    required: false
+    confidence: "low"
+    notes: >
+      No provisioning: there is no Wi-Fi and no network credential. Talking to
+      an activated bike needs only a BLE bond, which the phone's OS makes on
+      first contact (see device.pairing), then the per-connection steps in
+      `initialization`. The vendor app additionally insists on an account and
+      a registered bike before it will connect. That is an app-side gate
+      against the vendor cloud. The bike has no knowledge of the account, and
+      nothing in the app sends an account credential to the bike.
+      A bike that has never been activated (Factory State: motor off;
+      Delivery State: 60 miles / 100 km of assist) needs the vendor app's
+      Setup flow before it is rideable. That variant is recorded below with
+      no local alternative. Confidence is low: the flow is read from the
+      app, and nothing has been replayed.
+    methods:
+      - type: "ble_direct"
+        name: "Activated bike: pair on first connect, then poll"
+        role: "primary"
+        verified: false
+        description: >
+          Switch the battery on, scan for the "Gocycle" name, connect, and
+          open notifications on Peripheral TX. On a phone with no bond yet,
+          that first access to the encrypted streaming service makes the OS
+          pair (Just Works is expected, with no PIN). Then write framed
+          commands to Peripheral RX. No account, button press or PIN is
+          involved.
+        ble:
+          advertised_name: "Gocycle"
+          advertised_name_match: "prefix"
+          service_uuid: "331a36f5-2459-45ea-9d95-6142f0c4b307"
+          write_characteristic: "a9da6040-0823-4995-94ec-9ce41ca28833"
+          read_characteristic: "a73e9a10-628f-4494-a099-12efaf72258f"
+          pairing_required: true
+        steps:
+          - action: "Switch the bike's battery on (tap the battery button once). Bluetooth is off while the battery is off."
+            actor: "user"
+            expect: "The dash lights up and shows the battery level."
+            notes: >
+              From the G4 product manual. The battery switches itself off
+              after about 30 minutes with no motor activity, which drops the
+              link.
+          - action: "Close the vendor app, and turn Bluetooth off on any other phone that has been connected to this bike."
+            actor: "user"
+            notes: >
+              The vendor's article on connecting several phones says the bike
+              may not be visible to a second phone while the first one's
+              Bluetooth is on. Treat the bike as one central at a time.
+          - action: "Scan for a local name starting 'Gocycle' or 'GOCYCLE' and connect."
+            actor: "client"
+            request:
+              protocol: "ble_gatt"
+          - action: "Run `initialization`: subscribe to Peripheral TX and leave Peripheral RX notifications off."
+            actor: "client"
+            request:
+              protocol: "ble_gatt"
+              service: "331a36f5-2459-45ea-9d95-6142f0c4b307"
+              action: "subscribe a73e9a10-628f-4494-a099-12efaf72258f"
+            expect: "On a first connection the host pairs and stores a bond. Afterwards notifications are enabled on Peripheral TX."
+          - action: "Write read_mc_version, then poll read_dash_data about once a second."
+            actor: "client"
+            request:
+              protocol: "ble_gatt"
+              service: "331a36f5-2459-45ea-9d95-6142f0c4b307"
+              action: "write a9da6040-0823-4995-94ec-9ce41ca28833 (with response)"
+            expect: >
+              A 0x40-framed reply with opcode 0x2021 carrying the
+              motor-controller version, then one opcode-0x2031 dash frame per
+              poll (payload_formats.FrameEnvelope, services Peripheral TX
+              format).
+        timing:
+          dash_poll_interval_ms: 1000
+          dash_poll_unanswered_limit: 3
+          max_speed_read_delay_ms: 400
+          diagnostic_poll_interval_ms: 500
+          log_upload_inactivity_timeout_ms: 5000
+          notes: >
+            All values are the vendor app's own choices, not device limits.
+            The bike home screen polls the dash block every 1000 ms. After
+            more than three polls with no reply it stops polling (and on a
+            Classic bike it disconnects). It sends read_max_speed 400 ms after
+            the page opens. The diagnostics screen polls every 500 ms. The log
+            upload treats 5 s of silence as the end of the log. An older
+            helper in the app also carries a 500 ms dash timer.
+        troubleshooting:
+          - symptom: "The bike does not appear in a scan"
+            causes:
+              - "The battery is off, or switched itself off after 30 minutes idle. Tap the battery button."
+              - "Another phone is connected, often the vendor app in the background. Close it or turn that phone's Bluetooth off."
+              - "On Android, location services or Bluetooth scanning are off. The vendor's German troubleshooting PDF names location services as required for G4 bikes."
+          - symptom: "Connects, but pairing fails or the connection drops straight away"
+            causes:
+              - "The phone holds a bond the bike no longer has, for example after a Bluetooth reset. Forget the bike in the phone's Bluetooth settings and connect again (device.pairing.unpair)."
+              - "Firmware older than 2.3 has no bike-side Bluetooth reset, per the vendor."
+          - symptom: "Connected and subscribed, but no reply to any command"
+            causes:
+              - "The frame's 16-bit checksum or opcode byte order is wrong (payload_formats.FrameEnvelope). The opcode goes low byte first, with bit 15 set for the opcodes listed in protocol_details.framing.flagged_opcodes."
+              - "Notifications were enabled on Peripheral RX and left on, which puts the BGX module into Fast-Ack flow control (protocol_details.bgx_module). The app disables them again at once."
+              - "The reply spans several notifications and the client decoded only the first. Reassemble by the length field before parsing."
+          - symptom: "Motor gives no assist even though the app-side commands work"
+            causes:
+              - "The bike is in Factory State, or has used up its Delivery State miles. The dash LED pattern and the beep codes (5 beeps: Factory State; 3 or 4 beeps: unregistered) say which. Only the vendor app's Setup clears it."
+      - type: "cloud_account"
+        name: "New bike in Factory or Delivery State: vendor app Setup"
+        role: "variant"
+        verified: false
+        description: >
+          Applies only to a bike that has never been activated. The vendor
+          app signs in with the email the bike is registered to, checks
+          ownership against the cloud build record, updates the firmware if
+          it is below the version the app requires (the G4 screen sends
+          anything older than 2.8 to the update page), and then writes the
+          registration state to the bike. Those registration writes (factory
+          state, miles limit, anti-theft flag, review and service flags) are
+          omitted from this spec on safety and anti-theft grounds. A dealer's
+          pre-delivery inspection does the same from the dealer side and
+          leaves the bike in Delivery State.
+        cloud:
+          provider: "Gocycle (GocycleConnect account and bike registration)"
+          local_alternative: >
+            None known. The bike, not the app, enforces Factory and Delivery
+            State. The writes that clear them exist in the opcode set, but
+            this spec deliberately leaves them out.
+        steps:
+          - action: "In the vendor app, sign in with the email the bike was registered to, press '+', pick the model and follow Setup (assembly steps can be skipped)."
+            actor: "user"
+            expect: "The app checks and updates the firmware, then reports the bike connected and registered. After that the bike chimes on power-up instead of beeping."
+          - action: "For a used bike still registered to someone else, have the previous owner transfer ownership in the app."
+            actor: "user"
+            notes: "The vendor's Can't Connect to a Gocycle article. The app refuses to connect to a bike registered to another email."
+    factory_reset:
+      applicable: false
+      confidence: "medium"
+      effect: >
+        No owner-accessible factory reset. Factory State and Delivery State
+        are activation states set by the vendor app's dealer and factory
+        tooling, not a return to defaults an owner can trigger, and the
+        writes behind them are omitted here. The one owner-side reset is the
+        Bluetooth reset (boost button or left twist switch held 30 s). It
+        clears the bike's stored Bluetooth bonds and is documented under
+        device.pairing.unpair, because that is all it does. Riding
+        definitions, odometer and registration are not reported to change.
+      description: >
+        Per the vendor's help-centre articles. Nothing has been run here.
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        Moving the bike to a new phone or client needs no reset. The BGX
+        module keeps a table of up to 14 bonds by Silicon Labs' default, and
+        the vendor documents one bike used from several phones. Disconnect the
+        old phone (close the app, or turn its Bluetooth off) and pair from the
+        new one. A client that cannot reconnect after a bike-side Bluetooth
+        reset must forget the bike in the OS and pair again.
+    credentials:
+      wifi_passphrase_protection: "not_applicable"
+      stored_on_device:
+        - "BLE bonding keys for each phone that has paired (the BGX module's bond table; up to 14 entries by module default)"
+      issued_to_client:
+        - "The BLE bond (link keys), held by the phone's OS rather than the app"
+      notes: >
+        No application-layer secret exists on the link. The vendor account
+        belongs to the app's cloud calls and never reaches the bike.
+
+  pairing:
+    required: true
+    confidence: "low"
+    security_mode: "just_works"
+    bonding: "required"
+    exclusivity:
+      single_connection: true
+      single_bond: false
+      recovery: >
+        Close the vendor app and turn Bluetooth off on any other phone that
+        has used the bike. If the phone still will not connect, forget the
+        bike in the OS Bluetooth settings. If that fails, do the bike-side
+        Bluetooth reset below and forget it again.
+      notes: >
+        single_connection comes from the vendor's multiple-devices article.
+        single_bond: false rests on the BGX module's 14-entry bond table and
+        on the same article describing one bike used from several phones.
+    enter_pairing_mode:
+      required: false
+      notes: >
+        No pairing mode or button. The bike is connectable whenever its
+        battery is on, and the vendor app's "+" flow simply scans. Nothing
+        documents a pairing window.
+    unpair:
+      supported: true
+      requires_factory_reset: false
+      clears: >
+        The bike's stored Bluetooth bonds. Whether it clears all of them or
+        only some is not stated. Nothing else is reported to change.
+      procedures:
+        - name: "Boost button held 30 seconds (G4)"
+          verified: false
+          basis: >
+            Vendor help-centre article "G4 G4i G4i+ Bluetooth Reset" (needs
+            firmware 2.3 or later). Not run here.
+          applies_to: ["G4"]
+          power_state: "on"
+          hold_seconds: 30
+          description: >
+            With the bike switched on and the app closed, hold the red boost
+            button until the bike beeps. Then forget the bike on every phone
+            that had paired with it.
+          steps:
+            - action: "Close the vendor app on the phone."
+              actor: "user"
+            - action: "With the bike on, hold the boost button for 30 seconds until it beeps, then release."
+              actor: "user"
+              expect: "The bike beeps."
+            - action: "Forget the bike in the phone's Bluetooth settings, then pair again from the client."
+              actor: "user"
+        - name: "Left twist switch held down 30 seconds (G4i, G4i+)"
+          verified: false
+          basis: >
+            Vendor help-centre article "G4 G4i G4i+ Bluetooth Reset" (the
+            G4i/G4i+ use the left twist switch in place of the boost button;
+            needs firmware 2.3 or later). Not run here.
+          applies_to: ["G4i", "G4i+"]
+          power_state: "on"
+          hold_seconds: 30
+          description: >
+            Same reset as the G4, on the left twist switch. Twist it down and
+            hold until the bike beeps.
+          steps:
+            - action: "Close the vendor app on the phone."
+              actor: "user"
+            - action: "With the bike on, twist the left switch down and hold it for 30 seconds until the bike beeps, then release."
+              actor: "user"
+              expect: "The bike beeps."
+            - action: "Forget the bike in the phone's Bluetooth settings, then pair again from the client."
+              actor: "user"
+      notes: >
+        The vendor article's instruction to forget the bike in the phone's
+        settings after this reset is the main evidence that the bike stores
+        bonds at all.
+    notes: >
+      Inferred, not observed. Silicon Labs documents the BGX13 Xpress
+      Streaming Service as requiring an encrypted link, which means the
+      central must pair, and says the module requests bonding by default and
+      supports Just Works and passkey pairing. The app never calls a bond
+      API, never shows or asks for a PIN, and no Gocycle manual or article
+      mentions one. So pairing happens implicitly, on the app's first write
+      to a streaming characteristic's CCCD, and Just Works is the expected
+      association model. The vendor's Bluetooth-reset article (forget the
+      bike after resetting it) fits a bike that stores bonds. Gocycle could
+      have reconfigured the module (encryption off, or passkey entry).
+      Nothing in the app or its documentation rules that out, and one GATT
+      session against a bike would settle it.
+
+  host_compatibility:
+    - stack: "android"
+      status: "compatible"
+      verification: "reported"
+      basis: >
+        The vendor app's Android build uses the platform GATT client, through
+        the open-source Capacitor bluetooth-le plugin, for every G4-family
+        bike. The vendor lists Android 7.0 or later, and names some Sony
+        Xperia and OnePlus phones as having connection problems.
+      notes: >
+        The app reads GAP Device Name after connecting on Android when the
+        advertised name is short. Store reviews report frequent connection
+        failures with the 9.x app. Those look like app-side problems (see
+        protocol_details.app_quirks), not a stack incompatibility.
+    - stack: "corebluetooth"
+      status: "compatible"
+      verification: "reported"
+      basis: >
+        The vendor ships the same app for iOS 13 or later, and it drives
+        G4-family bikes over the same BGX streaming service.
+      notes: >
+        CoreBluetooth has no explicit bond call. Pairing is triggered by the
+        first access to the encrypted characteristics. This verdict covers
+        only the BLE G4 family. The Classic G2/G3/GS/GX bikes are a separate
+        question (protocol_details.classic_legacy_path).
+
+  safety_advisory:
+    severity: "warning"
+    summary: >-
+      Controls a road vehicle's motor assistance and lights. Change settings
+      only when the bike is stopped.
+    detail: >-
+      The vendor manual warns against changing riding mode while in motion.
+      Riding modes change when and how hard the motor assists, and that
+      alters the bike's speed envelope. Turning the lights off, or setting
+      the DRL to a flashing mode where local rules forbid flashing bicycle
+      lights (the app itself warns of this), are road-safety and legal
+      matters. The riding-mode record also carries the speed ceiling and the
+      pedalling-required flag that make the bike an EU EPAC or a US Class 1
+      or 2 e-bike. This spec never sets them. A client selecting a mode must
+      copy them from the bike's own record. Speed, throttle-permission,
+      limit, lock and firmware writes are deliberately absent. This is an
+      unofficial client. The manufacturer's manual and local e-bike law
+      take precedence.
+    acknowledge_required: false
+    advisory_url: "https://gocycle.zendesk.com/hc/article_attachments/20875761767965"
+
+  variants:
+    - model: "G4"
+      notes: >
+        Boost button on the handlebar. The app's settings screen shows front
+        and rear light control and hides predictive shifting for a G4.
+    - model: "G4i"
+      notes: >
+        Integrated dash, and a left twist switch in place of the boost
+        button. The app offers predictive shifting.
+    - model: "G4i+"
+      notes: >
+        As the G4i, with DRL. The app offers DRL, front and rear lights and
+        predictive shifting. The per-bike hardware-type byte
+        (read_gocycle_type) decides which light controls the app shows.
+        Which marketing model each type value is has not been established.
+
+initialization:
+  - characteristic: "a73e9a10-628f-4494-a099-12efaf72258f"
+    subscribe: true
+    notes: >
+      Peripheral TX. Every reply arrives here. On a phone with no bond yet,
+      this CCCD write is what makes the OS pair. The app first enables and
+      then immediately disables notifications on Peripheral RX
+      (a9da6040-0823-4995-94ec-9ce41ca28833) before subscribing here. Under
+      the BGX flow-control rules, enabling RX notifications switches the
+      module to Fast-Ack mode, and leaving them off keeps legacy flow
+      control, which is what the app ends up with. A client should simply
+      not enable RX notifications. See protocol_details.bgx_module.
+      Nothing else is exchanged per connection: no login, no key exchange
+      and no clock sync. The app's set-time call is mis-wired and never
+      reaches the bike. The G4 home screen then sends read_mc_version, goes
+      to the firmware-update page if the version is below 2.8, and otherwise
+      sends read_max_speed and starts polling read_dash_data every second.
+      On the first poll it also reads the lights state and the custom and
+      active mode definitions.
+
+services:
+  - uuid: "00001800-0000-1000-8000-00805f9b34fb"
+    name: "Generic Access"
+    notes: >
+      Standard GAP service. The app reads Device Name on Android to recover
+      the full "Gocycle<frame number>" name when the advertisement carried
+      only the stem.
+    characteristics:
+      - uuid: "00002a00-0000-1000-8000-00805f9b34fb"
+        name: "Device Name"
+        properties: ["read"]
+        notes: "UTF-8 name, \"Gocycle\" + six-digit frame number."
+        format:
+          - offset: 0
+            length: 13
+            name: "device_name"
+            type: "string"
+            notes: "Characters 7-12 are the frame number. Length assumes a six-digit frame number."
+
+  - uuid: "331a36f5-2459-45ea-9d95-6142f0c4b307"
+    name: "Silicon Labs BGX13 Xpress Streaming Service"
+    notes: >
+      The stock BGX13 serial-bridge service (Silicon Labs Gecko OS BGX
+      documentation), carrying the bike's framed opcode protocol. The
+      vendor app writes every command to Peripheral RX and parses every
+      reply from Peripheral TX. The characteristic properties below are the
+      module's documented ones, and no GATT dump of a Gocycle has been
+      seen. The app's UUID-to-name table also lists two groups of
+      Silicon Labs OTA UUIDs (902ee692-6ef9-48a8-a430-5212eeb3e5a2,
+      503a5d70-b443-466e-9aeb-c342802b184e,
+      12e868e7-c926-4906-96c8-a7ee81d4b1b3,
+      25f05c0a-e917-46e9-b2a5-aa2be1245afe,
+      4f4a2368-8cca-451e-bfff-cf0e2ee23e9f,
+      4cc07bcf-0868-4b32-9dad-ba4cc41e5316,
+      0d77cc11-4ac1-49f2-bfa9-cd96ac7a92f8; and
+      b2e7d564-c077-404e-9d29-b547f4512dce,
+      48cbe15e-642d-4555-ac66-576209c50c1e,
+      db96492d-cf53-4a43-b896-14cbbf3bf4f3,
+      ddcc1893-3e58-45a8-b9e5-491b7279d870). The app never reads, writes or
+      subscribes to any of them, and whether the bike exposes them is
+      unknown (features[].dfu).
+    characteristics:
+      - uuid: "a9da6040-0823-4995-94ec-9ce41ca28833"
+        name: "Peripheral RX (client to bike)"
+        properties: ["write", "write_without_response", "notify"]
+        role: "command"
+        notes: >
+          Write every command here as a 0x40 frame
+          (payload_formats.FrameEnvelope). The app uses Write with response,
+          which is also the BGX legacy flow-control mode. Keep notifications
+          on this characteristic OFF: enabling them turns on BGX Fast-Ack
+          flow control, whose 3-byte control messages would then arrive
+          here (protocol_details.bgx_module). The BGX module accepts 1-250
+          bytes per write. Every frame below is well under 20 bytes. The
+          app splits frames over 150 bytes into 256-byte writes, which is
+          above that limit. Only firmware blocks reach that size.
+          All frames are complete, with length, opcode and checksum
+          included: write them as they stand. The opcode goes on the wire
+          low byte first, and bit 15 is set for the opcodes marked in
+          protocol_details.framing.flagged_opcodes.
+        commands:
+          read_dash_data:
+            description: >
+              Poll the live dash block (opcode 0x2031, sent flagged as
+              0xa031, no payload). The reply is an opcode-0x2031 frame
+              decoded by this service's Peripheral TX `format`. The app
+              polls it every 1000 ms from the home and live-dash screens.
+            value: [0x40, 0x00, 0x00, 0x31, 0xA0, 0xD1, 0x00]
+            verification: "reported"
+          read_mc_version:
+            description: >
+              Motor-controller firmware version (opcode 0x2021, flagged).
+              The reply carries the same opcode (payload_formats.Version).
+              G4-family bikes report 2.x. The app treats anything below 2.8
+              as needing an update.
+            value: [0x40, 0x00, 0x00, 0x21, 0xA0, 0xC1, 0x00]
+            verification: "reported"
+          read_jb_version:
+            description: >
+              Junction-box firmware version (opcode 0x2026, not flagged).
+              Same reply layout as read_mc_version (payload_formats.Version).
+              The current app sends it only from the Classic update screens,
+              so whether a G4 answers is not established.
+            value: [0x40, 0x00, 0x00, 0x26, 0x20, 0x46, 0x00]
+            verification: "reported"
+          read_id:
+            description: >
+              Identify the unit answering and whether it is running its
+              application or its bootloader (opcode 0x1002). The reply is
+              opcode 0x1003 (payload_formats.ReadIdReply). The app uses it in
+              its firmware updater, and the query itself changes nothing.
+            value: [0x40, 0x00, 0x00, 0x02, 0x10, 0x12, 0x00]
+            verification: "reported"
+          read_gocycle_type:
+            description: >
+              Hardware-type byte (opcode 0x204b). The reply carries the same
+              opcode, and payload byte 0 is the type
+              (payload_formats.GocycleType). The app uses it to decide which
+              light controls to show and which bundled firmware image fits.
+            value: [0x40, 0x00, 0x00, 0x4B, 0x20, 0x6B, 0x00]
+            verification: "reported"
+          read_mode_definition_active:
+            description: >
+              Read riding-mode definition 4, the working slot the app writes
+              every mode selection into (opcode 0x2035, flagged, payload
+              [0x04]). The reply is an opcode-0x2035 frame laid out as
+              payload_formats.ModeDefinition. Its pedal-watt pair tells which
+              preset is active (protocol_details.riding_modes.presets).
+            value: [0x40, 0x01, 0x00, 0x35, 0xA0, 0x04, 0xDA, 0x00]
+            verification: "reported"
+          read_mode_definition_custom_1:
+            description: >
+              Read riding-mode definition 2, where a G4 keeps the user's
+              Custom 1 mode (payload [0x02]).
+              Reply as read_mode_definition_active.
+            value: [0x40, 0x01, 0x00, 0x35, 0xA0, 0x02, 0xD8, 0x00]
+            verification: "reported"
+          read_mode_definition_custom_2:
+            description: >
+              Read riding-mode definition 3, where a G4 keeps the user's
+              Custom 2 mode (payload [0x03]).
+              Reply as read_mode_definition_active.
+            value: [0x40, 0x01, 0x00, 0x35, 0xA0, 0x03, 0xD9, 0x00]
+            verification: "reported"
+          set_mode_definition:
+            description: >
+              Write one riding-mode definition (opcode 0x2036, sent flagged
+              as 0xa036), with a 10-byte payload laid out as
+              payload_formats.ModeDefinition. This is how the app selects
+              Eco, City, Turbo or Demand. It writes the preset's pedal-watt
+              pair into definition 4, then sends activate_mode_slot. No
+              fixed frame is given, and none can be. Bytes 3-5 of the
+              payload hold the pedalling-required flag and the speed
+              ceiling. The app fills them from the region on the bike's
+              cloud record, and a replacement client must copy them
+              unchanged from the bike's own read_mode_definition_active
+              reply. The frame also ends in a 16-bit checksum that the
+              template vocabulary cannot express (protocol_details.
+              schema_gaps). The full recipe is in
+              protocol_details.riding_modes.
+            advanced: true
+            advanced_reason: >
+              This record carries the speed ceiling and the
+              pedalling-required (throttle) flag as well as the assist curve.
+              A value not copied from the bike can take it out of its legal
+              class (EU EPAC 25 km/h, or US Class 1 or 2) or change how the
+              motor responds mid-ride. Read definition 4 first, change only
+              the two pedal-watt fields, and do it with the bike stopped. To
+              undo, rewrite the saved record.
+            packet_layout:
+              "0": "0x40 start byte"
+              "1": "payload length, uint16 LE: 0x0a 0x00"
+              "3": "opcode 0x2036 with bit 15 set, uint16 LE: 0x36 0xa0"
+              "5": "payload byte 0: definition number (the app writes 4; 2 and 3 hold the G4's two custom modes)"
+              "6": "payload byte 1: torque-sensing flag, always 0x01 from the app"
+              "7": "payload byte 2: boost / power level, 0x00 in every preset; copy it for a custom mode"
+              "8": "payload byte 3: 0x00 = pedalling required for assist, 0x01 = assist without pedalling allowed. COPY from the bike"
+              "9": "payload bytes 4-5: speed ceiling, mph x 100, uint16 LE. COPY from the bike"
+              "11": "payload bytes 6-7: pedal effort at which assist starts, W, uint16 LE"
+              "13": "payload bytes 8-9: pedal effort for full assist, W, uint16 LE"
+              "15": "checksum: uint16 LE sum of frame bytes 1-14"
+            verification: "reported"
+          activate_mode_slot:
+            description: >
+              Select the working mode definition (opcode 0x1009, payload
+              [0x03]). The app always sends 3 after writing definition 4, so
+              the index is most likely 0-based (3 selects definition 4). The
+              expected reply is an ACK frame carrying 0x1009. On its own it
+              only re-selects whatever definition 4 already holds.
+            value: [0x40, 0x01, 0x00, 0x09, 0x10, 0x03, 0x1D, 0x00]
+            verification: "reported"
+          read_lights_enable:
+            description: >
+              Integrated front and rear lights, on or off (opcode 0x3023). The
+              reply carries the same opcode, and payload byte 0 is 0 for off
+              and non-zero for on (payload_formats.ByteState).
+            value: [0x40, 0x00, 0x00, 0x23, 0x30, 0x53, 0x00]
+            verification: "reported"
+          lights_on:
+            description: >
+              Turn the integrated front and rear lights on (opcode 0x3022,
+              payload [0x01]). The app's home-screen lights button. Expect
+              an ACK carrying 0x3022. The vendor dates app light control to
+              G4 firmware 2.59.
+            value: [0x40, 0x01, 0x00, 0x22, 0x30, 0x01, 0x54, 0x00]
+            verification: "reported"
+          lights_off:
+            description: "Turn the integrated front and rear lights off (opcode 0x3022, payload [0x00]). Expect an ACK carrying 0x3022."
+            value: [0x40, 0x01, 0x00, 0x22, 0x30, 0x00, 0x53, 0x00]
+            verification: "reported"
+          read_lights_selector:
+            description: >
+              "DRL switch controls lights" setting (opcode 0x3020). The reply
+              carries the same opcode, and payload byte 0 is 0 for disabled
+              and non-zero for enabled (payload_formats.ByteState). When
+              enabled, turning the DRL off also turns the front and rear
+              lights off. The app shows it only for hardware type 5.
+            value: [0x40, 0x00, 0x00, 0x20, 0x30, 0x50, 0x00]
+            verification: "reported"
+          lights_selector_on:
+            description: "Enable \"DRL switch controls lights\" (opcode 0x3021, payload [0x01])."
+            value: [0x40, 0x01, 0x00, 0x21, 0x30, 0x01, 0x53, 0x00]
+            verification: "reported"
+          lights_selector_off:
+            description: "Disable \"DRL switch controls lights\" (opcode 0x3021, payload [0x00])."
+            value: [0x40, 0x01, 0x00, 0x21, 0x30, 0x00, 0x52, 0x00]
+            verification: "reported"
+          read_drl:
+            description: >
+              Daytime running light status (opcode 0x103a). The reply is
+              opcode 0x103b: DRL on/off, flashing permitted, current DRL
+              mode and default DRL mode (payload_formats.DrlStatus). The
+              app shows DRL settings for hardware types 3 and 5.
+            value: [0x40, 0x00, 0x00, 0x3A, 0x10, 0x4A, 0x00]
+            verification: "reported"
+          drl_flash_on:
+            description: >
+              Allow the DRL's flashing modes (opcode 0x103c, payload
+              [0xff, 0x01, 0xff, 0xff]; 0xff leaves a field unchanged). The
+              app warns that some regions forbid flashing bicycle lights.
+              The app's parser takes a short-form ACK for 0x103c.
+            value: [0x40, 0x04, 0x00, 0x3C, 0x10, 0xFF, 0x01, 0xFF, 0xFF, 0x4E, 0x03]
+            verification: "reported"
+          drl_flash_off:
+            description: "Disallow DRL flashing (opcode 0x103c, payload [0xff, 0x00, 0xff, 0xff])."
+            value: [0x40, 0x04, 0x00, 0x3C, 0x10, 0xFF, 0x00, 0xFF, 0xFF, 0x4D, 0x03]
+            verification: "reported"
+          drl_default_low:
+            description: "DRL default mode \"1 - Low\" (opcode 0x103c, byte 3 = 0x00; other fields 0xff = unchanged)."
+            value: [0x40, 0x04, 0x00, 0x3C, 0x10, 0xFF, 0xFF, 0xFF, 0x00, 0x4D, 0x03]
+            verification: "reported"
+          drl_default_low_flashing:
+            description: "DRL default mode \"2 - Low flashing\" (byte 3 = 0x01)."
+            value: [0x40, 0x04, 0x00, 0x3C, 0x10, 0xFF, 0xFF, 0xFF, 0x01, 0x4E, 0x03]
+            verification: "reported"
+          drl_default_high:
+            description: "DRL default mode \"3 - High\" (byte 3 = 0x02). The app marks the high modes as for daylight use only."
+            value: [0x40, 0x04, 0x00, 0x3C, 0x10, 0xFF, 0xFF, 0xFF, 0x02, 0x4F, 0x03]
+            verification: "reported"
+          drl_default_high_flashing:
+            description: "DRL default mode \"4 - High flashing\" (byte 3 = 0x03). Daylight only, per the app."
+            value: [0x40, 0x04, 0x00, 0x3C, 0x10, 0xFF, 0xFF, 0xFF, 0x03, 0x50, 0x03]
+            verification: "reported"
+          drl_default_off:
+            description: >
+              DRL default mode "0 - Off" (byte 3 = 0x05). The app writes 5
+              for Off, and its status screen shows any value outside 0-3 as
+              Off.
+            value: [0x40, 0x04, 0x00, 0x3C, 0x10, 0xFF, 0xFF, 0xFF, 0x05, 0x52, 0x03]
+            verification: "reported"
+          predictive_shifting_on:
+            description: >
+              Enable predictive (automatic) shifting (opcode 0x3013, payload
+              [0x01]). The current state is dash field auto_shift_enabled.
+              The app offers it on the G4i and G4i+.
+            value: [0x40, 0x01, 0x00, 0x13, 0x30, 0x01, 0x45, 0x00]
+            verification: "reported"
+          predictive_shifting_off:
+            description: "Disable predictive shifting (opcode 0x3013, payload [0x00])."
+            value: [0x40, 0x01, 0x00, 0x13, 0x30, 0x00, 0x44, 0x00]
+            verification: "reported"
+          reset_trip:
+            description: >
+              Zero the bike's trip counters (opcode 0x203f, flagged, payload
+              [0x01, 0x01, 0x01, 0x01, 0x01]). The app sends it when a ride
+              is started from the Rides tab. The trip distance, calories,
+              moving time and energy fields of the dash block restart from
+              zero. The app's four-byte forms of the same opcode, which
+              clear single counters, are in protocol_details.opcode_table.
+            value: [0x40, 0x05, 0x00, 0x3F, 0xA0, 0x01, 0x01, 0x01, 0x01, 0x01, 0xE9, 0x00]
+            verification: "reported"
+          read_max_speed:
+            description: >
+              Read the bike's configured maximum assisted speed (opcode
+              0x2047, flagged). The reply carries the same opcode, as mph x
+              100 (payload_formats.MaxSpeed). Read-only. The write that sets
+              it is omitted from this spec. The app uses the reading to cap
+              the custom-mode editor and to label the bike EPAC or US
+              Class 1/2.
+            value: [0x40, 0x00, 0x00, 0x47, 0xA0, 0xE7, 0x00]
+            verification: "reported"
+          read_allow_on_demand:
+            description: >
+              Read whether assist without pedalling (throttle / On Demand) is
+              permitted (opcode 0x2049, flagged). The reply carries the same
+              opcode (payload_formats.AllowOnDemand). Read-only. The write is
+              omitted from this spec.
+            value: [0x40, 0x00, 0x00, 0x49, 0xA0, 0xE9, 0x00]
+            verification: "reported"
+          read_diagnostic_data:
+            description: >
+              Sensor and switch counters for the app's Diagnostics screen
+              (opcode 0x204a). The reply carries the same opcode
+              (payload_formats.DiagnosticData). The app polls it every 500
+              ms. Read-only. The motor test and calibration actions on that
+              screen are omitted.
+            value: [0x40, 0x00, 0x00, 0x4A, 0x20, 0x6A, 0x00]
+            verification: "reported"
+          read_stress_counts:
+            description: >
+              Ride-stress statistics (opcode 0x3027). The reply carries the
+              same opcode as six little-endian float32 values
+              (payload_formats.StressCounts). The app shows them only on its
+              dealer screen.
+            value: [0x40, 0x00, 0x00, 0x27, 0x30, 0x57, 0x00]
+            verification: "reported"
+          read_frame_number:
+            description: >
+              Frame number as a uint32 (opcode 0x2022, flagged). The reply
+              carries the same opcode (payload_formats.FrameNumber). The
+              app's only call site passes its arguments shifted and never
+              reaches the bike, so this read is unexercised. The app takes
+              the frame number from the advertised name instead.
+            value: [0x40, 0x00, 0x00, 0x22, 0xA0, 0xC2, 0x00]
+            verification: "hypothesis"
+
+      - uuid: "a73e9a10-628f-4494-a099-12efaf72258f"
+        name: "Peripheral TX (bike to client)"
+        properties: ["notify", "indicate", "write_without_response"]
+        role: "notify"
+        format_match:
+          offset: 3
+          value: 0x31
+          notes: >
+            Low byte of opcode 0x2031 (dash data). The high byte may arrive
+            as 0x20 or 0xa0, since the app masks bit 15 off. Every other
+            reply (versions, mode definitions, lights, ACK/NACK) arrives on
+            this characteristic too, and is described in payload_formats.
+        notes: >
+          Every reply is a 0x40 long frame (payload_formats.FrameEnvelope),
+          or a 0x21 short frame (payload_formats.ShortFrame). The `format`
+          below decodes the dash-data reply, with offsets counted from the
+          frame's 0x40 start byte (payload offset + 5). The BGX module is a
+          byte-stream bridge. A frame can be split across notifications, or
+          several can share one, and the app buffers the stream and parses
+          by the length field. A consumer that decodes one notification at a
+          time must first reassemble a whole frame and check its checksum.
+          Payload length grows with firmware. The app reads the speed, gear
+          and cadence fields only when the payload is over 40 bytes, the
+          energy, moving-time and predictive-shifting fields only when it is
+          over 46, and the review and service flags only when it is over 57.
+          Treat a field beyond the frame's end as absent.
+        format:
+          - offset: 5
+            length: 2
+            name: "battery_voltage"
+            type: "uint16"
+            endianness: "little"
+            scale: 0.001
+            unit: "V"
+            device_class: "voltage"
+          - offset: 7
+            length: 2
+            name: "battery_current"
+            type: "uint16"
+            endianness: "little"
+            scale: 0.001
+            unit: "A"
+            device_class: "current"
+            notes: "Read unsigned by the app. Whether charging ever shows as a separate sign or field is not known."
+          - offset: 15
+            length: 4
+            name: "odometer"
+            type: "uint32"
+            endianness: "little"
+            scale: 0.01
+            unit: "mi"
+            device_class: "distance"
+            notes: "Always miles on the wire. The app multiplies by 1.60934 for km display."
+          - offset: 21
+            length: 1
+            name: "battery_level"
+            type: "uint8"
+            scale: 10
+            unit: "%"
+            device_class: "battery"
+            notes: "Raw 0-10 in tenths. The app clamps the raw value to 0-10 before multiplying by 10."
+          - offset: 25
+            length: 2
+            name: "trip_calories"
+            type: "uint16"
+            endianness: "little"
+            unit: "kcal"
+            notes: "The app labels it calories burned. kcal is inferred from its size and use."
+          - offset: 27
+            length: 4
+            name: "trip_distance"
+            type: "uint32"
+            endianness: "little"
+            scale: 0.01
+            unit: "mi"
+            device_class: "distance"
+          - offset: 33
+            length: 2
+            name: "miles_limit"
+            type: "int16"
+            endianness: "little"
+            unit: "mi"
+            values:
+              -1: "no limit"
+            notes: >
+              Odometer reading at which a limited (demo / Delivery State)
+              bike stops assisting. The app ignores -1 and -2 and warns once
+              the odometer passes any other value. What -2 means is not
+              known.
+          - offset: 41
+            length: 2
+            name: "speed"
+            type: "uint16"
+            endianness: "little"
+            scale: 0.03125
+            unit: "mph"
+            device_class: "speed"
+            notes: "Raw / 32 = mph. The app smooths the displayed value across consecutive polls. Present only when the payload length exceeds 40."
+          - offset: 43
+            length: 2
+            name: "gear"
+            type: "uint16"
+            endianness: "little"
+            notes: "Current gear number, shown as is by the app."
+          - offset: 45
+            length: 2
+            name: "cadence"
+            type: "uint16"
+            endianness: "little"
+            scale: 0.1
+            unit: "rpm"
+          - offset: 47
+            length: 4
+            name: "pedal_energy"
+            type: "uint32"
+            endianness: "little"
+            unit: "J"
+            device_class: "energy"
+            notes: >
+              Cumulative rider energy since the trip reset, in watt-seconds.
+              The app gets pedal watts from its change over 5 s and 20 s, and
+              treats a value above 4,000,000,000 as invalid. Present only
+              when the payload length exceeds 46.
+          - offset: 51
+            length: 4
+            name: "motor_energy"
+            type: "uint32"
+            endianness: "little"
+            scale: 0.001
+            unit: "J"
+            device_class: "energy"
+            notes: "Cumulative motor energy since the trip reset. Raw is milliwatt-seconds (the app divides by 3.6e6 to get Wh)."
+          - offset: 55
+            length: 4
+            name: "moving_time"
+            type: "uint32"
+            endianness: "little"
+            unit: "ms"
+            device_class: "duration"
+            notes: "Moving time since the trip reset."
+          - offset: 59
+            length: 2
+            name: "auto_shift_enabled"
+            type: "uint16"
+            endianness: "little"
+            notes: "Non-zero when predictive shifting is on."
+          - offset: 61
+            length: 1
+            name: "review_pending"
+            type: "uint8"
+            notes: "Non-zero while a dealer service rating is waiting in the app (the vendor's 7-beep code). Present only when the payload length exceeds 57."
+          - offset: 63
+            length: 2
+            name: "service_pending"
+            type: "uint16"
+            endianness: "little"
+            notes: "Non-zero when a service reminder is due."
+
+      - uuid: "75a9f022-af03-4e41-b4bc-9de90a47d50b"
+        name: "BGX Mode (module, not bike)"
+        properties: ["read", "write", "write_without_response", "notify", "indicate"]
+        notes: >
+          The BGX module's own mode switch, per Silicon Labs: 1 = streaming
+          (normal), 2 = local command mode, 3 = remote command mode, in which
+          the central talks to the module's Gecko OS command shell
+          (optionally behind a password). The vendor app only ever logs this
+          value and never writes it. A client should never write it. Remote
+          command mode reconfigures the radio module, not the bike.
+        format:
+          - offset: 0
+            length: 1
+            name: "bgx_mode"
+            type: "uint8"
+            values:
+              1: "streaming"
+              2: "local command mode"
+              3: "remote command mode"
+
+features:
+  - type: "firmware_update"
+    dfu:
+      mechanisms: ["vendor_ble"]
+      transport: "ble"
+      image:
+        signing: "unknown"
+        source: "bundled_in_app"
+        format: "Intel HEX, one image per G4 hardware type (the app picks by the read_gocycle_type byte)"
+        notes: >
+          For G4-family bikes the app carries the images inside its own
+          bundle, as firmware 2.80, 2.86 and 2.87, selected by hardware
+          type. It streams them over the same framed opcode channel: begin,
+          write block, block acknowledgement and end, with a CRC query and
+          application/bootloader switching around them. Nothing in the app
+          signs an image. The app checks a CRC, but whether the bootloader
+          verifies anything beyond that is not known. The Classic bikes are
+          updated over SPP with images the app downloads from the vendor's
+          servers (protocol_details.classic_legacy_path). Silicon Labs OTA
+          UUIDs appear in the app's name table, but the app never uses them.
+          If the bike exposes them, they would update the BGX radio module's
+          own firmware, not the bike's.
+      enter:
+        how: "button"
+        notes: >
+          The vendor's forced-update procedure ("boost button power-up"):
+          switch the bike off, close the app, and power the bike on while
+          holding the red boost button (G4) or the left twist switch (G4i),
+          then start an update from the app. The app also moves a running
+          bike between application and bootloader with in-band opcodes. This
+          spec omits those, along with every flashing step, on purpose.
+      dfu_mode:
+        notes: >
+          Not established. Whether the advertised name or services change
+          while the bootloader runs is unknown. The vendor describes the
+          forced-update dash as every other LED lit (G4i/G4i+), with no
+          change on some models.
+      recovery:
+        interrupted: "unknown"
+        notes: >
+          The vendor presents the forced update as the fix for a failed
+          update, which suggests the bootloader survives an interrupted
+          flash. That is not confirmed.
+      verification: "reported"
+      notes: "From the app's update flow and the vendor's firmware articles. Nothing was flashed or captured."
+
+entities:
+  - platform: "sensor"
+    name: "Battery"
+    device_class: "battery"
+    unit: "%"
+    state_characteristic: "a73e9a10-628f-4494-a099-12efaf72258f"
+    state_command: "read_dash_data"
+    state_mapping:
+      value: "battery_level"
+    precision: 10
+    notes: "10 % steps. Poll read_dash_data about once a second; the value arrives in the reply on Peripheral TX."
+  - platform: "sensor"
+    name: "Battery Voltage"
+    device_class: "voltage"
+    unit: "V"
+    state_characteristic: "a73e9a10-628f-4494-a099-12efaf72258f"
+    state_command: "read_dash_data"
+    state_mapping:
+      value: "battery_voltage"
+    precision: 0.1
+  - platform: "sensor"
+    name: "Battery Current"
+    device_class: "current"
+    unit: "A"
+    state_characteristic: "a73e9a10-628f-4494-a099-12efaf72258f"
+    state_command: "read_dash_data"
+    state_mapping:
+      value: "battery_current"
+    precision: 0.1
+  - platform: "sensor"
+    name: "Speed"
+    device_class: "speed"
+    unit: "mph"
+    state_characteristic: "a73e9a10-628f-4494-a099-12efaf72258f"
+    state_command: "read_dash_data"
+    state_mapping:
+      value: "speed"
+    precision: 0.1
+  - platform: "sensor"
+    name: "Cadence"
+    unit: "rpm"
+    state_characteristic: "a73e9a10-628f-4494-a099-12efaf72258f"
+    state_command: "read_dash_data"
+    state_mapping:
+      value: "cadence"
+    precision: 1
+  - platform: "sensor"
+    name: "Gear"
+    state_characteristic: "a73e9a10-628f-4494-a099-12efaf72258f"
+    state_command: "read_dash_data"
+    state_mapping:
+      value: "gear"
+  - platform: "sensor"
+    name: "Odometer"
+    device_class: "distance"
+    unit: "mi"
+    state_characteristic: "a73e9a10-628f-4494-a099-12efaf72258f"
+    state_command: "read_dash_data"
+    state_mapping:
+      value: "odometer"
+    precision: 0.1
+  - platform: "sensor"
+    name: "Trip Distance"
+    device_class: "distance"
+    unit: "mi"
+    state_characteristic: "a73e9a10-628f-4494-a099-12efaf72258f"
+    state_command: "read_dash_data"
+    state_mapping:
+      value: "trip_distance"
+    precision: 0.1
+  - platform: "sensor"
+    name: "Trip Calories"
+    unit: "kcal"
+    state_characteristic: "a73e9a10-628f-4494-a099-12efaf72258f"
+    state_command: "read_dash_data"
+    state_mapping:
+      value: "trip_calories"
+  - platform: "sensor"
+    name: "Moving Time"
+    device_class: "duration"
+    unit: "ms"
+    state_characteristic: "a73e9a10-628f-4494-a099-12efaf72258f"
+    state_command: "read_dash_data"
+    state_mapping:
+      value: "moving_time"
+  - platform: "sensor"
+    name: "Pedal Energy"
+    device_class: "energy"
+    unit: "J"
+    state_characteristic: "a73e9a10-628f-4494-a099-12efaf72258f"
+    state_command: "read_dash_data"
+    state_mapping:
+      value: "pedal_energy"
+    notes: "Since the last trip reset. Values above 4,000,000,000 are invalid."
+  - platform: "sensor"
+    name: "Motor Energy"
+    device_class: "energy"
+    unit: "J"
+    state_characteristic: "a73e9a10-628f-4494-a099-12efaf72258f"
+    state_command: "read_dash_data"
+    state_mapping:
+      value: "motor_energy"
+    notes: "Since the last trip reset."
+  - platform: "switch"
+    name: "Predictive Shifting"
+    variants: ["G4i", "G4i+"]
+    state_characteristic: "a73e9a10-628f-4494-a099-12efaf72258f"
+    state_command: "read_dash_data"
+    state_mapping:
+      value: "auto_shift_enabled"
+      on_when: "nonzero"
+    commands:
+      turn_on: "predictive_shifting_on"
+      turn_off: "predictive_shifting_off"
+    notes: "The app shows this control for the G4i and G4i+ only (by the model on the cloud record)."
+  - platform: "switch"
+    name: "Lights"
+    state_command: "read_lights_enable"
+    commands:
+      turn_on: "lights_on"
+      turn_off: "lights_off"
+    notes: >
+      Integrated front and rear lights. The state reply (opcode 0x3023,
+      payload byte 0 non-zero = on) arrives on Peripheral TX, but that
+      characteristic's `format` decodes only dash frames, so a consumer
+      must parse it by hand (payload_formats.ByteState). The app shows this
+      control on every G4 with integrated lights. Hardware type 4 has these
+      lights but no DRL.
+  - platform: "switch"
+    name: "DRL Flashing Allowed"
+    state_command: "read_drl"
+    commands:
+      turn_on: "drl_flash_on"
+      turn_off: "drl_flash_off"
+    notes: >
+      Whether the DRL's flashing modes may be used. The state is byte 1 of
+      the read_drl reply (payload_formats.DrlStatus). Some regions forbid
+      flashing bicycle lights. Only bikes with a DRL (hardware types 3 and 5)
+      respond meaningfully.
+  - platform: "switch"
+    name: "DRL Switch Controls Lights"
+    state_command: "read_lights_selector"
+    commands:
+      turn_on: "lights_selector_on"
+      turn_off: "lights_selector_off"
+    notes: >
+      When on, switching the DRL off also switches the front and rear lights
+      off. The app offers it only for hardware type 5. The state is byte 0
+      of the read_lights_selector reply.
+  - platform: "button"
+    name: "Reset Trip"
+    commands:
+      press: "reset_trip"
+    notes: "Zeroes the bike's trip distance, calories, moving time and energy counters, as the app does when a ride starts."
+
+payload_formats:
+  FrameEnvelope:
+    description: >
+      The long frame used in both directions on the BLE path. Offsets from
+      the start byte: [0] 0x40; [1-2] payload length N, uint16 LE (payload
+      only); [3-4] opcode, uint16 LE, with bit 15 set on the opcodes in
+      protocol_details.framing.flagged_opcodes; [5 .. 4+N] payload;
+      [5+N .. 6+N] checksum, uint16 LE, the sum of bytes 1 .. 4+N modulo
+      65536. Total length N + 7.
+    fields:
+      - {name: "start", offset: 0, length: 1, type: "uint8", description: "Always 0x40 ('@')."}
+      - {name: "payload_length", offset: 1, length: 2, type: "uint16", endianness: "little", description: "Payload bytes only. Excludes start, length, opcode and checksum."}
+      - {name: "opcode", offset: 3, length: 2, type: "uint16", endianness: "little", description: "Low byte first. Mask with 0x7fff to compare against the opcode table. The app sets bit 15 on send for some opcodes and masks it off on receive."}
+      - {name: "payload", offset: 5, type: "bytes", description: "N bytes, layout per opcode."}
+      - {name: "checksum", type: "uint16", endianness: "little", description: "At offset 5+N. Sum of every byte from offset 1 up to the end of the payload, truncated to 16 bits. The start byte is not summed."}
+    parse_rules:
+      - "Scan the byte stream for 0x40 (long frame) or 0x21 (short frame). The app does not resynchronise cleanly after stray bytes, so a client should discard everything before the start byte itself."
+      - "Wait until 7 + N bytes have arrived (N from bytes 1-2), however many notifications that takes."
+      - "Verify the checksum. The app drops a frame that fails it and continues with the next."
+      - "opcode = u16le(bytes 3-4) & 0x7fff. Replies to a request carry the request's opcode, except READ_ID (reply 0x1003), GET_DRL (reply 0x103b) and log text (0x1008)."
+      - "ACK is opcode 0x0001 and NACK is 0x0000. Either carries the acknowledged opcode as a uint16 LE payload."
+      - "When sending, split any frame longer than 150 bytes into writes no larger than the negotiated ATT payload and no larger than 250 bytes. The app uses 256-byte writes, which exceeds the BGX limit. Only firmware blocks are that long."
+    example: "40 01 00 35 a0 04 da 00"
+  ShortFrame:
+    description: >
+      A compact reply form the app's parser also accepts: [0] 0x21 ('!');
+      [1] length C (at most 100); [2] type; [3 .. 2+C] C data bytes;
+      [3+C] checksum, uint8, the sum of bytes 1 .. 2+C modulo 256. Total
+      C + 4. The only type the app handles is 0x01 (ACK), whose two data
+      bytes are the acknowledged opcode, uint16 LE. It is the form the app
+      expects for some firmware-update and DRL acknowledgements. Whether a
+      G4 emits it over BLE is not established.
+    fields:
+      - {name: "start", offset: 0, length: 1, type: "uint8", description: "0x21."}
+      - {name: "length", offset: 1, length: 1, type: "uint8", description: "C, the data-byte count after the type byte. The app treats C > 100 as garbage and skips the start byte."}
+      - {name: "type", offset: 2, length: 1, type: "uint8", values: {"1": "ACK"}}
+      - {name: "acked_opcode", offset: 3, length: 2, type: "uint16", endianness: "little", description: "For type 0x01."}
+    example: "21 02 01 3c 10 4f"
+  AckNack:
+    description: >
+      Long-frame ACK (opcode 0x0001) or NACK (opcode 0x0000). The payload is
+      the opcode being answered, uint16 LE. The app's log upload also sends
+      ACKs the other way (protocol_details.log_upload).
+    fields:
+      - {name: "answered_opcode", offset: 0, length: 2, type: "uint16", endianness: "little"}
+    example: "40 02 00 01 00 22 30 55 00  (ACK for lights on/off, opcode 0x3022)"
+  Version:
+    description: "Reply to read_mc_version (opcode 0x2021) and read_jb_version (opcode 0x2026). Payload offsets."
+    fields:
+      - {name: "minor", offset: 0, length: 2, type: "uint16", endianness: "little"}
+      - {name: "major", offset: 2, length: 2, type: "uint16", endianness: "little"}
+    parse_rules:
+      - "Version string = major + '.' + minor (minor 0 gives 'major.0'). A G4 reports 2.x, and the Classic bikes' controllers report 8x.0."
+      - "The app stores the result as the motor-controller or junction-box version and compares it with the cloud's current version."
+  ReadIdReply:
+    description: "Reply to read_id, opcode 0x1003. Payload offsets. Bytes 0-7 and 10-11 are not interpreted by the app."
+    fields:
+      - {name: "unit_type", offset: 8, length: 2, type: "uint16", endianness: "little", values: {"1": "junction box (older bikes)", "2": "motor controller", "6": "dash", "8": "dash / light bar", "9": "G3 junction box (also treated as light bar)", "10": "G3S junction box", "11": "dash / light bar", "13": "G4 (treated as a dash as well)"}}
+      - {name: "image_type", offset: 12, length: 2, type: "uint16", endianness: "little", values: {"1": "bootloader", "2": "application"}}
+      - {name: "version_major", offset: 14, length: 2, type: "uint16", endianness: "little"}
+      - {name: "version_minor", offset: 16, length: 2, type: "uint16", endianness: "little"}
+    parse_rules:
+      - "The app treats the reply as valid when unit_type is a junction box or motor controller and image_type is 1 or 2. The labels are the app's own interpretation."
+  GocycleType:
+    description: "Reply to read_gocycle_type, opcode 0x204b. Payload byte 0."
+    fields:
+      - {name: "gocycle_type", offset: 0, length: 1, type: "uint8", values: {"1": "G4 hardware type 1", "2": "G4 hardware type 2", "3": "G4 with DRL", "4": "G4 with integrated front/rear lights, no DRL", "5": "G4 with DRL, integrated lights and DRL-switch selector"}}
+    parse_rules:
+      - "The labels for 3-5 come from which light settings the app shows. 1 and 2 get no light settings. The firmware picker maps 1-3 to its 2.80 image, 4 to 2.87 and 5 to 2.86. Which marketing model each value is has not been established."
+  ModeDefinition:
+    description: >
+      Reply to read_mode_definition_* (opcode 0x2035), the echo of
+      set_mode_definition (opcode 0x2036), and the 10-byte payload
+      set_mode_definition writes. Payload offsets.
+    fields:
+      - {name: "definition", offset: 0, length: 1, type: "uint8", description: "1-4. The app writes 4 (working slot). A G4 keeps Custom 1 in 2 and Custom 2 in 3."}
+      - {name: "torque_sensing", offset: 1, length: 1, type: "uint8", description: "Non-zero = torque sensing. The app always writes 1."}
+      - {name: "boost_level", offset: 2, length: 1, type: "uint8", description: "The app's 'boost' / power value. 0 in every preset. Meaning not established."}
+      - {name: "pedalling_required", offset: 3, length: 1, type: "uint8", values: {"0": "pedalling required for assist", "1": "assist without pedalling allowed"}, description: "Region-dependent. Copy it, never set it."}
+      - {name: "max_speed", offset: 4, length: 2, type: "uint16", endianness: "little", scale: 0.01, unit: "mph", description: "Speed ceiling for this definition. Region-dependent. Copy it, never set it."}
+      - {name: "pedal_watts_start", offset: 6, length: 2, type: "uint16", endianness: "little", unit: "W", description: "Rider pedal effort at which the motor starts to assist."}
+      - {name: "pedal_watts_full", offset: 8, length: 2, type: "uint16", endianness: "little", unit: "W", description: "Rider pedal effort for full motor assistance."}
+    parse_rules:
+      - "The preset in use is identified by the (pedal_watts_start, pedal_watts_full) pair of definition 4. See protocol_details.riding_modes.presets. Equal values mean Demand."
+  ByteState:
+    description: "Reply to read_lights_enable (opcode 0x3023) and read_lights_selector (opcode 0x3020). Payload byte 0."
+    fields:
+      - {name: "state", offset: 0, length: 1, type: "uint8", values: {"0": "off / disabled"}, description: "Any non-zero value is on / enabled."}
+  DrlStatus:
+    description: "Reply to read_drl, opcode 0x103b. Payload offsets. set_drl writes the same four positions, and 0xff leaves a position unchanged."
+    fields:
+      - {name: "drl_on", offset: 0, length: 1, type: "uint8", description: "Non-zero = DRL on. The app's (unused) direct DRL setter writes 0 here with 0xff in byte 2 for Off."}
+      - {name: "flashing_allowed", offset: 1, length: 1, type: "uint8", description: "Non-zero = flashing modes permitted."}
+      - {name: "current_mode", offset: 2, length: 1, type: "uint8", values: {"0": "low", "1": "low flashing", "2": "high", "3": "high flashing"}}
+      - {name: "default_mode", offset: 3, length: 1, type: "uint8", values: {"0": "low", "1": "low flashing", "2": "high", "3": "high flashing", "5": "off"}, description: "The app shows any value outside 0-3 as Off, and writes 5 for Off."}
+  MaxSpeed:
+    description: "Reply to read_max_speed, opcode 0x2047. Payload offsets."
+    fields:
+      - {name: "max_speed", offset: 0, length: 2, type: "uint16", endianness: "little", scale: 0.01, unit: "mph"}
+    parse_rules:
+      - "The app labels a bike below 17 mph as EU EPAC, and one at 17-20 mph as US Class 1 (or Class 2 when AllowOnDemand is non-zero). The vendor's firmware article defines EPAC as 25 km/h (15.5 mph) with pedalling required, and US Class 1/2 as 20 mph."
+  AllowOnDemand:
+    description: "Reply to read_allow_on_demand, opcode 0x2049. Payload offsets."
+    fields:
+      - {name: "allow_on_demand", offset: 0, length: 2, type: "uint16", endianness: "little", values: {"0": "assist requires pedalling"}, description: "Non-zero = assist without pedalling (throttle) permitted."}
+  FrameNumber:
+    description: "Reply to read_frame_number, opcode 0x2022. Payload offsets. Unexercised by the app."
+    fields:
+      - {name: "frame_number", offset: 0, length: 4, type: "uint32", endianness: "little"}
+  DiagnosticData:
+    description: >
+      Reply to read_diagnostic_data, opcode 0x204a. Payload offsets. The app
+      reads bytes 16-23 only when the payload is over 16 bytes, and bytes
+      24-39 only when it is over 24. The labels are the app's, and units
+      are given where the app's scaling makes them clear.
+    fields:
+      - {name: "pedal_sensor_count", offset: 0, length: 4, type: "uint32", endianness: "little", description: "Crank sensor counts. The vendor says 8 per crank revolution. The app differences it as int32."}
+      - {name: "wheel_sensor_count", offset: 4, length: 4, type: "uint32", endianness: "little", description: "4 per wheel revolution (vendor)."}
+      - {name: "go_button_count", offset: 8, length: 2, type: "uint16", endianness: "little", description: "Boost-button / left-switch presses."}
+      - {name: "torque_sensor", offset: 10, length: 2, type: "uint16", endianness: "little", description: "Torque sensor reading. On a G4 the app subtracts 500 as the zero point."}
+      - {name: "gear", offset: 14, length: 2, type: "uint16", endianness: "little"}
+      - {name: "battery_voltage", offset: 16, length: 2, type: "uint16", endianness: "little", scale: 0.001, unit: "V"}
+      - {name: "speed_voltage_raw", offset: 18, length: 2, type: "uint16", endianness: "little", description: "Not shown as a labelled value. The app groups it with motor speed. Meaning and unit unknown."}
+      - {name: "controller_temperature", offset: 20, length: 2, type: "int16", endianness: "little", scale: 0.01, unit: "C", description: "The app labels it controller 'degrees'. Temperature is inferred."}
+      - {name: "motor_temperature", offset: 22, length: 2, type: "int16", endianness: "little", scale: 0.01, unit: "C", description: "The app labels it motor 'degrees'. Temperature is inferred."}
+      - {name: "stator_resistance", offset: 24, length: 2, type: "uint16", endianness: "little", unit: "mΩ"}
+      - {name: "stator_inductance", offset: 26, length: 2, type: "uint16", endianness: "little", unit: "µH"}
+      - {name: "pedal_sensor_sin", offset: 28, length: 2, type: "uint16", endianness: "little"}
+      - {name: "pedal_sensor_cos", offset: 30, length: 2, type: "uint16", endianness: "little"}
+      - {name: "torque_sensor_adc", offset: 32, length: 2, type: "uint16", endianness: "little"}
+      - {name: "motor_speed", offset: 34, length: 2, type: "uint16", endianness: "little", unit: "rpm"}
+      - {name: "phase_current", offset: 38, length: 2, type: "uint16", endianness: "little", description: "Motor phase current by the app's grouping. Scale and unit unknown."}
+  StressCounts:
+    description: "Reply to read_stress_counts, opcode 0x3027. 24-byte payload of six float32 LE values."
+    fields:
+      - {name: "start_odometer", offset: 0, length: 4, type: "float32", unit: "mi"}
+      - {name: "end_odometer", offset: 4, length: 4, type: "float32", unit: "mi"}
+      - {name: "high_torque_events_per_mile", offset: 8, length: 4, type: "float32"}
+      - {name: "high_deceleration_events_per_mile", offset: 12, length: 4, type: "float32"}
+      - {name: "skids_per_mile", offset: 16, length: 4, type: "float32"}
+      - {name: "odometer", offset: 20, length: 4, type: "float32", unit: "mi"}
+
+protocol_details:
+  framing:
+    description: >
+      The BGX module is a transparent serial bridge, so the "protocol" is a
+      byte stream of frames in both directions. The client-to-bike direction
+      on BLE always uses the 0x40 long frame. The bike-to-client direction
+      uses the 0x40 long frame and, in some acknowledgements, the 0x21 short
+      frame. See payload_formats.FrameEnvelope and ShortFrame.
+    checksum: "uint16 LE, sum of all bytes after the start byte through the end of the payload, modulo 65536"
+    opcode_byte_order: >
+      Little-endian on the BLE wire. Internally the app holds opcodes as
+      big-endian byte pairs, and that is also how it writes them on the
+      Classic path, so do not copy byte order between the two transports.
+    flagged_opcodes:
+      description: >
+        On send, the app ORs 0x8000 into these opcodes, and on receive it
+        masks bit 15 off every opcode. The documented ones are 0x2021
+        (motor-controller version), 0x2022 (frame number), 0x2031 (dash
+        data), 0x2035 (get mode definition), 0x2036 (set mode definition),
+        0x203f (trip reset), 0x2047 (read max speed) and 0x2049 (read
+        on-demand permission). A few omitted writes and one unused read are
+        flagged as well. What the bit means is a hypothesis: every flagged
+        opcode concerns the motor controller, and the junction-box version
+        read is not flagged, so it may route the frame past the junction box
+        to the motor controller.
+      verification: "hypothesis"
+    test_vectors:
+      - {frame: "40 00 00 31 a0 d1 00", decodes_to: "opcode 0x2031 (dash data, bit 15 set), empty payload, checksum 0x00d1 = 0x00+0x00+0x31+0xa0"}
+      - {frame: "40 01 00 35 a0 04 da 00", decodes_to: "opcode 0x2035, payload [04], checksum 0x00da"}
+      - {frame: "40 04 00 3c 10 ff 01 ff ff 4e 03", decodes_to: "opcode 0x103c (set DRL), payload [ff 01 ff ff], checksum 0x034e"}
+      - {frame: "21 02 01 3c 10 4f", decodes_to: "short-form ACK of opcode 0x103c, checksum 0x4f = 0x02+0x01+0x3c+0x10"}
+  opcode_table:
+    description: >
+      Opcodes this spec documents, with their role in our own words. "Reply"
+      is the opcode the bike answers with. The app also defines opcodes it
+      never sends, and those are listed with what little is known. Opcodes
+      for omitted operations are deliberately not numbered here (see
+      omitted_operations).
+    entries:
+      - {opcode: "0x0000", role: "NACK (payload: opcode refused)", direction: "bike to client"}
+      - {opcode: "0x0001", role: "ACK (payload: opcode acknowledged); also sent by the client during log upload", direction: "both"}
+      - {opcode: "0x1002", role: "identify unit (reply 0x1003)", declared_as: "read_id"}
+      - {opcode: "0x1008", role: "text block (log upload data)", direction: "bike to client"}
+      - {opcode: "0x1009", role: "select active mode definition", declared_as: "activate_mode_slot"}
+      - {opcode: "0x100a", role: "get active mode (reply 0x100b, payload byte 0 = mode). Defined, never sent by this app build", direction: "client to bike"}
+      - {opcode: "0x103a", role: "get DRL status (reply 0x103b)", declared_as: "read_drl"}
+      - {opcode: "0x103c", role: "set DRL fields (0xff = unchanged)", declared_as: "drl_flash_on/off, drl_default_*"}
+      - {opcode: "0x2011", role: "log end", direction: "bike to client"}
+      - {opcode: "0x2021", role: "motor-controller version (flagged)", declared_as: "read_mc_version"}
+      - {opcode: "0x2022", role: "frame number read (flagged)", declared_as: "read_frame_number"}
+      - {opcode: "0x2024", role: "battery voltage read (flagged). Defined, never sent by this app build; reply layout unknown"}
+      - {opcode: "0x2025", role: "battery LEDs read. Defined, never sent; reply layout unknown"}
+      - {opcode: "0x2026", role: "junction-box version", declared_as: "read_jb_version"}
+      - {opcode: "0x2031", role: "dash data (flagged)", declared_as: "read_dash_data"}
+      - {opcode: "0x2033", role: "log upload response: bytes to expect", direction: "bike to client"}
+      - {opcode: "0x2035", role: "get mode definition (flagged)", declared_as: "read_mode_definition_*"}
+      - {opcode: "0x2036", role: "set mode definition (flagged). Documented, not framed", declared_as: "set_mode_definition"}
+      - {opcode: "0x2037", role: "get mode names. Defined, never sent; layout unknown"}
+      - {opcode: "0x203a", role: "start log upload", declared_as: "protocol_details.log_upload"}
+      - {opcode: "0x203f", role: "trip reset (flagged)", declared_as: "reset_trip"}
+      - {opcode: "0x2047", role: "read max speed (flagged)", declared_as: "read_max_speed"}
+      - {opcode: "0x2049", role: "read on-demand permission (flagged)", declared_as: "read_allow_on_demand"}
+      - {opcode: "0x204a", role: "diagnostic counters", declared_as: "read_diagnostic_data"}
+      - {opcode: "0x204b", role: "hardware type", declared_as: "read_gocycle_type"}
+      - {opcode: "0x3013", role: "predictive shifting on/off", declared_as: "predictive_shifting_on/off"}
+      - {opcode: "0x3020", role: "get lights selector", declared_as: "read_lights_selector"}
+      - {opcode: "0x3021", role: "set lights selector", declared_as: "lights_selector_on/off"}
+      - {opcode: "0x3022", role: "set integrated lights", declared_as: "lights_on/off"}
+      - {opcode: "0x3023", role: "get integrated lights", declared_as: "read_lights_enable"}
+      - {opcode: "0x3027", role: "stress counts", declared_as: "read_stress_counts"}
+    trip_reset_variants: >
+      Opcode 0x203f takes a flag per counter group. The app sends
+      [01 01 01 01 01] to reset the trip, [00 01 00 00] to reset calories,
+      [00 00 01 00] to reset moving time, and [00 00 00 01] to reset motor
+      energy. Only the first is used by the current screens. Which byte maps
+      to which counter in the five-byte form is inferred from the four-byte
+      forms.
+  omitted_operations:
+    description: >
+      Defined by the app and deliberately NOT given opcodes or bytes here,
+      on safety, legal-classification, anti-theft or bricking grounds. Their
+      existence is recorded so nobody mistakes the gap for ignorance.
+    entries:
+      - "Setting the maximum assisted speed. The app also carries region presets that write it together with the throttle permission."
+      - "Setting whether assist without pedalling (throttle / On Demand) is permitted."
+      - "Setting a miles limit (the demo / Delivery State limit) and a time limit."
+      - "Writing the frame number."
+      - "Putting the bike into or out of Factory State."
+      - "Locking and unlocking the junction box and the motor controller."
+      - "Marking the bike not stolen (the anti-theft flag behind the 9-beep code)."
+      - "Setting or clearing the pending dealer-review flag and resetting the service state."
+      - "Clearing the bike's log."
+      - "Firmware update: begin, write block, block acknowledgement, end, CRC query, run-application, reset and kill-application-and-reset, and the pass-through used to reach a second controller during updates."
+      - "Writing the controllers' parameter memory, and reading it raw."
+      - "Service actions: motor test, hall-sensor and torque zero calibration, ratio check, lights test, flash test, test slider, stress-count reset, diagnostic LED control."
+      - "Sending a command to the Bluetooth module itself (a passthrough to the radio's command shell)."
+  riding_modes:
+    description: >
+      What the app's four mode buttons do. They do not select a numbered
+      mode. Each one writes a pedal-power curve into mode definition 4 and
+      then activates definition 4. The vendor's firmware notes describe the
+      older four-slot layout as Mode 1 City, Mode 2 Eco, Mode 3 On Demand
+      and Mode 4 Custom. On a G4 the app uses 4 as its working slot and
+      keeps the user's two custom modes in 2 and 3.
+    presets:
+      - {name: "City", pedal_watts_start: 50, pedal_watts_full: 400, notes: "Classic-path bikes: 0 / 400."}
+      - {name: "Eco", pedal_watts_start: 200, pedal_watts_full: 600}
+      - {name: "Turbo", pedal_watts_start: 50, pedal_watts_full: 200, notes: "Classic-path bikes: 0 / 150."}
+      - {name: "Demand", pedal_watts_start: 600, pedal_watts_full: 600, notes: "The app identifies Demand by the two values being equal."}
+    unit: "W"
+    app_sequence:
+      - "Build the definition-4 payload: [04, 01, 00, pedalling_required, max_speed lo, max_speed hi, start lo, start hi, full lo, full hi]."
+      - "The app fills pedalling_required and max_speed from the region on the bike's cloud build record (EU: pedalling required and the 25 km/h EPAC ceiling; elsewhere the 20 mph US ceiling with pedalling not required). It does not read them from the bike."
+      - "Send it as opcode 0x2036 (flagged), then send activate_mode_slot (opcode 0x1009, payload [03])."
+      - "A custom mode: the G4 writes the same record to definition 2 or 3 as well as 4, carrying the user's own speed, boost and wattages, capped in the editor by read_max_speed."
+    safe_client_recipe:
+      - "Only with the bike stopped (vendor manual warning)."
+      - "Send read_mode_definition_active and keep the whole reply payload."
+      - "Replace bytes 6-9 (pedal_watts_start, pedal_watts_full) with the chosen preset. Keep bytes 0-5 exactly as read (definition 4, torque flag, boost, pedalling_required, max_speed)."
+      - "Frame it as opcode 0xa036 with the 16-bit checksum and write it. Expect an opcode-0x2036 echo."
+      - "Send activate_mode_slot and expect an ACK carrying 0x1009."
+      - "Read definition 4 again to confirm."
+    verification: "reported"
+    notes: >
+      The safe recipe differs from the app in one way: it copies the speed
+      and pedalling fields from the bike, where the app writes the region
+      values from the cloud. If definition 4 held a custom mode with a lower
+      user speed, the recipe keeps the lower speed. It can never raise a
+      ceiling. The app offers no "Turbo" row in the G4 manual's mode table,
+      and City+ (named in the manual) has no button in this app build.
+  log_upload:
+    description: >
+      The bike's sensor and settings log, which the app's Log Upload screen
+      pulls over BLE and forwards to Gocycle. It is read-only on the bike
+      side, and no declared command covers it, because it needs a
+      per-block acknowledgement loop.
+    sequence:
+      - "Client sends opcode 0x203a with a uint32 LE byte budget. The app sends 200000: frame 40 04 00 3a 20 40 0d 03 00 ae 00."
+      - "Bike answers opcode 0x2033 with a uint32 LE count of log bytes to expect."
+      - "Bike sends opcode 0x1008 frames, whose payload is ASCII log text. The client acknowledges each with an ACK frame carrying 0x1008: 40 02 00 01 00 08 10 1b 00."
+      - "Bike sends opcode 0x2011 at the end. The app also gives up after 5 s without a block."
+    verification: "reported"
+  bgx_module:
+    description: >
+      Facts about the Silicon Labs BGX13 radio module that decide client
+      behaviour. They come from Silicon Labs' public Gecko OS BGX
+      documentation and are module defaults, not confirmed Gocycle settings.
+    streaming: "Peripheral RX (write to the bike's serial side), Peripheral TX (notify from it), Mode (1 stream / 2 local command / 3 remote command). 1-250 bytes per characteristic value."
+    flow_control: >
+      Enabling notifications on Peripheral RX selects Fast-Ack flow control.
+      The module then sends 3-byte control messages on RX (0x00 + uint16 LE
+      initial buffer size, 0x01 + uint16 LE bytes freed) and expects the
+      central to respect the window. Leaving RX notifications off and using
+      Write with response selects legacy flow control. That is the state
+      the vendor app ends up in.
+    security: "The streaming and OTA services require an encrypted link. The module requests bonding by default and stores up to 14 bonds, least recently used first out. Just Works and 6-digit passkey are both supported."
+    ota: "The module has its own Silicon Labs OTA service for the module firmware. The vendor app never uses it, and the bike's firmware is updated through the framed opcodes instead."
+  classic_legacy_path:
+    description: >
+      Summary only, not a specification. G2, G3, G3+, G3C, GS, GX and GXi
+      bikes (any cloud model code not starting "G4") are reached over
+      Bluetooth Classic.
+    transport: "SPP, 00001101-0000-1000-8000-00805f9b34fb. On Android the app uses the open-source cordova BluetoothSerial plugin: a secure RFCOMM socket to SPP, falling back to channel 1."
+    discovery: "Only from the phone's list of already-paired devices. Pair the bike in the OS Bluetooth settings first. Its name is also 'Gocycle' + frame number."
+    host_to_bike: >
+      The app writes bare [opcode high byte, opcode low byte, payload ...]:
+      big-endian opcode, and no 0x40 start byte, length or checksum. No
+      source says whether the bike accepts that form or whether some layer
+      adds an envelope. It works for the app, but that is all that is known.
+    bike_to_host: "Parsed by the same 0x40 / 0x21 frame parser as the BLE path."
+    firmware: "A separate 'Classic Bluetooth' update path, with junction-box and motor-controller images the app downloads from the vendor's servers. Not described further here."
+    ios: "Not established. The Android plugin is RFCOMM, and CoreBluetooth exposes no RFCOMM, so whether the iOS app reaches these bikes at all is an open question."
+  app_quirks:
+    - "The app subscribes to Peripheral RX, then immediately unsubscribes and subscribes to Peripheral TX. A promise is invoked instead of passed, so the three steps race. It works because RX notifications end up off."
+    - "The set-time command (Unix time and timezone offset) and the frame-number read are called with their arguments shifted and never reach the bike."
+    - "Frames over 150 bytes are split into 256-byte writes, above the BGX 250-byte characteristic limit."
+    - "The receive parser does not consume stray bytes before a start byte correctly, so one corrupt notification can desynchronise it until reconnect. That may contribute to the connection complaints in store reviews."
+    - "The app builds the speed field of every mode selection from the cloud region, not from the bike, so a bike whose region record is missing gets the EU values."
+    - "The app requires sign-in, ownership of the frame number in the cloud, and (for a new bike) registration before it will connect. Store reviews complain of re-registration on reinstall, of failing to connect at all, and of needing to forget and re-pair."
+  schema_gaps:
+    - "The frame checksum is a 16-bit little-endian additive sum. The BLE `auto` vocabulary has only 8-bit sums and CRCs, so every command here is a precomputed fixed frame, and the mode-definition write cannot be declared as a template. A `sum16_le` role (and a payload-only `packet_length`) would let it be."
+    - "A notify characteristic here carries a dozen reply types keyed by a 2-byte opcode. `format_match` takes one byte and a characteristic takes one `format`, so only the dash frame is decodable declaratively. Per-opcode formats would bind the lights, DRL and mode-definition states."
+    - "A BLE parameter cannot say 'read this back from the device and send it unchanged' (`source` is credential-only on BLE). The mode-definition write needs exactly that, for its speed and pedalling fields."
+
+evidence:
+  app_static_analysis: >
+    GocycleConnect (com.gocycle.Gocycle) 9.6.2, a Capacitor app whose bike
+    logic is plain JavaScript in the web bundle. Read directly: the frame
+    builder (start byte, length, opcode byte order, the bit-15 set, the
+    16-bit checksum, >150-byte chunking), the receive parser (both frame
+    types, checksum, and every reply layout in payload_formats), the opcode
+    table, the scan filter and name parsing, the subscribe sequence, the
+    riding-mode buttons and presets, the lights, DRL, lights-selector and
+    predictive-shifting screens, the trip reset on ride start, the
+    diagnostics screen, the log upload, the firmware updater's structure,
+    and the model routing between BLE and the Classic serial plugin. The
+    Android native side was checked only to confirm the serial plugin
+    (SPP UUID, secure socket) and the Bluetooth permissions.
+  documentation_review: >
+    Gocycle product manuals (G4 and G4i/G4i+, August 2024; GX 2020; G3/G3+)
+    for the riding-mode behaviour, the custom-mode fields, the battery-on
+    requirement for Bluetooth and the Factory/Delivery State. Gocycle
+    help-centre articles for the Bluetooth reset, connecting several
+    phones, Factory and Delivery State, beep codes, app diagnostics, the
+    firmware versions (region classes) and the firmware changelog, and the
+    forced firmware update. Silicon Labs Gecko OS BGX documentation for
+    the streaming service, the Mode values, flow control and pairing
+    defaults.
+  negative_findings: >
+    No Home Assistant "gocycle" integration or other open-source Gocycle
+    client could be found. An earlier research note claimed one. No FCC
+    grant is indexed under Gocycle or Karbon Kinetics, and no manual prints
+    an FCC ID. The app never touches the Silicon Labs OTA UUIDs in its name
+    table. The app has no code for the CX/CXi cargo bikes.
+  open_questions: >
+    Everything here is app-derived and unreplayed. The first GATT session
+    against a G4 should confirm the service and characteristic layout, the
+    pairing model, whether the dash frame arrives whole in one notification
+    at the negotiated MTU, and the dash payload length on current firmware.
+    See remaining_unknowns.
+  artifacts:
+    - type: "static_analysis"
+      artifact: "GocycleConnect (com.gocycle.Gocycle) 9.6.2, Android XAPK"
+      obtained_via: "third-party APK mirror, 2026-09"
+      description: >
+        Established the whole BLE surface in this spec. Negative findings:
+        no link-layer or application crypto in the app, no use of the
+        Silicon Labs OTA service, and no CX model handling.
+    - type: "vendor_documentation"
+      artifact: "Gocycle G4 and G4i/G4i+ product manuals (EN, August 2024)"
+      obtained_via: "Gocycle help-centre attachments, 2026-09"
+      description: "Riding modes, custom-mode fields, battery and Bluetooth power, Factory and Delivery State."
+    - type: "vendor_documentation"
+      artifact: "Gocycle help-centre articles (Bluetooth reset, multiple devices, Factory/Delivery State, beep codes, diagnostics, firmware versions, forced update)"
+      obtained_via: "Zendesk Help Center API, 2026-09"
+      description: "Pairing behaviour, recovery procedures, region classes and state machine."
+    - type: "vendor_documentation"
+      artifact: "Silicon Labs Gecko OS BGX13 documentation (BLE services, security)"
+      url: "https://docs.silabs.com/gecko-os/1/bgx/latest/ble-services"
+      description: "Identified the service as the stock BGX13 Xpress Streaming Service and supplied the module's flow-control and pairing defaults."
+
+remaining_unknowns:
+  - "No GATT dump of a Gocycle. The characteristic properties are the BGX module's documented ones, and whether the bike also exposes the Silicon Labs OTA service is unknown."
+  - "Pairing: whether Gocycle left the BGX defaults (encryption required, bonding, Just Works) or changed them. The Bluetooth-reset article implies stored bonds, but nothing states the association model."
+  - "Whether a dash frame (67 bytes on current firmware, by the app's field offsets) arrives in one notification at the MTU a phone negotiates, and how the BGX module splits it otherwise."
+  - "Dash payload bytes 4-9, 14-15, 17-19, 26-27, 30-35 and 57 are not read by the app. The exact payload length per firmware is not known."
+  - "Whether battery_current can go negative or reflects charging, and whether trip_calories is kcal."
+  - "The meaning of dash miles_limit -2, and of the mode definition's boost byte."
+  - "What the 0x8000 opcode flag does (hypothesis: route to the motor controller)."
+  - "Whether the activate-mode index is 0-based (3 selects definition 4), and what the bike does if definition 4 is written without re-activating."
+  - "What the bike answers to set commands other than lights on/off and set-mode (ACK, NACK, echo or nothing)."
+  - "Whether the short 0x21 frame ever appears on the BLE path."
+  - "Which marketing model each hardware-type value (1-5) is, and whether G4 'Mk2' builds differ on the wire."
+  - "Whether the CX/CXi cargo bikes are G4-family BLE bikes. The app has no code for them."
+  - "The 'Lights: Auto' state seen in an older app screenshot has no counterpart in the analysed build, which offers only on/off."
+  - "Whether the junction-box version read answers on a G4. The current app sends it only on the Classic path."
+  - "Whether the Classic path's bare, un-enveloped writes are really what the older bikes accept."
+  - "Whether the bootloader verifies anything beyond a CRC, and what an interrupted G4 update leaves behind."
+
+helpful_urls:
+  - title: "Gocycle G4 manual, August 2024 (PDF)"
+    url: "https://gocycle.zendesk.com/hc/article_attachments/20875761767965"
+    kind: "manual"
+    description: >
+      Vendor-hosted Owner's Manual plus the G4 Product Manual: riding modes,
+      custom-mode fields, the warning against changing mode in motion,
+      battery on/off (Bluetooth needs the battery on) and Factory/Delivery
+      State. The cover says G4i, but the inner title page says G4.
+  - title: "Gocycle G4i / G4i+ manual, August 2024 (PDF)"
+    url: "https://gocycle.zendesk.com/hc/article_attachments/20835029256477"
+    kind: "manual"
+    description: >
+      Vendor-hosted Owner's and Product Manual for the G4i and G4i+
+      (integrated dash, left twist switch, app connection).
+  - title: "Gocycle help centre: G4 G4i G4i+ Bluetooth Reset"
+    url: "https://gocycle.zendesk.com/hc/en-us/articles/5732420283805-G4-G4i-G4i-Bluetooth-Reset"
+    kind: "vendor_support"
+    description: >
+      The 30-second boost-button (G4) or left-twist-switch (G4i/G4i+) reset,
+      and the instruction to forget the bike in the phone afterwards. Needs
+      firmware 2.3 or later. Returns 403 to scripts, but works in a browser.
+  - title: "Gocycle help centre: Connecting Multiple Gocycles and Devices"
+    url: "https://gocycle.zendesk.com/hc/en-us/articles/360001237194-Connecting-Multiple-Gocycles-and-Devices"
+    kind: "vendor_support"
+    description: "For all app-connected Gocycles: one bike on several phones, with Bluetooth off on the first phone. The basis for the single-connection note."
+  - title: "Gocycle help centre: Factory State and Delivery State"
+    url: "https://gocycle.zendesk.com/hc/en-us/articles/360002731157-Factory-State-and-Delivery-State"
+    kind: "vendor_support"
+    description: "For all Gocycles: why a new bike's motor is off until app Setup, and the 60-mile Delivery (demo) State."
+  - title: "Gocycle help centre: Beep Codes for Gocycle G4 and G4i"
+    url: "https://gocycle.zendesk.com/hc/en-us/articles/360021169298-Beep-Codes-for-Gocycle-G4-and-G4i"
+    kind: "vendor_support"
+    description: "G4/G4i power-up beep codes: unregistered, Factory State, pending service review, stolen."
+  - title: "Gocycle help centre: Force a Firmware Update"
+    url: "https://gocycle.zendesk.com/hc/en-us/articles/360002677018-Force-a-Firmware-Update"
+    kind: "vendor_support"
+    description: "Per-model button held at power-on to make any Gocycle accept a fresh update. The dfu.enter basis."
+  - title: "Gocycle help centre: Firmware versions"
+    url: "https://gocycle.zendesk.com/hc/en-us/articles/5300344823965-Firmware-versions"
+    kind: "vendor_support"
+    description: "For all Gocycles: the EPAC and US Class 1 / Class 2 region classes (speed, pedalling requirement, power) that the mode record's speed and pedalling fields encode."
+  - title: "Gocycle help centre: App Diagnostics"
+    url: "https://gocycle.zendesk.com/hc/en-us/articles/115004909513-App-Diagnostics"
+    kind: "vendor_support"
+    description: "The diagnostics screen (wheel counts 4 per revolution, pedal counts 8). Separate G4-family and G2/G3/GS/GX/GXi flows."
+  - title: "Silicon Labs Gecko OS BGX: BLE Services"
+    url: "https://docs.silabs.com/gecko-os/1/bgx/latest/ble-services"
+    kind: "protocol_writeup"
+    description: "The BGX13 Xpress Streaming Service, its RX/TX/Mode characteristics, Mode values and Fast-Ack flow control. The basis for the service identification."
+  - title: "Silicon Labs Gecko OS BGX: Security"
+    url: "https://docs.silabs.com/gecko-os/1/bgx/latest/security"
+    kind: "protocol_writeup"
+    description: "BGX encryption and bonding: an encrypted link is required for the streaming service, the module has a 14-entry bond table, and supports Just Works or passkey. Module defaults, not confirmed Gocycle settings."
+  - title: "GocycleConnect on Google Play"
+    url: "https://play.google.com/store/apps/details?id=com.gocycle.Gocycle"
+    kind: "other"
+    description: "The vendor app this spec was recovered from (9.6.2 analysed)."
+  - title: "capacitor-community/bluetooth-le"
+    url: "https://github.com/capacitor-community/bluetooth-le"
+    kind: "implementation"
+    description: "The open-source BLE plugin the vendor app drives the G4 through. Useful for its connect, MTU and notification behaviour on Android and iOS."
+  - title: "don/BluetoothSerial"
+    url: "https://github.com/don/BluetoothSerial"
+    kind: "implementation"
+    description: "The open-source cordova serial plugin behind the app's Classic (G2/G3/GX) path: SPP over a secure RFCOMM socket on Android."

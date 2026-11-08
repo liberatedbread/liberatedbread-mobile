@@ -13,6 +13,7 @@ device:
     status: untested
   protocol: "ble"
   category: "light"
+  category_hierarchy: ["light", "led"]
   notes: >
     Govee's plain-RGB light family: bulbs (H6071/H6075/H6085/H6086/H6089,
     H60A0), RGB (non-IC) strips (H6110, H614B/H614E, H6159, H6160, H6178),

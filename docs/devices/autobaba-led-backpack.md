@@ -1,144 +1,109 @@
 # AUTOBABA LED Backpack
 
-> **Status**: Complete
-> **Protocol**: BLE + Wi-Fi
-> **Manufacturer**: LOY SPACE / popled.cn
-> **Manufacturer Status**: Abandoned
+> **Status**: Spec Available (display commands untested)
+> **Protocol**: BLE; Wi-Fi on some related LOY SPACE products
+> **Manufacturer**: LOY SPACE / popled.cn (active)
 
 ## Overview
 
-Programmable full-color LED backpack screen. Uses the **LOY SPACE / popled.cn protocol** — identical to [NYAN BT Image Controller](nyan-bt-image-controller.md). The LOY SPACE app (com.yskd.loywf) is the full-featured variant with both BLE and Wi-Fi support. The NYAN GEAR app (com.nyan.gear) is a BLE-only white-label reskin of the same platform.
+A programmable full-color LED backpack using the LOY SPACE protocol family,
+also seen in NYAN GEAR and other panels. The detailed spec is
+`device-specs/devices/autobaba-led-backpack.yaml`.
 
-## Hardware
+A 2026-11-07 owner-authorized live GATT session confirmed the display service
+and characteristic properties, then disconnected without reading, subscribing,
+writing, pairing or updating anything. This establishes the connection map,
+not display-command compatibility. Matrix geometry, firmware and upload
+behavior remain unknown until a read-only information response is captured.
 
-| Property | Value |
-|----------|-------|
-| Display | Full-color LED matrix (multiple sizes: 16x16 to 192x40) |
-| Chipset | Unknown |
-| Radio | BLE + Wi-Fi |
-| FCC ID | Unknown |
+## Hardware and identity
 
-## Protocol Summary
+- Advertised names begin `YS` or `TL` and include a device serial. This is a
+  **platform** match, not proof of an AUTOBABA controller revision.
+- Main display service: `0000fff0-0000-1000-8000-00805f9b34fb`.
+- Display writes: `0000fff2-0000-1000-8000-00805f9b34fb`,
+  **write-without-response only** in live discovery.
+- Display notifications: `0000fff1-0000-1000-8000-00805f9b34fb`, notify.
+- A separate `5833ff01-9b8b-5191-6142-22a4536ef123` service has **no
+  established role on this backpack**. It is an SBH OTA candidate, while
+  BanlanX research describes authenticated/ELS control on other firmware.
+  Neither role is established here. Its `5833ff02…` write and `5833ff03…`
+  notify properties were observed, but the analyzed LOY display path does not
+  use them, and no compatible command, image or recovery path is known.
 
-### BLE Services
+Rediscover by exact advertised name plus FFF0 rather than persisting an old
+MAC. During the live investigation, an address-based connection failed while
+the same name was found at a different random-format address; passing the
+freshly discovered device to the client worked. That does not prove how often
+one unit rotates addresses, but it is enough reason not to cache a stale one.
 
-| UUID | Name |
-|------|------|
-| `0000fff0-0000-1000-8000-00805f9b34fb` | LOY SPACE BLE Service |
+## Setup and pairing
 
-### Characteristics
+Power the backpack and connect directly. No account or network provisioning
+is established for the BLE display path. Do not infer that this particular
+unit has Wi-Fi merely because the generic app supports it. An optional
+password capability exists in the wider codec; if enabled, use the owner's
+normal app flow rather than guessing or bypassing it.
 
-| UUID | Name | Properties | Purpose |
-|------|------|------------|---------|
-| `0000fff1-0000-1000-8000-00805f9b34fb` | Notify | Read, Notify | Device acknowledgements |
-| `0000fff2-0000-1000-8000-00805f9b34fb` | Write | Write | Commands and image data |
+Subscribe to FFF1 before querying or sending a command. Use FFF2 with
+`response=False`. No factory reset is established; power-cycling only drops
+the connection and is not a factory wipe.
 
-### BLE Parameters
+## Read-only information query
 
-| Parameter | Value |
-|-----------|-------|
-| Write max bytes | 248 |
-| Inter-write delay | 10 ms |
-| BLE buffer size | 180 bytes |
+The vendor-derived example below asks for device information, panel
+parameters, power state and brightness configuration. Sequence 1 is only a
+worked example; a real client increments its sequence counter.
 
-### Device Discovery
+```text
+aa 55 ff ff 0e 00 01 00 c1 03 0a 00 1b 00 04 00 06 00 ff 03
+```
 
-- **BLE name prefix**: `"YS"` or `"TL"`
-- **Wi-Fi SSID**: Contains `"YS"` (AP mode, default password: `12345678`)
+**It was not sent during the live test.** A future owner-authorized capture
+should first enable FFF1, then use FFF2 without response and retain the raw
+reply. Panel TLV `0x1b` contains big-endian width and height. The app's
+initial 64×64 state is only a default, not proof of the backpack's geometry.
 
-### Wi-Fi Protocol
+## Frame and TLV format
 
-1. Connect to device AP (SSID starting with "YS")
-2. Bind UDP port **9090**
-3. Broadcast discovery to `192.168.4.255:9090`: `aa 55 ff ff 08 00 01 00 c1 03 0a 00 d4 03`
-4. Device responds from `192.168.4.1` (AP gateway)
-5. Same binary packet protocol used over Wi-Fi as over BLE
+The inner frame begins `AA 55 FF FF`, followed by little-endian length,
+sequence, flags/mode, TLV records and a little-endian additive checksum. A
+stream builder can add an outer 16-bit record length, but do not blindly
+prepend it to every GATT write.
 
-### Packet Format
+| Encoding | Value length |
+|---|---|
+| `LL` below `0x80` | `LL` bytes |
+| `81 LL` | `LL` bytes, for 128–255 |
+| `82 LL LH` | Little-endian 16-bit length, for 256 and above |
 
-All packets (BLE and Wi-Fi) use the same binary format:
+Therefore `13 81 c4` means TLV type `0x13` with 196 bytes of value. Logical
+resource chunks are separate from GATT writes: the official builder normally
+uses 960-byte resource chunks, a 997-byte TLV ceiling and a big-endian 16-bit
+chunk count. Initial transport writes are around 180 bytes, with larger
+MTU-dependent paths.
 
-| Offset | Size | Value | Description |
-|--------|------|-------|-------------|
-| 0 | 2 | `0xAA 0x55` | Magic header |
-| 2 | 2 | `0xFF 0xFF` | Address (broadcast/default) |
-| 4 | 2 | varies | Payload length (little-endian) |
-| 6 | 2 | varies | Sequence number |
-| 8 | 1 | varies | Command flags (0xC1 for programs) |
-| 9 | 1 | varies | Command type |
-| 10+ | varies | varies | Payload |
+The app has power, brightness, rotation, mirroring, playback and resource
+operations. Their presence in the generic codec does not prove that this
+firmware implements them or which ranges it accepts.
 
-### Commands (JSON-based)
+## Upload and maintenance boundaries
 
-Commands are JSON objects serialized to binary TLV packets:
+A third-party project reports raw-GIF transfer on another YS-family backpack,
+but has contradictory geometry notes and no retained capture. Its 196-byte
+chunks and 8-bit count are not universal vendor limits. Prefer the official
+TLV/resource framing until a capture establishes the simpler route.
 
-| Command | JSON | Description |
-|---------|------|-------------|
-| Power toggle | `{power:{type:0}}` | Toggle screen on/off |
-| Set brightness | `{light:{type:0, value_fix:N}}` | Brightness 0-15 |
-| Get device info | `{get:"dev_info"}` | Query device info |
-| Get power state | `{get:"power"}` | Query power state |
-| Delete all | `{delete:{del_all:1}}` | Delete all programs |
-| Play program | `{pgm_play:{model:0, index:N}}` | Play by index |
-| Loop programs | `{pgm_play:{model:2, ids_pro:[...]}}` | Loop specific programs |
-| Set rotation | `{rotate:N}` | Screen rotation |
-| Set password | `{pwd:{type:1, val:"123456"}}` | Set device password |
-| Real-time draw | `{rt_draw:{color:"", type:16, data:[...]}}` | Pixel drawing |
-| Format device | `{delete:{format:1}}` | Factory reset |
-
-### Image Upload
-
-1. Render content to Canvas at device resolution
-2. Convert RGBA to **24-bit uncompressed BMP** (`rgbtobmp`)
-3. Wrap in `pkts_program` structure with metadata (width, height, type)
-4. Serialize to TLV packets
-5. Send via BLE write (248-byte chunks) or UDP
-
-### Supported Resolutions
-
-| Width | Height | Shape |
-|-------|--------|-------|
-| 16 | 16 | Rectangle |
-| 32 | 16 | Rectangle (default for NYAN GEAR) |
-| 32 | 32 | Rectangle or Round |
-| 48 | 28 | Rectangle |
-| 64 | 20 | Rectangle |
-| 64 | 64 | Rectangle or Round |
-| 96 | 128 | Rectangle |
-| 160 | 32 | Wide banner |
-| 192 | 40 | Extra-wide |
-
-### Sliding Window ACK
-
-| Parameter | Value |
-|-----------|-------|
-| Window size | 3 (default), 5, or 10 |
-| BLE send timeout | 5000 ms |
-| Wi-Fi send timeout | 10000 ms |
-| BLE streaming interval | 20 ms |
-| Max TLV packet | 997 bytes (128 for firmware < V2.8.7#V15) |
-
-### Backend API
-
-| Endpoint | URL |
-|----------|-----|
-| CDN / API | `https://store-cdn.popled.cn/` |
-| Form CDN | `https://wxbtapp-cdn.popled.cn/` |
-| Font CDN | `https://store-cdn.popled.cn/font_en/` |
-
-Auth: `token = MD5(MD5(app_key) + timestamp)`. The `app_key` is a popled.cn / LOY
-SPACE backend credential and is intentionally **`<redacted>`** here per the project
-clean-room rules (no vendor keys/credentials in the repo).
-
-## Tools Used
-
-- [x] APK decompilation (jadx)
-- [ ] HCI snoop / Wi-Fi capture (pending)
+Do not send display, authentication or firmware commands through `5833ff…`.
+That UUID family appears on unrelated devices, with both a public SBH OTA
+profile and authenticated/ELS control described elsewhere. Neither establishes
+the backpack's role, accepted commands or images, or a recovery path.
 
 ## References
 
-- [Google Play: LOY SPACE](https://play.google.com/store/apps/details?id=com.yskd.loywf)
-
-## Contributors
-
-- APK static analysis (jadx decompilation)
+- [LOY SPACE on Google Play](https://play.google.com/store/apps/details?id=com.yskd.loywf)
+- [Official LOY SPACE download page](https://app.popled.cn/loy/loyspace/index.html)
+- [stared/nyan-led-skills](https://github.com/stared/nyan-led-skills), related
+  hardware only; not AUTOBABA verification
+- [DCloud `phy-ble-ota` profile](https://ext.dcloud.net.cn/plugin?id=27776),
+  evidence for the secondary UUID family's possible role only

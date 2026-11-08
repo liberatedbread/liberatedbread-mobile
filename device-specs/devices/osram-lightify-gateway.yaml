@@ -19,6 +19,7 @@ device:
       on the port by python-lightify.
   protocol: "wifi"
   category: "light"
+  category_hierarchy: ["light", "led"]
   transport: "tcp"
   notes: >
     The Lightify Gateway is OSRAM's Wi-Fi-to-Zigbee bridge for its Lightify smart

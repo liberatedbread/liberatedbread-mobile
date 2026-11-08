@@ -209,6 +209,11 @@ def build_manifest(
             # an API client asks before fetching the spec itself: can I reach
             # this, and what is it?
             "category": device.get("category", ""),
+            **{
+                field: device[field]
+                for field in ("category_hierarchy", "aliases", "distributors", "companion_apps")
+                if field in device
+            },
             "status": device.get("manufacturer_status", ""),
             # Whether the protocol was published or had to be recovered. The
             # schema default applies when a spec is silent, so an unstated

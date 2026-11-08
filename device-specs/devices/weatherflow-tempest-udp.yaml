@@ -16,6 +16,7 @@ device:
       and obs_st field order are from WeatherFlow's own published UDP API (v171).
   protocol: "wifi"
   category: "sensor"
+  category_hierarchy: ["measurement", "environmental"]
   pictogram: "air-quality"
   transport: "udp"
   notes: >

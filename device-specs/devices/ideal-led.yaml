@@ -10,6 +10,7 @@ device:
     status: untested
   protocol: "ble"
   category: "light"
+  category_hierarchy: ["light", "led"]
   notes: >
     Addressable RGB pixel strings, curtain lights and pixel trees (firmware
     product codes TR21xx/TR22xx/TR23xx; ~14 product-keyed firmware images are
@@ -86,8 +87,6 @@ device:
     needed. Everything app-derived; not yet run against hardware by this repo.
   identification:
     local_name_prefix: "IDL"
-    service_uuids:
-      - "0000fff0-0000-1000-8000-00805f9b34fb"
     manufacturer_data:
       company_id: 21076
       company_id_hex: "0x5254"
@@ -104,8 +103,6 @@ device:
           local_name:
             match: "prefix"
             value: "IDL"
-          service_uuids:
-            - "0000fff0-0000-1000-8000-00805f9b34fb"
           manufacturer_data:
             company_id: 21076
             match: "prefix"
@@ -195,20 +192,9 @@ device:
     - model: "Pixel tree string (TR2107R, productType 0)"
       identification:
         local_name_prefix: "IDL"
-        service_uuids:
-          - "0000fff0-0000-1000-8000-00805f9b34fb"
     - model: "Curtain lights (TR2110R, productType 1)"
-      identification:
-        service_uuids:
-          - "0000fff0-0000-1000-8000-00805f9b34fb"
     - model: "25-lamp pixel string (TR2202R, productType 2)"
-      identification:
-        service_uuids:
-          - "0000fff0-0000-1000-8000-00805f9b34fb"
     - model: "Other Heaton pixel strings (TR2203R/2206R/2207R/2208R/2210R/2309R)"
-      identification:
-        service_uuids:
-          - "0000fff0-0000-1000-8000-00805f9b34fb"
 
 # Custom consumer-side handler for the family's AES-128-ECB 16-byte
 # [len][ASCII opcode] command framing (shared with magic-display.yaml and

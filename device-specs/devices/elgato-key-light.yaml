@@ -14,6 +14,7 @@ device:
       Strip live; the remaining model coverage is reported, not confirmed.
   protocol: "wifi"
   category: "light"
+  category_hierarchy: ["light", "led"]
   transport: "http"
   notes: >
     Local control for classic Elgato lights over unauthenticated HTTP/JSON on

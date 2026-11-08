@@ -1,0 +1,1038 @@
+# Anova Precision Cooker (original, Bluetooth) device spec
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Sources (all public; clean-room, derived facts only, command table written
+# in our own words):
+#   - Anova's developer documentation for the A2/A3 cooker (BLE protocol,
+#     command list) and Anova's MIT-licensed reference client
+#     anova-culinary/developer-project-a2a3 (2025).
+#   - Aldaviva/SousVide (Apache-2.0): the C# client and the wiki's
+#     Communication-Protocol and Bluetooth-Low-Energy-Interception pages.
+#   - neilpa/circulate (MIT, 2014 iOS library) README, and erikcw/pycirculate
+#     (MIT, 2016 Python client built on it).
+#   - The vendor's operating manual for the original Bluetooth cooker and its
+#     2015 manual for the Wi-Fi model.
+#   - Strings-level notes on the current vendor Android app (used only for
+#     context; nothing from it is transcribed here).
+
+device:
+  name: "Anova Precision Cooker (original, Bluetooth: 800 W Bluetooth and 900 W Bluetooth + Wi-Fi)"
+  manufacturer: "Anova Applied Electronics"
+  manufacturer_status: "active"
+  type: "sous-vide-immersion-circulator"
+  category: "appliance"
+  protocol: "ble"
+  testing:
+    status: untested
+    notes: >-
+      Nobody on this project has driven one of these cookers from this
+      document. The command table rests on published sources: Anova's own
+      developer documentation and MIT reference client, the Aldaviva/SousVide
+      wiki (whose author worked the protocol out from Android HCI snoop logs
+      of the vendor app 3.4.11 driving a 2014 800 W unit, captured with
+      Wireshark's androiddump interface and the btatt.opcode == 0x52 /
+      0x1b filter the wiki's interception page describes), and the 2014
+      neilpa/circulate README. Those captures are upstream work, not ours,
+      and none of them is in our research store. The one capture our store
+      ties to this family (attached to neilpa/circulate issue 7) is of a
+      Precision Cooker Nano, which speaks a different protocol on a different
+      service, so it confirms nothing here.
+  openness:
+    status: "documented_api"
+    reverse_engineered: true
+    source_code: "https://github.com/anova-culinary/developer-project-a2a3"
+    license: "MIT"
+    upstream_docs:
+      - url: "https://developer.anovaculinary.com/docs/devices/a2-a3/ble-protocol"
+        title: "Anova developer docs: A2/A3 BLE communication protocol"
+        covers: "Service and characteristic UUIDs, CR-terminated ASCII writes, notification reassembly rule, 15 s timeout advice, model detection by get id card."
+      - url: "https://developer.anovaculinary.com/docs/devices/a2-a3/commands"
+        title: "Anova developer docs: A2/A3 available commands"
+        covers: "The vendor's command list, including set unit, read timer, get id card and the two 900 W-only commands, and the vendor's start-a-cook sequence."
+    notes: >-
+      Anova published a developer page and an MIT reference client for the
+      A2/A3 cooker in 2025, after the community had already worked the
+      protocol out (circulate in 2014, SousVide in 2024). The vendor pages
+      are partial. They give no reply formats, no status strings, no ranges,
+      and they omit the calibration and timer-state details the community
+      documented. So this spec cites the vendor where it can and falls back
+      to reconstruction for the rest. The product firmware is closed.
+  safety_advisory:
+    severity: "caution"
+    summary: >-
+      This starts a heater remotely. A setpoint sent in the wrong temperature
+      unit fails silently and can leave food in unsafe lukewarm water.
+    detail: >-
+      The cooker heats its water bath toward the setpoint, up to 99 °C
+      according to the vendor manual. Before starting it from a client, make
+      sure it is clamped in a pot and the water sits between the MIN and MAX
+      marks on its steel skirt. The cooker raises a low-water alarm, but a
+      remote client should not rely on it. Every temperature on this protocol
+      is in whichever unit the cooker is set to. A 60 meant as °C but sent to
+      a cooker set to °F asks for 15.6 °C, and nothing on the wire flags the
+      mistake. Read the unit (read_unit) on every connection and every poll
+      cycle, because anyone can toggle it with the cooker's own button. This
+      spec is not affiliated with Anova, and Anova's own instructions govern
+      how the appliance is used.
+    advisory_url: "https://www.williams-sonoma.com/netstorage/pdf/Anova-Precision-Cooker-with-WI-FI-User-68921-Manual.pdf"
+  notes: >
+    The original Anova Precision Cooker is a sous-vide immersion circulator
+    in two models. The 2014 800 W unit has Bluetooth only (the A2
+    generation, also referred to as A2.2). The 900 W unit
+    has Bluetooth and Wi-Fi (the A3 generation). Anova's developer
+    documentation groups both as "A2/A3". Both speak the same phone-direct
+    BLE protocol, which needs no account and no cloud. Anova made its app a
+    subscription for accounts created after 2024-08-21 and announced that
+    it would remove Bluetooth control of these cookers in 2025. It cancelled
+    that sunset on 2025-01-16 (docs/research/missing-devices.md), and a 2026
+    store review reports the current app reconnecting to an old cooker. A
+    second-hand unit on a new account still meets the paywall. The local
+    protocol below avoids both.
+
+    TRANSPORT. The cooker exposes one GATT service,
+    0000ffe0-0000-1000-8000-00805f9b34fb, with one characteristic,
+    0000ffe1-0000-1000-8000-00805f9b34fb, that carries both directions. This
+    is the layout that TI CC254x "transparent UART" modules of the HM-10 kind
+    ship. That the cooker uses such a module is only a hypothesis, though one
+    community unit's address carries the Texas Instruments OUI 84:eb:18.
+    Requests are ASCII strings ending in CR (0x0d), written without
+    response. Replies come back as notifications on the same characteristic.
+
+    CLIENT RULES. These follow from the protocol's shape and hold on every
+    source:
+      1. Enable notifications on 0000ffe1-0000-1000-8000-00805f9b34fb before sending anything (vendor docs).
+      2. Replies carry no request ID, and the cooker never sends anything
+         unprompted. So a client sends one command, waits for its reply or a
+         timeout, and only then sends the next. It polls for every value it
+         wants to track. SousVide polls read temp, read set temp and status
+         once a second. Anova recommends a 15 s reply timeout and says to
+         space commands out, without giving a number.
+      3. Reassemble replies. A reply is ASCII ending in CR, and anything
+         longer than one notification (20 bytes at the default ATT MTU) is
+         split across several. The status "power interrupt error" plus its CR
+         is 22 bytes, for example. circulate says to accumulate until a CR
+         arrives. Anova's docs and reference client end a reply at a
+         notification shorter than 20 bytes, or at one that ends in 0x00.
+         Use the CR rule and keep Anova's rule as a fallback. Anova's rule
+         alone never completes a reply that is exactly 19 characters plus CR,
+         because that fills a 20-byte notification. Strip CR, NUL and
+         surrounding whitespace before comparing.
+      4. Keep every write within 20 bytes. Every command declared here fits.
+         circulate says a longer command (such as a multi-step program) goes
+         out in 20-byte pieces.
+      5. An unknown or unsupported command gets the reply "Invalid Command".
+         Treat that as the reply to the pending request. SousVide drops it
+         and then waits forever (see protocol_details.client_defects).
+      6. Every temperature, in either direction, uses the unit that read_unit
+         reports ('c' or 'f'). The calibration offset is the one exception
+         and is always °C. Anyone can toggle the unit at the cooker by
+         holding Start/Stop for 3 seconds (vendor manual), so re-read it
+         every poll cycle rather than once per connection.
+      7. Treat "stopped" as the only idle status. Other status strings are
+         running or an alarm.
+      8. `start` echoes "start" even when the cooker does not start
+         (circulate). Confirm with a status poll.
+
+    MODEL DETECTION (vendor docs). Send "get id card". A reply that begins
+    "anova f56-" means the 900 W Wi-Fi model, which alone accepts
+    "clear alarm" and "version". The rest of that reply is a per-unit
+    identifier, so do not publish it. What the 800 W unit replies is not
+    documented.
+
+    SCOPE. This spec covers the phone-direct BLE ASCII protocol only. It
+    excludes the 900 W model's Wi-Fi and cloud path. It excludes the
+    Precision Cooker Nano, which serves a framed, protobuf-style protocol on
+    service 0e140000-0af1-4582-a242-773e63054c68 and advertised as "Nano" in
+    a 2019 third-party capture. It excludes the first Precision Cooker Mini,
+    which the vendor documents as JSON plus Base64 on per-function
+    characteristics. And it excludes the 2022-and-later Precision Cooker 3.0,
+    Pro 3.0, Mini and Lite (FCC IDs 2APBOAN300, 2APBOAN425, 2APBOAN525 and
+    2APBOAN625), plus the Precision Oven (see the anova-oven spec). The
+    current vendor Android app, a React Native build, still carries the
+    0000ffe0-0000-1000-8000-00805f9b34fb/0000ffe1-0000-1000-8000-00805f9b34fb UUID pair. Its other device paths are these: a Wi-Fi
+    onboarding exchange that has the user confirm a code shown on the
+    cooker, a cloud WebSocket relay for state and commands, and firmware
+    updates negotiated through that cloud. All of them belong to the newer
+    cookers or to the vendor cloud. None is a local path for these units,
+    and none is specified here.
+
+    SAFETY. Only the vendor's own operations are declared as ordinary
+    commands: set temperature, set unit, start and stop cooking, and the
+    timer. Calibration is declared `advanced`. The vendor manual points
+    owners to the phone app's calibration function, but a wrong offset
+    shifts every cook. No setpoint override exists or is invented here.
+    circulate reports that the cooker itself enforces 5.0-99.9 °C
+    (41.0-211.8 °F), and the vendor manual gives 99 °C as the maximum.
+
+  identification:
+    local_name_prefix: "Anova"
+    notes: >-
+      Match the advertised local name "Anova". SousVide looks for exactly
+      that name, and Anova's docs say to match any name that contains
+      "anova", ignoring case. Do NOT match the 0000ffe0-0000-1000-8000-00805f9b34fb service UUID on its
+      own. Anova's reference client does, but every HM-10-style serial
+      module, LED strip and OBD dongle advertises the same UUID. After
+      connecting, confirm the device serves 0000ffe1-0000-1000-8000-00805f9b34fb under 0000ffe0-0000-1000-8000-00805f9b34fb and
+      answers "read unit" with c or f. That check also filters out an
+      Anova-named cooker from another generation: the Nano serves
+      0e140000-0af1-4582-a242-773e63054c68 and, in the one capture we hold,
+      advertised as "Nano". The Mini's advertised name is not established.
+      circulate documents a "set name" command that renames the cooker. A
+      renamed unit no longer matches, and service-plus-probe is then the only
+      way to find it.
+
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          local_name:
+            match: "prefix"
+            value: "Anova"
+        notes: >-
+          The name is the only matcher. The 0000ffe0-0000-1000-8000-00805f9b34fb service is deliberately
+          left out, because in a ble_scan method service UUIDs OR with the
+          name and would match every HM-10-style module nearby. Anova's
+          reference client also scans for an advertised 0000ffe0-0000-1000-8000-00805f9b34fb, which
+          suggests the cooker advertises it. Use that only to rank candidates
+          that also match the name.
+    identity:
+      stable_keys: ["address"]
+      display: "local_name"
+      notes: >-
+        Whether the cooker's address is public or random is not recorded.
+        One community unit's partly redacted address starts with a Texas
+        Instruments OUI, which suggests a public address. SousVide keys
+        reconnection on the operating system's paired-device ID, which is
+        also derived from the address.
+    static_ip_required: false
+
+  setup:
+    required: false
+    confidence: "medium"
+    notes: >-
+      Nothing to provision for the BLE path. There are no credentials, no
+      account and no cloud. Power the cooker, pair it at the host if the host
+      asks (PIN 0000), connect, subscribe to 0000ffe1-0000-1000-8000-00805f9b34fb and start polling.
+      Confidence is medium because two working open implementations (Anova's
+      reference client and SousVide) and the vendor docs agree on the flow,
+      but it has not been replayed here. The 900 W model's Wi-Fi onboarding
+      is out of scope. The vendor's 2015 manual has the phone app do it with
+      the phone's Bluetooth and Wi-Fi both on, so it presumably rides this
+      same link, but none of its commands are published.
+    methods:
+      - type: "ble_direct"
+        name: "Direct BLE connection"
+        role: "primary"
+        verified: false
+        description: >-
+          Plug the cooker in, pair at the host if the host's stack asks
+          (PIN 0000), connect, subscribe to notifications on 0000ffe1-0000-1000-8000-00805f9b34fb, send
+          "read unit", then drive it with one CR-terminated command at a time.
+        ble:
+          service_uuid: "0000ffe0-0000-1000-8000-00805f9b34fb"
+          write_characteristic: "0000ffe1-0000-1000-8000-00805f9b34fb"
+          read_characteristic: "0000ffe1-0000-1000-8000-00805f9b34fb"
+          pin_source: "fixed default 0000, when the host asks for one (see device.pairing)"
+        steps:
+          - action: "Plug the cooker in. It becomes discoverable at power-up (Anova reference client README). If it has been paired before, press its Bluetooth symbol to enter pairing mode, which breaks the old pairing (vendor manual)."
+            actor: user
+          - action: "Scan for a device whose local name starts with 'Anova' (see device.identification) and connect."
+            actor: client
+            timeout_seconds: 15
+          - action: "If the host stack prompts for a PIN or passkey, enter 0000. SousVide pairs this way in the operating system's Bluetooth settings. Anova's Bleak-based reference client connects without pairing."
+            actor: user
+          - action: "Discover services, locate characteristic 0000ffe1-0000-1000-8000-00805f9b34fb under service 0000ffe0-0000-1000-8000-00805f9b34fb, and enable its notifications (CCCD 00002902-0000-1000-8000-00805f9b34fb)."
+            actor: client
+          - action: "Write 'read unit' + CR (72 65 61 64 20 75 6e 69 74 0d) without response."
+            actor: client
+            expect: "A notification carrying 'c' or 'f' followed by CR. Any other reply, or none within 15 s, means this is not an A2/A3 cooker or another client holds it."
+            timeout_seconds: 15
+          - action: "Optionally write 'get id card' + CR to tell the 900 W Wi-Fi model (reply begins 'anova f56-') from the 800 W model."
+            actor: client
+        timing:
+          reply_timeout_s: 15
+          reply_timeout_basis: "Anova developer docs and reference client."
+          poll_interval_s: 1
+          poll_interval_basis: "SousVide's default property poll (read temp, read set temp, status every second); Anova gives no figure beyond not sending too fast."
+          start_time_echo_wait: "The 'start time' reply may never come (SousVide wiki) or may be an echo (circulate). Wait a bounded time for it and discard whatever arrives before sending the next command. Bound the wait by the reply timeout, or less if your client tolerates a late echo."
+        troubleshooting:
+          - symptom: "Cannot pair, or the cooker never shows up in a scan."
+            causes:
+              - "Another phone or the vendor app is already connected. Close it."
+              - "The vendor manual's fix: switch the cooker off for 10 seconds, then power it back on. The Anova reference client says the cooker becomes connectable at power-up."
+              - "On Windows 11 the cooker stays hidden until Settings > Bluetooth & devices > Device settings > Bluetooth devices discovery is set to Advanced (SousVide README)."
+          - symptom: "Could not reconnect after changing phones (a 2026 store review of the vendor app)."
+            causes:
+              - "A stale pairing. Forget the cooker on the old phone. Pressing the cooker's Bluetooth symbol breaks its existing pairing (vendor manual). Then pair again with PIN 0000."
+          - symptom: "Every reading looks shifted by one command. The setpoint shows up where the water temperature should be, or 'start time' appears as a temperature."
+            causes:
+              - "The client lost request/reply alignment. The usual trigger is a late or unexpected reply, such as an echo of 'start time' after the client assumed there would be none, or a reply that arrived after the client's timeout. To resync, stop sending, drain notifications for a second, then send 'read unit' and wait for c or f before polling again."
+          - symptom: "The client hangs after sending a command."
+            causes:
+              - "The cooker answered 'Invalid Command', for example to 'version' or 'clear alarm' on the 800 W model, and the client drops that reply instead of completing the request. SousVide's C# client does this and has no timeout. Treat 'Invalid Command' as a reply and always use a timeout."
+          - symptom: "The timer restarts after the app reconnects, or starts before the bath is at temperature (store reviews of the vendor app)."
+            causes:
+              - "The vendor's start-a-cook sequence runs stop time, set timer, start and start time together, and circulate says starting the cooker also starts the timer. A client that re-runs that sequence on reconnect restarts the countdown. On reconnect, read status and read timer rather than re-sending the sequence. To time from the moment the bath reaches temperature, poll read temp and send start time only then."
+          - symptom: "Temperatures jump to implausible values partway through a session."
+            causes:
+              - "Someone toggled C/F at the cooker (hold Start/Stop for 3 seconds), and the client cached the unit from connect time. SousVide reads the unit only once, when it connects. Re-read the unit each poll cycle."
+    factory_reset:
+      applicable: "unknown"
+      confidence: low
+      effect: >-
+        No factory reset is documented. The cooker holds a Bluetooth pairing,
+        a temperature unit, a calibration offset and, on the 900 W model,
+        Wi-Fi credentials. The vendor manual describes no way to clear them
+        together. Pressing the Bluetooth symbol clears the pairing alone (see
+        device.pairing.unpair). The calibration offset can be written back to
+        0.0 over this protocol (set_calibration).
+      description: >-
+        Basis for "unknown": the original cooker's 26-page operating manual
+        (setup, maintenance and troubleshooting chapters) and Anova's A2/A3
+        developer pages were read end to end and neither mentions a reset,
+        and no community client sends one. The absence is a finding from
+        those sources, not a test. Nothing is known to clear the unit, the
+        calibration offset and the 900 W model's Wi-Fi credentials at once.
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >-
+        There is no network to rejoin on the BLE path. Moving the cooker to a
+        new phone or host means breaking the old pairing (press the
+        Bluetooth symbol) and pairing again. How the 900 W model changes its
+        Wi-Fi network is part of the out-of-scope cloud onboarding.
+    credentials:
+      wifi_passphrase_protection: not_applicable
+      stored_on_device: []
+      issued_to_client: []
+      notes: >-
+        No credentials cross the BLE path documented here. The pairing PIN
+        is the product-wide 0000. The 900 W model does store Wi-Fi
+        credentials, but its onboarding exchange is not documented, so how
+        the passphrase is protected on the way in is not established.
+
+  pairing:
+    required: "unknown"
+    confidence: "low"
+    security_mode: "legacy_pin"
+    bonding: "optional"
+    pin:
+      source: "fixed_default"
+      value: "0000"
+      length: 4
+      notes: "From the SousVide README and wiki. Entered at the host's own Bluetooth pairing prompt."
+    exclusivity:
+      single_connection: "unknown"
+      single_bond: "unknown"
+      recovery: >-
+        Close the vendor app and disconnect every other client, then retry.
+        Anova's reference client README asks clients to disconnect cleanly so
+        the cooker is ready for the next connection. If that fails, unplug
+        the cooker for 10 seconds (vendor manual). To move it to a new host,
+        forget it on the old one and press the Bluetooth symbol, which breaks
+        the existing pairing, before pairing again.
+      notes: >-
+        HM-10-style modules normally accept one central at a time and stop
+        advertising while connected. That the cooker behaves the same way is
+        likely but unconfirmed.
+    enter_pairing_mode:
+      required: "unknown"
+      indicator: "The cooker's Bluetooth indicator turns blue and blinks (SousVide README)."
+      procedures:
+        - name: "Press the Bluetooth symbol"
+          verified: false
+          basis: "Vendor operating manual for the original Bluetooth cooker (SETUP, Bluetooth), and the SousVide README, which adds the blue blinking indicator."
+          power_state: "on"
+          description: >-
+            This enters pairing mode and, per the manual, breaks any existing
+            pairing.
+          steps:
+            - action: "With the cooker plugged in, press the Bluetooth symbol on its control panel."
+              actor: user
+            - action: "Pair from the host within the window. The window's length is not documented."
+              actor: user
+        - name: "Power-cycle the cooker"
+          verified: false
+          basis: "Anova reference client README (pairing happens automatically at power-up or reboot), and the vendor manual's 'will not pair' fix (power off for 10 seconds)."
+          power_state: "booting"
+          steps:
+            - action: "Unplug the cooker, wait 10 seconds, and plug it back in."
+              actor: user
+    unpair:
+      supported: true
+      requires_factory_reset: false
+      clears: "The cooker's existing Bluetooth pairing."
+      procedures:
+        - name: "Press the Bluetooth symbol"
+          verified: false
+          basis: "Vendor operating manual: entering pairing mode breaks an existing pairing."
+          power_state: "on"
+          steps:
+            - action: "Press the Bluetooth symbol on the cooker, then forget the cooker in the old host's Bluetooth settings."
+              actor: user
+    notes: >-
+      The sources disagree. SousVide pairs the cooker in the operating
+      system's settings with PIN 0000, and its library only enumerates paired
+      devices, so it never shows whether an unpaired connection works.
+      Anova's own reference client connects through Bleak without asking for
+      a bond, and pycirculate's bluepy connection doesn't pair either. So
+      the cooker probably answers on an unbonded link, while a host that
+      starts pairing gets a PIN-0000 bond it keeps. "Required" stays unknown
+      until someone connects without pairing and gets replies. On an LE link
+      the PIN 0000 is entered as the legacy passkey 000000.
+
+  host_compatibility:
+    - stack: windows
+      status: compatible
+      verification: reported
+      basis: "SousVide README: tested on Windows 10 with an ASUS USB-BT400 and an onboard Intel AX211, after pairing in Windows settings with PIN 0000. Windows 11 lists the cooker only when Bluetooth devices discovery is set to Advanced."
+    - stack: android
+      status: compatible
+      verification: reported
+      basis: "The vendor app is an Android client, and the SousVide wiki's protocol work comes from HCI snoop logs of vendor app 3.4.11 driving the cooker on an Android 14 Pixel 5a."
+    - stack: corebluetooth
+      status: compatible
+      verification: reported
+      basis: "neilpa/circulate is an iOS CoreBluetooth library written against the A2 cooker in 2014. Its README describes the CoreBluetooth write and update-callback calls it uses."
+    - stack: bluez
+      status: unknown
+      verification: hypothesis
+      basis: "pycirculate runs on a Raspberry Pi, but through bluepy, which opens the ATT channel itself instead of going through bluetoothd's GATT client. Anova's Bleak reference client would go through bluetoothd on Linux, but its README does not say which OS it was tested on. SousVide publishes Linux builds of its command-line tool (its BLE library goes through BlueZ's D-Bus API there), but its README reports testing on Windows only."
+      notes: >-
+        Nothing seen suggests a problem: the GATT layout is a single ordinary
+        service. But nobody has reported driving the cooker through
+        bluetoothd.
+
+  variants:
+    - model: "800W Bluetooth"
+      notes: >-
+        The 2014 Precision Cooker, 800 W, Bluetooth only (A2 generation,
+        also referred to as A2.2; SousVide's README calls its test unit a
+        Precision Cooker 1.0). The vendor manual lists the
+        heater at 800 W (120 V or 220 V), the pump at 8.2 L/min, the range as
+        room temperature (lower with an ice bath) to 99 °C, and stability as
+        ±0.01 °C. Its "get id card" reply does not begin "anova f56-". It
+        does not accept "clear alarm" or "version".
+    - model: "900W Bluetooth + Wi-Fi"
+      notes: >-
+        The 900 W Precision Cooker WI-FI (A3 generation). Per its 2015
+        vendor manual it contains FCC ID AZY-HF-LPB100. That is a modular
+        Wi-Fi radio's grant, and the product code matches the High-Flying
+        HF-LPB100 module (hypothesis). Its "get id card" reply begins
+        "anova f56-". It alone accepts "clear alarm" and "version". Its
+        Wi-Fi and cloud path is out of scope.
+
+initialization:
+  - characteristic: "0000ffe1-0000-1000-8000-00805f9b34fb"
+    subscribe: true
+    notes: "Open notifications first. The cooker's replies arrive only as notifications on this characteristic (vendor docs)."
+  - characteristic: "0000ffe1-0000-1000-8000-00805f9b34fb"
+    write: [0x72, 0x65, 0x61, 0x64, 0x20, 0x75, 0x6e, 0x69, 0x74, 0x0d]
+    notes: >-
+      "read unit" + CR. The reply is 'c' or 'f' and governs every temperature
+      in both directions. Keep re-reading it during the session (see
+      device.notes rule 6).
+  - characteristic: "0000ffe1-0000-1000-8000-00805f9b34fb"
+    write: [0x67, 0x65, 0x74, 0x20, 0x69, 0x64, 0x20, 0x63, 0x61, 0x72, 0x64, 0x0d]
+    notes: >-
+      "get id card" + CR, which is Anova's model detection. A reply that
+      begins "anova f56-" means the 900 W Wi-Fi model. The remainder is a
+      per-unit identifier, so do not log or publish it. Wait for this reply,
+      or the timeout, before sending anything else.
+
+services:
+  - uuid: "0000ffe0-0000-1000-8000-00805f9b34fb"
+    name: "Anova serial service (HM-10-style transparent UART)"
+    notes: >-
+      The cooker's only vendor service. This UUID is shared with every
+      HM-10-style module, so the service alone does not identify
+      the cooker (see device.identification). Whether Generic Access and
+      Device Information are also served is not recorded.
+    characteristics:
+      - uuid: "0000ffe1-0000-1000-8000-00805f9b34fb"
+        name: "command/reply (TX/RX)"
+        properties: ["write_without_response", "notify"]
+        notes: >-
+          One characteristic carries both directions. Clients write requests
+          without response. Replies come back as notifications, split into
+          20-byte pieces at the default MTU and ended by CR (see
+          payload_formats.Reply_Framing). The two properties listed are the
+          ones every client uses. HM-10-style modules also expose read and
+          write-with-response on this characteristic, but the cooker's full
+          property set is not recorded. Every command below is complete ASCII
+          ending in CR, 20 bytes or fewer. Send one at a time and wait for
+          its reply.
+        commands:
+          read_unit:
+            description: "'read unit' + CR. Reply 'c' or 'f', the unit every temperature uses (payload_formats.Unit_Reply)."
+            value: [0x72, 0x65, 0x61, 0x64, 0x20, 0x75, 0x6e, 0x69, 0x74, 0x0d]
+            verification: "reported"
+          set_temperature_unit:
+            description: >-
+              'set unit c' or 'set unit f' + CR. Switches the cooker's
+              temperature unit, the same thing holding Start/Stop for 3
+              seconds does. circulate says it replies with the new unit
+              letter. Every later temperature is in the new unit, so re-read
+              the setpoint and water temperature afterwards. Listed in
+              Anova's command docs, and the reference client sends it
+              lowercase.
+            template: [0x73, 0x65, 0x74, 0x20, 0x75, 0x6e, 0x69, 0x74, 0x20, "{unit}", 0x0d]
+            parameters:
+              unit:
+                type: "uint8"
+                description: "One ASCII letter, lowercase: 'c' (0x63) or 'f' (0x66)."
+                allowed: [99, 102]
+                labels: ["Celsius", "Fahrenheit"]
+            verification: "reported"
+          read_temperature:
+            description: "'read temp' + CR. Reply is the water temperature as an ASCII decimal with one fractional digit, e.g. '73.4', in the unit read_unit reports (payload_formats.Temperature_Reply)."
+            value: [0x72, 0x65, 0x61, 0x64, 0x20, 0x74, 0x65, 0x6d, 0x70, 0x0d]
+            verification: "reported"
+          read_target_temperature:
+            description: "'read set temp' + CR. Reply is the setpoint as an ASCII decimal with one fractional digit, e.g. '145.0', in the unit read_unit reports (payload_formats.Temperature_Reply)."
+            value: [0x72, 0x65, 0x61, 0x64, 0x20, 0x73, 0x65, 0x74, 0x20, 0x74, 0x65, 0x6d, 0x70, 0x0d]
+            verification: "reported"
+          set_target_temperature:
+            description: >-
+              'set temp <value>' + CR. Sets the setpoint in the unit
+              read_unit reports, and the reply echoes the accepted value with
+              one fractional digit. SousVide's wiki shows 'set temp 135'
+              answered '135.0', and its client sends one decimal ('set temp
+              145.0'). It does not start heating. That is start_cooking.
+              circulate gives the range the cooker accepts as 5.0-99.9 °C or
+              41.0-211.8 °F. What it replies to an out-of-range value is not
+              established.
+            template: [0x73, 0x65, 0x74, 0x20, 0x74, 0x65, 0x6d, 0x70, 0x20, "{temperature}", 0x0d]
+            parameters:
+              temperature:
+                type: "string"
+                description: >-
+                  The setpoint as ASCII decimal digits, with an optional '.'
+                  and one fractional digit (e.g. '57.5', '135.0'). Resolution
+                  is 0.1 of the current unit. It is not a binary number.
+                unit_source: "device_setting"
+                unit_reference: "read_unit (reply 'c' or 'f' on 0000ffe1-0000-1000-8000-00805f9b34fb)"
+                unit_values:
+                  c: "C"
+                  f: "F"
+                notes: >-
+                  Device-enforced range per circulate: 5.0-99.9 when the unit
+                  is c, 41.0-211.8 when it is f. The vendor manual gives the
+                  maximum as 99 °C and the minimum as room temperature.
+                  Clamp client-side, and never send without knowing the
+                  current unit.
+            verification: "reported"
+          read_status:
+            description: "'status' + CR. Reply is the running state as ASCII words: 'stopped', 'running', or an alarm such as 'low water' (payload_formats.Status_Reply)."
+            value: [0x73, 0x74, 0x61, 0x74, 0x75, 0x73, 0x0d]
+            verification: "reported"
+          start_cooking:
+            description: >-
+              'start' + CR. The cooker starts circulating and heats toward
+              the setpoint. The reply is the echo 'start', which circulate
+              says comes back even when the cooker does not start, so
+              confirm with read_status. circulate also says starting the
+              cooker starts a set timer.
+            value: [0x73, 0x74, 0x61, 0x72, 0x74, 0x0d]
+            verification: "reported"
+          stop_cooking:
+            description: >-
+              'stop' + CR. Stops cooking, and the reply is the echo 'stop'.
+              The SousVide wiki leaves the stop command open and its client
+              sends 'stop' with a to-do. Anova's command docs and circulate
+              both list 'stop'. circulate says stopping also stops the timer.
+            value: [0x73, 0x74, 0x6f, 0x70, 0x0d]
+            verification: "reported"
+          set_timer:
+            description: >-
+              'set timer <minutes>' + CR. Loads the countdown in whole
+              minutes, and the reply echoes the number. It does not start
+              the countdown. Anova's start-a-cook sequence is set temp, stop
+              time, set timer, start, then start time if the timer is above 0.
+            template: [0x73, 0x65, 0x74, 0x20, 0x74, 0x69, 0x6d, 0x65, 0x72, 0x20, "{minutes}", 0x0d]
+            parameters:
+              minutes:
+                type: "string"
+                unit: "min"
+                description: "Whole minutes as ASCII decimal digits, no decimal point (e.g. '90')."
+                notes: >-
+                  Anova's reference sequence sends 0 to mean no timer.
+                  SousVide refuses less than 1 minute on the client side. The
+                  cooker's maximum is not established.
+            verification: "reported"
+          start_timer:
+            description: >-
+              'start time' + CR. Starts the countdown. The SousVide wiki saw
+              no reply and flags that as odd, while circulate and pycirculate
+              say it echoes 'start time'. So wait a bounded time for an echo
+              and discard it before the next command (setup timing). Sources
+              disagree on whether the cooker must already be running
+              (pycirculate says so).
+            value: [0x73, 0x74, 0x61, 0x72, 0x74, 0x20, 0x74, 0x69, 0x6d, 0x65, 0x0d]
+            verification: "reported"
+          stop_timer:
+            description: "'stop time' + CR. Stops the countdown, and the reply is the echo 'stop time'."
+            value: [0x73, 0x74, 0x6f, 0x70, 0x20, 0x74, 0x69, 0x6d, 0x65, 0x0d]
+            verification: "reported"
+          read_timer:
+            description: "'read timer' + CR. Reply is '<minutes> running' or '<minutes> stopped', the minutes on the timer and whether it is counting (circulate; Anova's docs say it returns the remaining time). See payload_formats.Timer_Reply."
+            value: [0x72, 0x65, 0x61, 0x64, 0x20, 0x74, 0x69, 0x6d, 0x65, 0x72, 0x0d]
+            verification: "reported"
+          get_id_card:
+            description: >-
+              'get id card' + CR. Model detection per Anova's docs. A reply
+              that begins 'anova f56-' means the 900 W Wi-Fi model. The
+              remainder is a per-unit identifier. The 800 W reply format is
+              not documented. See payload_formats.Id_Card_Reply.
+            value: [0x67, 0x65, 0x74, 0x20, 0x69, 0x64, 0x20, 0x63, 0x61, 0x72, 0x64, 0x0d]
+            verification: "reported"
+          clear_alarm:
+            description: "'clear alarm' + CR. Clears an active alarm. 900 W Wi-Fi model only, per Anova's docs. The 800 W model presumably answers 'Invalid Command'. The reply on the 900 W model is not documented."
+            value: [0x63, 0x6c, 0x65, 0x61, 0x72, 0x20, 0x61, 0x6c, 0x61, 0x72, 0x6d, 0x0d]
+            verification: "reported"
+          read_firmware_version:
+            description: "'version' + CR. Reply is the firmware version. 900 W Wi-Fi model only, per Anova's docs. The reply format is not documented."
+            value: [0x76, 0x65, 0x72, 0x73, 0x69, 0x6f, 0x6e, 0x0d]
+            verification: "reported"
+          read_calibration:
+            description: "'read cal' + CR. Reply is the temperature calibration offset, always in °C, as an ASCII decimal (factory value 0.0). circulate defines it as displayed minus measured temperature (payload_formats.Calibration_Reply)."
+            value: [0x72, 0x65, 0x61, 0x64, 0x20, 0x63, 0x61, 0x6c, 0x0d]
+            verification: "reported"
+          set_calibration:
+            description: >-
+              'cal <offset>' + CR. Sets the calibration offset, always in °C
+              whatever the unit setting, range -9.9 to 9.9 (circulate). The
+              reply echoes the command. The vendor manual tells owners to use
+              the phone app's calibration function to match their own
+              thermometer. The syntax is circulate's, and Anova's command
+              docs omit it. Do not copy pycirculate's helper for this, which
+              sends 'set temp <offset>' by mistake (protocol_details).
+            template: [0x63, 0x61, 0x6c, 0x20, "{offset}", 0x0d]
+            parameters:
+              offset:
+                type: "string"
+                unit: "C"
+                unit_source: "fixed"
+                description: "Offset in °C as ASCII decimal with one fractional digit and an optional leading '-', from -9.9 to 9.9 (e.g. '-0.5'). Write '0.0' to restore the factory value."
+            advanced: true
+            advanced_reason: >-
+              Shifts the temperature the cooker reads, displays and holds by
+              up to 9.9 °C, for this cook and, presumably, every cook after
+              it. A wrong offset can leave food below a safe temperature with
+              nothing on the display showing it. Read the current value first
+              (read_calibration) and write it back to undo, or write 0.0 for
+              the factory value.
+            verification: "reported"
+
+payload_formats:
+  Reply_Framing:
+    description: >-
+      How every reply arrives. The reply is ASCII text ending in CR (0x0d),
+      notified on 0000ffe1-0000-1000-8000-00805f9b34fb in pieces of up to 20 bytes at the default ATT MTU.
+    parse_rules:
+      - "Append each notification's bytes to a buffer."
+      - "The reply is complete when the buffer contains CR (0x0d), as circulate and SousVide's wiki describe."
+      - "Fallback (Anova's docs and reference client): also treat the reply as complete when a notification shorter than 20 bytes arrives, or when a notification ends in 0x00. On its own this rule never completes a reply that exactly fills a 20-byte notification with its CR, which is why the CR rule comes first."
+      - "Decode as ASCII, strip CR, NUL and surrounding whitespace, then match the text to the one request in flight."
+      - "'Invalid Command' is the reply to an unknown or unsupported command. It completes the request."
+      - "Anything that arrives with no request in flight is stale, such as a late 'start time' echo or a reply after a timeout. Discard it."
+    example: "37 33 2e 34 0d   ('73.4' + CR, reply to 'read temp')"
+  Temperature_Reply:
+    description: "Reply to read temp, read set temp and set temp: a decimal number with one fractional digit in the current unit."
+    fields:
+      - name: "temperature"
+        description: "ASCII decimal, one fractional digit (0.1 resolution in the current unit). SousVide skips a reply that does not parse as a number rather than failing."
+        unit_source: "device_setting"
+        unit_reference: "read_unit (reply 'c' or 'f' on 0000ffe1-0000-1000-8000-00805f9b34fb)"
+        unit_values:
+          c: "C"
+          f: "F"
+    example: "145.0"
+  Unit_Reply:
+    description: "Reply to read unit, and to set unit per circulate: one lowercase letter."
+    values:
+      c: "Celsius"
+      f: "Fahrenheit"
+    example: "f"
+  Status_Reply:
+    description: >-
+      Reply to status. The value list is circulate's. SousVide's wiki leaves
+      the running string open, and its tests use a placeholder 'started'.
+      Anova's docs say only "device state".
+    values:
+      stopped: "Idle, not heating or circulating."
+      running: "Cooking: circulating and holding the setpoint (circulate)."
+      low water: "Low-water alarm. The vendor manual says pump waves can trip it, and the fix is more water."
+      heater error: "Heater fault (circulate lists it but had not seen it)."
+      power interrupt error: "Power was interrupted mid-cook (circulate lists it but had not seen it). At 21 characters plus CR this reply spans two notifications."
+    parse_rules:
+      - "Compare the whole trimmed string. Only 'stopped' means idle. Treat any other value as not idle, and surface the alarm strings to the user."
+      - "Whether the cooker reports a distinct heating phase before it reaches the setpoint is not established."
+    example: "stopped"
+  Timer_Reply:
+    description: >-
+      Reply to read timer, per circulate: whole minutes, a space, then
+      'running' or 'stopped'. The example is built from that documented form,
+      not captured.
+    delimiter: " "
+    fields:
+      - index: 0
+        name: "minutes"
+        unit: "min"
+        description: "Minutes on the timer, ASCII integer. Anova's docs call it the remaining time."
+      - index: 1
+        name: "timer_state"
+        description: "'running' while the countdown runs, 'stopped' otherwise."
+    example: "45 running"
+  Id_Card_Reply:
+    description: "Reply to get id card."
+    parse_rules:
+      - "Starts with 'anova f56-' means the 900 W Bluetooth + Wi-Fi model (Anova's docs). Enable clear_alarm and read_firmware_version."
+      - "Anything else means the 800 W Bluetooth-only model. Its format is not documented."
+      - "The remainder is a per-unit identifier. Do not log, publish or commit it."
+    example: "anova f56-<per-unit id>"
+  Calibration_Reply:
+    description: "Reply to read cal: the calibration offset in °C whatever the unit setting, displayed minus measured (circulate). Factory value 0.0."
+    fields:
+      - name: "offset"
+        unit: "C"
+        unit_source: "fixed"
+        description: "ASCII decimal, one fractional digit, range -9.9 to 9.9."
+    example: "0.0"
+  Echo_Reply:
+    description: >-
+      The command's own words come back as the reply to start ('start'),
+      stop ('stop'), start time ('start time', if any reply comes at all) and
+      stop time ('stop time'). set timer echoes the minutes ('10'), set temp
+      echoes the accepted value with one decimal ('135.0'), and set unit
+      echoes the unit letter. cal echoes the command.
+    example: "stop time"
+
+entities:
+  - platform: "sensor"
+    name: "Water Temperature"
+    device_class: "temperature"
+    precision: 0.1
+    state_characteristic: "0000ffe1-0000-1000-8000-00805f9b34fb"
+    commands:
+      poll: "read_temperature"
+    notes: >-
+      The reply to read_temperature (payload_formats.Temperature_Reply), in
+      whichever unit read_unit reports. The out-of-box unit is not
+      established, so no fixed unit is claimed here.
+  - platform: "climate"
+    name: "Sous Vide"
+    icon: "mdi:pot-steam"
+    temp_step: 0.1
+    state_characteristic: "0000ffe1-0000-1000-8000-00805f9b34fb"
+    commands:
+      set_temperature: "set_target_temperature"
+      turn_on: "start_cooking"
+      turn_off: "stop_cooking"
+    notes: >-
+      Setpoint plus start/stop. The setpoint is read back with
+      read_target_temperature, whether it is cooking comes from read_status
+      ('stopped' means off), and the current temperature comes from
+      read_temperature. No min_temp/max_temp is stated because the range
+      depends on the unit setting: 5.0-99.9 when read_unit says c,
+      41.0-211.8 when it says f (circulate). Confirm a turn_on with
+      read_status, because 'start' echoes even when the cooker does not start.
+  - platform: "sensor"
+    name: "Target Temperature"
+    device_class: "temperature"
+    precision: 0.1
+    state_characteristic: "0000ffe1-0000-1000-8000-00805f9b34fb"
+    commands:
+      poll: "read_target_temperature"
+    notes: >-
+      The setpoint, including one changed on the cooker's own scroll wheel.
+      It is in whichever unit read_unit reports.
+  - platform: "sensor"
+    name: "Status"
+    icon: "mdi:state-machine"
+    state_characteristic: "0000ffe1-0000-1000-8000-00805f9b34fb"
+    commands:
+      poll: "read_status"
+    notes: "Text state from payload_formats.Status_Reply: stopped, running, low water, heater error, power interrupt error."
+  - platform: "select"
+    name: "Temperature Unit"
+    state_characteristic: "0000ffe1-0000-1000-8000-00805f9b34fb"
+    state_command: "read_unit"
+    state_mapping:
+      options:
+        "99": "Celsius"
+        "102": "Fahrenheit"
+    commands:
+      select_option: "set_temperature_unit"
+    notes: >-
+      Current value from read_unit (state_command): the reply's first byte
+      is 'c' (0x63 = 99) or 'f' (0x66 = 102), the same values the
+      set_temperature_unit parameter takes.
+      Changing it re-bases every temperature. It is also changed at the
+      cooker by holding Start/Stop for 3 seconds.
+  - platform: "number"
+    name: "Timer"
+    unit: "min"
+    min: 0
+    step: 1
+    state_characteristic: "0000ffe1-0000-1000-8000-00805f9b34fb"
+    state_command: "read_timer"
+    commands:
+      set_value: "set_timer"
+    notes: >-
+      Loads the countdown and does not start it (see the Start Timer
+      button). 0 means no timer in Anova's start sequence. No maximum is
+      established. Read the timer back with read_timer (state_command):
+      field 0 of payload_formats.Timer_Reply.
+  - platform: "sensor"
+    name: "Timer Remaining"
+    unit: "min"
+    icon: "mdi:timer-sand"
+    state_characteristic: "0000ffe1-0000-1000-8000-00805f9b34fb"
+    commands:
+      poll: "read_timer"
+    notes: "Field 0 of payload_formats.Timer_Reply. Field 1 ('running' or 'stopped') says whether it is counting."
+  - platform: "button"
+    name: "Start Timer"
+    icon: "mdi:timer-play-outline"
+    commands:
+      press: "start_timer"
+  - platform: "button"
+    name: "Stop Timer"
+    icon: "mdi:timer-stop-outline"
+    commands:
+      press: "stop_timer"
+  - platform: "button"
+    name: "Clear Alarm"
+    icon: "mdi:bell-off-outline"
+    variants: ["900W Bluetooth + Wi-Fi"]
+    commands:
+      press: "clear_alarm"
+  - platform: "sensor"
+    name: "Firmware Version"
+    icon: "mdi:chip"
+    variants: ["900W Bluetooth + Wi-Fi"]
+    state_characteristic: "0000ffe1-0000-1000-8000-00805f9b34fb"
+    commands:
+      poll: "read_firmware_version"
+    notes: "Reply format not documented. Show it verbatim."
+
+protocol_details:
+  conflicts_between_sources:
+    status_while_running: "circulate: 'running'. SousVide wiki: unknown, and its tests use a placeholder 'started' that later summaries have repeated as fact. Anova docs: 'device state'. Treat only 'stopped' as idle."
+    start_time_reply: "SousVide wiki: no reply, flagged as odd. circulate and pycirculate: echoes 'start time'. Anova's reference client waits for a reply like any other command."
+    timer_and_start: "circulate: starting the cooker starts the timer, and stopping it stops the timer. pycirculate: the cooker must already be running to start the timer. SousVide: StartTimer then Start, and says the cooker stops cooking when the timer ends. Anova: set timer, start, start time. Vendor manual: the on-device timer is hidden by default, and pressing start or the timer icon starts the countdown."
+    reply_completion: "circulate: accumulate until CR. Anova: until a notification shorter than 20 bytes, or one ending in 0x00. SousVide: every notification is a whole reply. See payload_formats.Reply_Framing."
+    pairing: "SousVide pairs at the OS with PIN 0000. Anova's reference client connects with no bond. The vendor manual says the system is designed to pair in the app, and pressing Bluetooth breaks an existing pairing."
+  community_commands_not_declared:
+    notes: >-
+      circulate (2014) and pycirculate document more ASCII commands. They are
+      listed here, in our own words, so the next person knows they exist.
+      They are not declared as commands because they come from one source,
+      carry circulate's own "needs more testing" caveats, or are unsafe to
+      hand a user.
+    program_status: "'program status': reply 'program' followed by the stored temperature/minute pairs."
+    set_program: "'set program t1 m1 [t2 m2 ...]': a multi-step program of temperature and minute pairs, reportedly six steps at most. Long enough to need 20-byte write chunking."
+    start_stop_resume_program: "'start program', 'stop program', 'resume program': echo the command. circulate: needs more testing."
+    set_led: "'set led <r> <g> <b>': recolours the scroll-wheel light, each channel 0-255, and echoes on success."
+    set_name: "'set name <name>': renames the cooker's Bluetooth name and disconnects it. A renamed cooker no longer matches device.identification, so this is left out."
+    read_date_set_date: "'read date' replies 'YY MM DD hh mm'. 'set date YY MM DD hh mm' sets a 24-hour clock that circulate saw stay frozen until first set."
+    read_data: "'read data': temperature history, one 'temp MM DD hh mm' entry per sample, in the current unit. A long reply, so reassemble until CR."
+    set_password: "Reportedly 'set password <password>', untested by circulate. Left out because an unknown password mechanism could lock owners out."
+    beep: "No beep command is known. Anova's reference client binds its 'beep' action to 'stop' as a placeholder."
+  client_defects:
+    notes: "Defects in the open implementations, cited by file. They explain field symptoms and are wrong turns not to copy."
+    sousvide_invalid_command: "Aldaviva/SousVide AnovaPrecisionCooker.cs drops an 'Invalid Command' reply without completing the pending request, and the wait has no timeout, so one unsupported command wedges the client for good."
+    sousvide_unit_cached: "AnovaPrecisionCooker.cs reads the unit once, at connect. A C/F toggle at the cooker mid-session makes every later reading use the wrong unit."
+    sousvide_start_time: "AnovaPrecisionCooker.cs sends 'start time' without waiting for a reply. If the cooker does echo it, as circulate says, the echo answers the next request and every reply after it is off by one."
+    pycirculate_calibration: "erikcw/pycirculate anova.py's calibration setter sends 'set temp <factor>' instead of 'cal <factor>'. Calling it sets the setpoint to the calibration value, e.g. 1.5 °C."
+    pycirculate_reads: "pycirculate takes the last notification within 1 s as the reply, with no reassembly, so a reply longer than 20 bytes is truncated."
+    anova_reference_completion: "Anova's reference client completes a reply only on a short or NUL-ended notification, so a reply that exactly fills one 20-byte notification waits for the next notification or times out."
+  excluded_generations:
+    precision_cooker_nano: "Framed, protobuf-style payloads on service 0e140000-0af1-4582-a242-773e63054c68 (characteristics 0e140001, 0e140002, 0e140003 on the same base). The 2019 third-party capture attached to neilpa/circulate issue 7 shows it advertising the local name 'Nano'. Anova documents it separately."
+    precision_cooker_mini_first: "JSON plus Base64 on per-function characteristics, per Anova's developer docs. Advertised name not established."
+    precision_cooker_2022_on: "Precision Cooker 3.0 and Pro 3.0 (FCC 2APBOAN425 and 2APBOAN525, granted 2023; 2APBOAN625, granted 2026) and the later Mini and Lite (2APBOAN300, 2024). Their FCC user-manual exhibits describe those products, not this one."
+
+evidence:
+  documentation_review: >-
+    Anova's developer pages for the A2/A3 cooker (overview, BLE protocol,
+    command list, API reference, implementation example) were read on
+    2026-09-28 for facts only: UUIDs, framing, the reassembly rule, the 15 s
+    timeout, get id card and the 'anova f56-' prefix, the 900 W-only
+    commands, and the start sequence. None of their text is reproduced. The
+    vendor's operating manual for the original Bluetooth cooker (via
+    ManualsLib) gave the Bluetooth-symbol pairing entry and the note that
+    it breaks an existing pairing, the 3 s Start/Stop unit toggle, the 8 s
+    timer display, the specifications, the low-water alarm, the app-based
+    calibration, and the 10 s power-off fix for pairing. The vendor's 2015
+    Wi-Fi-model manual gave the Wi-Fi module's FCC ID, the MIN/MAX water
+    marks and the app-driven Wi-Fi setup.
+  open_source_review: >-
+    Aldaviva/SousVide at commit 94f923ca (C# client, tests and wiki; the
+    wiki matched the research copy byte for byte on 2026-09-28).
+    neilpa/circulate README at f4187a15 (the fullest community command
+    list: status values, read timer form, calibration, set temp range).
+    erikcw/pycirculate anova.py at 62dfeb0e (corroborates circulate, and
+    carries the calibration bug noted in protocol_details). Anova's MIT
+    reference client at fcad4bf5 (reply completion rule, model detection,
+    start sequence, the 'beep' placeholder).
+  app_static_analysis: >-
+    A strings-level pass over the current vendor Android app found the
+    0000ffe0-0000-1000-8000-00805f9b34fb/0000ffe1-0000-1000-8000-00805f9b34fb UUID pair beside the newer cookers' services, a Wi-Fi
+    onboarding state machine with a code confirmed on the cooker's display,
+    a cloud WebSocket command relay, and cloud-negotiated firmware updates.
+    The app's JavaScript is Hermes bytecode, and a naive search of its
+    string table for the ASCII commands gave only false positives (packed
+    neighbouring strings). So nothing here claims the current app still
+    sends the ASCII vocabulary. No byte layout in this spec comes from the
+    app.
+  capture_review: >-
+    The only capture our research store ties to this family (attached to
+    neilpa/circulate issue 7, 2019) is of a Precision Cooker Nano: service
+    0e140000-0af1-4582-a242-773e63054c68, framed binary payloads, and the
+    advertised name "Nano". It contains no ASCII traffic and does not
+    exercise this protocol. It was used only for the exclusion notes.
+  open_questions: >-
+    See remaining_unknowns. The first things to settle with a unit in hand:
+    the status string while cooking, whether 'start time' replies, whether
+    an unbonded connection gets replies, and what the 800 W unit answers to
+    'get id card'.
+  artifacts:
+    - type: "vendor_documentation"
+      artifact: "Anova developer documentation, A2/A3 Precision Cooker pages (overview, ble-protocol, commands, api-reference, implementation-example)"
+      url: "https://developer.anovaculinary.com/docs/devices/a2-a3/overview"
+      obtained_via: "fetched 2026-09-28"
+      description: "Vendor-published BLE facts. It gives no reply formats, status strings or ranges."
+    - type: "public_implementation"
+      artifact: "anova-culinary/developer-project-a2a3 @ fcad4bf5 (MIT, 2025)"
+      url: "https://github.com/anova-culinary/developer-project-a2a3"
+      obtained_via: "git clone, 2026-09-28"
+      description: "Vendor's Python/Bleak reference client: reply completion rule, get id card detection, start sequence, 15 s timeout, connection with no bond."
+    - type: "public_implementation"
+      artifact: "Aldaviva/SousVide @ 94f923ca (Apache-2.0) and its wiki"
+      url: "https://github.com/Aldaviva/SousVide"
+      obtained_via: "research store clone, re-checked against upstream HEAD 2026-09-28"
+      description: "C# client and protocol wiki, from the author's own Android HCI captures of vendor app 3.4.11 and a 2014 800 W unit. Source of PIN 0000, the 'Invalid Command' reply, and the open questions about the running status and the 'start time' reply."
+    - type: "community_repo"
+      artifact: "neilpa/circulate @ f4187a15 (MIT, 2014 iOS library)"
+      url: "https://github.com/neilpa/circulate"
+      obtained_via: "git clone, 2026-09-28"
+      description: "Community command reference: status values, read timer form, set temp range, calibration, programs, LED, name, date and history commands."
+    - type: "community_repo"
+      artifact: "erikcw/pycirculate @ 62dfeb0e (MIT, 2016)"
+      url: "https://github.com/erikcw/pycirculate"
+      obtained_via: "git clone, 2026-09-28"
+      description: "Python/bluepy client built on circulate. Corroborates circulate's commands, has a calibration-setter bug, and shows a Texas Instruments OUI in its example address."
+    - type: "vendor_documentation"
+      artifact: "Anova Precision Cooker operating manual (original Bluetooth circulator, 26 pp.)"
+      url: "https://www.manualslib.com/manual/958097/Anova-Precision.html"
+      obtained_via: "ManualsLib page text, 2026-09-28"
+      description: "Pairing-mode entry and its effect on an existing pairing, the unit toggle, the timer UI, specifications, the low-water alarm, app calibration, and the pairing fix."
+    - type: "vendor_documentation"
+      artifact: "Anova Precision Cooker WI-FI user manual (2015, 20 pp.)"
+      url: "https://www.williams-sonoma.com/netstorage/pdf/Anova-Precision-Cooker-with-WI-FI-User-68921-Manual.pdf"
+      obtained_via: "retailer-hosted PDF, 2026-09-28"
+      description: "The 900 W model's Wi-Fi module FCC ID (AZY-HF-LPB100), water MIN/MAX marks, app-driven Wi-Fi setup over Bluetooth, and safety text."
+    - type: "static_analysis"
+      artifact: "com.anovaculinary.android 3.6.6 (versionCode 2127), XAPK"
+      obtained_via: "third-party APK mirror, 2026-09"
+      description: "Context only (see app_static_analysis). Carries the 0000ffe0-0000-1000-8000-00805f9b34fb/0000ffe1-0000-1000-8000-00805f9b34fb pair, and the ASCII command vocabulary is not established in this build."
+    - type: "public_research"
+      artifact: "btsnoop captures attached to neilpa/circulate issue 7 (2019)"
+      url: "https://github.com/neilpa/circulate/issues/7"
+      obtained_via: "research store, harvested 2026-09"
+      description: "A Precision Cooker Nano capture on service 0e140000-0af1-4582-a242-773e63054c68, with the advertised name 'Nano'. It does not exercise this spec's protocol."
+
+remaining_unknowns:
+  - "The exact status string while cooking. circulate says 'running', SousVide's placeholder is 'started', and whether a separate heating state exists is unknown."
+  - "Whether 'start time' ever replies (SousVide saw nothing, circulate and pycirculate report an echo)."
+  - "Whether a link must be bonded before 0000ffe1-0000-1000-8000-00805f9b34fb answers. Anova's reference client and pycirculate connect unbonded, while SousVide always pairs with PIN 0000."
+  - "Whether the cooker accepts only one central at a time, and whether it holds one bond or several."
+  - "The reply to an out-of-range 'set temp' (circulate gives the accepted range as 5.0-99.9 °C / 41.0-211.8 °F) and to a non-numeric one."
+  - "The maximum 'set timer' value, and what the cooker does when the countdown reaches zero (SousVide's interface says cooking stops, and nothing else confirms it)."
+  - "The out-of-box temperature unit, and whether the unit and calibration offset persist across power loss."
+  - "What the 800 W model replies to 'get id card', and the reply formats of 'version' and 'clear alarm' on the 900 W model."
+  - "Which hardware revisions ship the 0000ffe0-0000-1000-8000-00805f9b34fb serial service and which ship the Nano's 0e140000-0af1-4582-a242-773e63054c68 service, e.g. whether any late 'A3' unit moved to the Nano stack."
+  - "Whether the cooker is built on an HM-10-style TI CC254x module (hypothesis from the UUID layout and one TI OUI). Its full GATT table and characteristic properties are unrecorded."
+  - "Whether the address is public, which decides whether it is a stable identity key."
+  - "The 900 W model's BLE Wi-Fi onboarding commands, and how its passphrase is protected."
+  - "Whether either model takes firmware updates. No BLE update path is known. The 900 W model's 'version' command and the vendor cloud's update negotiation suggest cloud updates for Wi-Fi units, unconfirmed."
+  - "How long the vendor app keeps supporting these cookers. The 2025 Bluetooth sunset was cancelled on 2025-01-16, and a 2026 store review reports the app reconnecting to an old cooker."
+
+helpful_urls:
+  - title: "Anova Precision Cooker operating manual (original Bluetooth circulator, ManualsLib)"
+    url: "https://www.manualslib.com/manual/958097/Anova-Precision.html"
+    kind: "manual"
+    description: >-
+      The vendor's 26-page operating manual for the original 800 W Bluetooth
+      Precision Cooker (Anova Culinary LLC, Houston era), on ManualsLib.
+      Covers the Bluetooth-symbol pairing entry, the 3 s Start/Stop unit
+      toggle, the timer, specifications and the low-water alarm.
+  - title: "Anova Precision Cooker WI-FI user manual (2015, PDF)"
+    url: "https://www.williams-sonoma.com/netstorage/pdf/Anova-Precision-Cooker-with-WI-FI-User-68921-Manual.pdf"
+    kind: "manual"
+    description: >-
+      The vendor's 2015 user manual for the 900 W Bluetooth + Wi-Fi model,
+      hosted by a retailer. Names the Wi-Fi module's FCC ID and the water
+      MIN/MAX marks. Not the manual for the 800 W model.
+  - title: "Anova developer docs: A2/A3 Precision Cooker overview"
+    url: "https://developer.anovaculinary.com/docs/devices/a2-a3/overview"
+    kind: "protocol_writeup"
+    description: "Anova's own page for the original cooker's BLE protocol, covering both models and model detection."
+  - title: "Anova developer docs: A2/A3 BLE communication protocol"
+    url: "https://developer.anovaculinary.com/docs/devices/a2-a3/ble-protocol"
+    kind: "protocol_writeup"
+    description: "UUIDs, CR-terminated ASCII requests, notification reassembly, timeout advice."
+  - title: "Anova developer docs: A2/A3 available commands"
+    url: "https://developer.anovaculinary.com/docs/devices/a2-a3/commands"
+    kind: "protocol_writeup"
+    description: "The vendor's command list and start-a-cook sequence."
+  - title: "anova-culinary/developer-project-a2a3"
+    url: "https://github.com/anova-culinary/developer-project-a2a3"
+    kind: "implementation"
+    description: "Anova's MIT-licensed Python/Bleak reference client for the A2/A3 cooker."
+  - title: "Aldaviva/SousVide"
+    url: "https://github.com/Aldaviva/SousVide"
+    kind: "implementation"
+    description: "Apache-2.0 .NET client library and CLI for the original cooker, written after Anova announced the Bluetooth removal."
+  - title: "SousVide: AnovaPrecisionCooker.cs (pinned)"
+    url: "https://github.com/Aldaviva/SousVide/blob/94f923ca001138b878f6274cf8500ebf4ccc14bb/SousVide/AnovaPrecisionCooker.cs"
+    kind: "implementation"
+    description: "The client read for this spec: serialised requests, 1 s polling, the 'Invalid Command' handling and the other defects noted in protocol_details."
+  - title: "SousVide wiki: Communication Protocol"
+    url: "https://github.com/Aldaviva/SousVide/wiki/Communication-Protocol"
+    kind: "protocol_writeup"
+    description: "Command table recovered from captures, PIN 0000, and the open questions this spec carries forward."
+  - title: "SousVide wiki: Bluetooth Low Energy Interception"
+    url: "https://github.com/Aldaviva/SousVide/wiki/Bluetooth-Low-Energy-Interception"
+    kind: "protocol_writeup"
+    description: "How the upstream captures were made (Android HCI snoop plus Wireshark). The recipe for turning this spec's open questions into confirmed facts."
+  - title: "neilpa/circulate README (pinned)"
+    url: "https://github.com/neilpa/circulate/blob/f4187a153f92cb7530a57ee75632593ae117aed1/README.md"
+    kind: "protocol_writeup"
+    description: "The 2014 community command reference: status values, read timer, set temp range, calibration, programs and system commands."
+  - title: "erikcw/pycirculate: anova.py (pinned)"
+    url: "https://github.com/erikcw/pycirculate/blob/62dfeb0e7c86ba9574e22e9d9d91163d70231667/pycirculate/anova.py"
+    kind: "implementation"
+    description: "Python/bluepy client built on circulate. Useful corroboration, but its calibration setter sends the wrong command."
+  - title: "neilpa/circulate issue 7: Anova Nano support"
+    url: "https://github.com/neilpa/circulate/issues/7"
+    kind: "forum"
+    description: "Carries the Nano HCI captures that show the Nano is a different protocol on a different service. The negative finding behind this spec's scope."
+  - title: "Anova developer docs: Precision Cooker Nano overview"
+    url: "https://developer.anovaculinary.com/docs/devices/nano/overview"
+    kind: "protocol_writeup"
+    description: "The excluded sibling's own documentation, so a Nano owner lands in the right place."
+  - title: "Anova support: original Precision Cooker Bluetooth / Bluetooth + Wi-Fi remote connectivity sunsetting"
+    url: "https://support.anovaculinary.com/hc/en-us/articles/27322197681165-The-Original-Anova-Precision-Cooker-Bluetooth-Bluetooth-WIFI-remote-connectivity-sunsetting"
+    kind: "vendor_support"
+    description: >-
+      Vendor support article (Zendesk, which refuses non-browser clients)
+      announcing the 2025 end of app connectivity for both original models.
+      The sunset was later cancelled (device.notes). This spec did not rely
+      on its current wording.
+  - title: "Ars Technica: smart sous vide cooker to start charging $2/month for 10-year-old companion app"
+    url: "https://arstechnica.com/gadgets/2024/08/smart-sous-vide-cooker-to-start-charging-2-month-for-10-year-old-companion-app/"
+    kind: "other"
+    description: "The 2024 subscription change and the original Bluetooth-removal plan that prompted the community clients."

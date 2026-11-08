@@ -6,7 +6,7 @@
 > "We didn't reverse engineer it, we... liberated its documentation." -- Every RE engineer, probably
 
 The **knowledge base** for reverse-engineered IoT device protocols — how
-locally-controllable **BLE** and **Wi-Fi/LAN** devices actually communicate
+locally-controllable **BLE**, **Bluetooth Classic** and **Wi-Fi/LAN** devices actually communicate
 (discovery, control and provisioning), so we can keep abandoned hardware alive.
 
 Part of the [Liberated Bread](https://github.com/liberatedbread/liberatedbread) project by
@@ -17,7 +17,7 @@ Part of the [Liberated Bread](https://github.com/liberatedbread/liberatedbread) 
 - **Device Documentation**: Protocol specs for specific abandoned IoT devices
 - **Methodology Guides**: How to approach reverse engineering IoT protocols
 - **Tool Recommendations**: Software and hardware for capturing and analyzing traffic
-- **Common Patterns**: BLE and WiFi protocol patterns we see across devices
+- **Common Patterns**: BLE, Bluetooth Classic and WiFi protocol patterns we see across devices
 
 ## Use caution, especially for anything safety-critical
 

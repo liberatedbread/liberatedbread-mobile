@@ -105,7 +105,6 @@ device:
   identification:
     service_uuids:
       - "00001826-0000-1000-8000-00805f9b34fb"   # FTMS models
-      - "0000fff0-0000-1000-8000-00805f9b34fb"   # FT proprietary models
     notes: >
       UR-protocol models (URTM*/SYWP* name prefixes) do not expose their
       service UUID as a constant in the app; identify them by advertised
@@ -124,9 +123,6 @@ device:
         Standard Fitness Machine Service generation, selected when the
         advertisement carries 0x1826.
     - model: "FT"
-      identification:
-        service_uuids:
-          - "0000fff0-0000-1000-8000-00805f9b34fb"
       notes: >
         FT proprietary generation: service 0xFFF0, Frame-A grammar with
         command class 0x44.

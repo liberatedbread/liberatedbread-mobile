@@ -1,0 +1,81 @@
+# Lutron controller and scheduling research — 2026-11-07
+
+scope:
+  hardware_testing: false
+  sensitive_material_excluded:
+    - private_keys_and_client_certificates
+    - bridge_CAs_and_initial_LAP_credentials
+    - embedded_SSH_keys_and_owner_logins
+    - MACs_serials_and_project_XML
+
+controllers:
+  caseta_non_pro: {integration: LEAP, notes: no_LIP_Telnet}
+  caseta_pro: {integration: [LEAP, LIP], notes: separate_ID_maps}
+  ra2_select: {integration: [LEAP, LIP], notes: occupancy_and_model_coverage_varies}
+  radiora2: {integration: LIP, notes: project_XML_not_Caseta_client}
+  radiora3: {integration: LEAP, notes: area_discovery_button_scenes}
+  homeworks_qs: {integration: LIP, notes: not_QSX}
+  homeworks_qsx: {integration: LEAP, notes: LongHold_confirmed}
+  vive: {integration: official_TLS_REST_and_newer_LEAP, notes: approval_required_for_schema}
+  other_LIP_families: {integration: LIP_variants, notes: product_specific_access}
+
+leap:
+  transport: newline_delimited_JSON_over_mutual_TLS
+  default_port: 8081
+  not_ordinary_HTTP_or_required_websocket: true
+  correlation: Header.ClientTag
+  liveness: /server/1/status/ping
+  discovery:
+    mainstream: _lutron._tcp.local.
+    additional: [_leap._tcp, _lap._tcp]
+    srv_port_not_necessarily_LEAP: true
+    legacy_radiora2_multicast: {group: 224.0.37.42, udp_port: 2647, request: "<LUTRON=1>", response: "<LUTRON=2>", telport_encoding: hexadecimal}
+  pairing:
+    port: 8083
+    steps: generate_RSA_key_and_CSR, wait_PhysicalAccess_button_hold, execute_pair_with_CSR, store_client_certificate_and_root_CA, verify_LEAP_8081
+  resources: [/device, /zone, /area, /button, /occupancygroup, /virtualbutton]
+  current_commands: [GoToDimmedLevel, GoToSwitchedLevel, GoToShadeLevel, GoToShadeLevelWithTilt, GoToTilt, Raise, Lower, Stop, GoToFanSpeed, GoToScene]
+  compatibility_command: GoToLevel_not_current_vendor_enum
+  caveats:
+    - LEAP_and_LIP_IDs_need_not_match
+    - LongHold_confirmed_for_QSX_not_Caseta_or_RA3
+    - OpenCloseStop_position_can_be_unknown
+
+scheduling:
+  execution: controller_without_phone
+  routes:
+    list: ReadRequest /timeclock
+    events: ReadRequest /timeclock/{id}/timeclockevent
+    create: CreateRequest /timeclock/{id}/timeclockevent
+    update: UpdateRequest /timeclockevent/{eventId}
+    delete: DeleteRequest /timeclockevent/{eventId}
+    enable_disable: UpdateRequest_event_status
+    test: TestThisTimeclockEvent_on_event_commandprocessor
+  schedule_types: [DayOfWeek, ByDate, Daily, None]
+  astronomic_offset_hours: {normal: 4, feature_gated_maximum: 12}
+  validation_required: [assigned_href_readback, WAN_off_execution, DST_and_solar_offset]
+
+lip:
+  guide: Lutron 040249 revision AH
+  transport: comma_separated_ASCII_CRLF normally Telnet_23_or_RS232
+  prefixes: {command: "#", query: "?", monitor: "~"}
+  surfaces: [#OUTPUT, #DEVICE, #TIMECLOCK, #MONITORING]
+  timeclock_actions: {mode: 1, sunrise: 2, sunset: 3, day_schedule: 4, execute: 5, enable_disable: 6}
+  first_event_index: 1
+  minimum_spacing_ms: {control: 100, query: 1500}
+  integration_ID_source: project_integration_report_or_XML
+
+reset:
+  hold_20_seconds: network_reset_preserves_devices_scenes_schedules
+  hold_40_seconds: HomeKit_reset
+
+radios:
+  clear_connect_type_a_MHz: 431-437
+  clear_connect_type_x_GHz: 2.4
+  not_zigbee_zwave_or_wifi: true
+
+firmware:
+  latest_usable_public_package_found: 26.00.13f000
+  payload: encrypted_firmware.tar.enc
+  decrypted_rootfs_obtained: false
+  install_for_research: false

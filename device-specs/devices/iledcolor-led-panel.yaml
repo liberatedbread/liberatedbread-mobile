@@ -9,6 +9,7 @@ device:
     status: untested
   protocol: "ble"
   category: "display"
+  category_hierarchy: ["display", "led_matrix"]
   notes: >
     This app replaced SPOTLED for DreamPanel v3 hardware (horizontal serial
     number). Built on JieLi (JL) Bluetooth OTA SDK. The protocol is FULLY

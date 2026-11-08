@@ -10,6 +10,7 @@ device:
     status: untested
   protocol: "ble"
   category: "light"
+  category_hierarchy: ["light", "led"]
   notes: >
     Flowtoys LED flow-arts props (capsule 2.0 light engines, podpoi, vision
     poi/staff/club/wand) do NOT speak BLE themselves. They communicate over a
