@@ -142,7 +142,12 @@ class ScanGuess {
       // HC-05), so it does not tie with a real product; take the top match's
       // advisory rather than require agreement, so a warning is never dropped.
       advisory: best.securityAdvisory,
-      pictogram: best.pictogram,
+      // The spec's own token, else one read off its name and category, so
+      // a laser distance meter and an LED sign stop wearing their category's
+      // generic glyph (see [DevicePictogram.infer]). An inferred token needs
+      // the same agreement the category does: a tie between a thermometer and
+      // a soil sensor draws neither's picture.
+      pictogram: best.pictogram ?? _agreedInference([best, ...tied]),
       adminUrl: best.adminUrl,
       isIdentifyOnly: best.integration == 'identify_only',
       // Agreement, like category: a device that merely might be the one
@@ -270,6 +275,16 @@ class ScanGuess {
   /// real match is a claim with its evidence stripped off — and
   /// [DeviceDescription] already says the true version of that, naming who
   /// made the device and what it offers, out of the registries.
+  /// The pictogram every one of [matches] infers, or null when they differ
+  /// or none infers one.
+  static String? _agreedInference(List<ScanMatch> matches) {
+    final tokens = {
+      for (final m in matches)
+        DevicePictogram.infer(deviceName: m.deviceName, category: m.category),
+    };
+    return tokens.length == 1 ? tokens.single : null;
+  }
+
   IconData iconOr(IconData fallback) =>
       DevicePictogram.iconFor(pictogram) ?? category?.icon ?? fallback;
 

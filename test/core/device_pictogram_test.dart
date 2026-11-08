@@ -1,5 +1,7 @@
 // Copyright 2026 Pigs Can Fly Labs LLC
 // SPDX-License-Identifier: Apache-2.0
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:liberated_bread_mobile/core/device_category.dart';
@@ -108,5 +110,112 @@ void main() {
         expect(icon, DeviceCategory.parse('network')?.icon);
       },
     );
+  });
+
+  group('DevicePictogram.infer', () {
+    String? infer(String name, String category) =>
+        DevicePictogram.infer(deviceName: name, category: category);
+
+    test('tells sub-kinds of one category apart by name', () {
+      // A laser distance meter is not a thermometer, though both are sensors.
+      expect(
+        infer('Johnson JLX LDM330 Laser Distance Meter', 'sensor'),
+        'distance-meter',
+      );
+      expect(
+        infer('Govee H5075 Thermometer/Hygrometer', 'sensor'),
+        'thermometer',
+      );
+      // An LED strip controller is not a bulb, and an LED sign is not either.
+      expect(
+        infer('ELK-BLEDOM BLE LED Strip Controller', 'light'),
+        'led-strip',
+      );
+      expect(infer('Govee H6001 Smart Bulb', 'light'), 'light');
+      expect(infer('CoolLEDX LED Sign', 'display'), 'led-sign');
+      // Names that do not say what the device measures or is.
+      expect(infer('Airthings Wave Family', 'sensor'), 'radon-sensor');
+      expect(
+        infer('Govee RGBIC / DreamColor Lights (segmented)', 'light'),
+        'led-strip',
+      );
+      expect(infer('Hörmann BiSecur Gateway', 'hub'), 'garage-door');
+      expect(infer('Hyperice Hypervolt Plus', 'fitness'), 'massage-gun');
+      expect(infer('TiVo DVRs and Minis (Series 3 and later)', 'tv'), 'dvr');
+      expect(infer('Rachio Controller', 'irrigation'), 'sprinkler-controller');
+      // A grow light's controller is not a strip's.
+      expect(
+        infer('Spider Farmer GGS Grow Light Controller', 'light'),
+        'grow-light',
+      );
+      expect(infer('Bluetooth LED Name Badge', 'display'), 'name-badge');
+    });
+
+    test('a sub-kind never draws the same glyph as its own category', () {
+      // A token whose glyph is its category's icon gains the device nothing,
+      // which is how the air purifier first shipped.
+      final cases = {
+        'air-purifier': 'climate',
+        'led-strip': 'light',
+        'thermometer': 'sensor',
+        'radon-sensor': 'sensor',
+        'dvr': 'tv',
+        'garage-door': 'hub',
+        'fingerprint-lock': 'lock',
+        'sprinkler-controller': 'irrigation',
+        'thermal-camera': 'camera',
+      };
+      cases.forEach((token, category) {
+        expect(
+          DevicePictogram.iconFor(token),
+          isNot(DeviceCategory.parse(category)!.icon),
+          reason: token,
+        );
+      });
+    });
+
+    test('keeps a word inside its category', () {
+      // "band" is a fitness band under fitness, and nothing under light.
+      expect(infer('M6 Smart Fitness Band', 'fitness'), 'fitness-band');
+      expect(infer('Band Light', 'light'), isNull);
+    });
+
+    test('a spec\'s own pictogram outranks the inference', () {
+      expect(
+        DevicePictogram.forSpec(
+          deviceName: 'Some LED Strip',
+          category: 'light',
+          pictogram: 'smart-device',
+        ),
+        'smart-device',
+      );
+    });
+
+    test('every token inferred for the vendored catalogue has a glyph', () {
+      final name = RegExp(r'^  name:\s*"?([^"\n]+)"?', multiLine: true);
+      final category = RegExp(r'^  category:\s*"?(\w+)', multiLine: true);
+      final pictogram = RegExp(r'^  pictogram:', multiLine: true);
+      var inferred = 0;
+      for (final file in Directory(
+        'vendor/protocol-specs/device-specs/devices',
+      ).listSync().whereType<File>().where((f) => f.path.endsWith('.yaml'))) {
+        final text = file.readAsStringSync();
+        final n = name.firstMatch(text)?[1];
+        final c = category.firstMatch(text)?[1];
+        if (n == null || pictogram.hasMatch(text)) continue;
+        final token = DevicePictogram.infer(deviceName: n, category: c);
+        if (token == null) continue;
+        inferred++;
+        expect(
+          DevicePictogram.iconFor(token) != null ||
+              DevicePictogram.isCustom(token),
+          isTrue,
+          reason: '${file.path} infers "$token", which draws nothing',
+        );
+      }
+      // The point of the table: most of the catalogue sets no pictogram, and
+      // a good share of it should now get something finer than its category.
+      expect(inferred, greaterThan(60));
+    });
   });
 }

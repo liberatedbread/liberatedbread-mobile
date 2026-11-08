@@ -211,6 +211,20 @@ heading.
 
 ### Changed
 
+- **Devices get an icon for what they are, not just their category.** Only
+  31 of 231 specs declare a `pictogram`, so a laser distance meter drew the
+  same sensor glyph as a thermometer, and an LED strip controller the same
+  bulb as a bulb. `DevicePictogram.infer` now reads a token off a spec's name
+  within its category (distance meter, thermometer, meat probe, soil, tank
+  and radon sensors; LED strip, string lights, flow props, light panel, grow
+  light; LED sign, name badge, glasses, mask, helmet, backpack; scooter,
+  motorcycle, e-unicycle, OBD adapter; blood pressure, oximeter, glucose;
+  fingerprint lock, DVR, sprinkler controller, thermal camera, massage gun,
+  sunrise lamp; and about thirty more), each drawn by a bundled Material
+  glyph that differs from its category's. 135 of the catalogue's specs get
+  one. A spec's own `pictogram` still wins, and an
+  inferred one is drawn only when every tied match agrees on it.
+
 - **Vendor names read as names, and a radio's maker is not called the
   device's.** The IEEE and Bluetooth SIG registries hold names as filed
   ("Hon Hai Precision Ind. Co.,Ltd.", "SHENZHEN BILIAN ELECTRONIC CO.，LTD"),
