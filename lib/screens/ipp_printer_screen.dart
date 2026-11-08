@@ -216,7 +216,7 @@ class _IppPrinterScreenState extends ConsumerState<IppPrinterScreen> {
                   ],
                 ),
               )
-            else if (_error != null && status == null)
+            else if (_error != null)
               _Card(child: Text(_error!))
             else if (status != null) ...[
               _StateCard(status: status),

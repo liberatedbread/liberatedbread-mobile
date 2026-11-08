@@ -18,7 +18,7 @@ import 'package:liberated_bread_mobile/services/spec_codec.dart';
 import '../fakes/fake_spec_codec.dart';
 
 class _CannedClient extends IppStatusClient {
-  final IppFetchResult result;
+  IppFetchResult result;
   _CannedClient(this.result);
   final paths = <String>[];
 
@@ -68,17 +68,30 @@ const _stopped = IppPrinterStatusDto(
   documentFormats: ['application/pdf'],
 );
 
+const _declined = IppPrinterStatusDto(
+  statusCode: 0x0400,
+  ok: false,
+  state: 'unknown',
+  stateReasons: [],
+  stateMessage: null,
+  makeAndModel: null,
+  markers: [],
+  mediaReady: [],
+  documentFormats: [],
+);
+
 Future<_CannedClient> _pump(
   WidgetTester tester, {
   NetworkDevice? device,
   IppFetchResult? result,
+  IppPrinterStatusDto status = _stopped,
 }) async {
   final client = _CannedClient(result ?? IppFetchOk(Uint8List.fromList([1])));
   await tester.pumpWidget(
     ProviderScope(
       overrides: [
         specCodecProvider.overrideWithValue(
-          FakeSpecCodec(ippStatus: true, ippStatusResult: _stopped),
+          FakeSpecCodec(ippStatus: true, ippStatusResult: status),
         ),
         ippStatusClientProvider.overrideWithValue(client),
       ],
@@ -118,6 +131,32 @@ void main() {
     );
     expect(find.text('Could not reach the printer.'), findsOneWidget);
     expect(find.text('Open admin page'), findsOneWidget);
+  });
+
+  testWidgets('a failed refresh replaces the last good status with the error', (
+    tester,
+  ) async {
+    final client = await _pump(tester);
+    expect(find.text('Needs attention'), findsOneWidget);
+
+    client.result = const IppFetchFailed('Could not reach the printer.');
+    await tester.tap(find.byTooltip('Refresh'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Could not reach the printer.'), findsOneWidget);
+    expect(find.text('Needs attention'), findsNothing);
+    expect(find.text('Black Toner'), findsNothing);
+  });
+
+  testWidgets('an IPP refusal is shown even though a status decoded', (
+    tester,
+  ) async {
+    await _pump(tester, status: _declined);
+    expect(
+      find.text('The printer declined the status request (IPP 0x400).'),
+      findsOneWidget,
+    );
+    expect(find.text('State unknown'), findsNothing);
   });
 
   testWidgets('a raw-socket-only printer is not asked', (tester) async {

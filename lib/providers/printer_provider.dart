@@ -66,6 +66,16 @@ final savedPrintersProvider = FutureProvider.autoDispose<List<SavedPrinter>>((
       final raster = await codec.rasterPrintForSpec(specYaml: entry.yaml);
       if (raster == null || !raster.encodable) continue;
       final isBle = device is SavedDevice;
+      if (isBle && raster.variants.isNotEmpty) {
+        final matched = await codec.bleVariantNamesForDevice(
+          yaml: entry.yaml,
+          deviceName: name,
+          serviceUuids: const [],
+        );
+        if (matched.isNotEmpty && !raster.variants.any(matched.contains)) {
+          continue;
+        }
+      }
       final wanted = isBle ? 'ble_write_plan' : 'raw_stream';
       if (raster.transport != wanted) continue;
       printers.add(

@@ -49,15 +49,16 @@ class _PerSpecCodec extends FakeSpecCodec {
   }) async => bySpec[specYaml];
 }
 
-RasterPrintDto _raster(String? transport) => RasterPrintDto(
-  transport: transport,
-  encodable: transport != null,
-  dpi: 203,
-  dpiAssumed: false,
-  media: const [],
-  variants: const [],
-  hardwareTested: true,
-);
+RasterPrintDto _raster(String? transport, {List<String> variants = const []}) =>
+    RasterPrintDto(
+      transport: transport,
+      encodable: transport != null,
+      dpi: 203,
+      dpiAssumed: false,
+      media: const [],
+      variants: variants,
+      hardwareTested: true,
+    );
 
 void main() {
   test('offers printers this build drives, over the right transport', () async {
@@ -103,5 +104,40 @@ void main() {
     expect(printers.map((p) => p.name), ['Cat']);
     expect(printers.single.isBle, isTrue);
     expect(printers.single.specYaml, 'cat-yaml');
+  });
+
+  test('a saved B21 is not offered the D110-only print surface', () async {
+    SharedPreferences.setMockInitialValues({
+      'saved_devices_v1':
+          '['
+          '{"id":"b21","name":"B21","lastSeen":"2026-07-30T12:00:00.000",'
+          '"category":"printer","specKey":"NIIMBOT|Test"},'
+          '{"id":"d110","name":"D110","lastSeen":"2026-07-30T12:00:00.000",'
+          '"category":"printer","specKey":"NIIMBOT|Test"}'
+          ']',
+    });
+    final prefs = await SharedPreferences.getInstance();
+    final codec = _PerSpecCodec({
+      'niimbot-yaml': _raster('ble_write_plan', variants: ['D110']),
+    });
+    codec.bleVariantNames = (name, services) {
+      expect(services, isEmpty);
+      return [name];
+    };
+    final container = ProviderContainer(
+      overrides: [
+        sharedPreferencesProvider.overrideWithValue(prefs),
+        specCodecProvider.overrideWithValue(codec),
+        specCatalogueProvider.overrideWith(
+          (ref) async => FallbackSpecCatalogue.fromParsed(codec, [
+            (spec: _spec('NIIMBOT'), yaml: 'niimbot-yaml'),
+          ]),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    final printers = await container.read(savedPrintersProvider.future);
+    expect(printers.map((printer) => printer.name), ['D110']);
   });
 }
