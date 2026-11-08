@@ -1050,6 +1050,41 @@ void main() {
       expect(guess.iconOr(unknownDeviceIcon), unknownDeviceIcon);
     });
 
+    test('an inferred pictogram needs the tied matches to agree', () {
+      // Both sensors, so the category survives the tie; but one is a
+      // thermometer and one a distance meter, so neither picture is drawn.
+      final split = ScanGuess.fromMatches([
+        _match(
+          MatchConfidence.possible,
+          deviceName: 'Acme Thermometer',
+          category: 'sensor',
+        ),
+        _match(
+          MatchConfidence.possible,
+          deviceName: 'Acme Laser Distance Meter',
+          category: 'sensor',
+          specIndex: 1,
+        ),
+      ])!;
+      expect(split.category, DeviceCategory.sensor);
+      expect(split.pictogram, isNull);
+
+      final agreed = ScanGuess.fromMatches([
+        _match(
+          MatchConfidence.possible,
+          deviceName: 'Acme Thermometer',
+          category: 'sensor',
+        ),
+        _match(
+          MatchConfidence.possible,
+          deviceName: 'Acme Thermometer-Hygrometer',
+          category: 'sensor',
+          specIndex: 1,
+        ),
+      ])!;
+      expect(agreed.pictogram, 'thermometer');
+    });
+
     test('a trailing weaker match does not dilute a confident one', () {
       // Mirrors how `otherMatches` counts only ties at the best confidence: a
       // Strong match is not made ambiguous by a Possible one behind it.

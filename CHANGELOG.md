@@ -211,6 +211,18 @@ heading.
 
 ### Changed
 
+- **Devices get an icon for what they are, not just their category.** Only
+  31 of 231 specs declare a `pictogram`, so a laser distance meter drew the
+  same sensor glyph as a thermometer, and an LED strip controller the same
+  bulb as a bulb. `DevicePictogram.infer` now reads a token off a spec's name
+  within its category (distance meter, thermometer, meat probe, soil, tank
+  and radon sensors; LED strip, string lights, flow props, light panel, grow
+  light; LED sign, name badge, glasses, mask, helmet, backpack; scooter,
+  motorcycle, e-unicycle, OBD adapter; blood pressure, oximeter, glucose; and
+  about thirty more), each drawn by a bundled Material glyph. 118 of the
+  catalogue's specs get one. A spec's own `pictogram` still wins, and an
+  inferred one is drawn only when every tied match agrees on it.
+
 - **The first-launch gate and the About screen ask for caution with
   everything in the app, and say not to rely on it for anything
   safety-critical.** A reading or a control can be wrong, late or
