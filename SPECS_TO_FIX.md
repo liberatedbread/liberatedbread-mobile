@@ -1221,4 +1221,5 @@ are otherwise correct. This is a documentation correction, not a reason to
 edit the vendored subtree or to reverse a working client's frame IDs.
 
 Resolved upstream in liberatedbread/liberatedbread-protocol-specs#84 (merged
-2026-11-08). The vendored copy awaits the next normal subtree refresh.
+2026-11-08) and pulled into this repository by the normal subtree refresh in
+liberatedbread/liberatedbread-mobile#96.
