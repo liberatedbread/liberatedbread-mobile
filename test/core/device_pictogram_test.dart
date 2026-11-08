@@ -133,12 +133,45 @@ void main() {
       );
       expect(infer('Govee H6001 Smart Bulb', 'light'), 'light');
       expect(infer('CoolLEDX LED Sign', 'display'), 'led-sign');
+      // Names that do not say what the device measures or is.
+      expect(infer('Airthings Wave Family', 'sensor'), 'radon-sensor');
+      expect(
+        infer('Govee RGBIC / DreamColor Lights (segmented)', 'light'),
+        'led-strip',
+      );
+      expect(infer('Hörmann BiSecur Gateway', 'hub'), 'garage-door');
+      expect(infer('Hyperice Hypervolt Plus', 'fitness'), 'massage-gun');
+      expect(infer('TiVo DVRs and Minis (Series 3 and later)', 'tv'), 'dvr');
+      expect(infer('Rachio Controller', 'irrigation'), 'sprinkler-controller');
       // A grow light's controller is not a strip's.
       expect(
         infer('Spider Farmer GGS Grow Light Controller', 'light'),
         'grow-light',
       );
       expect(infer('Bluetooth LED Name Badge', 'display'), 'name-badge');
+    });
+
+    test('a sub-kind never draws the same glyph as its own category', () {
+      // A token whose glyph is its category's icon gains the device nothing,
+      // which is how the air purifier first shipped.
+      final cases = {
+        'air-purifier': 'climate',
+        'led-strip': 'light',
+        'thermometer': 'sensor',
+        'radon-sensor': 'sensor',
+        'dvr': 'tv',
+        'garage-door': 'hub',
+        'fingerprint-lock': 'lock',
+        'sprinkler-controller': 'irrigation',
+        'thermal-camera': 'camera',
+      };
+      cases.forEach((token, category) {
+        expect(
+          DevicePictogram.iconFor(token),
+          isNot(DeviceCategory.parse(category)!.icon),
+          reason: token,
+        );
+      });
     });
 
     test('keeps a word inside its category', () {
