@@ -234,6 +234,8 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
   bool _loadingOptions = false;
 
   String? _error;
+  bool _certificateChanged = false;
+  bool _resettingCertificate = false;
 
   /// Per-entity state for `text` entities (the TV keyboard): the field's
   /// controller, the text as the device last saw it, and a chain serializing
@@ -648,6 +650,7 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
     }
     setState(() {
       _loading = true;
+      _certificateChanged = false;
       _error = null;
     });
     try {
@@ -724,6 +727,7 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
       if (!mounted) return;
       setState(() {
         _loading = false;
+        _certificateChanged = e is ControlCertificateChangedException;
         _error = friendlyErrorText(
           e,
           context: 'device control',
@@ -732,6 +736,53 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
               'try scanning again.',
         );
       });
+    }
+  }
+
+  Future<void> _resetCertificate() async {
+    if (_resettingCertificate) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Forget the saved certificate?'),
+        content: const Text(
+          'Do this only if the device was reset, replaced or had a firmware '
+          'update you trust. If the change is unexpected, cancel and check '
+          'what is answering at this address. Forgetting lets the app pin the '
+          'certificate it sees next.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Forget & retry'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    setState(() => _resettingCertificate = true);
+    try {
+      await ref
+          .read(tlsTrustProvider)
+          .forget(_credentialIdentity, host: widget.device.host);
+      if (!mounted) return;
+      setState(() => _certificateChanged = false);
+      await _load();
+    } on Object catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _error = friendlyErrorText(
+          e,
+          context: 'certificate reset',
+          fallback: 'Could not forget the saved certificate. Try again.',
+        );
+      });
+    } finally {
+      if (mounted) setState(() => _resettingCertificate = false);
     }
   }
 
@@ -1794,6 +1845,27 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
                 child: Text(
                   _error!,
                   style: text.bodyMedium?.copyWith(color: scheme.error),
+                ),
+              ),
+            if (_certificateChanged)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 16),
+                child: FilledButton.tonalIcon(
+                  onPressed: _resettingCertificate
+                      ? null
+                      : () => unawaited(_resetCertificate()),
+                  icon: _resettingCertificate
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.key_off_outlined),
+                  label: Text(
+                    _resettingCertificate
+                        ? 'Forgetting…'
+                        : 'Forget certificate & retry',
+                  ),
                 ),
               ),
             if (_loading) ...[

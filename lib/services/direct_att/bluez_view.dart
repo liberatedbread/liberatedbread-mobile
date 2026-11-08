@@ -100,6 +100,23 @@ class BluezView {
     return false;
   }
 
+  /// The current bluetoothd record for [address], or null when it is no
+  /// longer known. Callers doing Classic pairing use this rather than
+  /// flutter_blue_plus_linux's singleWhere, which turns the same answer into
+  /// "Bad state: No element".
+  Future<BlueZDevice?> device(String address) async {
+    final wanted = address.toUpperCase();
+    try {
+      final client = await _connected();
+      for (final device in client.devices) {
+        if (device.address.toUpperCase() == wanted) return device;
+      }
+    } catch (e) {
+      Log.ble.debug('could not ask bluetoothd for $address', error: e);
+    }
+    return null;
+  }
+
   /// Every advertisement bluetoothd reports hearing from a device it already
   /// has, as the scan result flutter_blue_plus_linux would have built for a
   /// new one. Listen only while scanning (the router does); a device that is

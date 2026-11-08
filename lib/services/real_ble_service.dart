@@ -1867,6 +1867,7 @@ class RealBleService
     String charUuid,
   ) {
     final controller = StreamController<List<int>>();
+    final ready = Completer<void>();
     StreamSubscription<List<int>>? sub;
     // Set when the consumer cancels while setup is still awaiting: onCancel
     // finds sub null then and can tear nothing down, so setup itself must
@@ -2008,8 +2009,10 @@ class RealBleService
               if (!controller.isClosed) await controller.close();
             },
           );
+          if (!ready.isCompleted) ready.complete();
         } catch (e) {
           controller.addError(e);
+          if (!ready.isCompleted) ready.complete();
           if (!controller.isClosed) await controller.close();
           // A failed setup holds no interest; the last release drops the
           // share so the next subscriber retries the enable instead of
@@ -2021,6 +2024,7 @@ class RealBleService
 
     controller.onCancel = () async {
       cancelled = true;
+      if (!ready.isCompleted) ready.complete();
       try {
         await sub?.cancel();
       } catch (_) {
@@ -2031,7 +2035,7 @@ class RealBleService
       await releaseInterest();
     };
 
-    return controller.stream;
+    return BleReadyNotificationStream(controller.stream, ready.future);
   }
 
   /// Shared notify state per characteristic — see [subscribeCharacteristic].

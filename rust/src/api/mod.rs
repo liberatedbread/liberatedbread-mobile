@@ -2,8 +2,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 pub mod device_api;
+pub mod enphase_api;
 pub mod mock_api;
+pub mod print_api;
 pub mod radio_api;
+pub mod sdp_api;
 pub mod serial_api;
 pub mod spec_handle;
 

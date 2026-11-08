@@ -500,9 +500,9 @@ class ControlCertificateChangedException implements UserFacingException {
   @override
   String get message =>
       'This device is presenting a different security certificate than it did '
-      'before. If you reset it or updated its firmware, remove it from Saved '
-      'devices and add it again. If you did not, something else may be '
-      'answering at its address.';
+      'before. If you reset it or updated its firmware, use Forget '
+      'certificate & retry to pin the new one. If you did not, cancel and '
+      'check what is answering at its address.';
 }
 
 /// The device's certificate could not be verified, and its spec asked for

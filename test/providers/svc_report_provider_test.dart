@@ -6,6 +6,7 @@ import 'dart:typed_data';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:liberated_bread_mobile/core/log.dart';
 import 'package:liberated_bread_mobile/models/ble_discovered_service.dart';
 import 'package:liberated_bread_mobile/models/network_device.dart';
 import 'package:liberated_bread_mobile/models/svc_report.dart';
@@ -164,6 +165,24 @@ void main() {
         expect(wire, isNot(contains(secret)), reason: secret);
       }
       expect(report.toJson().containsKey('advertised_name'), isFalse);
+    });
+
+    test('logs the unexpected service ids without any device identifier', () {
+      final records = Log.captureRecords();
+
+      buildWifiSvcReport(
+        entry: _wifiEntry(),
+        device: _netDevice(types: ['_acme._tcp.local', '_matter._tcp.local']),
+      );
+
+      expect(
+        records.map((r) => r.message),
+        contains('unexpected mdns service _matter._tcp for Hub'),
+      );
+      expect(
+        records.map((r) => r.format()).join('\n'),
+        isNot(contains('192.168.1.40')),
+      );
     });
   });
 

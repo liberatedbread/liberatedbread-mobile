@@ -357,6 +357,7 @@ void main() {
           ),
         ],
         nextFrameIndex: 2,
+        replyWaits: const [],
       ),
     );
     final ble = FakeBleService();
@@ -1685,6 +1686,7 @@ void main() {
             ),
           ],
           nextFrameIndex: 1,
+          replyWaits: const [],
         ),
       );
       await tester.pumpWidget(

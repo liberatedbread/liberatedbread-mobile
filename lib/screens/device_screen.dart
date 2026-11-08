@@ -8,9 +8,11 @@ import '../models/iot_device.dart';
 import '../models/svc_report.dart';
 import '../providers/adopt_provider.dart';
 import '../providers/ble_provider.dart';
+import '../providers/classic_printer_provider.dart';
 import '../providers/device_description_provider.dart';
 import '../providers/device_setup_help_provider.dart';
 import '../providers/device_spec_match_provider.dart';
+import '../providers/enphase_provider.dart';
 import '../providers/ha_provider.dart';
 import '../providers/spec_codec_provider.dart';
 import '../providers/saved_device_provider.dart';
@@ -19,7 +21,9 @@ import '../providers/svc_report_provider.dart';
 import '../services/ble_service.dart';
 import '../services/spec_codec.dart' show BleHandshakeDto;
 import '../widgets/ad_banner_bar.dart';
+import '../widgets/classic_printer_setup_panel.dart';
 import '../widgets/device_control_panel.dart';
+import '../widgets/enphase_setup_panel.dart';
 import '../widgets/safety_advisory_gate.dart';
 import '../widgets/unexpected_services_banner.dart';
 import '../widgets/radar_scanner.dart';
@@ -30,7 +34,15 @@ import '../widgets/rabbit_air_setup_info_panel.dart';
 import 'find_device_screen.dart';
 import 'setup_instructions_screen.dart';
 
-enum _ScreenState { connecting, discovering, ready, error, disconnected }
+enum _ScreenState {
+  connecting,
+  discovering,
+  ready,
+  error,
+  disconnected,
+  classicPrinter,
+  enphase,
+}
 
 /// How long the screen keeps retrying a connect the device did not answer.
 ///
@@ -233,6 +245,8 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
   List<BleDiscoveredService> _services = [];
   late final BleService _bleService;
   StreamSubscription<BleConnectionState>? _connSub;
+  ClassicPrinterProfile? _classicProfile;
+  String? _enphaseSpecKey;
 
   /// Notification streams the spec's connect-time handshake asked to be
   /// opened, held for the life of THIS connection. A handshake that says
@@ -330,7 +344,35 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
   void initState() {
     super.initState();
     _bleService = ref.read(bleServiceProvider);
-    _connect();
+    _selectTransport();
+  }
+
+  void _selectTransport() {
+    try {
+      final request = ClassicPrinterRequest.of(
+        widget.device,
+        declaredPrefixes: ref.read(declaredManufacturerPrefixesProvider),
+      );
+      final enphaseKey = ref.read(enphaseProfileProvider(request));
+      if (enphaseKey != null) {
+        _enphaseSpecKey = enphaseKey;
+        _state = _ScreenState.enphase;
+        _adCategory = 'energy';
+        _adSpecKey = enphaseKey;
+        return;
+      }
+      final profile = ref.read(classicPrinterProfileProvider(request));
+      if (profile != null) {
+        _classicProfile = profile;
+        _state = _ScreenState.classicPrinter;
+        _adCategory = 'printer';
+        _adSpecKey = profile.specKey;
+        return;
+      }
+    } on Object catch (e) {
+      Log.ble.debug('BLE transport selection failed', error: e);
+    }
+    unawaited(_connect());
   }
 
   /// [autoRetry] is the screen restarting its own failed attempt: it keeps
@@ -963,6 +1005,8 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
     _ScreenState.ready => 'Connected',
     _ScreenState.error => 'Connection failed',
     _ScreenState.disconnected => 'Disconnected',
+    _ScreenState.classicPrinter => 'Bluetooth Classic',
+    _ScreenState.enphase => 'XBee Bluetooth',
   };
 
   /// The dot beside [_statusLabel]. It used to be the app bar's foreground
@@ -970,7 +1014,9 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
   /// identical at a glance — the dot said nothing the words did not. Same
   /// secondary role the connected header's own dot uses for a live link.
   Color _statusDotColor(ColorScheme scheme) => switch (_state) {
-    _ScreenState.ready => scheme.secondary,
+    _ScreenState.ready ||
+    _ScreenState.classicPrinter ||
+    _ScreenState.enphase => scheme.secondary,
     _ScreenState.error => scheme.error,
     _ScreenState.connecting ||
     _ScreenState.discovering ||
@@ -1001,6 +1047,20 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
           step: 1,
           deviceName: null,
           elapsedSeconds: _elapsedSeconds,
+        );
+
+      case _ScreenState.classicPrinter:
+        final profile = _classicProfile!;
+        return ClassicPrinterSetupPanel(
+          device: widget.device,
+          specYaml: profile.specYaml,
+          specKey: profile.specKey,
+        );
+
+      case _ScreenState.enphase:
+        return EnphaseSetupPanel(
+          device: widget.device,
+          specKey: _enphaseSpecKey!,
         );
 
       // Both dead-end states carry the find affordance too: a failed or lost
