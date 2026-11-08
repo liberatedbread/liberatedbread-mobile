@@ -485,7 +485,7 @@ class GroupRunner {
     final (:width, :height) = await _prideCanvas(member, spec, specYaml);
     var mtu = 23;
     try {
-      mtu = await _ble.mtu(member.id);
+      mtu = await _ble.mtu(member.id).timeout(ioTimeout);
     } on Object {
       // Sizing for the floor is always safe, just slower.
     }
@@ -561,6 +561,7 @@ class GroupRunner {
         member.id,
         specYaml,
         listen: panelQueryListen,
+        writeTimeout: ioTimeout,
       );
       if (asked != null && fits(asked)) return asked;
       final remembered = _rememberedSize?.call(member.id);

@@ -10,6 +10,7 @@ import 'package:liberated_bread_mobile/core/stop_signal.dart';
 import 'package:liberated_bread_mobile/models/ble_discovered_service.dart';
 import 'package:liberated_bread_mobile/services/ble_service.dart';
 import 'package:liberated_bread_mobile/services/group_runner.dart';
+import 'package:liberated_bread_mobile/services/panel_size_query.dart';
 import 'package:liberated_bread_mobile/services/spec_codec.dart';
 
 import '../fakes/fake_ble_service.dart';
@@ -451,6 +452,30 @@ void main() {
       expect(codec.encodeImageCalls.single.width, 96);
       expect(codec.encodeImageCalls.single.height, 16);
     });
+
+    test(
+      'a query that stalls falls back rather than hanging the run',
+      () async {
+        final ble = FakeBleService()..writeGate = Completer<void>().future;
+        final codec = FakeSpecCodec()
+          ..panelProbeResult = PanelProbeDto(
+            serviceUuid: _svc,
+            writeCharacteristicUuid: _cmdChar,
+            notifyCharacteristicUuid: _cmdChar,
+            bytes: Uint8List.fromList([0x01]),
+          );
+        final size = await queryPanelSize(
+          ble,
+          codec,
+          'A',
+          'y',
+          settle: Duration.zero,
+          listen: Duration.zero,
+          writeTimeout: const Duration(milliseconds: 20),
+        );
+        expect(size, isNull);
+      },
+    );
 
     test(
       'a panel that will not say falls back to what was remembered',

@@ -12,6 +12,8 @@ import 'spec_codec.dart';
 /// canvas to fall back on.
 ///
 /// Subscribes first, because the answer is a notification and is not repeated.
+/// The write is bounded by [writeTimeout]: BLE writes queue behind a mutex with
+/// no deadline of their own, and a caller here is holding up a whole group run.
 Future<({int width, int height})?> queryPanelSize(
   BleService ble,
   SpecCodec codec,
@@ -19,6 +21,7 @@ Future<({int width, int height})?> queryPanelSize(
   String specYaml, {
   Duration settle = const Duration(milliseconds: 250),
   Duration listen = const Duration(milliseconds: 1500),
+  Duration writeTimeout = const Duration(seconds: 8),
 }) async {
   final PanelProbeDto? probe;
   try {
@@ -40,12 +43,14 @@ Future<({int width, int height})?> queryPanelSize(
         )
         .listen(replies.add, onError: (Object _) {});
     await Future<void>.delayed(settle);
-    await ble.writeCharacteristic(
-      deviceId,
-      probe.serviceUuid,
-      probe.writeCharacteristicUuid,
-      probe.bytes,
-    );
+    await ble
+        .writeCharacteristic(
+          deviceId,
+          probe.serviceUuid,
+          probe.writeCharacteristicUuid,
+          probe.bytes,
+        )
+        .timeout(writeTimeout);
     await Future<void>.delayed(listen);
   } on Object catch (e) {
     Log.ble.debug('panel query failed on $deviceId: $e');
