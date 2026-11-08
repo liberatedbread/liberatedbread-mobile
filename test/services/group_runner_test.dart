@@ -396,6 +396,29 @@ void main() {
       expect(ble.events, isEmpty, reason: 'ruled out before spending radio');
     });
 
+    test('a one-colour panel cannot show a flag and says so', () async {
+      final ble = FakeBleService(servicesToReturn: const [_controlService]);
+      final codec = FakeSpecCodec();
+      final spec = _prideSpec(
+        category: 'display',
+        imageUpload: const ImageUploadDto(
+          encodable: true,
+          format: '1bit-bitmap',
+          maxWidth: 64,
+          maxHeight: 16,
+          resolutionDeviceReported: false,
+          animation: false,
+          animatedUpload: false,
+        ),
+      );
+      expect(supportedGroupOps(spec), isNot(contains(GroupOp.prideMode)));
+      final events = await run(GroupRunner(ble: ble, codec: codec), [
+        _member('A', spec: spec, yaml: 'y'),
+      ]);
+      expect(events.single.status, GroupDeviceStatus.skipped);
+      expect(codec.encodeImageCalls, isEmpty);
+    });
+
     test('an upload this build cannot encode does not claim support', () {
       final spec = _prideSpec(
         category: 'display',

@@ -203,8 +203,14 @@ enum PridePicture {
 /// By category and not merely by capability, because the catalogue's other
 /// image surfaces are printers: a group's pride mode must not run a label
 /// roll out, and a pair of glasses is not showing anybody a flag.
+///
+/// One-bit surfaces sit it out too: their encoders light a pixel on a
+/// threshold that every stripe of a flag clears, so a Magic Display would go
+/// solid and report a flag it is not showing.
 PridePicture? imageSurfaceForPride(DeviceSpecDto spec) {
-  if (spec.imageUpload?.encodable != true) return null;
+  final upload = spec.imageUpload;
+  if (upload == null || !upload.encodable) return null;
+  if (upload.format == '1bit-bitmap') return null;
   return switch (DeviceCategory.parse(spec.category)) {
     DeviceCategory.display => PridePicture.flags,
     DeviceCategory.light => PridePicture.rainbow,

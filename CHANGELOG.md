@@ -17,7 +17,7 @@ heading.
   starting from a different one and cycling by themselves where the panel can
   hold an animation, and lights take the rainbow — along the string where it
   has an addressable canvas or a rainbow effect, one colour per light
-  otherwise. Printers and locks sit it out.
+  otherwise. Printers, locks and one-colour panels sit it out.
 - **LOY SPACE / popled panels (`popled_json`).** Backpacks and bags now take
   pictures and brightness: images upload as GIFs into the panel's own program
   slot, so they keep playing after the app disconnects, and the canvas opens at
