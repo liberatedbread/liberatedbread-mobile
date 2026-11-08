@@ -26,22 +26,16 @@ DEVICES_DIR = REPO_ROOT / "device-specs" / "devices"
 SPEC_PATHS = sorted(DEVICES_DIR.glob("*.yaml"))
 
 CONFIDENCE_VALUES = {"high", "medium", "low"}
-METHOD_TYPES = {
-    "none",
-    "softap_http",
-    "softap_mqtt",
-    "softap_soap",
-    "softap_udp",
-    "ble_provisioning",
-    "ble_direct",
-    "wps",
-    "smartconfig",
-    "wired",
-    "device_ui",
-    "hub_pairing",
-    "button_pairing",
-    "cloud_account",
-}
+# Derived from the schema so the two lists cannot drift: a hand-kept copy
+# here once lacked `bt_classic_pairing` and failed every Classic spec that
+# followed the docs.
+METHOD_TYPES = set(
+    json.loads(
+        (Path(__file__).resolve().parent.parent / "device-specs" / "schema.json").read_text(
+            encoding="utf-8"
+        )
+    )["$defs"]["setup_method"]["properties"]["type"]["enum"]
+)
 ACTORS = {"user", "client", "device"}
 PASSPHRASE_PROTECTION = {
     "plaintext",
@@ -335,15 +329,19 @@ def test_no_provisioning_methods_are_consistent_with_required(specs):
 
 
 def test_ble_devices_use_ble_method_types(specs):
-    """A BLE-protocol device should not be described with WiFi onboarding."""
+    """A Bluetooth-protocol device should not be described with WiFi onboarding.
+
+    Covers Bluetooth Classic as well as BLE: an SPP printer has no SSID to
+    join any more than a GATT thermometer does.
+    """
     wifi_only = {"softap_http", "softap_soap", "wps", "smartconfig", "wired"}
     for device_id, spec in specs.items():
         setup = spec["device"].get("setup")
-        if not setup or spec["device"]["protocol"] != "ble":
+        if not setup or spec["device"]["protocol"] not in BLUETOOTH_PROTOCOLS:
             continue
         types = method_types(setup)
         assert not (types & wifi_only), (
-            f"{device_id}: BLE device documents WiFi-only onboarding {types & wifi_only}"
+            f"{device_id}: Bluetooth device documents WiFi-only onboarding {types & wifi_only}"
         )
 
 
@@ -430,6 +428,13 @@ def test_rejoin_answers_the_router_replacement_question(specs):
 
 
 BLE_PROTOCOLS = {"ble", "ble_gatt"}
+CLASSIC_PROTOCOLS = {"bluetooth_classic"}
+# Every protocol that is a Bluetooth radio link: the pairing and identification
+# conventions below apply to both halves of the standard, because a BR/EDR
+# device has an inquiry name and a bond the same way a BLE one has an
+# advertised name and a bond.
+BLUETOOTH_PROTOCOLS = BLE_PROTOCOLS | CLASSIC_PROTOCOLS
+CLASSIC_TRANSPORTS = {"rfcomm", "l2cap", "hid"}
 SECURITY_MODES = {
     "none",
     "just_works",
@@ -462,6 +467,12 @@ def test_ble_devices_answer_the_pairing_question(specs):
     block is required here rather than merely allowed. `required: unknown` is
     the honest third answer and satisfies this.
 
+    Bluetooth Classic specs are gated the same way, and for them the answer
+    is more often yes: a BR/EDR device either takes an insecure RFCOMM socket
+    with no bond (the Quin pill box) or demands a PIN or an SSP prompt first
+    (nearly every printer and OBD dongle), and which of the two it is decides
+    whether a client can connect at all without a person at the host.
+
     WiFi and bus devices are not gated: pairing in this sense is a property of
     the radio link, and a device reached over HTTP or a diagnostic connector
     has no equivalent. Those may still carry the block (a hub with a physical
@@ -470,11 +481,11 @@ def test_ble_devices_answer_the_pairing_question(specs):
     missing = [
         device_id
         for device_id, spec in specs.items()
-        if spec["device"].get("protocol") in BLE_PROTOCOLS
+        if spec["device"].get("protocol") in BLUETOOTH_PROTOCOLS
         and not is_reference(spec)
         and "pairing" not in spec["device"]
     ]
-    assert not missing, f"BLE specs without a device.pairing block: {missing}"
+    assert not missing, f"Bluetooth specs without a device.pairing block: {missing}"
 
 
 def test_pairing_states_required_and_confidence(specs):
@@ -3055,7 +3066,7 @@ def test_every_ble_spec_can_be_matched_by_something(specs):
     unmatched = [
         device_id
         for device_id, spec in specs.items()
-        if spec["device"].get("protocol") == "ble"
+        if spec["device"].get("protocol") in BLUETOOTH_PROTOCOLS
         # A reference spec documents a published profile other specs cite --
         # FTMS is service 0x1826, not a product -- so there is no scan result
         # to bind it to, the same reason references carry no `testing` block.
@@ -3065,6 +3076,13 @@ def test_every_ble_spec_can_be_matched_by_something(specs):
         and not any(
             (spec["device"].get("identification") or {}).get(axis) for axis in axes
         )
+        # A Classic device's inquiry name belongs in its bt_classic_inquiry
+        # method, not in the block a BLE scan matcher reads, so that method is
+        # an axis too -- for a bluetooth_classic spec only.
+        and not (
+            spec["device"].get("protocol") in CLASSIC_PROTOCOLS
+            and any(_inquiry_can_match(m) for m in _inquiry_methods(spec))
+        )
         # A spec may argue that no signal distinguishes this device from
         # anything else -- fardriver does, and does it well. That argument
         # belongs in `discovery.none`, where a checker can see it, not in a
@@ -3072,7 +3090,7 @@ def test_every_ble_spec_can_be_matched_by_something(specs):
         and not (spec["device"].get("discovery") or {}).get("none")
     ]
     assert not unmatched, (
-        "BLE specs with neither an identification axis nor a stated reason "
+        "Bluetooth specs with neither an identification axis nor a stated reason "
         f"there is none: {unmatched}"
     )
 
@@ -3595,8 +3613,8 @@ PRODUCT_FIXED_LAN_ADDRESSES = {
     "192.168.10.1": frozenset({
         "rachio-controller", "rabbit-air-purifier", "schlage-wifi-local-surface",
     }),
-    # Parrot Bebop/Anafi family AP.
-    "192.168.42.1": frozenset({"parrot-arsdk-drone"}),
+    # Parrot Bebop/Anafi and Insta360 camera APs.
+    "192.168.42.1": frozenset({"parrot-arsdk-drone", "insta360-camera"}),
     # Dyson setup-AP MQTT broker (non-EC categories).
     "192.168.60.1": frozenset({"dyson-air-purifier"}),
     # OpenGarage device-AP web UI.
@@ -4094,3 +4112,541 @@ def test_health_devices_carry_a_safety_advisory(specs):
         "health specs without a device.safety_advisory "
         f"(readings are a log, not a basis for a dose): {missing}"
     )
+
+
+# ---------------------------------------------------------------------------
+# Bluetooth Classic (BR/EDR)
+#
+# `protocol: bluetooth_classic` landed on 2026-09-27 so that SPP printers, OBD
+# dongles, headphones and the Quin pill box stop being filed as `ble` with a
+# paragraph of apology. The schema admits the value and the `bluetooth_classic`
+# block; these tests hold the conventions that make such a spec implementable
+# from the file alone -- the same standing questions the BLE conventions above
+# ask, plus the ones only a Classic device raises: which socket flag, how the
+# stream splits, and can an iPhone reach it at all.
+# ---------------------------------------------------------------------------
+
+# Profile UUIDs that identify a KIND of device, never a product: SPP, OBEX
+# push/FTP, A2DP source/sink, AVRCP target/controller, HFP, HID, PBAP.
+GENERIC_CLASSIC_UUIDS = {
+    f"0000{short}-0000-1000-8000-00805f9b34fb"
+    for short in (
+        "1101", "1105", "1106", "1108", "110a", "110b", "110c", "110d",
+        "110e", "111e", "111f", "1124", "1126", "112f",
+    )
+}
+MULTIBYTE_TYPES = {"uint16", "uint24", "uint32", "int16", "int32"}
+
+
+def _classic_commands(spec: dict):
+    """Yield (name, command) for every top-level command on a Classic transport.
+
+    A command that omits `transport` inherits `device.transport`, so a
+    Classic-only spec that declares `transport: rfcomm` once is covered too.
+    """
+    default = spec["device"].get("transport")
+    for name, command in (spec.get("commands") or {}).items():
+        if not isinstance(command, dict):
+            continue
+        if command.get("transport", default) in {"rfcomm", "l2cap"}:
+            yield name, command
+
+
+def _inquiry_methods(spec: dict):
+    methods = (spec["device"].get("discovery") or {}).get("methods") or []
+    return [m for m in methods if isinstance(m, dict) and m.get("type") == "bt_classic_inquiry"]
+
+
+def _inquiry_can_match(method: dict) -> bool:
+    matcher = method.get("bt_classic") or {}
+    name = matcher.get("name") or {}
+    return bool(
+        name.get("value")
+        or name.get("values")
+        or (matcher.get("class_of_device") or {}).get("value")
+        or matcher.get("service_uuids")
+    )
+
+
+def _uses_classic(spec: dict) -> bool:
+    """True when anything in the spec speaks BR/EDR."""
+    device = spec["device"]
+    if device.get("protocol") in CLASSIC_PROTOCOLS:
+        return True
+    if device.get("transport") in CLASSIC_TRANSPORTS:
+        return True
+    if _inquiry_methods(spec):
+        return True
+    return any(True for _ in _classic_commands(spec))
+
+
+def _serial_framing(spec: dict) -> dict:
+    return ((spec.get("bluetooth_classic") or {}).get("serial") or {}).get("framing") or {}
+
+
+def _variant_models(spec: dict) -> set[str]:
+    return {
+        v.get("model") for v in spec["device"].get("variants") or [] if isinstance(v, dict)
+    }
+
+
+def test_classic_specs_carry_the_bluetooth_classic_block(specs):
+    """Anything that speaks BR/EDR says which profile and which socket flag.
+
+    A `bluetooth_classic` protocol, a `rfcomm`/`l2cap`/`hid` transport, a
+    `bt_classic_inquiry` discovery method or an `rfcomm` command are each a
+    claim that a client opens a Classic socket. The block is where the SDP
+    UUID, the channel and the secure/insecure flag live, and without those a
+    client cannot open the socket the rest of the spec writes to.
+    """
+    missing = [
+        device_id
+        for device_id, spec in specs.items()
+        if _uses_classic(spec) and "bluetooth_classic" not in spec
+    ]
+    assert not missing, (
+        f"specs that speak Bluetooth Classic without a `bluetooth_classic` block: {missing}"
+    )
+
+
+def test_classic_block_names_a_control_profile(specs):
+    """One profile carries the commands, the block says which, and a client
+    can open it.
+
+    A headset lists A2DP, AVRCP, HFP and a vendor RFCOMM channel; a printer
+    lists SPP, OPP and HCRP. The `role: control` entry is the one the spec's
+    commands ride on. It needs an address a client can open -- an SDP UUID,
+    a fixed RFCOMM channel or an L2CAP PSM -- and a `secure` flag, and the
+    serial block must point at one of the declared profiles.
+    """
+    for device_id, spec in specs.items():
+        block = spec.get("bluetooth_classic")
+        if not block:
+            continue
+        profiles = block["profiles"]
+        control = [p for p in profiles if p.get("role") == "control"]
+        has_commands = any(True for _ in _classic_commands(spec))
+        if has_commands or "serial" in block:
+            assert control, (
+                f"{device_id}: documents a Classic serial stream or rfcomm commands "
+                "but no `profiles[]` entry has `role: control`"
+            )
+        for profile in control:
+            assert profile.get("uuid") or profile.get("channel") or profile.get("psm"), (
+                f"{device_id}: the control profile ({profile.get('profile')}) needs a "
+                "`uuid`, a fixed `channel` or a `psm` for a client to open it"
+            )
+            assert "secure" in profile, (
+                f"{device_id}: the control profile must say `secure` -- whether the "
+                "client opens a bonded/encrypted socket or an insecure one. It is "
+                "the flag a client passes when opening the socket, and the wrong "
+                "value is a pairing dialog the device never answers."
+            )
+        serial = block.get("serial") or {}
+        for key, field in (("profile_uuid", "uuid"), ("profile_channel", "channel"), ("profile_psm", "psm")):
+            if serial.get(key) is not None:
+                declared = {p.get(field) for p in profiles}
+                assert serial[key] in declared, (
+                    f"{device_id}: bluetooth_classic.serial.{key} {serial[key]!r} is not "
+                    f"the `{field}` of any declared profile"
+                )
+
+
+def test_classic_pairing_lives_with_its_radio(specs):
+    """`device.pairing` describes the link `device.protocol` names.
+
+    On a `ble` OBD family with Classic members, or a LAN printer with a
+    Bluetooth path, the second radio's bond, PIN and pairing button are a
+    different fact from the first radio's, and writing both into one block
+    made one of them false (a family whose BLE members bond with nothing
+    said `required: true, security_mode: legacy_pin`). So the Classic story
+    of such a spec is `bluetooth_classic.pairing`, and a `bluetooth_classic`
+    spec, whose `device.pairing` already is the Classic story, carries no
+    second copy.
+    """
+    for device_id, spec in specs.items():
+        block = spec.get("bluetooth_classic")
+        if not block:
+            continue
+        if spec["device"].get("protocol") in CLASSIC_PROTOCOLS:
+            assert "pairing" not in block, (
+                f"{device_id}: a bluetooth_classic spec states its pairing in "
+                "`device.pairing`; drop `bluetooth_classic.pairing`"
+            )
+        else:
+            assert "pairing" in block, (
+                f"{device_id}: speaks Classic as a second radio, so its Classic "
+                "pairing story belongs in `bluetooth_classic.pairing` -- "
+                "`device.pairing` describes the link `device.protocol` names"
+            )
+
+
+def test_classic_specs_answer_the_iphone_question(specs):
+    """A `bluetooth_classic` spec says whether CoreBluetooth can reach it.
+
+    CoreBluetooth exposes no RFCOMM, so an iPhone reaches a Classic serial
+    device only through the vendor's MFi/iAP2 path, if there is one. A
+    Classic spec without a `corebluetooth` verdict on its BR/EDR link leaves
+    the question to the reader who is least equipped to answer it.
+    """
+    for device_id, spec in specs.items():
+        device = spec["device"]
+        if device.get("protocol") not in CLASSIC_PROTOCOLS or is_reference(spec):
+            continue
+        verdicts = [v for v in device.get("host_compatibility") or [] if isinstance(v, dict)]
+        covered = [
+            v for v in verdicts
+            if v.get("stack") == "corebluetooth" and v.get("link", "br_edr") == "br_edr"
+        ]
+        assert covered, (
+            f"{device_id}: a bluetooth_classic spec must carry a host_compatibility "
+            "verdict for `corebluetooth` on its BR/EDR link (usually `incompatible`, "
+            "symptom `no_transport`, cause `{missing_api: rfcomm}`)"
+        )
+
+
+def test_host_verdicts_do_not_cover_a_stack_twice(specs):
+    """One verdict per (stack, link, variant) -- two would disagree eventually."""
+    for device_id, spec in specs.items():
+        seen = {}
+        for verdict in spec["device"].get("host_compatibility") or []:
+            if not isinstance(verdict, dict):
+                continue
+            key = (verdict.get("stack"), verdict.get("link"))
+            scope = set(verdict.get("variants") or ["*"])
+            for other in seen.get(key, []):
+                assert not ("*" in scope or "*" in other or scope & other), (
+                    f"{device_id}: two host_compatibility verdicts cover stack "
+                    f"{key[0]!r} (link {key[1]!r}) for the same variants"
+                )
+            seen.setdefault(key, []).append(scope)
+
+
+def test_classic_inquiry_matchers_can_match(specs):
+    """A `bt_classic_inquiry` method needs a needle that identifies something.
+
+    A name matcher with no `value` and no `values` produces no error and no
+    device. The other two matchers only NARROW a name (the schema says so):
+    a method whose only needle is a generic profile UUID -- SPP, A2DP, HFP,
+    HID -- or a masked class of device matches every device of that kind in
+    range.
+    """
+    for device_id, spec in specs.items():
+        for method in _inquiry_methods(spec):
+            matcher = method.get("bt_classic") or {}
+            name = matcher.get("name")
+            has_name = bool(name) and bool((name or {}).get("value") or (name or {}).get("values"))
+            if name is not None:
+                assert has_name, (
+                    f"{device_id}: bt_classic_inquiry name matcher has neither `value` "
+                    "nor a non-empty `values`"
+                )
+            assert _inquiry_can_match(method), (
+                f"{device_id}: bt_classic_inquiry method has no name, class_of_device "
+                "or service_uuids -- it can never match"
+            )
+            if has_name:
+                continue
+            uuids = set(matcher.get("service_uuids") or [])
+            cod = matcher.get("class_of_device") or {}
+            assert not (uuids and uuids <= GENERIC_CLASSIC_UUIDS), (
+                f"{device_id}: a bt_classic_inquiry matcher whose only needle is a "
+                f"generic profile UUID ({sorted(uuids)}) matches every such device; add a name"
+            )
+            assert not (cod and cod.get("mask") and not uuids), (
+                f"{device_id}: a bt_classic_inquiry matcher whose only needle is a masked "
+                "class of device matches a whole device class; add a name"
+            )
+
+
+def test_classic_commands_are_sendable_and_parseable(specs):
+    """An `rfcomm`/`l2cap` command carries bytes and declares its holes; on an
+    unframed stream every command says what comes back, in a form a client
+    can split out of the stream.
+
+    RFCOMM is a byte stream with no message boundaries. A protocol with no
+    length field (the Quin pill box) is parseable only because each reply's
+    prefix and length are known, and an undocumented acknowledgement is bytes
+    a client cannot split -- the next reply is lost with it. So on such a
+    stream every command states `response.expected: false`, or a `prefix`
+    and `length`, or says `expected: unknown` with a note saying what was
+    looked for.
+    """
+    placeholder = re.compile(r"^\{(.+)\}$")
+    declared_keys = _format_field_schema_keys()
+    for device_id, spec in specs.items():
+        unframed = _serial_framing(spec).get("length_prefix") is False
+        for name, command in _classic_commands(spec):
+            assert any(k in command for k in ("value", "template", "body")), (
+                f"{device_id}: rfcomm command {name!r} has no `value`, `template` or `body`"
+            )
+            parameters = command.get("parameters") or {}
+            template = command.get("template")
+            if isinstance(template, list):
+                referenced = {
+                    m.group(1)
+                    for element in template
+                    if isinstance(element, str)
+                    for m in [placeholder.match(element)]
+                    if m
+                }
+                undeclared = sorted(referenced - set(parameters))
+                assert not undeclared, (
+                    f"{device_id}: rfcomm command {name!r} references {undeclared} in "
+                    "its template but declares no such parameter"
+                )
+                for param in sorted(referenced & set(parameters)):
+                    definition = parameters[param] or {}
+                    if definition.get("type") in MULTIBYTE_TYPES:
+                        assert definition.get("endianness"), (
+                            f"{device_id}: rfcomm command {name!r} parameter {param!r} is a "
+                            f"{definition['type']} in a byte template and states no `endianness`"
+                        )
+            response = command.get("response")
+            if unframed:
+                assert isinstance(response, dict), (
+                    f"{device_id}: rfcomm command {name!r} on an unframed stream says "
+                    "nothing about its reply. State `response.expected: false`, or a "
+                    "`prefix` and `length`, or `expected: unknown` with notes."
+                )
+                expected = response.get("expected", True)
+                if expected is True:
+                    # A variable-length reply (a list whose end is only the
+                    # stream going quiet) has no fixed length to state, but it
+                    # still needs its prefix and a note saying how it ends.
+                    assert response.get("prefix") and (
+                        response.get("length") or response.get("notes")
+                    ), (
+                        f"{device_id}: rfcomm command {name!r} expects a reply on an "
+                        "unframed stream but gives no `prefix` plus `length` (or a "
+                        "`notes` saying how a variable-length frame ends) to split it by"
+                    )
+                elif expected == "unknown":
+                    assert response.get("notes"), (
+                        f"{device_id}: rfcomm command {name!r} says its reply is unknown "
+                        "without a `notes` saying what was looked for"
+                    )
+            if not isinstance(response, dict):
+                continue
+            length = response.get("length")
+            for field in response.get("format") or []:
+                undeclared = sorted(set(field) - declared_keys)
+                assert not undeclared, (
+                    f"{device_id}: rfcomm command {name!r} response field "
+                    f"{field.get('name')!r} uses undeclared keys {undeclared}"
+                )
+                if length:
+                    assert field["offset"] + field["length"] <= length, (
+                        f"{device_id}: rfcomm command {name!r} response field "
+                        f"{field.get('name')!r} runs past the {length}-byte frame"
+                    )
+
+
+def test_classic_frame_prefixes_split_the_stream(specs):
+    """On an unframed stream a prefix must decide a frame's length.
+
+    Replies and unsolicited frames are told apart by their leading bytes
+    alone. Two declared frames sharing a prefix with different lengths leave
+    a client guessing where the first one ends.
+    """
+    for device_id, spec in specs.items():
+        if _serial_framing(spec).get("length_prefix") is not False:
+            continue
+        lengths = {}
+        frames = [
+            (f"command {n}", c.get("response"))
+            for n, c in _classic_commands(spec)
+        ] + [
+            (f"unsolicited {u.get('name')}", u)
+            for u in ((spec["bluetooth_classic"].get("serial") or {}).get("unsolicited") or [])
+        ]
+        for label, frame in frames:
+            if not isinstance(frame, dict) or not frame.get("prefix") or not frame.get("length"):
+                continue
+            prefix = frame["prefix"].lower()
+            if prefix in lengths and lengths[prefix][1] != frame["length"]:
+                raise AssertionError(
+                    f"{device_id}: {label} and {lengths[prefix][0]} share prefix "
+                    f"{prefix!r} with different lengths ({frame['length']} vs "
+                    f"{lengths[prefix][1]})"
+                )
+            lengths.setdefault(prefix, (label, frame["length"]))
+
+
+def test_classic_references_resolve(specs):
+    """Every name a Classic block points at exists.
+
+    `commands_from` names a GATT characteristic whose commands the stream
+    reuses; an initialization or setup step names a top-level command to
+    send; an entity's `state_field` names a decoded stream field; the
+    block's `variants` name device variants. A reference that resolves to
+    nothing is a stream with no commands, a handshake that never runs, or a
+    tile whose value never arrives.
+    """
+    for device_id, spec in specs.items():
+        block = spec.get("bluetooth_classic") or {}
+        serial = block.get("serial") or {}
+        source = serial.get("commands_from")
+        if source:
+            found = [
+                c
+                for s in spec.get("services") or []
+                if s.get("uuid") == source["service"]
+                for c in s.get("characteristics") or []
+                if c.get("uuid") == source["characteristic"]
+            ]
+            assert found and found[0].get("commands"), (
+                f"{device_id}: bluetooth_classic.serial.commands_from names "
+                f"{source['service']}/{source['characteristic']}, which is not a "
+                "characteristic with commands in `services`"
+            )
+        commands = spec.get("commands") or {}
+        for step in spec.get("initialization") or []:
+            if isinstance(step, dict) and step.get("command"):
+                assert step["command"] in commands, (
+                    f"{device_id}: initialization step names command "
+                    f"{step['command']!r}, which `commands` does not declare"
+                )
+        setup = spec["device"].get("setup") or {}
+        for method in setup.get("methods") or []:
+            for phase in phases(method):
+                for step in phase.get("steps") or []:
+                    request = step.get("request") or {}
+                    if request.get("command"):
+                        assert request["command"] in commands, (
+                            f"{device_id}: setup step names command "
+                            f"{request['command']!r}, which `commands` does not declare"
+                        )
+        models = _variant_models(spec)
+        scoped = list(block.get("variants") or [])
+        for profile in block.get("profiles") or []:
+            scoped += profile.get("variants") or []
+        for model in scoped:
+            assert model in models, (
+                f"{device_id}: bluetooth_classic scopes to variant {model!r}, which "
+                "`device.variants` does not declare"
+            )
+        if not block:
+            continue
+        frames = {}
+        for name, command in _classic_commands(spec):
+            response = command.get("response") or {}
+            frames[name] = {f.get("name") for f in response.get("format") or []}
+        for entry in serial.get("unsolicited") or []:
+            frames[entry.get("name")] = {f.get("name") for f in entry.get("format") or []}
+        for entity in spec.get("entities") or []:
+            field = entity.get("state_field")
+            if not field or "." not in field:
+                continue
+            frame, _, name = field.partition(".")
+            if frame in frames:
+                assert name in frames[frame], (
+                    f"{device_id}: entity {entity.get('name')!r} reads {field!r}, but "
+                    f"{frame!r} declares no field {name!r}"
+                )
+
+
+def test_classic_roles_are_consistent(specs):
+    """The block's own claims agree with each other and with the spec.
+
+    Each of these passed validation in a deliberately bad skeleton: a Classic
+    spec whose BLE side is the primary control path (then it is a `ble`
+    spec), a BLE role on a device that is not dual-mode, a BLE-for-discovery
+    device with no BLE scan to discover it by, and a text stream with no way
+    to tell where a reply ends.
+    """
+    for device_id, spec in specs.items():
+        block = spec.get("bluetooth_classic")
+        if not block:
+            continue
+        role = block.get("ble_role")
+        if spec["device"].get("protocol") in CLASSIC_PROTOCOLS:
+            assert role != "primary_control", (
+                f"{device_id}: a bluetooth_classic spec whose BLE side is the primary "
+                "control path should be a `ble` spec"
+            )
+        if role not in (None, "none", "unknown"):
+            assert block.get("dual_mode") is not False, (
+                f"{device_id}: ble_role {role!r} on a device that says dual_mode: false"
+            )
+        if role == "discovery_only":
+            methods = (spec["device"].get("discovery") or {}).get("methods") or []
+            assert any(m.get("type") == "ble_scan" for m in methods if isinstance(m, dict)), (
+                f"{device_id}: ble_role discovery_only with no ble_scan discovery method"
+            )
+        serial = block.get("serial") or {}
+        if serial.get("encoding") == "ascii_lines":
+            assert serial.get("line_terminator") or serial.get("prompt"), (
+                f"{device_id}: an ascii_lines stream states neither `line_terminator` "
+                "nor `prompt`, so a client cannot tell where a reply ends"
+            )
+
+
+def test_the_schema_admits_bluetooth_classic():
+    """The vocabulary this section relies on is in schema.json, not only here."""
+    schema = _schema()
+    device = schema["properties"]["device"]["properties"]
+    assert "bluetooth_classic" in device["protocol"]["enum"]
+    assert {"rfcomm", "l2cap", "hid"} <= set(device["transport"]["enum"])
+    branches = device["discovery"]["properties"]["methods"]["items"]["oneOf"]
+    assert any(b["properties"]["type"].get("const") == "bt_classic_inquiry" for b in branches)
+    assert "bt_classic_pairing" in schema["$defs"]["setup_method"]["properties"]["type"]["enum"]
+    assert "bt_classic_pairing" in METHOD_TYPES
+    assert "bluetooth_classic" in schema["properties"]
+    surfaces = schema["allOf"][0]["else"]["anyOf"]
+    assert {"required": ["bluetooth_classic"]} in surfaces
+    commands = schema["properties"]["commands"]["additionalProperties"]["properties"]
+    assert {"rfcomm", "l2cap"} <= set(commands["transport"]["enum"])
+    assert {"value", "template", "response"} <= set(commands)
+    serial = schema["properties"]["bluetooth_classic"]["properties"]["serial"]["properties"]
+    assert {"unsolicited", "correlation", "commands_from", "prompt"} <= set(serial)
+
+
+def test_the_schema_rejects_a_classic_command_with_nothing_to_send():
+    """`transport: rfcomm` with no bytes is documentation, and the schema says so."""
+    validator = Draft202012Validator(_schema())
+    spec = load(DEVICES_DIR / "admore-light-bar.yaml")
+    assert not list(validator.iter_errors(spec)), "the fixture must be valid"
+
+    def command_errors(doc):
+        return [e for e in validator.iter_errors(doc) if list(e.path)[:2] == ["commands", "ping"]]
+
+    spec["commands"] = {"ping": {"description": "no bytes", "transport": "rfcomm"}}
+    assert command_errors(spec), "the schema accepted an rfcomm command with no value/template/body"
+    spec["commands"]["ping"]["value"] = [0x23, 0x47, 0x04, 0x00]
+    assert not command_errors(spec), "the schema rejected a well-formed rfcomm command"
+    spec["commands"]["ping"]["template"] = [0x23, 0x47, "{n}"]
+    spec["commands"]["ping"]["parameters"] = {"n": {"type": "uint8"}}
+    assert command_errors(spec), "the schema accepted an rfcomm command with both value and template"
+
+
+def test_the_schema_rejects_a_classic_step_with_two_targets():
+    """An initialization step addresses a characteristic or a command, never both."""
+    validator = Draft202012Validator(_schema())
+    spec = load(DEVICES_DIR / "admore-light-bar.yaml")
+    spec["commands"] = {"ping": {"description": "q", "transport": "rfcomm", "value": [1]}}
+    spec["initialization"] = [{"command": "ping", "expect_response": True}]
+    assert not [e for e in validator.iter_errors(spec) if "initialization" in str(e.path)]
+    spec["initialization"] = [{"command": "ping", "characteristic": "0000fff1-0000-1000-8000-00805f9b34fb"}]
+    assert [e for e in validator.iter_errors(spec) if "initialization" in str(e.path)]
+
+
+
+def test_the_schema_allows_a_documented_initialization_step_without_bytes():
+    """A prose-only handshake step is documentation, not an empty operation."""
+    validator = Draft202012Validator(_schema())
+    spec = load(DEVICES_DIR / "admore-light-bar.yaml")
+    spec["initialization"] = [
+        {"description": "Perform the vendor's per-session key exchange."}
+    ]
+    assert not [
+        error
+        for error in validator.iter_errors(spec)
+        if "initialization" in str(error.path)
+    ]
+    spec["initialization"] = [{}]
+    assert [
+        error
+        for error in validator.iter_errors(spec)
+        if "initialization" in str(error.path)
+    ]

@@ -28,6 +28,7 @@ device:
       tuya_lan_protocol.discovery and the notes on the DPS table).
   protocol: "wifi"
   category: "sensor"
+  category_hierarchy: ["measurement", "environmental"]
   transport: "tcp"  # Tuya 0x55aa frames on TCP 6668 -- see protocol_details
   notes: >
     A Tuya Wi-Fi gas alarm is a two-processor device: a Tuya Wi-Fi module

@@ -14,6 +14,7 @@ device:
     status: untested
   protocol: "ble"
   category: "light"
+  category_hierarchy: ["light", "led"]
   notes: >
     Early BLE-only TV backlight strips (both discontinued; the app still
     carries their modules). This is the ONLY Govee light family on the

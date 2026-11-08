@@ -1,0 +1,1100 @@
+# Lippert OneControl BLE gateway device spec
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Scope: the current OneControl / Lippert Connect "Unity" BLE gateways that
+# advertise "LCIRemote" -- the MyRvLink data service (0x0030 on the
+# xxxxxxxx-0200-a58e-e411-afe28044e62c base), the TEA seed/key unlock service
+# (0x0010), and the Unity X180T variant that tunnels IDS-CAN over 0x0001-0x0005.
+#
+# Out of scope, on purpose: the older MyRV Wi-Fi gateway (separate spec),
+# ConnectAnywhere cellular/cloud remote access, firmware update, slide-out and
+# levelling-jack commands, and anything that clears or bypasses an interlock.
+#
+# Clean room: every byte here comes from the community Home Assistant
+# integration phurth/ha-onecontrol (MIT, cited by file) cross-checked against
+# the enum, constant and byte-index METADATA of the vendor apps. The TEA
+# key-schedule and per-family cipher constants are deliberately NOT published;
+# the algorithm is described and the reader is pointed at where an owner can
+# obtain them. Nothing here was run against hardware or seen in a capture, so
+# every fact is `reported` at best.
+
+device:
+  name: "Lippert OneControl BLE Gateway (Unity X270D / X270L / X180T / X1.5)"
+  manufacturer: "Lippert Components (LCI)"
+  manufacturer_status: "active"
+  testing:
+    status: untested
+    notes: >
+      Nobody on this project has connected to a OneControl gateway, and the
+      research store holds no capture of one. Every byte is from the
+      community integration phurth/ha-onecontrol (which runs against real
+      gateways) and the metadata of the vendor apps (OneControl 6.6.3,
+      Lippert Connect 6.7.0).
+  protocol: "ble"
+  transport: "ble-gatt"
+  type: "rv-control-gateway"
+  category: "vehicle"
+  safety_advisory:
+    severity: "danger"
+    summary: >-
+      This gateway drives an RV's awnings, slide-outs, levelling jacks and
+      generator; a command sent without someone watching the mechanism can
+      crush, injure or poison.
+    detail: >-
+      OneControl is the RV's own control system, not an accessory. The same
+      Bluetooth link that reads tank levels and switches lights also reaches
+      awning, slide-out, bed-lift and levelling-jack motors (multi-hundred-
+      kilogram mechanisms that move while people and pets are inside or
+      underneath the coach) and can start a generator, whose exhaust is a
+      carbon-monoxide hazard. This spec documents the reads and the low-risk
+      writes (lights, pump, water heater, HVAC setpoints) as ordinary
+      commands, marks awning extend/retract and generator start/stop
+      `advanced`, and leaves slide-outs, levelling jacks and every interlock
+      override to the vendor's own panel and app. Only operate a moving load
+      with its full travel in sight, and never from a client that cannot
+      identify the device it is addressing. This is an unaffiliated,
+      untested document; Lippert's own instructions govern.
+    acknowledge_required: true
+    advisory_url: "https://lci-support-doc.s3.amazonaws.com/manuals/electronics/onecontrol/ccd-0007005.pdf"
+  notes: >
+    OneControl (Lippert Components, LCI, formerly IDS; now marketed as
+    Lippert Connect) is the factory control system in many North American
+    travel trailers, fifth wheels and motorhomes. "Unity" multifunction
+    control boards sit on Lippert's proprietary IDS-CAN bus (250 kbit/s)
+    and drive latching relays, dimmers, RGB lighting, H-bridge motors
+    (slides, awnings, jacks, bed and TV lifts), HVAC zones, tank senders
+    and generators. A BLE gateway inside or beside the board gives the
+    phone access. The phone app is optional and the cloud (ConnectAnywhere,
+    Azure IoT Hub) is used only for remote access; the local link needs no
+    account or token.
+
+
+    TWO RUNTIMES BEHIND ONE ADVERTISED NAME. (1) MyRvLink gateways (Unity
+    X270D, X270L, X1.5): a COBS-framed, CRC-8-checked byte stream on the data
+    service 00000030-0200-a58e-e411-afe28044e62c (write 0x0033, notify
+    0x0034), where the gateway abstracts the bus into a device table and
+    typed status events. This is what the commands and entities below
+    speak. (2) CAN-BLE gateways, including the Unity X180T: raw IDS-CAN
+    frames tunnelled over service 00000000-0200-a58e-e411-afe28044e62c
+    (0x0001 write, 0x0002 notify, 0x0004 version, 0x0005 password unlock),
+    with the client joining the bus as a host node. That runtime is
+    described in protocol_details.x180t_ids_can_tunnel and carries no
+    structured commands here.
+
+
+    AUTHENTICATION IS LAYERED, and a gateway family uses some combination
+    of: (a) BLE SMP bonding -- Just Works while the panel's Connect control
+    is active (Push-to-Pair gateways), or passkey entry with the 6-digit
+    owner-tag PIN (PIN gateways); (b) a TEA seed/key unlock on service
+    0x0010, run on every connection (top-level `initialization`); (c) on
+    some gateways a second app-layer step that folds the sticker PIN into a
+    16-byte key; (d) on CAN-BLE gateways, a CAN password and per-device
+    IDS-CAN sessions. The TEA key-schedule constants are app-embedded and
+    are not published here (protocol_details.tea_unlock says where an owner
+    obtains them).
+
+
+    FRAMING. Every MyRvLink frame, both directions, is [0x00][COBS variant
+    of (payload + CRC-8)][0x00]; the command templates below are the
+    DECODED payload, and the RvStatus `format` on 0x0034 describes a
+    decoded frame. No schema framing scheme expresses this, so
+    `protocol_handler` is set; a consumer without that handler must not
+    write the bare templates or decode raw notifications. Worked frames are
+    in protocol_details.test_vectors.
+
+
+    SAFETY POSTURE. Reads (gateway info, device table, online status, tank
+    levels, battery voltage, HVAC zones, light and relay states) and
+    low-risk writes (switched, dimmable and RGB lights; relays such as the
+    water pump and water heater; HVAC mode and setpoints) are ordinary
+    commands. Awning extend/retract and generator start/stop are
+    `advanced`. The H-bridge movement opcode is shared by awnings,
+    slide-outs, bed and TV lifts and vent covers, so a client must
+    positively identify an awning from the device's metadata function name
+    before offering it. Slide-out and levelling-jack control (the leveler
+    opcodes 0x50-0x5A, automatic extend/retract, home-reset) exists and is
+    left to the vendor's equipment; it is named in protocol_details only so
+    nobody mistakes its absence for an oversight. The community
+    integration's in-motion-lockout "clear" action is deliberately not
+    reproduced.
+
+
+    EVIDENCE BASE. Byte layouts, command and event codes and the
+    authentication sequence come from phurth/ha-onecontrol (Home Assistant,
+    MIT, commit 0354e887, v1.0.47, 2026-09), which is developed against a
+    Unity X270D and has user reports for X270L, X1.5 and (partly working)
+    X180T. They are cross-checked against enum values, byte-index constants
+    and a handful of one-instruction getters in the managed assemblies of
+    the vendor apps OneControl 6.6.3 and Lippert Connect 6.7.0 (both .NET
+    MAUI; the two share one protocol stack). Where the two disagree the
+    vendor metadata wins and the disagreement is written down
+    (protocol_details.community_discrepancies). Pairing behaviour comes from
+    the community README and issue tracker plus Lippert's QR-077 app-setup
+    sheet. No capture exists; `testing: untested`.
+
+
+    NOT THE WI-FI GATEWAY. Older (~2019) MyRV Wi-Fi gateways raise a
+    MyRV_<serial> SSID and speak the same MyRvLink or IDS-CAN framing over
+    TCP port 6969 on the coach LAN; that is a separate spec. The vendor app
+    also handles BLE accessories (IDS accessories, TPMS, Mopeka tank
+    sensors, brake controllers, door locks) that are not this gateway.
+
+  identification:
+    local_name_prefix: "LCIRemote"
+    service_uuids:
+      - "00000041-0200-a58e-e411-afe28044e62c"
+      - "0000000f-0200-a58e-e411-afe28044e62c"
+    manufacturer_data:
+      company_id: 1479
+      company_id_hex: "0x05C7"
+      description: >
+        1479 (0x05C7) is the Bluetooth SIG assignment to Lippert Components,
+        INC, and is the company ID the vendor app's advertisement parser
+        expects before its TLV records. The community integration also
+        matches 1177 (0x0499) and labels it "Lippert", but the SIG assigns
+        1177 to Ruuvi Innovations: matching on it alone would claim every
+        RuuviTag in range. Whether some older gateways squat on 0x0499 has
+        not been established from a capture, so it is deliberately not
+        listed as an additional company ID. Match on the local name or a
+        service UUID first.
+    notes: >
+      Every known gateway advertises a local name starting "LCIRemote"
+      (vendor pairing flow and community integration). MyRvLink gateways
+      advertise primary service 00000041-0200-a58e-e411-afe28044e62c; the
+      Unity X180T advertises 0000000f-0200-a58e-e411-afe28044e62c. The vendor
+      pairing flow also recognises "MyRV_" (the Wi-Fi gateway, out of scope)
+      and "LCI_AquaFi_" (a hotspot product, out of scope). "LCIABS" and
+      "LCISWAY" are anti-lock-braking and sway-control modules, not this
+      gateway. Manufacturer-data TLVs (connection info, pairing state,
+      connection count) are in protocol_details.advertisement.
+
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          local_name:
+            match: "prefix"
+            value: "LCIRemote"
+          service_uuids:
+            - "00000041-0200-a58e-e411-afe28044e62c"
+            - "0000000f-0200-a58e-e411-afe28044e62c"
+          manufacturer_data:
+            company_id: 1479
+            description: >
+              Lippert's SIG company ID, followed by TLV records (see
+              protocol_details.advertisement). Some gateways send a legacy
+              single-byte payload instead. Do not substitute 1177 (0x0499):
+              that is Ruuvi's ID.
+    identity:
+      stable_keys: ["address"]
+      display: "local_name"
+    static_ip_required: false
+
+  setup:
+    required: false
+    confidence: "medium"
+    notes: >
+      The gateway is installed and configured by the RV manufacturer with
+      Lippert's configurator kit (output mapping, switch inputs, per-output
+      interlocks). An owner's client does not provision anything; it only
+      has to be admitted, which is the pairing described in
+      `device.pairing` and the two hardware-decided routes below. Confidence
+      medium: a working open implementation and the vendor's QR-077 sheet,
+      not replayed here. The vendor app additionally makes the user create
+      an app-side PIN or password during its setup wizard (QR-077 steps 8-9);
+      that value protects the app, not the link, and no client needs it.
+    methods:
+      - type: "button_pairing"
+        name: "Push-to-Pair: press Connect on the RV panel, then bond"
+        role: "variant"
+        verified: false
+        description: >
+          Gateways with a Connect control (a physical button on some panels,
+          an on-screen button on touchscreen panels such as the X270L's)
+          accept a Just Works bond only while that control has opened the
+          pairing window. Applies to the Unity X270D, X270L and X180T and to
+          some Unity X1.5 units. The X270D completes with no PIN; the X270L
+          then asks for the owner-tag PIN at the app layer (the step-2 key
+          in protocol_details.step2_pin_key), so a client should always be
+          ready to take the PIN.
+        ble:
+          advertised_name: "LCIRemote"
+          advertised_name_match: "prefix"
+          pairing_required: true
+          pin_source: "Owner-tag sticker (6 digits), used at the application layer on units that ask for it."
+        steps:
+          - action: "Scan for a name starting LCIRemote and note the pairing-available flag in the manufacturer data."
+            actor: "client"
+          - action: "Press the Connect control on the OneControl panel while the client is waiting for it."
+            actor: "user"
+            expect: "The advertisement's pairing-available bit is set (ConnectionInfo TLV pairing byte bit 1, or bit 1 of a legacy single-byte payload)."
+          - action: "Connect, request MTU 185, and bond with Just Works (register a NoInputNoOutput agent on BlueZ)."
+            actor: "client"
+            request:
+              protocol: "ble_gatt"
+          - action: "Run the top-level initialization: TEA unlock on 0x0012/0x0013, subscribe 0x0034 and 0x0011."
+            actor: "client"
+            expect: "0x0012 reads ASCII 'unlocked'; a gateway-information event (0x01) arrives on 0x0034."
+          - action: "If a 4-byte seed notification arrives on 0x0011, ask the user for the 6-digit owner-tag PIN and answer with the step-2 key."
+            actor: "client"
+        troubleshooting:
+          - symptom: "Every device appears but none ever reports a state."
+            causes:
+              - "The PIN was entered without a Connect press timed to the prompt, so the gateway never admitted the session (community issue #11). Pair again with a fresh Connect press."
+          - symptom: "A Unity X1.5 set up as a PIN gateway fails to connect or keeps disconnecting."
+            causes:
+              - "This X1.5 unit is the Just Works variant. Re-add it as Push-to-Pair and still enter the sticker PIN (community README)."
+        timing:
+          mtu_request_bytes: 185
+          notes: "No pairing-window length is recorded; prompt the user immediately before connecting."
+      - type: "ble_direct"
+        name: "PIN gateway: the 6-digit owner-tag PIN is the BLE passkey"
+        role: "variant"
+        verified: false
+        description: >
+          Gateways with no Connect control advertise the DisplayOnly I/O
+          capability and bond by passkey entry, the passkey being the 6-digit
+          PIN printed on the gateway's owner tag. Seen on some Unity X1.5
+          units and (per the community's variant table) the gateways that
+          advertise under company ID 0x05C7. The bond must be made by the
+          host radio that will be used afterwards: an ESPHome Bluetooth proxy
+          cannot relay the passkey exchange and cannot share a BlueZ bond.
+        ble:
+          advertised_name: "LCIRemote"
+          advertised_name_match: "prefix"
+          pairing_required: true
+          pin_source: "Owner-tag sticker on the gateway (6 digits); sent as the integer value of the digits."
+        steps:
+          - action: "Read the 6-digit PIN from the gateway's owner-tag sticker."
+            actor: "user"
+          - action: "Register a pairing agent that answers passkey requests with that PIN, then connect directly from a local adapter (not a proxy)."
+            actor: "client"
+            request:
+              protocol: "ble_gatt"
+            expect: "Bonding completes when the first encrypted read (0x0012) triggers security; a read that fails with ATT status 5 (insufficient authentication) means no bond."
+          - action: "Run the top-level initialization, answering a step-2 seed on 0x0011 with the PIN-bearing key."
+            actor: "client"
+            expect: "0x0012 reads 'unlocked' and events arrive on 0x0034."
+        troubleshooting:
+          - symptom: "ATT error 5 (insufficient authentication) or a gateway-initiated disconnect right after connecting."
+            causes:
+              - "The connection went through an adapter or ESPHome proxy that does not hold the bond. Connect through the adapter that bonded."
+              - "The stored bond is stale on one side; remove it on the host and pair again."
+    factory_reset:
+      applicable: "unknown"
+      confidence: "low"
+      effect: >
+        Not established. No source in the research describes a gateway reset
+        that clears phone bonds, and the board also holds the RV
+        manufacturer's configuration (output mapping, switch inputs,
+        per-output interlocks), which an owner must not lose.
+      description: >
+        Lippert's configurator (the OEM touch-panel configurator in the Unity
+        X4 manual) edits outputs, not bonds, and neither the community
+        integration nor the vendor manuals document a Bluetooth bond reset.
+        Do not experiment on a coach's control board; ask the dealer.
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        There is no network membership to move. A new phone or host is
+        admitted by repeating the pairing route (a fresh Connect press, or
+        passkey entry with the sticker PIN). Whether admitting a new central
+        evicts an older bond is not established.
+    credentials:
+      wifi_passphrase_protection: "not_applicable"
+      stored_on_device:
+        - "BLE bond keys (LTK) for each admitted central"
+        - "The 6-digit owner-tag PIN, fixed per unit and printed on its sticker"
+      issued_to_client:
+        - "A BLE bond (LTK), held by the host adapter that paired; not portable to another adapter or an ESPHome proxy"
+      notes: >
+        The TEA seed/key constants are the same for every unit of a gateway
+        family (they are embedded in the vendor app), so they are protocol
+        facts rather than per-unit secrets; they are withheld here only
+        because the community implementation that carries them deliberately
+        obfuscates them. The sticker PIN is a per-unit credential: never
+        commit a real one.
+
+  pairing:
+    required: true
+    confidence: "medium"
+    security_mode: "just_works"
+    bonding: "required"
+    pin:
+      source: "printed_label"
+      length: 6
+      notes: >
+        On PIN gateways the owner-tag PIN is the SMP passkey (the integer
+        value of the six digits, so a leading zero is dropped: "012345" is
+        passkey 12345). On some Push-to-Pair gateways the same PIN is used
+        only at the application layer, in the step-2 key. `security_mode`
+        states the Push-to-Pair majority (Just Works); PIN gateways use
+        passkey entry, and the advertisement tells them apart (ConnectionInfo
+        I/O capability: NoIO means push-button, DisplayOnly means PIN).
+    exclusivity:
+      single_connection: "unknown"
+      single_bond: "unknown"
+      recovery: >
+        Close the vendor app on every other phone before connecting; the
+        vendor app syncs to one receiver at a time and the gateway advertises
+        its current and maximum connection counts (TLV type 2), so a client
+        can see when it is full. If a bonded host is refused, remove the bond
+        on the host and pair again with a fresh Connect press or the PIN.
+      notes: >
+        The vendor app handles a "too many connections" failure, so the
+        gateway limits simultaneous centrals; the limit itself is advertised
+        rather than fixed and was not observed.
+    enter_pairing_mode:
+      required: true
+      indicator: >-
+        Push-to-Pair gateways set the pairing-available bit (bit 1 of the
+        ConnectionInfo TLV's pairing byte, or bit 1 of a legacy single-byte
+        manufacturer payload) while the Connect window is open.
+      procedures:
+        - name: "Press the Connect control on the OneControl panel (Push-to-Pair gateways)"
+          verified: false
+          basis: >-
+            phurth/ha-onecontrol README and issue #11 (X270L on-screen CONNECT
+            button), plus the vendor app's advertisement parser, which reads
+            push-to-pair-button-present and pairing-available-now flags. No
+            window length is recorded.
+          steps:
+            - action: "Start the client's pairing step first, so it is scanning when the window opens."
+              actor: "client"
+            - action: "Press Connect on the RV's OneControl panel: a physical button on some panels, an on-screen button on touchscreen panels."
+              actor: "user"
+              expect: "The gateway's advertisement shows pairing available now."
+            - action: "Connect and bond immediately (Just Works)."
+              actor: "client"
+        - name: "PIN gateways: no button; bond with the sticker PIN as the passkey"
+          verified: false
+          basis: >-
+            phurth/ha-onecontrol README ("PIN-based: no Connect control, uses
+            only the 6-digit PIN sticker") and its BlueZ agent, which answers
+            passkey requests with the PIN. Whether these gateways accept
+            pairing at any time was not stated.
+          steps:
+            - action: "Read the 6-digit PIN from the gateway's owner-tag sticker."
+              actor: "user"
+            - action: "Connect from a local adapter with a pairing agent that supplies the PIN as the passkey."
+              actor: "client"
+      notes: >
+        The Connect-control test is not always decisive: the Unity X1.5
+        ships in both variants, and some units with only a PIN sticker bond
+        with Just Works. Prefer the advertised ConnectionInfo I/O capability
+        where the gateway sends the TLV form.
+    unpair:
+      supported: "unknown"
+      notes: >
+        No route to drop one phone's bond from the gateway side is documented.
+        Removing the bond on the host is always possible and is what recovery
+        above relies on.
+    notes: >
+      The vendor app waits for SMP bonding to finish before it opens GATT
+      traffic (it carries a 5 s bonding-delay constant) and reports three
+      bond failures separately: not bonded, not bonded because pairing is
+      not enabled (no Connect press), and bond information lost on the
+      peripheral. The community integration pairs Push-to-Pair gateways
+      before connecting on BlueZ, and for X180T connects first and then
+      pairs, matching the vendor app's order.
+
+  host_compatibility:
+    - stack: "bluez"
+      status: "degraded"
+      symptom: "pairing_failure"
+      workaround: "host_config"
+      verification: "reported"
+      basis: >-
+        phurth/ha-onecontrol README ("PIN Gateway Requirements") and
+        docs/TECH_SPEC.md section 5.4, from users on Home Assistant OS and
+        Linux hosts. Not run by this project.
+      notes: >
+        Works once a pairing agent is registered: NoInputNoOutput for
+        Push-to-Pair gateways, and for PIN gateways an agent whose
+        RequestPasskey returns the sticker PIN as an integer. Without one,
+        bluetoothd's own attempt fails and the gateway drops the link with
+        ATT status 5. The bond lives under the adapter that made it, so a
+        host with several adapters must keep using the bonded one. ESPHome
+        Bluetooth proxies are a separate case: Push-to-Pair gateways work
+        through them, PIN gateways cannot be paired through them (a
+        pre-bonded ESP32 is an unvalidated community experiment), and CAN-BLE
+        gateways that need no SMP bond have been driven through them.
+    - stack: "android"
+      status: "compatible"
+      verification: "reported"
+      basis: >-
+        The vendor's OneControl and Lippert Connect Android apps drive the
+        gateway through the platform GATT client with MTU 185 and OS-level
+        bonding. Not run by this project.
+    - stack: "corebluetooth"
+      status: "compatible"
+      verification: "reported"
+      basis: >-
+        Lippert's QR-077 app-setup sheet documents the same pairing on iOS
+        (iOS 9 or later, Bluetooth 4.0). Not run by this project.
+
+  variants:
+    - model: "Unity X270D"
+      identification:
+        local_name_prefix: "LCIRemote"
+        service_uuids:
+          - "00000041-0200-a58e-e411-afe28044e62c"
+      notes: >
+        MyRvLink over BLE. Push-to-Pair with no PIN. The hardware the
+        community integration was developed against.
+    - model: "Unity X270L"
+      identification:
+        local_name_prefix: "LCIRemote"
+        service_uuids:
+          - "00000041-0200-a58e-e411-afe28044e62c"
+      notes: >
+        MyRvLink over BLE. Push-to-Pair via an on-screen CONNECT button on
+        the touchscreen panel, then the sticker PIN at the app layer
+        (community issue #11: protocol version 6, 19 devices in table 11 on
+        one coach). The model name does not appear in either vendor app's
+        product strings.
+    - model: "Unity X1.5"
+      identification:
+        local_name_prefix: "LCIRemote"
+        service_uuids:
+          - "00000041-0200-a58e-e411-afe28044e62c"
+      notes: >
+        MyRvLink over BLE. Ships in both pairing variants: some units bond by
+        passkey with the sticker PIN, others use Just Works with the PIN at
+        the app layer.
+    - model: "Unity X180T"
+      identification:
+        local_name_prefix: "LCIRemote"
+        service_uuids:
+          - "0000000f-0200-a58e-e411-afe28044e62c"
+      notes: >
+        CAN-BLE gateway: IDS-CAN frames tunnelled over service 0x0000
+        (0x0001-0x0005) after SMP bonding and a TEA key/seed unlock with its
+        own family constant; IDS-CAN product id 163. Community support is
+        experimental (issue #8: several readings still unknown). See
+        protocol_details.x180t_ids_can_tunnel. None of the MyRvLink commands
+        or entities below apply.
+    - model: "Unity X4"
+      notes: >
+        Lippert's OEM manual (CCD-0007005) says the X4 is operated through the
+        Lippert Connect app over Bluetooth, and the vendor app knows several X4
+        assemblies. Its advertisement, pairing route and runtime (MyRvLink or
+        CAN-BLE) are not established, so nothing below is scoped to it.
+
+protocol_handler: "lippert_myrvlink"
+
+initialization:
+  - characteristic: "00000012-0200-a58e-e411-afe28044e62c"
+    read: true
+    when: "connect"
+    notes: >
+      Step 1a. After connecting, bonding (see device.pairing) and requesting
+      MTU 185. The value is either ASCII "unlocked" (already unlocked; skip to
+      the subscriptions) or a 4-byte seed, read as a big-endian uint32. An
+      all-zero seed means the gateway is not ready; wait and read again. On
+      bonded gateways this read needs an encrypted link, and ATT status 5
+      means the bond is missing.
+  - characteristic: "00000013-0200-a58e-e411-afe28044e62c"
+    description: >
+      Step 1b. key = TEA-encrypt(seed, family constant) as described in
+      protocol_details.tea_unlock, written as 4 bytes big-endian. The
+      community writes without response; the vendor app pauses 500 ms after
+      the write. The constants cannot be stated here, so a client must
+      implement this step itself.
+    delay_ms: 500
+  - characteristic: "00000012-0200-a58e-e411-afe28044e62c"
+    read: true
+    notes: >
+      Step 1c. Must now read ASCII "unlocked" (compare case-insensitively).
+      Anything else means the key was wrong; the community integration then
+      reconnects with backoff.
+  - characteristic: "00000034-0200-a58e-e411-afe28044e62c"
+    subscribe: true
+    delay_ms: 200
+    notes: >
+      MyRvLink event stream. The community waits 200 ms after the unlock
+      before subscribing. The gateway then sends a gateway-information event
+      (0x01) carrying the device-table id every command needs.
+  - characteristic: "00000011-0200-a58e-e411-afe28044e62c"
+    subscribe: true
+    notes: >
+      Step-2 seed channel (community only; neither vendor app build contains
+      this UUID). On gateways that want the PIN at the app layer, a 4-byte
+      seed notification arrives here after the subscription.
+  - characteristic: "00000013-0200-a58e-e411-afe28044e62c"
+    description: >
+      Step 2, only when a seed arrived on 0x0011: write the 16-byte step-2
+      key (protocol_details.step2_pin_key), which carries the TEA result
+      little-endian and the 6-digit sticker PIN in ASCII. Not needed on
+      gateways that send no seed (the X270D).
+  - characteristic: "00000033-0200-a58e-e411-afe28044e62c"
+    description: >
+      Bootstrap, once the gateway-information event has arrived: send
+      get_devices for its table id, then (the community waits 500 ms)
+      get_devices_metadata, and repeat get_devices every 5 s as the
+      keep-alive the vendor Android app also sends. Re-fetch the table and
+      metadata whenever the device-table or metadata CRC32 in a later
+      gateway-information event changes.
+
+services:
+  - uuid: "00000010-0200-a58e-e411-afe28044e62c"
+    name: "Key/seed unlock service"
+    notes: >
+      TEA challenge-response gate run on every connection (see top-level
+      `initialization`). The vendor app's unlock routine uses 0x0012 and
+      0x0013 in this service; the community additionally uses 0x0011 for a
+      PIN-bearing second step and lists an "auth status" characteristic
+      0x0014 that its code never reads. Properties are from how the two
+      clients use each characteristic, not from a GATT dump.
+    characteristics:
+      - uuid: "00000012-0200-a58e-e411-afe28044e62c"
+        name: "Seed / unlock status"
+        properties: ["read"]
+        notes: >
+          Reads a 4-byte seed (big-endian uint32) while locked and ASCII
+          "unlocked" (8 bytes) once the correct key has been written. The
+          CAN-BLE unlock on X180T uses the same characteristic and also
+          accepts a single 0x01 byte as success (community).
+        format:
+          - name: "seed"
+            offset: 0
+            length: 4
+            type: "uint32"
+            endianness: "big"
+            notes: "Present while locked. All zeros means not ready yet."
+      - uuid: "00000013-0200-a58e-e411-afe28044e62c"
+        name: "Key"
+        properties: ["write", "write_without_response"]
+        notes: >
+          Takes the 4-byte step-1 key (big-endian) and, on gateways that ask
+          for it, the 16-byte step-2 key. The community writes step 1 without
+          response and the X180T key with response.
+      - uuid: "00000011-0200-a58e-e411-afe28044e62c"
+        name: "Step-2 seed (PIN step)"
+        properties: ["notify"]
+        notes: >
+          Community-documented only: a 4-byte seed notification, read
+          little-endian, that asks for the PIN-bearing step-2 key. Neither
+          vendor app build contains this UUID as a literal, so either it is
+          built at run time or it belongs to gateway firmware the current
+          app does not special-case. Needs a capture.
+        format:
+          - name: "step2_seed"
+            offset: 0
+            length: 4
+            type: "uint32"
+            endianness: "little"
+
+  - uuid: "00000030-0200-a58e-e411-afe28044e62c"
+    name: "MyRvLink data service"
+    notes: >
+      COBS-framed command and event stream (protocol_details.myrvlink_framing).
+      Notifications are a byte stream: one notification may carry part of a
+      frame or several frames, so feed every byte to a decoder that splits on
+      0x00 and checks the CRC-8. The vendor app requests MTU 185.
+    characteristics:
+      - uuid: "00000031-0200-a58e-e411-afe28044e62c"
+        name: "MyRvLink BLE version"
+        properties: ["read"]
+        notes: >
+          Named as the BLE-transport version in the vendor app's metadata;
+          role inferred from field order, properties not captured, and
+          neither client is shown to depend on it.
+      - uuid: "00000033-0200-a58e-e411-afe28044e62c"
+        name: "MyRvLink command write"
+        properties: ["write", "write_without_response"]
+        role: "command"
+        notes: >
+          ENVELOPE, applied by the client to every command below: the
+          template is the decoded MyRvLink command [client command id u16]
+          [command type][device table id][...]. On the wire it is
+          [0x00][COBS(command + CRC-8)][0x00] (protocol_details.myrvlink_framing).
+          A consumer without the `lippert_myrvlink` handler must not write
+          the bare templates. Every reply arrives on 0x0034 as event 0x02
+          echoing the command id; see payload_formats.CommandResponseEvent.
+
+
+          ADDRESSING: `table_id` is byte 4 of the latest gateway-information
+          event (0x01); `device_id` is the device's index in that table
+          (get_devices). Neither can be known before connecting, so the
+          handler fills them per device-table entry. A client must check the
+          entry's function name (get_devices_metadata) before sending
+          anything but a read: the same relay, dimmer or H-bridge opcode
+          reaches very different loads.
+
+
+          COMMAND IDS: 16-bit, little-endian as the community sends them; the
+          gateway only echoes the two bytes. The vendor app treats 0 as
+          invalid, starts at 1 and reserves 0xFFFF for "no response
+          expected", so count 1..0xFFFE. Keep at most one command per id in
+          flight; the vendor app caps its queue at 20 and times a command
+          out after 8 s.
+        commands:
+          get_devices:
+            description: >
+              GetDevices (0x01). Asks for the device table from start_device_id
+              on; the gateway answers with one or more 0x02 events (response
+              type 0x01 while more follow, 0x81 when complete) carrying
+              device-table entries (payload_formats.DeviceTableEntry), then
+              pushes current status events for those devices. The vendor
+              Android app and the community send it every 5 s as a
+              keep-alive.
+            verification: "reported"
+            template: ["{command_id}", 0x01, "{table_id}", "{start_device_id}", "{max_count}"]
+            packet_layout:
+              "0": "client command id, low byte"
+              "1": "client command id, high byte"
+              "2": "0x01 GetDevices"
+              "3": "device table id"
+              "4": "first device id"
+              "5": "maximum number of devices to return"
+            parameters:
+              command_id:
+                type: "uint16"
+                endianness: "little"
+                auto: "sequence"
+                description: "Client command id, echoed in the 0x02 response. Count 1..0xFFFE."
+              table_id:
+                type: "uint8"
+                min: 0
+                max: 255
+                description: "Device table id from byte 4 of the latest gateway-information event (0x01)."
+              start_device_id:
+                type: "uint8"
+                min: 0
+                max: 255
+                default: 0
+                description: "First device id to return; 0 for the whole table."
+              max_count:
+                type: "uint8"
+                min: 1
+                max: 255
+                default: 255
+                description: "Most devices to return; 255 for all."
+          get_devices_metadata:
+            description: >
+              GetDevicesMetadata (0x02). Same shape as get_devices; the 0x02
+              response entries carry each device's 16-bit function name (what
+              the load is: pump, awning, bedroom slide ...), function
+              instance, capability byte, IDS-CAN version, circuit id and
+              software part number (payload_formats.DeviceMetadataEntry). The
+              community sends it about 500 ms after the first
+              gateway-information event, and retries 10 s later if the
+              gateway answers failure code 15 (a command already running).
+            verification: "reported"
+            template: ["{command_id}", 0x02, "{table_id}", "{start_device_id}", "{max_count}"]
+            parameters:
+              command_id:
+                type: "uint16"
+                endianness: "little"
+                auto: "sequence"
+                description: "Client command id, echoed in the 0x02 response."
+              table_id:
+                type: "uint8"
+                min: 0
+                max: 255
+                description: "Device table id from the gateway-information event."
+              start_device_id:
+                type: "uint8"
+                min: 0
+                max: 255
+                default: 0
+                description: "First device id to describe."
+              max_count:
+                type: "uint8"
+                min: 1
+                max: 255
+                default: 255
+                description: "Most devices to describe."
+          relay_on:
+            description: >
+              ActionSwitch (0x40), state on, for one latching relay: water
+              pump, water heater (gas or electric), tank heater, or a
+              relay-switched light. The opcode takes one or more device ids
+              from byte 5 onward; this template sends one. The relay reports
+              back in a 0x05 or 0x06 status event. The board may refuse with
+              a failure event when the output's own interlock (ignition,
+              park brake, in-motion lockout, low voltage) forbids it.
+            verification: "reported"
+            template: ["{command_id}", 0x40, "{table_id}", 0x01, "{device_id}"]
+            packet_layout:
+              "0": "client command id, low byte"
+              "1": "client command id, high byte"
+              "2": "0x40 ActionSwitch"
+              "3": "device table id"
+              "4": "state: 0x01 on"
+              "5": "device id (more ids may follow)"
+            parameters:
+              command_id:
+                type: "uint16"
+                endianness: "little"
+                auto: "sequence"
+                description: "Client command id."
+              table_id:
+                type: "uint8"
+                min: 0
+                max: 255
+                description: "Device table id from the gateway-information event."
+              device_id:
+                type: "uint8"
+                min: 0
+                max: 255
+                description: "Device id of a latching relay whose metadata function name is a pump, water heater, tank heater or light."
+          relay_off:
+            description: "ActionSwitch (0x40), state off, for one latching relay."
+            verification: "reported"
+            template: ["{command_id}", 0x40, "{table_id}", 0x00, "{device_id}"]
+            parameters:
+              command_id:
+                type: "uint16"
+                endianness: "little"
+                auto: "sequence"
+                description: "Client command id."
+              table_id:
+                type: "uint8"
+                min: 0
+                max: 255
+                description: "Device table id from the gateway-information event."
+              device_id:
+                type: "uint8"
+                min: 0
+                max: 255
+                description: "Device id of the latching relay."
+          dimmable_on:
+            description: >
+              ActionDimmable (0x43), command 0x01 on, at a brightness. The
+              byte after the command is the level the dimmer runs at (its
+              "maximum brightness" setting); the next is an auto-off duration
+              in minutes, 0 for none. The vendor app and the community
+              remember the last level client-side and resend it on turn-on
+              rather than using a restore command, so a client should
+              substitute the last known level for the default.
+            verification: "reported"
+            template: ["{command_id}", 0x43, "{table_id}", "{device_id}", 0x01, "{brightness}", 0x00]
+            packet_layout:
+              "0": "client command id, low byte"
+              "1": "client command id, high byte"
+              "2": "0x43 ActionDimmable"
+              "3": "device table id"
+              "4": "device id"
+              "5": "light command: 0x00 off, 0x01 on, 0x02 blink, 0x03 swell"
+              "6": "brightness 1-255"
+              "7": "auto-off duration, minutes; 0 = none"
+            parameters:
+              command_id:
+                type: "uint16"
+                endianness: "little"
+                auto: "sequence"
+                description: "Client command id."
+              table_id:
+                type: "uint8"
+                min: 0
+                max: 255
+                description: "Device table id from the gateway-information event."
+              device_id:
+                type: "uint8"
+                min: 0
+                max: 255
+                description: "Device id of a dimmable light."
+              brightness:
+                type: "uint8"
+                min: 1
+                max: 255
+                default: 255
+                description: "Brightness, 1 (dimmest) to 255 (full)."
+          dimmable_off:
+            description: "ActionDimmable (0x43), command 0x00 off."
+            verification: "reported"
+            template: ["{command_id}", 0x43, "{table_id}", "{device_id}", 0x00, 0x00, 0x00]
+            parameters:
+              command_id:
+                type: "uint16"
+                endianness: "little"
+                auto: "sequence"
+                description: "Client command id."
+              table_id:
+                type: "uint8"
+                min: 0
+                max: 255
+                description: "Device table id from the gateway-information event."
+              device_id:
+                type: "uint8"
+                min: 0
+                max: 255
+                description: "Device id of a dimmable light."
+          dimmable_effect:
+            description: >
+              ActionDimmable (0x43) blink (0x02) or swell (0x03): the 12-byte
+              form carrying two cycle times in milliseconds, big-endian. The
+              community's speed presets are 220 ms (fast), 1055 ms (medium)
+              and 2447 ms (slow) for both cycle times; the vendor default is
+              220 ms. The byte layout matches the vendor's IDS-CAN dimmer
+              command packet (command, level, duration, cycle 1, cycle 2).
+            verification: "reported"
+            template: ["{command_id}", 0x43, "{table_id}", "{device_id}", "{effect}", "{brightness}", "{duration_min}", "{cycle_time_1_ms}", "{cycle_time_2_ms}"]
+            parameters:
+              command_id:
+                type: "uint16"
+                endianness: "little"
+                auto: "sequence"
+                description: "Client command id."
+              table_id:
+                type: "uint8"
+                min: 0
+                max: 255
+                description: "Device table id from the gateway-information event."
+              device_id:
+                type: "uint8"
+                min: 0
+                max: 255
+                description: "Device id of a dimmable light."
+              effect:
+                type: "uint8"
+                min: 2
+                max: 3
+                labels: ["blink", "swell"]
+                description: "Light command for the effect."
+              brightness:
+                type: "uint8"
+                min: 1
+                max: 255
+                default: 255
+                description: "Peak brightness of the effect."
+              duration_min:
+                type: "uint8"
+                min: 0
+                max: 255
+                default: 0
+                unit: "min"
+                description: "Minutes before the light turns itself off; 0 runs until told otherwise."
+              cycle_time_1_ms:
+                type: "uint16"
+                endianness: "big"
+                min: 1
+                max: 65535
+                default: 1055
+                unit: "ms"
+                description: "First cycle time, milliseconds, big-endian (on time for blink, rise time for swell per community naming)."
+              cycle_time_2_ms:
+                type: "uint16"
+                endianness: "big"
+                min: 1
+                max: 65535
+                default: 1055
+                unit: "ms"
+                description: "Second cycle time, milliseconds, big-endian."
+          rgb_solid:
+            description: >
+              ActionRgb (0x44), mode 0x01 solid colour. The byte after blue is
+              an auto-off time in minutes where 0xFF disables it: sending 0
+              makes the controller switch the light off at once (the bug the
+              community fixed in v1.0.20 against real hardware, which is what
+              pins this byte's position). There is no brightness byte;
+              brightness is the colour's scale, so dim by scaling R, G and B
+              together.
+            verification: "reported"
+            template: ["{command_id}", 0x44, "{table_id}", "{device_id}", 0x01, "{red}", "{green}", "{blue}", "{auto_off_min}"]
+            packet_layout:
+              "0": "client command id, low byte"
+              "1": "client command id, high byte"
+              "2": "0x44 ActionRgb"
+              "3": "device table id"
+              "4": "device id"
+              "5": "mode 0x01 solid"
+              "6": "red"
+              "7": "green"
+              "8": "blue"
+              "9": "auto-off minutes; 0xFF = never"
+            parameters:
+              command_id:
+                type: "uint16"
+                endianness: "little"
+                auto: "sequence"
+                description: "Client command id."
+              table_id:
+                type: "uint8"
+                min: 0
+                max: 255
+                description: "Device table id from the gateway-information event."
+              device_id:
+                type: "uint8"
+                min: 0
+                max: 255
+                description: "Device id of an RGB light."
+              red:
+                type: "uint8"
+                min: 0
+                max: 255
+                default: 255
+                description: "Red channel."
+              green:
+                type: "uint8"
+                min: 0
+                max: 255
+                default: 255
+                description: "Green channel."
+              blue:
+                type: "uint8"
+                min: 0
+                max: 255
+                default: 255
+                description: "Blue channel."
+              auto_off_min:
+                type: "uint8"
+                min: 0
+                max: 255
+                default: 255
+                unit: "min"
+                description: "Minutes until the light turns itself off; 255 (0xFF) disables auto-off. Do not send 0 unless the light should go out immediately."
+          rgb_off:
+            description: "ActionRgb (0x44), mode 0x00 off (header only, 6 bytes)."
+            verification: "reported"
+            template: ["{command_id}", 0x44, "{table_id}", "{device_id}", 0x00]
+            parameters:
+              command_id:
+                type: "uint16"
+                endianness: "little"
+                auto: "sequence"
+                description: "Client command id."
+              table_id:
+                type: "uint8"
+                min: 0
+                max: 255
+                description: "Device table id from the gateway-information event."
+              device_id:
+                type: "uint8"
+                min: 0
+                max: 255
+                description: "Device id of an RGB light."
+          hvac_set_zone:
+            description: >
+              ActionHvac (0x45): the whole 3-byte zone command, so mode, heat
+              source, fan and both setpoints travel together. To change one,
+              resend the others from the zone's latest 0x0B status record
+              (bytes 0-2 of the record are exactly these three bytes). The
+              community debounces setpoint changes by 250 ms, ignores status
+              echoes for 8 s after a mode or fan change and 20 s after a
+              setpoint change, and resends a setpoint up to 3 times 5 s apart
+              if the echo does not match.
+            verification: "reported"
+            template: ["{command_id}", 0x45, "{table_id}", "{device_id}", "{zone_command}", "{low_trip_f}", "{high_trip_f}"]
+            packet_layout:
+              "0": "client command id, low byte"
+              "1": "client command id, high byte"
+              "2": "0x45 ActionHvac"
+              "3": "device table id"
+              "4": "device id (HVAC zone)"
+              "5": "zone command byte: bits 0-2 heat mode, bit 3 reserved (0), bits 4-5 heat source, bits 6-7 fan mode"
+              "6": "low trip (heating setpoint), whole degrees F"
+              "7": "high trip (cooling setpoint), whole degrees F"
+            parameters:
+              command_id:
+                type: "uint16"
+                endianness: "little"
+                auto: "sequence"
+                description: "Client command id."
+              table_id:
+                type: "uint8"
+                min: 0
+                max: 255
+                description: "Device table id from the gateway-information event."
+              device_id:
+                type: "uint8"
+                min: 0
+                max: 255
+                description: "Device id of the HVAC zone."
+              zone_command:
+                type: "uint8"
+                min: 0
+                max: 247
+                description: >-
+                  Packed zone command. Bits 0-2 heat mode: 0 off, 1 heat, 2
+                  cool, 3 heat and cool, 4 run the stored schedule. Bit 3
+                  reserved, send 0. Bits 4-5 heat source: 0 prefer gas, 1
+                  prefer heat pump, 2 other. Bits 6-7 fan: 0 auto, 1 high, 2
+                  low. Examples: cool, gas, auto fan = 0x02; heat on heat
+                  pump, low fan = 0x91; off = 0x00. Offer only what the zone's
+                  observed capabilities support (gas furnace, air conditioner,
+                  heat pump, multi-speed fan).
+              low_trip_f:
+                type: "uint8"
+                min: 47
+                max: 92
+                unit: "F"
+                description: "Heating setpoint in whole degrees Fahrenheit. 47-92 are the vendor app's default limits; a zone may report its own through device parameters."
+              high_trip_f:
+                type: "uint8"
+                min: 47
+                max: 92
+                unit: "F"
+                description: "Cooling setpoint in whole degrees Fahrenheit, same limits. Keep it above low_trip_f; the required gap is not established."
+          generator_start:
+            description: >
+              ActionGeneratorGenie (0x42), command 0x01 on: starts a
+              generator fitted with Lippert's generator controller. The
+              gateway runs its own priming and cranking sequence and reports
+              progress in 0x0A status events (priming, starting, running).
+              Command 0x03 (prime only) and the auto-start / quiet-hours
+              configuration exist and are not documented here.
+            verification: "reported"
+            advanced: true
+            advanced_reason: >-
+              Starts a combustion engine. Its exhaust is a carbon-monoxide
+              hazard to anyone inside or near the coach, so start it only
+              when you can see that the exhaust outlet is clear and nobody is
+              sleeping aboard. Stop it with generator_stop.
+            template: ["{command_id}", 0x42, "{table_id}", "{device_id}", 0x01]
+            packet_layout:
+              "0": "client command id, low byte"
+              "1": "client command id, high byte"
+              "2": "0x42 ActionGeneratorGenie"
+              "3": "device table id"
+              "4": "device id (generator)"
+              "5": "command: 0x00 off, 0x01 on (0x03 prime, not used here)"
+            parameters:
+              command_id:
+                type: "uint16"
+                endianness: "little"
+                auto: "sequence"
+                description: "Client command id."
+              table_id:
+                type: "uint8"
+                min: 0
+                max: 255
+                description: "Device table id from the gateway-information event."
+              device_id:
+                type: "uint8"
+                min: 0
+                max: 255
+                description: "Device id whose device type is the generator controller."
+          generator_stop:
+            description: "ActionGeneratorGenie (0x42), command 0x00 off: stops the generator through its controller's shutdown sequence (status passes through stopping)."
+            verification: "reported"
+            advanced: true
+            advanced_reason: >-
+              Stops the generator, and with it any AC loads it is carrying
+              (air conditioning, a residential fridge, medical equipment on
+              shore-power-free camping). Check what depends on it first.
+            template: ["{command_id}", 0x42, "{table_id}", "{device_id}", 0x00]
+            parameters:
+              command_id:
+                type: "uint16"
+                endianness: "little"
+                auto: "sequence"
+                description: "Client command id."
+              table_id:
+                type: "uint8"
+                min: 0
+                max: 255
+                description: "Device table id from the gateway-information event."
+              device_id:
+                type: "uint8"
+                min: 0
+                max: 255
+                description: "Device id of the generator controller."
+          awning_extend:
+            description: >
+              ActionMovement (0x41), direction byte 0x82: forward (extend)
+              with the relay-energized valid bit (0x80) set. An awning mot

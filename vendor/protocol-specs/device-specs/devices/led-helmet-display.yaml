@@ -17,6 +17,7 @@ device:
       functions, not replayed against a panel.
   protocol: "ble"
   category: "display"
+  category_hierarchy: ["display", "led_matrix"]
   type: "led-matrix-panel"
   openness:
     status: "undocumented"

@@ -6,6 +6,7 @@ device:
     status: untested
   protocol: wifi
   category: display
+  category_hierarchy: ["display", "led_matrix"]
   notes: "WiFi-connected RGB LED pixel-matrix display. Displays static images, animations\
     \ (GIF-like), scrolling text, clock faces, EQ visualizer, and cloud gallery content.\
     \ Cloud-mediated device discovery: the device registers itself with Divoom's servers;\

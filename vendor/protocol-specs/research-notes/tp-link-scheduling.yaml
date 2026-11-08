@@ -1,0 +1,70 @@
+# TP-Link scheduling research — 2026-11-07
+
+scope:
+  hardware_testing: false
+  programming_vs_execution: device_rules_run_locally_after_authenticated_programming
+  multi_device_automation: internet_required
+
+tapo:
+  recommended_library: tapo==0.12.2
+  schedule_builders: [clock_once, clock_weekly, sunrise_once, sunrise_weekly, sunset_once, sunset_weekly]
+  countdown_seconds: {minimum: 1, maximum: 86400}
+  wire_fields:
+    s_min: minutes_after_midnight
+    s_type: [normal, sunrise, sunset]
+    time_offset: signed_solar_minutes
+    week_day: bit0_Sunday_through_bit6_Saturday
+    mode: [once, repeat]
+    desired_states.on: target_power_boolean
+    id: omitted_on_add_required_on_edit
+    placeholder_date: 1970-01-01_for_reviewed_P110_builder
+  capacity: read_schedule_rule_max_count_per_model
+  reported_P110_capacity: 32
+  errors: {full: -1802, conflict: -1803, index: -1805}
+  solar_offset_limits: library_accepts_360_P110_rejected_beyond_360_check_model
+  arbitrary_calendar_date: not_established
+
+legacy_kasa:
+  modules: [schedule, count_down, anti_theft, time]
+  operations: [get_rules, add_rule, edit_rule, delete_rule, get_next_action, set_overall_enable]
+  cli: kasa command (raw-command deprecated)
+  bulb_module_can_be: smartlife.iot.common.schedule
+  daily_off_23_30:
+    enable: 1
+    smin: 1410
+    sact: 0
+    stime_opt: 0
+    etime_opt: -1
+    emin: 0
+    eact: -1
+    repeat: 1
+    wday: [1, 1, 1, 1, 1, 1, 1]
+    soffset: 0
+    eoffset: 0
+    id_on_add: omitted
+    edit_requires: complete_rule_with_existing_id
+  countdown_off_5_minutes: {enable: 1, delay: 300, act: 0}
+  model_specific_actions: [s_light, s_dimmer]
+  timezone: use_supported_time_API_instead_of_reset
+
+deco:
+  authentication_required: true
+  endpoints:
+    wifi_off_time: /admin/wireless?form=wifi_schedule
+    eco_power: /admin/eco_mode?form=eco_mode
+    led_night_mode: /admin/device?form=led
+    iot_automation: /admin/iot_automation?form=iotautomation
+    one_click_scenes: /admin/iot_automation?form=iotoneclick
+    camera_access_block: /admin/camera_security?form=camera_security_blocked_period
+  cautions:
+    - wifi_schedule_affects_host_guest_and_iot_networks
+    - led_off_time_does_not_disable_wifi
+    - eco_region_and_mixed_model_limits
+    - eco_led_and_wifi_can_share_scheduler
+    - controller_persistence_does_not_prove_cloud_target_offline_execution
+
+validation:
+  before_write: [device_info, time_timezone, existing_rules, capacity]
+  after_create: [read_assigned_id_and_complete_rule, enable_rule_and_service]
+  before_relying: [WAN_off_execution, DST_and_solar_offset]
+  factory_reset_for_offline_test: false

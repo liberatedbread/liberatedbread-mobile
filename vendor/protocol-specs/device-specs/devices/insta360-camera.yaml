@@ -1,0 +1,1820 @@
+# Insta360 360-degree and action cameras (BLE control + camera Wi-Fi) device spec
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Sources (all public; clean-room, derived facts only, every table written in
+# our own words; no vendor code, .proto file or asset is reproduced):
+#   - xaionaro-go/insta360ctl @ f94193ce (Go CLI, 2026): both BLE
+#     architectures, the GO-line envelope and CRC, the message-code and
+#     notification tables, the camera Wi-Fi TCP protocol. Its author marks
+#     only GO 3 flows as hardware-tested.
+#   - pchwalek/insta360_ble_esp32 @ 83d4748b (ESP32 sketch, 2023): GPS-remote
+#     emulation and the wake advertisement, demonstrated by its author on an
+#     X3 and a ONE RS 1-inch.
+#   - RigacciOrg/insta360-wifi-api @ 89320e06 and the author's rigacci.org
+#     write-up (2023): the TCP/6666 protocol, recovered from app traffic to a
+#     ONE RS.
+#   - Insta360Develop/Android-SDK README @ d2f910c8 (vendor SDK documentation):
+#     connection types, the BLE bandwidth limit, Wi-Fi info and channel calls,
+#     the role of the activation credentials, error codes.
+#   - A string-level pass over the packed vendor Android app (2.33.0). Its
+#     bytecode is encrypted at rest, so nothing here is read from its code;
+#     the string pool only cross-checks UUIDs, name prefixes and three
+#     constant frames.
+#   - FCC grants under grantee code 2AWWH and the two user-manual exhibits.
+#
+# Scope: phone-direct BLE control (both GATT architectures) plus the camera's
+# own Wi-Fi AP / TCP 6666 protocol as a secondary transport. Out of scope:
+# USB mass-storage/UVC, the .insv/.insp containers and the gyro/stitching
+# pipeline, the SDK's online activation beyond its role, firmware update
+# bytes, and the root shell reported on the AP.
+
+device:
+  name: "Insta360 360° and action cameras (X3/X4/X5, ONE X/X2/RS/R, Ace/Ace Pro, GO 2/GO 3)"
+  manufacturer: "Insta360 (Arashi Vision Inc.)"
+  manufacturer_status: "active"
+  type: "360-and-action-camera"
+  category: "camera"
+  protocol: "ble"
+  transport: "ble-gatt"
+  testing:
+    status: untested
+    notes: >-
+      Nobody on this project has driven an Insta360 camera from this document,
+      and the research store holds no capture of one. Every fact is reported
+      from the open implementations and the vendor SDK README, or from
+      string-level evidence in the packed vendor app. The strongest upstream
+      results, none of them ours: insta360ctl's author ran photo, record
+      start/stop, mode, battery, storage and GPS injection against a GO 3 over
+      direct control (its CLI marks everything else "not tested, yet");
+      pchwalek's sketch drove an X3 and a ONE RS 1-inch as a GPS-remote
+      emulator, including the wake advertisement; Rigacci drove a ONE RS over
+      TCP 6666 from a working remote-control program.
+  openness:
+    status: "documented_api"
+    reverse_engineered: true
+    upstream_docs:
+      - url: "https://github.com/Insta360Develop/Android-SDK"
+        title: "Insta360Develop/Android-SDK README"
+        covers: "Connection types (BLE, Wi-Fi, USB), what BLE cannot carry, Wi-Fi info and channel calls, camera activation, error codes. It documents the SDK's API, not the wire protocol."
+      - url: "https://insta360develop.github.io/Insta360-Developer_Docs/"
+        title: "Insta360 developer documentation"
+        covers: "Where the vendor says SDK documentation now lives."
+    notes: >-
+      Insta360 publishes a camera SDK, but only as binary libraries handed out
+      on application, with online camera activation that needs an appId and a
+      secretKey issued by Insta360, and (per Rigacci) a licence that forbids
+      mixing it with open-source software. The wire protocol under it is not
+      published. Everything below the API level was recovered by the
+      community (insta360ctl, pchwalek, Rigacci), so this spec is a
+      reconstruction and can be wrong.
+  security_advisory:
+    severity: "reported"
+    summary: "The camera's own Wi-Fi access point used the fixed passphrase 88888888 on at least the ONE RS, and a root telnet shell was reported reachable through it."
+    detail: >-
+      Rigacci's 2023 write-up on a ONE RS reports that the camera's access
+      point at 192.168.42.1 comes up with the factory passphrase 88888888,
+      that he found no way to disable it or change the passphrase from the
+      camera, and that anyone who joins it can telnet into the camera's Linux
+      system as root and, in his words, do anything up to damaging the
+      camera permanently. insta360ctl
+      notes that some firmware versions use a random passphrase instead, and
+      the vendor SDK exposes a "password version" beside the passphrase, so
+      newer firmware may differ. The passphrase string 88888888 is also in the
+      current vendor app's string pool. Which models and firmware versions
+      are affected is not established. This spec does not document the shell.
+      Keep the camera's Wi-Fi off when you are not using it.
+    advisory_url: "https://www.rigacci.org/wiki/doku.php/doc/appunti/hardware/insta360_one_rs_wifi_reverse_engineering"
+  notes: >
+    Insta360 360-degree and action cameras from Arashi Vision (Shenzhen). One
+    spec covers the family because every model speaks one of two BLE
+    architectures, and most speak both. Which ones a model speaks is carried
+    per model in device.variants and in protocol_details.model_matrix. Picking
+    one architecture and generalising would be wrong for half the fleet.
+
+    TRANSPORTS. (1) BLE, for discovery, remote-style control and full direct
+    control. (2) The camera's own Wi-Fi access point: gateway 192.168.42.1,
+    SSID made of the model name, a space and a six-character serial fragment,
+    ending ".OSC" on the ONE RS example Rigacci published. A proprietary TCP
+    protocol on port 6666 multiplexes protobuf commands, replies,
+    notifications, keep-alives and the live-preview stream. The camera can
+    also be moved into station mode on the user's network; the same TCP
+    protocol then runs on its DHCP address (protocol_details.wifi_tcp).
+    (3) USB mass storage and UVC, out of scope. The SDK says BLE cannot carry
+    bulk data: preview, file transfer and firmware updates need Wi-Fi or USB.
+
+    ARCHITECTURE A, GPS-REMOTE EMULATION. The roles are reversed: the HOST is
+    the GATT server and advertises as an Insta360 GPS remote, and the camera
+    connects to it as a central. The host serves service
+    0000ce80-0000-1000-8000-00805f9b34fb (characteristics
+    0000ce81-0000-1000-8000-00805f9b34fb that the camera writes,
+    0000ce82-0000-1000-8000-00805f9b34fb that the host notifies commands on,
+    and 0000ce83-0000-1000-8000-00805f9b34fb, a static read) plus an
+    information service 0000d0ff-3c17-d293-8e48-14fe2e4da212. Commands are
+    fixed 9-byte frames FC EF FE 86 00 03 01 <action> <param>: shutter, mode
+    cycle, screen, power off. A sleeping camera is woken by an
+    iBeacon-shaped manufacturer-data advertisement that carries "ORBIT" and a
+    six-character camera ID. Because the camera is the client, none of this
+    is in `services` (which lists what the camera serves). It is all in
+    protocol_details.gps_remote_emulation.
+
+    ARCHITECTURE B, DIRECT CONTROL. The camera is the GATT server. Commands go
+    to 0000be81-0000-1000-8000-00805f9b34fb and replies and events come back
+    as notifications on 0000be82-0000-1000-8000-00805f9b34fb, both under
+    service 0000be80-0000-1000-8000-00805f9b34fb. A message is a 16-byte
+    header (7-byte packet head, 9-byte message head) followed by a protobuf
+    body. The 16-byte form is byte-for-byte the packet the TCP/6666 protocol
+    uses, with its uint32 length prefix. On the GO line the message is wrapped
+    in a 5-byte envelope (FF 07 40 + uint16 LE size, or FF 07 41 for sync) and
+    a CRC-16/MODBUS trailer, little-endian; packets are at most 500 bytes and
+    longer messages arrive over several notifications and are reassembled by
+    the size field. The GO 3 also serves a secondary service
+    0000b000-0000-1000-8000-00805f9b34fb with four characteristics, but only
+    listens on 0000be81-0000-1000-8000-00805f9b34fb. Session setup on the GO
+    line: the camera sends a sync frame after the first write and the client
+    answers with its own; then CHECK_AUTHORIZATION (0x27); if the camera says
+    not authorized, REQUEST_AUTHORIZATION (0x56), which the user approves on
+    the camera, the verdict arriving as notification 0x2011. After that the
+    client sends message codes from the vendor's table: photo (3), record
+    start/stop (4/5), highlight (60), GPS (53), Wi-Fi station hand-off
+    SET_WIFI_CONNECTION_INFO (112) whose outcome and new IP address arrive
+    as notification 8232 (0x2028).
+
+    FRAMING IS NOT SETTLED FOR THE X, ONE AND ACE MODELS. insta360ctl assumes
+    they take the 16-byte header bare, with no envelope, no sync and no
+    authorization, and with bytes 0-1 holding the payload length. It never
+    ran that path on hardware. Two things argue against it: the vendor's own
+    packet convention (TCP and the GO envelope) puts the TOTAL length,
+    header included, in bytes 0-3, so the bare form's length field disagrees
+    by 16; and the official SDK, which supports only X- and ONE-series
+    cameras, reports BLE "sync pack" and "shake hand" errors, so those
+    cameras almost certainly sync too. Both candidate forms are declared
+    (the `framed_*` and `bare_*` commands) and the question is recorded in
+    remaining_unknowns. The GO-line framed form is the one with upstream
+    hardware results.
+
+    CLIENT RULES that hold on every source:
+      1. Subscribe to 0000be82-0000-1000-8000-00805f9b34fb (and to 0000b002-0000-1000-8000-00805f9b34fb, 0000b003-0000-1000-8000-00805f9b34fb and 0000b004-0000-1000-8000-00805f9b34fb on service 0000b000-0000-1000-8000-00805f9b34fb where it exists) before writing.
+      2. Write commands to 0000be81-0000-1000-8000-00805f9b34fb only. The GO 3 ignores the same frames on 0000b001-0000-1000-8000-00805f9b34fb and 0000ae01-0000-1000-8000-00805f9b34fb.
+      3. On the GO line, answer the camera's sync frame at once or every later command is silently dropped.
+      4. Sequence numbers run 1-254 and wrap; 0 and 255 are reserved. Match replies by sequence. Replies carry an HTTP-style status in the code field (200, 400, 500, 501). Notifications carry codes of 0x2000 and up; dispatch them by code, not by sequence.
+      5. Reuse one authorization_id per client. A new one makes the camera ask the user again (inferred from the flow).
+      6. Never send a code for a meaning its official name does not have. insta360ctl sends several "legacy" codes on models whose firmware may read them as something else, including 0x0C, which the vendor table names DELETE_FILES, to set the capture mode (protocol_details.direct_control.misattributed_codes).
+
+    SDK CREDENTIALS. The official SDK's camera activation needs an appId and
+    secretKey that a developer applies to Insta360 for; activation is an
+    online call that the vendor rate-limits and region-checks. That is the
+    credentials' whole role here: the community protocol paths in this spec
+    need neither, and no key is recorded. Rigacci reports the vendor app was
+    needed to activate his ONE RS on first use; whether an un-activated
+    camera refuses any of the local protocol is not established.
+
+    CROSS-CHECKS FROM THE VENDOR APP'S STRING POOL (2.33.0). It carries
+    0000be80-0000-1000-8000-00805f9b34fb, 0000ce80-0000-1000-8000-00805f9b34fb to 0000ce83-0000-1000-8000-00805f9b34fb,
+    0000ffd0-0000-1000-8000-00805f9b34fb to 0000ffd5-0000-1000-8000-00805f9b34fb and
+    0000ffd8-0000-1000-8000-00805f9b34fb (all on the Bluetooth base),
+    0000d0ff-3c17-d293-8e48-14fe2e4da212 and
+    000002fd-3c17-d293-8e48-14fe2e4da212 on the vendor base, the name
+    prefixes, "syNceNdinS", 88888888, 192.168.42.1, http://192.168.42.1:80,
+    the ten wake-beacon bytes 09 4f 52 42 49 54 09 ff 0f 00, and a complete
+    GO-envelope heartbeat frame whose CRC our transcription of the algorithm
+    reproduces. An earlier research note that the pool also holds camera
+    ports 8080 and 9999 did not survive a re-check
+    (protocol_details.wifi_tcp.other_ports).
+
+  identification:
+    local_name_prefixes:
+      - "X3 "
+      - "X4 "
+      - "X5 "
+      - "ONE X "
+      - "ONE X2 "
+      - "ONE X3 "
+      - "ONE X4 "
+      - "ONE RS "
+      - "ONE R "
+      - "Ace Pro "
+      - "Ace "
+      - "GO 3 "
+      - "GO 3S "
+    service_uuids:
+      - "0000be80-0000-1000-8000-00805f9b34fb"
+    notes: >-
+      Cameras advertise "<model prefix><part of the serial number>", e.g.
+      "X3 " followed by a serial fragment (insta360ctl's model table; the
+      vendor app's string pool carries the same prefixes plus "X4 Air " and
+      "Ace Pro 2 ", which the prefixes above also catch). The trailing space
+      is part of each prefix and keeps "ONE R " from matching "ONE RS ".
+      "X3 " and "Ace " are short enough to collide with unrelated products;
+      rank a hit that also serves 0000be80-0000-1000-8000-00805f9b34fb above
+      one that does not. insta360ctl also falls back to a bare "ONE " prefix,
+      left out here as too generic. The 0000be80-0000-1000-8000-00805f9b34fb service UUID is on the
+      Bluetooth base but is not a SIG assignment; the vendor app appears to
+      scan with a filter on it (string-level evidence), so cameras probably
+      advertise it, which nobody has confirmed. No company ID or OUI is
+      documented. GO 2 and X6 name prefixes are unknown.
+
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          local_name:
+            match: "prefix"
+            values:
+              - "X3 "
+              - "X4 "
+              - "X5 "
+              - "ONE X "
+              - "ONE X2 "
+              - "ONE X3 "
+              - "ONE X4 "
+              - "ONE RS "
+              - "ONE R "
+              - "Ace Pro "
+              - "Ace "
+              - "GO 3 "
+              - "GO 3S "
+          service_uuids:
+            - "0000be80-0000-1000-8000-00805f9b34fb"
+        notes: >-
+          Name OR service, as ble_scan methods combine them. Identify the
+          model by the longest matching prefix (insta360ctl orders its table
+          longest first). The models that speak only architecture A (ONE X,
+          ONE X2, ONE R) are found by name; what, if anything, they serve to a
+          phone is not recorded.
+    identity:
+      stable_keys: ["local_name", "address"]
+      display: "local_name"
+      notes: >-
+        The local name carries a fragment of the serial number, so it
+        survives an address change and is the better identity key. Whether
+        the cameras use a public or a rotating address is not recorded; treat
+        the address as a connection locator.
+    static_ip_required: false
+
+  setup:
+    required: false
+    confidence: "low"
+    notes: >-
+      Nothing has to be provisioned for BLE control or for the camera's own
+      Wi-Fi AP; the only one-time step is the user approving a new client on
+      the camera the first time it asks for authorization (GO line; see
+      device.pairing). Station mode is optional provisioning. Confidence is
+      low because only the GO 3 direct-control flow has an upstream hardware
+      result, the X/ONE/Ace framing is unsettled, and the camera-side steps
+      for pairing a remote are not documented anywhere. First-use activation:
+      Rigacci reports the vendor app had to activate his new ONE RS; the SDK
+      does it online with developer credentials. Whether an un-activated
+      camera limits the local protocol is not established.
+    methods:
+      - type: "ble_direct"
+        name: "Direct control on the camera's own GATT service, approved once on the camera"
+        role: "primary"
+        verified: false
+        description: >-
+          Connect to the camera as a central, subscribe to its notify
+          characteristic, complete the sync (GO line) and the authorization
+          exchange, and send commands. The first time a client asks, the user
+          approves it on the camera. The vendor app's scanner filters on this
+          service (string-level evidence), and insta360ctl's GO 3 results rest
+          on it. On the X, ONE
+          and Ace models the framing is unsettled (device.notes): try the
+          framed form with sync and authorization first, and fall back to
+          insta360ctl's bare form.
+        ble:
+          service_uuid: "0000be80-0000-1000-8000-00805f9b34fb"
+          write_characteristic: "0000be81-0000-1000-8000-00805f9b34fb"
+          read_characteristic: "0000be82-0000-1000-8000-00805f9b34fb"
+          pairing_required: false
+        steps:
+          - action: "Power the camera on. It advertises '<model prefix><serial fragment>' while on; insta360ctl documents no other preparation."
+            actor: user
+          - action: "Scan for a name prefix from device.identification, connect, and discover services."
+            actor: client
+            timeout_seconds: 10
+          - action: "Request a larger ATT MTU. The vendor app negotiates 247 (about 244 bytes per write); insta360ctl asks for 517. Without it, framed packets longer than 20 bytes must be split across writes."
+            actor: client
+          - action: "Enable notifications on 0000be82-0000-1000-8000-00805f9b34fb, and on 0000b002-0000-1000-8000-00805f9b34fb, 0000b003-0000-1000-8000-00805f9b34fb and 0000b004-0000-1000-8000-00805f9b34fb when service 0000b000-0000-1000-8000-00805f9b34fb is present."
+            actor: client
+            request:
+              protocol: "ble_gatt"
+              service: "0000be80-0000-1000-8000-00805f9b34fb"
+          - action: "Send CHECK_AUTHORIZATION (code 0x27) with a stable authorization_id string for this client (protocol_details.test_vectors.check_authorization)."
+            actor: client
+            request:
+              protocol: "ble_gatt"
+              service: "0000be80-0000-1000-8000-00805f9b34fb"
+              action: "CHECK_AUTHORIZATION (0x27)"
+          - action: "GO line: the camera answers the first write with a sync frame (FF 06 41 ..., body a repeating AB BA). Write the sync reply (command framed_sync_reply: FF 07 41 07 00 + seven zero bytes + CRC) at once."
+            actor: client
+            expect: "The camera then processes the pending CHECK_AUTHORIZATION and replies with status 200 and an authorization status. Without the sync reply, commands are silently dropped."
+          - action: "If the status is 'not authorized', send REQUEST_AUTHORIZATION (code 0x56) with operation type 1 (pair)."
+            actor: client
+            request:
+              protocol: "ble_gatt"
+              service: "0000be80-0000-1000-8000-00805f9b34fb"
+              action: "REQUEST_AUTHORIZATION (0x56)"
+          - action: "Approve the connection on the camera when it asks (screen or button)."
+            actor: user
+            expect: "Notification 0x2011 (AUTHORIZATION_RESULT) with field 1 true. insta360ctl reads the verdict from the direct reply to 0x56 instead; accept either."
+            timeout_seconds: 60
+          - action: "Send commands (the framed_* commands on the GO line; see device.notes for the other models), one sequence number per message, 1-254."
+            actor: client
+        timing:
+          sequence_range: "1-254, wrapping; 0 and 255 reserved (insta360ctl)."
+          mtu: "Vendor app 247; insta360ctl 517. Framed packets max 500 bytes."
+          authorization_prompt_timeout_s: "Not documented. The 60 s above is a client-side choice, not a device constant."
+          heartbeat: "The vendor app carries a BLE heartbeat frame (framed_heartbeat). How often it is sent, and whether the camera drops an idle link without it, is not recorded. The TCP equivalent is every 2 s."
+        troubleshooting:
+          - symptom: "GO 3 accepts the connection but never answers commands."
+            causes:
+              - "The frames went to 0000b001-0000-1000-8000-00805f9b34fb or 0000ae01-0000-1000-8000-00805f9b34fb. insta360ctl's real-device testing found the GO 3 answers only on 0000be81-0000-1000-8000-00805f9b34fb."
+              - "The camera's sync frame was not answered. It arrives after the first write; reply with framed_sync_reply."
+              - "Notifications were not enabled before the first write."
+          - symptom: "Authorization fails with busy, timeout or denied."
+            causes:
+              - "Another device is mid-authorization with the camera (the vendor's authorization states include busy)."
+              - "Nobody approved the prompt on the camera in time, or it was declined. The SDK reports a refusal as error 4505, 'Bluetooth binding rejected'."
+          - symptom: "The camera reports it is occupied, or the connection is refused (SDK errors 4403, 4508)."
+            causes:
+              - "The vendor app or another client holds the camera. Close the app, disconnect other clients, and retry."
+          - symptom: "An X-, ONE- or Ace-series camera ignores every command."
+            causes:
+              - "Framing unsettled for these models (device.notes). Try the framed form with sync and authorization, then the bare form."
+          - symptom: "The capture mode changed, or files may have been touched, after a 'set mode' from a community tool."
+            causes:
+              - "insta360ctl sets the mode with code 0x0C and a raw mode byte. That works on the GO 3, but the vendor table names 0x0C DELETE_FILES. Do not send it to any other model (protocol_details.direct_control.misattributed_codes)."
+      - type: "none"
+        name: "Camera Wi-Fi access point, TCP 6666 (nothing to provision)"
+        role: "alternative"
+        verified: false
+        description: >-
+          Join the camera's own access point and speak the TCP protocol to
+          192.168.42.1:6666. Needs no BLE and no authorization exchange in
+          either open implementation, but the host loses its internet
+          connection while it is on the camera's network. Rigacci's working
+          ONE RS client and the vendor SDK's Wi-Fi connection use this path;
+          insta360ctl implements it but marks it untested.
+        softap:
+          ssid_examples: ["ONE RS XXXXXX.OSC", "GO 3 XXXX"]
+          open_network: false
+          passphrase_source: "88888888 on older firmware (Rigacci, ONE RS; also in the vendor app's strings). Some firmware uses a random passphrase: read it in the camera's settings, over BLE (the SDK exposes SSID and passphrase once connected), or over TCP with GET_OPTIONS option 36 (payload_formats.Options_Wifi_Info)."
+          gateway_ip: "192.168.42.1"
+          port: 6666
+        steps:
+          - action: "Turn the camera's Wi-Fi on (on the camera, or over BLE with OPEN_CAMERA_WIFI, code 33, which the SDK exposes as 'open camera Wi-Fi')."
+            actor: user
+          - action: "Join the camera's access point (SSID '<model> <6-character serial fragment>', '.OSC' suffix on the ONE RS example) with its passphrase."
+            actor: user
+          - action: "Open a TCP connection to 192.168.42.1:6666 and send the sync packet 11 00 00 00 06 00 00 73 79 4e 63 65 4e 64 69 6e 53 (length 17, type 06 00 00, ASCII 'syNceNdinS')."
+            actor: client
+            expect: "The camera echoes the identical packet. insta360ctl treats no echo within 5 s as a failed connection."
+            timeout_seconds: 5
+          - action: "From now on send the keep-alive 07 00 00 00 05 00 00 whenever the link has been idle for 2 s."
+            actor: client
+            expect: "The camera drops a client it has heard nothing from for about 10 s."
+          - action: "Send commands as TCP message packets (protocol_details.wifi_tcp.message_packet). Rigacci's client first sets the camera's clock (SET_OPTIONS, code 7, local time and time zone)."
+            actor: client
+        timing:
+          sync_echo_timeout_s: 5
+          keepalive_interval_s: 2
+          idle_disconnect_s: 10
+          basis: "insta360ctl doc/protocol.md and Rigacci's client (2 s keep-alive, 10 s receive timeout)."
+        troubleshooting:
+          - symptom: "The phone or computer has no internet while connected to the camera (a recurring store-review complaint about the vendor app)."
+            causes:
+              - "The camera AP has no uplink. The SDK FAQ explains the vendor app binds its process to the camera network to reach the socket. Use station mode, or a second network interface, or bind only the camera socket to the camera network."
+          - symptom: "Settings changed over TCP do not show on the camera's screen or preview."
+            causes:
+              - "Rigacci saw this on the ONE RS: white balance, resolution and FOV changes take effect at the next capture but the on-screen labels and live view do not update. Sharpness, prompt sound and indicator LEDs could not be changed at all."
+          - symptom: "A focal-length or FOV value read back does not match what was set."
+            causes:
+              - "Rigacci: with the display asleep, GET_PHOTOGRAPHY_OPTIONS sometimes returns stale values; closing and reopening the socket restores them."
+      - type: "ble_direct"
+        name: "GPS-remote emulation: the camera connects to the host"
+        role: "alternative"
+        verified: false
+        description: >-
+          The host plays an Insta360 GPS remote: it advertises and serves the
+          remote's GATT layout, and the camera connects as the central. Only
+          shutter, mode cycle, screen and power off are available, plus waking
+          a sleeping camera. It is the only BLE route documented for the ONE
+          X, ONE X2 and ONE R, and it needs a host that can run a GATT server
+          (insta360ctl needs raw HCI on Linux for it; pchwalek uses an
+          ESP32). Everything is in protocol_details.gps_remote_emulation.
+        steps:
+          - action: "Serve service 0000ce80-0000-1000-8000-00805f9b34fb (0000ce81-0000-1000-8000-00805f9b34fb write, 0000ce82-0000-1000-8000-00805f9b34fb notify, 0000ce83-0000-1000-8000-00805f9b34fb read) and service 0000d0ff-3c17-d293-8e48-14fe2e4da212 with the values in protocol_details.gps_remote_emulation.gatt_server."
+            actor: client
+          - action: "Advertise the name 'Insta360 GPS Remote' with service UUIDs 0000ce80-0000-1000-8000-00805f9b34fb and 0000d0ff-3c17-d293-8e48-14fe2e4da212 and a scan response."
+            actor: client
+          - action: "Have the camera connect to the remote. No source documents the camera-side steps; the vendor GPS remote is paired from the camera's own menus (hypothesis)."
+            actor: user
+            expect: "The camera connects and enables notifications on 0000ce82-0000-1000-8000-00805f9b34fb."
+          - action: "Notify 9-byte commands on 0000ce82-0000-1000-8000-00805f9b34fb, e.g. FC EF FE 86 00 03 01 02 00 for the shutter."
+            actor: client
+          - action: "To wake a camera that has powered down, stop normal advertising and advertise the wake manufacturer data (protocol_details.gps_remote_emulation.wake_advertisement) with the camera's six-character ID."
+            actor: client
+            expect: "A camera that has been paired with the remote powers on and reconnects (pchwalek: X3 and ONE RS 1-inch)."
+        troubleshooting:
+          - symptom: "The camera never connects to the emulated remote."
+            causes:
+              - "The camera-side pairing step is not documented; the camera may only connect to a remote it has been paired with."
+              - "The host's stack cannot act as a peripheral with these services (bluetoothd-based clients generally cannot; insta360ctl switches to raw HCI)."
+      - type: "ble_provisioning"
+        name: "Station mode: hand the camera your network (SET_WIFI_CONNECTION_INFO, code 112)"
+        role: "alternative"
+        verified: false
+        description: >-
+          Tell the camera to leave its own AP and join an existing network, so
+          a client on that LAN can reach TCP 6666 without switching networks.
+          The command goes over an authorized BLE session (method 1) or over
+          TCP on the camera AP (method 2). insta360ctl implements both and
+          marks both untested; its notes say some models or firmware may not
+          support station mode. The passphrase travels as a plain protobuf
+          string.
+        ble:
+          service_uuid: "0000be80-0000-1000-8000-00805f9b34fb"
+          write_characteristic: "0000be81-0000-1000-8000-00805f9b34fb"
+          read_characteristic: "0000be82-0000-1000-8000-00805f9b34fb"
+          pairing_required: false
+          protocol: "Insta360 message protocol, code 112 (0x70) SET_WIFI_CONNECTION_INFO"
+        steps:
+          - action: "Open an authorized BLE session (method 1) or a synced TCP session on the camera AP (method 2)."
+            actor: client
+          - action: "Send SET_WIFI_CONNECTION_INFO (code 112) whose body is field 1 = { field 1 ssid, field 2 bssid (optional), field 3 passphrase } (protocol_details.test_vectors.set_wifi_connection_info)."
+            actor: client
+            expect: "Status 200: the command was accepted, not that the join worked."
+          - action: "Wait for notification 8232 (0x2028): field 1 result (0 success, 1 timeout, 2 connect failed), field 2 the connection info with field 4 = the camera's new IP address."
+            actor: device
+            expect: "On TCP the notification may arrive before or after the camera drops its AP and the socket; a drop after the 200 usually means the join worked."
+            timeout_seconds: 60
+          - action: "Connect to <new IP>:6666 and sync as in method 2. If no IP was reported, look the camera up in the router's DHCP leases."
+            actor: client
+        troubleshooting:
+          - symptom: "The camera accepts the command but never appears on the LAN."
+            causes:
+              - "Wrong passphrase or an unsupported band/security mode: notification 8232 reports 2 (connect failed) or 1 (timeout)."
+              - "The model or firmware does not support station mode (insta360ctl's caution)."
+          - symptom: "Wi-Fi join via code 0x1A from an older community build does nothing."
+            causes:
+              - "0x1A is SCAN_BT_PERIPHERAL in the vendor table; insta360ctl's earlier builds misused it. The join is code 112."
+    factory_reset:
+      applicable: "unknown"
+      confidence: "low"
+      effect: >-
+        Not established. The camera stores its AP credentials, any
+        station-mode networks, the IDs of authorized BLE clients and its
+        settings; nothing documents which of these a reset clears.
+      description: >-
+        No source run for this spec documents a factory reset, and the two
+        user-manual exhibits (GO 3 quick guide, GO 2 manual) cover only power
+        and capture buttons; the GO 2 manual's 6-second hold of the Action
+        button is a forced shutdown, not a reset. The vendor message table
+        does contain RESTORE_FACTORY_SETTINGS (code 57, 0x39), so a
+        protocol-level reset exists, but no open implementation sends it.
+        A separate code RESET_WIFI (125, 0x7D) exists; the SDK's matching call
+        is documented as restarting the camera's Wi-Fi (off, then on), not as
+        erasing credentials.
+      procedures:
+        - name: "RESTORE_FACTORY_SETTINGS message (code 57, 0x39)"
+          verified: false
+          basis: "The vendor's message-code table as transcribed by insta360ctl (doc/ble_protocol.md section 9.1). No open implementation sends it and its effect is undocumented."
+          power_state: "on"
+          steps:
+            - action: "Over an authorized BLE session or a synced TCP session, send a message with code 57 and an empty body."
+              actor: client
+              expect: "Unknown. Presumably status 200 and a restart with default settings."
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >-
+        Reported, untested: SET_WIFI_CONNECTION_INFO can be sent again over
+        BLE at any time, so the camera can be handed a new network without a
+        reset. The vendor table also has SET_WIFI_MODE (147; 0 AP, 1 station,
+        2 P2P), GET_CONNECTED_WIFI_LIST (149) and DEL_WIFI_HISTORY_INFO (175)
+        for returning to AP mode and forgetting saved networks. Moving the
+        camera to a new phone needs only a new BLE authorization.
+      steps:
+        - action: "Over BLE, send SET_WIFI_CONNECTION_INFO (code 112) with the new network, or SET_WIFI_MODE (code 147) with mode 0 to go back to the camera's own AP."
+          actor: client
+    credentials:
+      wifi_passphrase_protection: "plaintext"
+      stored_on_device:
+        - "The camera AP's SSID and passphrase (88888888 on older firmware; per-unit on some newer firmware)."
+        - "Station-mode networks and passphrases handed over with SET_WIFI_CONNECTION_INFO; the camera keeps a list (GET_CONNECTED_WIFI_LIST, DEL_WIFI_HISTORY_INFO)."
+        - "The authorization IDs of BLE clients the user approved (inferred: CHECK_AUTHORIZATION answers 'authorized' for a known ID)."
+      issued_to_client: []
+      notes: >-
+        The camera issues nothing to the client. The client chooses its own
+        authorization_id and must keep reusing it. The station-mode passphrase
+        crosses BLE or TCP as a plain protobuf string with no encryption
+        above the link, and the camera AP passphrase can be read back over
+        both (SDK Wi-Fi info; GET_OPTIONS option 36 over TCP).
+
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "app_layer"
+    bonding: "unknown"
+    exclusivity:
+      single_connection: "unknown"
+      single_bond: "unknown"
+      recovery: >-
+        Close the vendor app and any other BLE client, then reconnect. If the
+        camera still reports it is occupied, power-cycle it (GO 2: hold the
+        Action button 6 s to force a shutdown).
+      notes: >-
+        The authorization flow has a "busy" outcome when another device is
+        mid-authorization, and the SDK has "camera is occupied" (4403) and
+        "device Bluetooth busy" (4508) errors, so the camera serves one
+        controlling client at a time in practice; the link-layer limit is not
+        recorded.
+    enter_pairing_mode:
+      required: false
+      notes: >-
+        Direct control needs no pairing mode: the camera advertises while on,
+        and a new client is admitted by the user approving the
+        REQUEST_AUTHORIZATION prompt on the camera. For GPS-remote emulation
+        the camera must presumably be told to pair with a remote from its own
+        menus; no source documents the steps.
+    unpair:
+      supported: "unknown"
+      notes: >-
+        The vendor table has CANCEL_AUTHORIZATION (40, 0x28), which may revoke
+        a client's approval; no open implementation sends it (insta360ctl
+        misuses 0x28 as a "get device info" code), and no camera-side menu for
+        approved clients is documented.
+    notes: >-
+      No link-layer pairing is demanded: insta360ctl connects to a GO 3
+      through bluetoothd without bonding and gets answers. The security lives
+      one layer up. CHECK_AUTHORIZATION (0x27) carries a client-chosen
+      authorization_id; an unknown ID gets 'not authorized', and
+      REQUEST_AUTHORIZATION (0x56) then puts a prompt on the camera that the
+      user must accept; the verdict comes back as notification 0x2011. The
+      sources disagree on the status numbering (insta360ctl's prose table
+      says 1 = not authorized, 3 = authorized; its code, which ran against a
+      GO 3, uses 1 = authorized, 2 = not authorized), and on whether the X,
+      ONE and Ace models authorize at all (insta360ctl skips it for them).
+      Whether the camera also requests a bond when a central offers one is
+      not recorded. There is also a separate wake-up authorization frame for
+      a sleeping camera (protocol_details.direct_control.wake_up_authorization).
+
+  host_compatibility:
+    - stack: bluez
+      status: compatible
+      verification: reported
+      variants: ["GO 3"]
+      basis: "insta360ctl's default backend is BlueZ D-Bus (bluetoothd's GATT client, via tinygo bluetooth), and its author reports photo, record, mode, battery, storage and GPS working against a GO 3. Which backend those runs used is not stated."
+      notes: >-
+        GPS-remote emulation needs the host to be a GATT server; insta360ctl
+        requires its raw-HCI backend for that, not bluetoothd.
+    - stack: android
+      status: compatible
+      verification: reported
+      basis: "The vendor app and the official Android SDK connect to the cameras over BLE on Android (SDK README, connection module)."
+
+  variants:
+    - model: "X3"
+      identification:
+        local_name_prefix: "X3 "
+      notes: >-
+        Architectures A and B (insta360ctl's model table). Architecture A
+        demonstrated on hardware by pchwalek. Direct-control framing unsettled
+        (insta360ctl assumes the bare 16-byte header). Official SDK model.
+    - model: "X4"
+      identification:
+        local_name_prefix: "X4 "
+      notes: "Architectures A and B (insta360ctl's table). Framing unsettled. Official SDK model."
+    - model: "X4 Air"
+      identification:
+        local_name_prefix: "X4 Air "
+      notes: >-
+        Name prefix from the vendor app's string pool only. No source says
+        which architecture it speaks; the "X4 " prefix also matches it.
+    - model: "X5"
+      identification:
+        local_name_prefix: "X5 "
+      notes: "Architectures A and B (insta360ctl's table). Framing unsettled. Official SDK model; the SDK's shutdown call is documented for X5 and later only."
+    - model: "ONE X3"
+      identification:
+        local_name_prefix: "ONE X3 "
+      notes: "Architectures A and B per insta360ctl's table, which lists this name prefix beside 'X3 '. The sources do not tie it to a retail product."
+    - model: "ONE X4"
+      identification:
+        local_name_prefix: "ONE X4 "
+      notes: "Architectures A and B per insta360ctl's table, which lists this name prefix beside 'X4 '. The sources do not tie it to a retail product."
+    - model: "ONE RS"
+      identification:
+        local_name_prefix: "ONE RS "
+      notes: >-
+        Includes the ONE RS 1-inch. Architectures A and B. Architecture A
+        demonstrated on the 1-inch by pchwalek; TCP 6666 demonstrated by
+        Rigacci. Reported to use an Ambarella H22 SoC (Rigacci). Official SDK
+        model.
+    - model: "ONE R"
+      identification:
+        local_name_prefix: "ONE R "
+      notes: "Architecture A only (insta360ctl's table)."
+    - model: "ONE X2"
+      identification:
+        local_name_prefix: "ONE X2 "
+      notes: >-
+        Architecture A only per insta360ctl, yet the official SDK lists ONE X2
+        as a BLE-connectable model, so it serves something to a phone over
+        BLE; which service is not recorded.
+    - model: "ONE X"
+      identification:
+        local_name_prefix: "ONE X "
+      notes: "Architecture A only (insta360ctl). Official SDK model; same open question as ONE X2."
+    - model: "Ace Pro"
+      identification:
+        local_name_prefix: "Ace Pro "
+      notes: "Architecture B only (insta360ctl's table). Framing unsettled."
+    - model: "Ace Pro 2"
+      identification:
+        local_name_prefix: "Ace Pro 2 "
+      notes: "Name prefix from the vendor app's string pool only; architecture not recorded. The 'Ace Pro ' prefix also matches it."
+    - model: "Ace"
+      identification:
+        local_name_prefix: "Ace "
+      notes: "Architecture B only (insta360ctl's table). The 'Ace ' prefix also matches the Ace Pro names, so test the longer prefixes first."
+    - model: "GO 3"
+      identification:
+        local_name_prefix: "GO 3 "
+      notes: >-
+        FCC ID 2AWWH-CINSABKA (model CINSABKA; the grant's manual is the GO 3
+        quick guide). Architecture B with the framed envelope, sync and
+        authorization; the one model with upstream hardware results
+        (insta360ctl, firmware v1.4.51). Also serves 0000b000-0000-1000-8000-00805f9b34fb and a custom
+        128-bit service. Deviates from the vendor table on several codes
+        (protocol_details.direct_control.go3_deviations). Not in
+        insta360ctl's README table despite being its test camera. 5 GHz
+        Wi-Fi (802.11a/n/ac) per the quick guide; its Action Pod case has its
+        own Bluetooth radio.
+    - model: "GO 3S"
+      identification:
+        local_name_prefix: "GO 3S "
+      notes: "Treated like the GO 3 by insta360ctl's code (framed envelope). No hardware result."
+    - model: "GO 2"
+      notes: >-
+        FCC ID 2AWWH-ING2 (model CING2XX/A per its label exhibit). The
+        framed envelope is named after the GO 2 in the vendor's native
+        library (per insta360ctl), which suggests it speaks it (hypothesis).
+        Its BLE name prefix is not recorded. The GO 2 charge case has its own
+        display and Bluetooth.
+    - model: "X6"
+      notes: >-
+        Known only from FCC ID 2AWWH-CINSABXA ("Insta360 X6", granted
+        2026-07-03, a DSS Bluetooth grant). No source has tested it, and no
+        name prefix or architecture is recorded. Listed as unverified.
+
+initialization:
+  - characteristic: "0000be82-0000-1000-8000-00805f9b34fb"
+    subscribe: true
+    notes: "Replies and notifications arrive only here. Subscribe before the first write."
+  - characteristic: "0000be81-0000-1000-8000-00805f9b34fb"
+    description: >-
+      GO line (and probably every direct-control model): after the first write
+      the camera sends a sync frame on 0000be82-0000-1000-8000-00805f9b34fb (FF 06 41, uint16 LE size,
+      a repeating AB BA body, CRC). Answer it immediately with
+      framed_sync_reply (FF 07 41 07 00, seven zero bytes, CRC 5C 42). A
+      client must handle this whenever it arrives; it is event-driven, not a
+      fixed write.
+  - characteristic: "0000be81-0000-1000-8000-00805f9b34fb"
+    description: >-
+      Authorization: CHECK_AUTHORIZATION (0x27) with the client's stable
+      authorization_id and initiator type 2 (app); if the reply's status is
+      not-authorized, REQUEST_AUTHORIZATION (0x56) with operation type 1
+      (pair), then wait for the user to approve on the camera and for
+      notification 0x2011. The body carries a client-chosen string, so the
+      bytes cannot be fixed here; protocol_details.test_vectors gives a
+      worked example. insta360ctl performs this only on the GO line.
+
+services:
+  - uuid: "0000be80-0000-1000-8000-00805f9b34fb"
+    name: "Direct-control service (architecture B)"
+    notes: >-
+      The camera's control service on every architecture-B model. The 16-bit
+      value is on the Bluetooth base but is not a SIG assignment.
+      insta360ctl's GATT table also lists Device Information
+      (0000180a-0000-1000-8000-00805f9b34fb) and Battery
+      (0000180f-0000-1000-8000-00805f9b34fb) without naming models. The GO 3
+      additionally exposes 0000b000-0000-1000-8000-00805f9b34fb and
+      0000ae00-0000-1000-8000-00805f9b34fb (below) and a custom 128-bit service
+      whose full UUIDs are not recorded
+      (protocol_details.direct_control.go3_custom_service).
+    characteristics:
+      - uuid: "0000be81-0000-1000-8000-00805f9b34fb"
+        name: "Command write (app to camera)"
+        properties: ["read", "write", "write_without_response"]
+        role: "command"
+        notes: >-
+          Every command goes here, on every model; the GO 3 ignores commands
+          written anywhere else. insta360ctl writes without response. Two
+          command families are declared. The framed_* commands are the
+          GO-line form: FF 07 40, uint16 LE inner size, the 16-byte inner
+          header (uint32 LE inner size, 04 00 00, uint16 LE code, 02,
+          sequence, 00 00, 80, 00 00), the body, then CRC-16/MODBUS
+          (poly 0xA001 reflected, init 0xFFFF, no final xor) over everything
+          before it, low byte first. The bare_* commands are insta360ctl's
+          assumed X/ONE/Ace form: the 16-byte header alone, bytes 0-1 =
+          body length (not total), code in byte 7 only, no envelope and no
+          CRC; insta360ctl splits messages into 20-byte writes and the camera
+          would reassemble by the length field. Only the framed family has
+          upstream hardware results. Message bodies are protobuf, and every
+          declared command here has an empty or fixed-size body; codes with
+          variable bodies (authorization, Wi-Fi, options) are documented with
+          worked examples in protocol_details.
+        commands:
+          framed_take_picture:
+            description: "TAKE_PICTURE (code 3), empty body, framed. Reply: status 200 on the same sequence. Tested on a GO 3 by insta360ctl."
+            template: [0xFF, 0x07, 0x40, 0x10, 0x00, 0x10, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x03, 0x00, 0x02, "{seq}", 0x00, 0x00, 0x80, 0x00, 0x00, "{crc}"]
+            parameters:
+              seq: &seq_param
+                type: "uint8"
+                auto: "sequence"
+                min: 1
+                max: 254
+                description: "Message sequence number, 1-254 then back to 1 (0 and 255 are reserved). The reply echoes it."
+              crc: &crc_param
+                type: "uint16"
+                auto: "crc16_modbus"
+                checksum_start: 0
+                endianness: "little"
+                description: "CRC-16/MODBUS over every preceding byte of the frame, envelope included, low byte first. With seq 1 this frame ends 6F AC."
+            verification: "reported"
+            packet_layout:
+              "0": "0xFF envelope marker"
+              "1": "0x07 app-to-camera (the camera's frames carry 0x06)"
+              "2": "0x40 message (0x41 = sync)"
+              "3": "inner size, uint16 LE: 16 + body length"
+              "5": "inner packet: uint32 LE inner size (same value)"
+              "9": "packet type 0x04 = message, then two zero bytes"
+              "12": "message code, uint16 LE"
+              "14": "content type 0x02 = protobuf"
+              "15": "sequence number"
+              "18": "0x80 = last fragment, direction app-to-camera"
+              "21": "CRC-16/MODBUS, uint16 LE"
+          framed_start_recording:
+            description: "START_CAPTURE (code 4), empty body, framed. Starts video in the current mode. Tested on a GO 3 by insta360ctl."
+            template: [0xFF, 0x07, 0x40, 0x10, 0x00, 0x10, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x04, 0x00, 0x02, "{seq}", 0x00, 0x00, 0x80, 0x00, 0x00, "{crc}"]
+            parameters:
+              seq: *seq_param
+              crc: *crc_param
+            verification: "reported"
+          framed_stop_recording:
+            description: "STOP_CAPTURE (code 5), empty body, framed. Tested on a GO 3 by insta360ctl."
+            template: [0xFF, 0x07, 0x40, 0x10, 0x00, 0x10, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x05, 0x00, 0x02, "{seq}", 0x00, 0x00, 0x80, 0x00, 0x00, "{crc}"]
+            parameters:
+              seq: *seq_param
+              crc: *crc_param
+            verification: "reported"
+          framed_start_timelapse:
+            description: "START_TIMELAPSE (code 22, 0x16), empty body, framed. The vendor table says it takes a protobuf options body; insta360ctl sends none and marks it verified on a GO 3 in its code table but 'not tested' in its CLI."
+            template: [0xFF, 0x07, 0x40, 0x10, 0x00, 0x10, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x16, 0x00, 0x02, "{seq}", 0x00, 0x00, 0x80, 0x00, 0x00, "{crc}"]
+            parameters:
+              seq: *seq_param
+              crc: *crc_param
+            verification: "reported"
+          framed_stop_timelapse:
+            description: "STOP_TIMELAPSE (code 23, 0x17), empty body, framed. Same caveat as framed_start_timelapse."
+            template: [0xFF, 0x07, 0x40, 0x10, 0x00, 0x10, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x17, 0x00, 0x02, "{seq}", 0x00, 0x00, 0x80, 0x00, 0x00, "{crc}"]
+            parameters:
+              seq: *seq_param
+              crc: *crc_param
+            verification: "reported"
+          framed_mark_highlight:
+            description: "SET_KEY_TIME_POINT (code 60, 0x3C), empty body, framed: marks a highlight in the recording in progress. insta360ctl's code table says verified on GO 3; its CLI says not tested."
+            template: [0xFF, 0x07, 0x40, 0x10, 0x00, 0x10, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x3C, 0x00, 0x02, "{seq}", 0x00, 0x00, 0x80, 0x00, 0x00, "{crc}"]
+            parameters:
+              seq: *seq_param
+              crc: *crc_param
+            verification: "reported"
+          framed_upload_gps:
+            description: >-
+              UPLOAD_GPS (code 53, 0x35), framed, with insta360ctl's 24-byte
+              body: latitude, longitude (decimal degrees) and altitude
+              (metres) as three IEEE-754 float64 values, little-endian.
+              insta360ctl reports it working on a GO 3; the vendor table
+              lists the code with a protobuf body, so whether the camera
+              actually geotags from this raw form, rather than merely
+              accepting it, is unconfirmed. Validate latitude within ±90 and
+              longitude within ±180 before sending.
+            template: [0xFF, 0x07, 0x40, 0x28, 0x00, 0x28, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x35, 0x00, 0x02, "{seq}", 0x00, 0x00, 0x80, 0x00, 0x00, "{gps_fix}", "{crc}"]
+            parameters:
+              seq: *seq_param
+              gps_fix: &gps_param
+                type: "bytes"
+                min_length: 24
+                max_length: 24
+                description: "float64 LE latitude (degrees, -90..90), float64 LE longitude (degrees, -180..180), float64 LE altitude (metres). Example 51.4779, -0.0015, 46.0 = 13 61 c3 d3 2b bd 49 40 fa 7e 6a bc 74 93 58 bf 00 00 00 00 00 00 47 40."
+              crc: *crc_param
+            verification: "reported"
+          framed_get_battery_go3:
+            description: >-
+              Code 25 (0x19), empty body, framed. On the GO 3 (firmware
+              1.4.51) the reply to this code is the battery state: protobuf
+              field 1 = level in percent, field 2 = charging (0/1)
+              (payload_formats.Go3_Battery_Reply). The vendor table names 25
+              CALIBRATE_GYRO, and on firmware that follows the table it starts
+              a gyro calibration instead.
+            template: [0xFF, 0x07, 0x40, 0x10, 0x00, 0x10, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x19, 0x00, 0x02, "{seq}", 0x00, 0x00, 0x80, 0x00, 0x00, "{crc}"]
+            parameters:
+              seq: *seq_param
+              crc: *crc_param
+            advanced: true
+            advanced_reason: >-
+              Only the GO 3 is reported to answer this code with its battery
+              level. The vendor's table names it CALIBRATE_GYRO; on any other
+              model or firmware it may run a gyro calibration, which the SDK
+              says must be done with the camera standing level on a stable
+              surface, and a calibration taken in the hand can degrade
+              stabilisation until it is redone.
+            verification: "reported"
+          framed_sync_reply:
+            description: "The client's sync frame: envelope type 0x41 with seven zero bytes, sent in answer to the camera's sync (FF 06 41 ... with a repeating AB BA body). insta360ctl's GO 3 flow."
+            value: [0xFF, 0x07, 0x41, 0x07, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x5C, 0x42]
+            verification: "reported"
+          framed_heartbeat:
+            description: "Heartbeat: the envelope around a bare 7-byte keep-alive packet head (uint32 LE size 7, packet type 0x05). The vendor app's string pool carries this exact frame, and it is the BLE twin of the TCP keep-alive 07 00 00 00 05 00 00. How often the app sends it is not recorded."
+            value: [0xFF, 0x07, 0x40, 0x07, 0x00, 0x07, 0x00, 0x00, 0x00, 0x05, 0x00, 0x00, 0x6B, 0x46]
+            verification: "reported"
+          bare_take_picture:
+            description: "TAKE_PICTURE (code 3) in insta360ctl's bare 16-byte form for the X, ONE and Ace models. No source has run it on hardware, and its length field disagrees with the vendor's packet convention (device.notes)."
+            template: [0x00, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x03, 0x00, 0x02, "{seq}", 0x00, 0x00, 0x80, 0x00, 0x00]
+            parameters:
+              seq: *seq_param
+            verification: "hypothesis"
+          bare_start_recording:
+            description: "START_CAPTURE (code 4), bare form. Same caveat as bare_take_picture."
+            template: [0x00, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x04, 0x00, 0x02, "{seq}", 0x00, 0x00, 0x80, 0x00, 0x00]
+            parameters:
+              seq: *seq_param
+            verification: "hypothesis"
+          bare_stop_recording:
+            description: "STOP_CAPTURE (code 5), bare form. Same caveat as bare_take_picture."
+            template: [0x00, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x05, 0x00, 0x02, "{seq}", 0x00, 0x00, 0x80, 0x00, 0x00]
+            parameters:
+              seq: *seq_param
+            verification: "hypothesis"
+          bare_start_timelapse:
+            description: "START_TIMELAPSE (code 22), bare form, empty body. Same caveat as bare_take_picture."
+            template: [0x00, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x16, 0x00, 0x02, "{seq}", 0x00, 0x00, 0x80, 0x00, 0x00]
+            parameters:
+              seq: *seq_param
+            verification: "hypothesis"
+          bare_stop_timelapse:
+            description: "STOP_TIMELAPSE (code 23), bare form, empty body. Same caveat as bare_take_picture."
+            template: [0x00, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x17, 0x00, 0x02, "{seq}", 0x00, 0x00, 0x80, 0x00, 0x00]
+            parameters:
+              seq: *seq_param
+            verification: "hypothesis"
+          bare_mark_highlight:
+            description: "SET_KEY_TIME_POINT (code 60), bare form. Same caveat as bare_take_picture."
+            template: [0x00, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x3C, 0x00, 0x02, "{seq}", 0x00, 0x00, 0x80, 0x00, 0x00]
+            parameters:
+              seq: *seq_param
+            verification: "hypothesis"
+          bare_upload_gps:
+            description: "UPLOAD_GPS (code 53) in the bare form with insta360ctl's 24-byte float64 body; the length field is 0x18 (body only). Same caveats as bare_take_picture and framed_upload_gps."
+            template: [0x18, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x35, 0x00, 0x02, "{seq}", 0x00, 0x00, 0x80, 0x00, 0x00, "{gps_fix}"]
+            parameters:
+              seq: *seq_param
+              gps_fix: *gps_param
+            verification: "hypothesis"
+      - uuid: "0000be82-0000-1000-8000-00805f9b34fb"
+        name: "Reply and event notify (camera to app)"
+        properties: ["notify"]
+        role: "notify"
+        notes: >-
+          Replies, notifications and (GO line) the camera's sync frames. On
+          the GO line each frame is FF 06 40 (message) or FF 06 41 (sync),
+          uint16 LE size, inner data, CRC-16/MODBUS; a frame longer than the
+          ATT payload spans several notifications, so accumulate until
+          5 + size + 2 bytes have arrived, check the CRC, then parse the
+          16-byte inner header (payload_formats.Inner_Header). In a reply the
+          code field carries a status (payload_formats.Response_Status); in
+          a notification it carries a code of 0x2000 or more
+          (payload_formats.Notification_Codes). The byte-13 direction bit is
+          set on camera-to-app messages (0xC0 for a single-fragment reply).
+  - uuid: "0000b000-0000-1000-8000-00805f9b34fb"
+    name: "Secondary direct-control service (GO 3)"
+    notes: >-
+      Seen on the GO 3 by insta360ctl. It subscribes to all three notify
+      characteristics as a precaution, but the GO 3 answers commands only on
+      0000be81-0000-1000-8000-00805f9b34fb; writes to 0000b001-0000-1000-8000-00805f9b34fb are ignored.
+      What the camera sends on the three notify characteristics is not recorded. Not in the
+      vendor app's string pool.
+    initialization:
+      - characteristic: "0000b002-0000-1000-8000-00805f9b34fb"
+        subscribe: true
+      - characteristic: "0000b003-0000-1000-8000-00805f9b34fb"
+        subscribe: true
+      - characteristic: "0000b004-0000-1000-8000-00805f9b34fb"
+        subscribe: true
+    characteristics:
+      - uuid: "0000b001-0000-1000-8000-00805f9b34fb"
+        name: "Secondary write"
+        properties: ["read", "write", "write_without_response"]
+        notes: "Do not send commands here; the GO 3 ignores them (insta360ctl real-device finding)."
+      - uuid: "0000b002-0000-1000-8000-00805f9b34fb"
+        name: "Secondary notify 1"
+        properties: ["notify"]
+      - uuid: "0000b003-0000-1000-8000-00805f9b34fb"
+        name: "Secondary notify 2"
+        properties: ["notify"]
+      - uuid: "0000b004-0000-1000-8000-00805f9b34fb"
+        name: "Secondary notify 3"
+        properties: ["notify"]
+  - uuid: "0000ae00-0000-1000-8000-00805f9b34fb"
+    name: "AE00 service (seen on the GO 3, role unknown)"
+    notes: >-
+      Listed by insta360ctl "from protocol analysis" for "some models", and
+      present in the vendor app's string pool with
+      0000ae01-0000-1000-8000-00805f9b34fb and
+      0000ae02-0000-1000-8000-00805f9b34fb. The only placement on a model is
+      insta360ctl's GO 3 note, which lists 0000ae01-0000-1000-8000-00805f9b34fb
+      among the GO 3's write characteristics and reports that the camera
+      ignores commands written there. What the service carries is not
+      recorded; insta360ctl uses it only as a fallback write target. The same
+      16-bit numbers are JieLi's stock RCSP/OTA service on unrelated products,
+      so the number alone proves nothing about the silicon. List it
+      read-only; do not write to it.
+    characteristics:
+      - uuid: "0000ae01-0000-1000-8000-00805f9b34fb"
+        name: "AE00 write"
+        properties: ["write"]
+      - uuid: "0000ae02-0000-1000-8000-00805f9b34fb"
+        name: "AE00 notify"
+        properties: ["notify", "read"]
+  - uuid: "0000180f-0000-1000-8000-00805f9b34fb"
+    name: "Battery Service"
+    notes: >-
+      Listed in insta360ctl's GATT table without a model. Which models serve
+      it, and whether it reports the camera or a charge case, is not
+      recorded, so no entity is bound to it.
+    characteristics:
+      - uuid: "00002a19-0000-1000-8000-00805f9b34fb"
+        name: "Battery Level"
+        properties: ["read", "notify"]
+        format:
+          - offset: 0
+            length: 1
+            name: "battery_level"
+            type: "uint8"
+            unit: "%"
+            device_class: "battery"
+
+payload_formats:
+  Framed_Packet:
+    description: >-
+      The GO-line BLE envelope around one inner packet (vendor native library,
+      per insta360ctl; hardware-exercised on a GO 3; the vendor app's string
+      pool carries two complete frames whose CRCs check).
+    fields:
+      - name: "marker"
+        description: "Byte 0: 0xFF."
+      - name: "direction_type"
+        description: "Byte 1: 0x07 on app-to-camera frames; 0x06 on the camera's frames (insta360ctl's constant and the app's 'ff0641'/'ff0640' strings). Other values (0x0C, 0x0D) belong to the short wake-up form."
+      - name: "packet_kind"
+        description: "Byte 2: 0x40 message, 0x41 sync."
+      - name: "inner_size"
+        description: "Bytes 3-4: uint16 little-endian, the number of inner bytes that follow (16 + body for a message)."
+      - name: "inner"
+        description: "Bytes 5 .. 5+inner_size-1: the inner packet (payload_formats.Inner_Header) or sync data."
+      - name: "crc"
+        description: "Last 2 bytes: CRC-16/MODBUS (reflected poly 0xA001, init 0xFFFF, no final xor) over every earlier byte, little-endian."
+    parse_rules:
+      - "Accumulate notifications until at least 5 bytes are buffered, read inner_size from bytes 3-4, then keep accumulating until 5 + inner_size + 2 bytes are buffered."
+      - "Verify the CRC over bytes 0 .. 5+inner_size-1 before using the frame; drop the frame on a mismatch."
+      - "Byte 2 = 0x41 is a sync frame: answer it with framed_sync_reply at once."
+      - "Otherwise parse the inner bytes with Inner_Header."
+      - "Frames are at most 500 bytes; messages that do not fit are split with the fragment fields of the inner header."
+    example: "ff 07 40 10 00 10 00 00 00 04 00 00 03 00 02 01 00 00 80 00 00 6f ac  (TAKE_PICTURE, seq 1)"
+  Inner_Header:
+    description: >-
+      The 16-byte inner header: a 7-byte packet head and a 9-byte message
+      head. Identical, byte for byte, to a TCP/6666 packet including its
+      length prefix.
+    fields:
+      - name: "packet_size"
+        type: "uint32"
+        endianness: "little"
+        unit: "B"
+        description: "Bytes 0-3: total inner size including these 16 bytes (16 + body). insta360ctl's bare form writes the body length here instead."
+      - name: "packet_type"
+        description: "Byte 4: 0x04 message, 0x05 keep-alive/heartbeat, 0x06 sync, 0x01 stream (the TCP values; the BLE heartbeat uses 0x05)."
+      - name: "packet_flags"
+        description: "Bytes 5-6: 0x00 0x00 in every observed message."
+      - name: "code"
+        type: "uint16"
+        endianness: "little"
+        description: "Bytes 7-8: message code (app requests), status 200/400/500/501 (replies), or a notification code of 0x2000 and up."
+      - name: "content_type"
+        description: "Byte 9: 0x02 protobuf (0x00 raw)."
+      - name: "sequence"
+        description: "Byte 10: sequence number 1-254 (the low byte of a 30-bit fragment offset field that spans bytes 10-13)."
+      - name: "fragment_flags"
+        description: "Byte 13: bit 7 last fragment, bit 6 direction (1 = camera to app), bits 0-5 upper fragment-offset bits. 0x80 on a single-fragment request, 0xC0 on a single-fragment reply."
+      - name: "trailer"
+        description: "Bytes 14-15: zero in requests; non-zero values have been seen in replies over TCP (Rigacci), meaning unknown."
+    example: "10 00 00 00 04 00 00 03 00 02 01 00 00 80 00 00"
+  Response_Status:
+    description: "The code field of a reply. The sequence number matches the request."
+    values:
+      "200": "OK. The body is the reply message for the request's code (often empty)."
+      "400": "Bad request: unknown code or invalid parameters. The body may carry an error message (protobuf field 2, string)."
+      "500": "Execution error, e.g. 'camera is busy.' or 'msg execute err.' (Rigacci, ONE RS). Body: field 1 error code, field 2 message string."
+      "501": "Not implemented on this camera."
+  Notification_Codes:
+    description: >-
+      Unsolicited camera messages, dispatched by code. Names from the vendor
+      table as transcribed by insta360ctl; the GO 3 reuses some codes with
+      different contents (protocol_details.direct_control.go3_deviations).
+      Over TCP their sequence field is arbitrary (Rigacci saw ff 8a 43), so
+      never route them by sequence.
+    values:
+      "8193": "0x2001 firmware upgrade complete"
+      "8195": "0x2003 battery update"
+      "8196": "0x2004 battery low"
+      "8197": "0x2005 shutdown"
+      "8198": "0x2006 storage (card) update"
+      "8199": "0x2007 storage full"
+      "8200": "0x2008 key pressed"
+      "8201": "0x2009 capture stopped"
+      "8208": "0x2010 current capture status (GO 3: storage fields, see Go3_Capture_Status)"
+      "8209": "0x2011 authorization result: field 1 bool authorized"
+      "8214": "0x2016 camera temperature"
+      "8215": "0x2017 camera Wi-Fi started"
+      "8217": "0x2019 charge-box battery update"
+      "8222": "0x201E charge-box connect status"
+      "8225": "0x2021 GO 3 battery state (not in the vendor table)"
+      "8229": "0x2025 GO 3 power state (not in the vendor table)"
+      "8230": "0x2026 GO 3 periodic status (not in the vendor table)"
+      "8232": "0x2028 Wi-Fi connection result (station-mode join outcome and IP)"
+      "8238": "0x202E firmware upgrade status"
+      "8247": "0x2037 Wi-Fi mode change"
+      "8249": "0x2039 Wi-Fi scan list changed"
+  Authorization_Status:
+    description: >-
+      Field 1 of the reply to CHECK_AUTHORIZATION (0x27). insta360ctl's code,
+      which ran against a GO 3, uses the numbering below; its prose table
+      disagrees (1 = not authorized, 2 = pending, 3 = authorized). Treat
+      anything but 1 as needing REQUEST_AUTHORIZATION until someone checks.
+      Field 2 is a Find My pairing status, 0-2.
+    values:
+      "0": "unknown"
+      "1": "authorized"
+      "2": "not authorized: send REQUEST_AUTHORIZATION"
+      "3": "pending (waiting for the user)"
+      "4": "denied"
+      "5": "expired"
+  Go3_Battery_Reply:
+    description: "Body of the status-200 reply to code 25 on the GO 3 (framed_get_battery_go3). Protobuf varints."
+    fields:
+      - name: "level"
+        unit: "%"
+        description: "Field 1 (tag 0x08), battery level 0-100."
+      - name: "charging"
+        description: "Field 2 (tag 0x10), 1 while charging, 0 otherwise."
+    example: "08 4b 10 00  (75 %, not charging; constructed from the documented fields)"
+  Go3_Capture_Status:
+    description: "Body of notification 0x2010 as observed on the GO 3 (insta360ctl). Protobuf varints. Units of the capacity fields are not established."
+    fields:
+      - name: "capture_state"
+        description: "Field 1: 0 idle, 1 post-recording, 4 recording."
+      - name: "free_capacity"
+        description: "Field 4: free capacity; unit not established (MB or remaining seconds)."
+      - name: "file_count"
+        description: "Field 5: number of files."
+      - name: "total_capacity"
+        description: "Field 6: total capacity; unit not established."
+  Wifi_Connection_Result:
+    description: "Body of notification 8232 (0x2028) after SET_WIFI_CONNECTION_INFO."
+    fields:
+      - name: "result"
+        description: "Field 1: 0 success, 1 timeout, 2 connect failed."
+      - name: "connection_info"
+        description: "Field 2: field 1 ssid, field 2 bssid, field 3 passphrase, field 4 the camera's new IP address (dotted-quad string, set on success)."
+  Options_Wifi_Info:
+    description: >-
+      Reply to GET_OPTIONS (code 8) asking for option type 36 (Wi-Fi info),
+      from Rigacci's published ONE RS exchange. The reply body's field 1
+      repeats the option types asked for; field 2 holds one sub-field per
+      option whose field number equals the option type (15 serial number,
+      36 Wi-Fi info, 48 camera type in Rigacci's example). Inside Wi-Fi info:
+      field 1 SSID, field 2 passphrase, field 3 channel, field 4 unknown (0).
+      The SDK reads the same information over BLE; that the BLE path uses
+      this message is inferred.
+    parse_rules:
+      - "Request body: field 1 = 36 (0a 01 24 packed, or 08 24; proto3 parsers accept both)."
+      - "Reply body: skip field 1; in field 2 find field 36 (key bytes a2 02), and decode its sub-fields."
+    example: "request 13 00 00 00 04 00 00 08 00 02 05 00 00 80 00 00 0a 01 24; reply body 08 24 12 25 a2 02 22 0a 11 'ONE RS ABC123.OSC' 12 08 '88888888' 18 95 01 20 00 (serial fragment invented)"
+  Remote_Command:
+    description: "Architecture A: the 9-byte frame the emulated remote notifies on 0000ce82-0000-1000-8000-00805f9b34fb (pchwalek, insta360ctl)."
+    fields:
+      - name: "preamble"
+        description: "Bytes 0-6: FC EF FE 86 00 03 01, constant."
+      - name: "action"
+        description: "Byte 7: 0x00 screen/power group, 0x01 mode, 0x02 shutter."
+      - name: "param"
+        description: "Byte 8: 0x00 normally; with action 0x00, 0x03 = power off (0x00 = screen)."
+    example: "fc ef fe 86 00 03 01 02 00  (shutter)"
+
+entities:
+  - platform: "button"
+    name: "Take Photo"
+    icon: "mdi:camera"
+    variants: ["GO 3", "GO 3S"]
+    commands:
+      press: "framed_take_picture"
+  - platform: "button"
+    name: "Start Recording"
+    icon: "mdi:record-rec"
+    variants: ["GO 3", "GO 3S"]
+    commands:
+      press: "framed_start_recording"
+  - platform: "button"
+    name: "Stop Recording"
+    icon: "mdi:stop"
+    variants: ["GO 3", "GO 3S"]
+    commands:
+      press: "framed_stop_recording"
+  - platform: "button"
+    name: "Mark Highlight"
+    icon: "mdi:star-outline"
+    variants: ["GO 3", "GO 3S"]
+    commands:
+      press: "framed_mark_highlight"
+  - platform: "button"
+    name: "Take Photo"
+    icon: "mdi:camera"
+    variants: ["X3", "X4", "X5", "ONE X3", "ONE X4", "ONE RS", "Ace Pro", "Ace"]
+    commands:
+      press: "bare_take_picture"
+    notes: "Bound to insta360ctl's bare form, which is unconfirmed for these models (device.notes)."
+  - platform: "button"
+    name: "Start Recording"
+    icon: "mdi:record-rec"
+    variants: ["X3", "X4", "X5", "ONE X3", "ONE X4", "ONE RS", "Ace Pro", "Ace"]
+    commands:
+      press: "bare_start_recording"
+    notes: "Bare form, unconfirmed for these models."
+  - platform: "button"
+    name: "Stop Recording"
+    icon: "mdi:stop"
+    variants: ["X3", "X4", "X5", "ONE X3", "ONE X4", "ONE RS", "Ace Pro", "Ace"]
+    commands:
+      press: "bare_stop_recording"
+    notes: "Bare form, unconfirmed for these models."
+  - platform: "button"
+    name: "Mark Highlight"
+    icon: "mdi:star-outline"
+    variants: ["X3", "X4", "X5", "ONE X3", "ONE X4", "ONE RS", "Ace Pro", "Ace"]
+    commands:
+      press: "bare_mark_highlight"
+    notes: "Bare form, unconfirmed for these models."
+
+features:
+  - type: "firmware_update"
+    dfu:
+      mechanisms: ["unknown"]
+      transport: ["wifi_softap", "usb"]
+      image:
+        signing: "unknown"
+        source: "unknown"
+        notes: >-
+          The SDK's upgrade call takes a firmware file path from the caller;
+          the vendor app fetches images from its cloud. The SDK warns that
+          an image for the wrong model can damage the camera (its example:
+          a ONE X package on a ONE X2).
+      enter:
+        how: "unknown"
+        notes: "No entry bytes are recorded, and none are wanted here (out of scope)."
+      recovery:
+        interrupted: "unknown"
+      verification: "reported"
+      notes: >-
+        The camera takes firmware updates through the vendor app and the SDK.
+        The SDK says BLE cannot carry them, so they go over Wi-Fi or USB, and
+        it refuses an upgrade below 12 % battery (error -1002). The message
+        table has firmware-status notifications (0x2001, 0x202E) and a
+        NOTIFY_OTA_ERROR code (167). The mechanism itself was not
+        investigated and no bytes are documented; this entry exists so a
+        consumer knows the device updates and keeps away from it.
+
+protocol_details:
+  model_matrix:
+    description: >-
+      Which BLE architecture each model speaks. "A" = GPS-remote emulation
+      (host serves 0000ce80-0000-1000-8000-00805f9b34fb), "B" = direct control (camera serves 0000be80-0000-1000-8000-00805f9b34fb).
+      Source: insta360ctl's README table and its model code, unless noted.
+      Only the GO 3 (B) and the X3 and ONE RS 1-inch (A) have upstream
+      hardware results.
+    rows:
+      - {model: "X3", name_prefix: "X3 ", a: "yes (hardware: pchwalek)", b: "yes", b_framing: "bare per insta360ctl (unconfirmed)"}
+      - {model: "X4", name_prefix: "X4 ", a: "yes", b: "yes", b_framing: "bare per insta360ctl (unconfirmed)"}
+      - {model: "X4 Air", name_prefix: "X4 Air ", a: "unknown", b: "unknown", b_framing: "unknown", note: "name prefix from the vendor app only"}
+      - {model: "X5", name_prefix: "X5 ", a: "yes", b: "yes", b_framing: "bare per insta360ctl (unconfirmed)"}
+      - {model: "ONE X3", name_prefix: "ONE X3 ", a: "yes", b: "yes", b_framing: "bare per insta360ctl (unconfirmed)"}
+      - {model: "ONE X4", name_prefix: "ONE X4 ", a: "yes", b: "yes", b_framing: "bare per insta360ctl (unconfirmed)"}
+      - {model: "ONE RS (incl. 1-inch)", name_prefix: "ONE RS ", a: "yes (hardware: pchwalek, 1-inch)", b: "yes", b_framing: "bare per insta360ctl (unconfirmed)", wifi_tcp: "yes (hardware: Rigacci)"}
+      - {model: "ONE R", name_prefix: "ONE R ", a: "yes", b: "no"}
+      - {model: "ONE X2", name_prefix: "ONE X2 ", a: "yes", b: "no", note: "the official SDK nevertheless lists it for BLE"}
+      - {model: "ONE X", name_prefix: "ONE X ", a: "yes", b: "no", note: "the official SDK nevertheless lists it for BLE"}
+      - {model: "Ace Pro", name_prefix: "Ace Pro ", a: "no", b: "yes", b_framing: "bare per insta360ctl (unconfirmed)"}
+      - {model: "Ace Pro 2", name_prefix: "Ace Pro 2 ", a: "unknown", b: "unknown", note: "name prefix from the vendor app only"}
+      - {model: "Ace", name_prefix: "Ace ", a: "no", b: "yes", b_framing: "bare per insta360ctl (unconfirmed)"}
+      - {model: "GO 3", name_prefix: "GO 3 ", a: "not listed", b: "yes (hardware: insta360ctl)", b_framing: "framed, sync, authorization"}
+      - {model: "GO 3S", name_prefix: "GO 3S ", a: "not listed", b: "yes (code only)", b_framing: "framed"}
+      - {model: "GO 2", name_prefix: "unknown", a: "unknown", b: "probably (hypothesis)", b_framing: "framed (hypothesis: the envelope is named after the GO 2)"}
+      - {model: "X6", name_prefix: "unknown", a: "unknown", b: "unknown", note: "FCC grant only; untested by any source"}
+    wifi_tcp_note: >-
+      TCP 6666 is hardware-demonstrated on the ONE RS only. The official SDK
+      connects over Wi-Fi to X5, X4, X3, ONE X2, ONE X, ONE RS and ONE RS
+      1-inch, and insta360ctl's examples use a GO 3 AP, so the protocol is
+      presumably family-wide (hypothesis).
+
+  gps_remote_emulation:
+    description: >-
+      Architecture A. The host is a BLE peripheral and GATT server that looks
+      like an Insta360 GPS remote; the camera is the central. Sources:
+      pchwalek's ESP32 sketch (hardware-demonstrated on an X3 and a ONE RS
+      1-inch) and insta360ctl's remote server (untested). Where the two
+      disagree, pchwalek's bytes are listed first because they ran against
+      hardware; the vendor app's string pool agrees with pchwalek wherever
+      it can be checked.
+    advertising:
+      local_name: "Insta360 GPS Remote"
+      service_uuids: ["0000ce80-0000-1000-8000-00805f9b34fb", "0000d0ff-3c17-d293-8e48-14fe2e4da212"]
+      scan_response: true
+      notes: "pchwalek advertises both service UUIDs with a scan response; insta360ctl advertises the name and 0000ce80-0000-1000-8000-00805f9b34fb only."
+    gatt_server:
+      - service: "0000ce80-0000-1000-8000-00805f9b34fb"
+        characteristics:
+          - uuid: "0000ce81-0000-1000-8000-00805f9b34fb"
+            properties: ["write"]
+            role: "The camera writes to the remote here. What it writes is not recorded; both implementations accept and ignore it."
+          - uuid: "0000ce82-0000-1000-8000-00805f9b34fb"
+            properties: ["notify"]
+            descriptor: "Client Characteristic Configuration (00002902-0000-1000-8000-00805f9b34fb)"
+            initial_value: [0x00]
+            role: "The remote notifies 9-byte commands here after the camera subscribes."
+          - uuid: "0000ce83-0000-1000-8000-00805f9b34fb"
+            properties: ["read"]
+            value: [0x01, 0x02]
+            value_insta360ctl: [0x02, 0x01]
+            role: "Static read, apparently a remote protocol version. pchwalek stores the uint16 0x0201 little-endian (bytes 01 02); insta360ctl serves 02 01. Which order the camera checks, if any, is not established."
+      - service: "0000d0ff-3c17-d293-8e48-14fe2e4da212"
+        notes: >-
+          The information service is on the vendor base, but its
+          characteristics are 16-bit values on the Bluetooth base in
+          pchwalek's sketch and in the vendor app's string pool
+          (0000ffd0-0000-1000-8000-00805f9b34fb to 0000ffd5-0000-1000-8000-00805f9b34fb, and
+          0000ffd8-0000-1000-8000-00805f9b34fb). insta360ctl puts the first four
+          on the vendor base instead (0000ffd1-3c17-d293-8e48-14fe2e4da212 to
+          0000ffd4-3c17-d293-8e48-14fe2e4da212), which is probably its mistake.
+        characteristics:
+          - uuid: "0000ffd1-0000-1000-8000-00805f9b34fb"
+            properties: ["write"]
+            role: "pchwalek: writable, no value. insta360ctl: readable device name (its own name string)."
+          - uuid: "0000ffd2-0000-1000-8000-00805f9b34fb"
+            properties: ["read"]
+            role: "pchwalek: readable, no value set. insta360ctl: firmware version string ('1.0.0')."
+          - uuid: "0000ffd3-0000-1000-8000-00805f9b34fb"
+            properties: ["read"]
+            value: [0x01, 0x90, 0x1E, 0x30]
+            value_insta360ctl: [0x30, 0x1E, 0x90, 0x01]
+            role: "Fixed value. pchwalek stores the uint32 0x301e9001 little-endian; insta360ctl serves the big-endian byte order."
+          - uuid: "0000ffd4-0000-1000-8000-00805f9b34fb"
+            properties: ["read"]
+            value: [0x01, 0x20, 0x00, 0x18]
+            value_insta360ctl: [0x18, 0x00, 0x20, 0x01]
+            role: "Fixed value. pchwalek stores the uint32 0x18002001 little-endian; insta360ctl serves the big-endian byte order."
+          - uuid: "0000ffd5-0000-1000-8000-00805f9b34fb"
+            properties: ["read"]
+            role: "pchwalek only, no value."
+          - uuid: "0000ffd8-0000-1000-8000-00805f9b34fb"
+            properties: ["write"]
+            role: "pchwalek only."
+          - uuid: "0000fff1-0000-1000-8000-00805f9b34fb"
+            properties: ["read"]
+            role: "pchwalek only (also in the vendor app's strings)."
+          - uuid: "0000fff2-0000-1000-8000-00805f9b34fb"
+            properties: ["write"]
+            role: "pchwalek only (also in the vendor app's strings)."
+          - uuid: "0000ffe0-0000-1000-8000-00805f9b34fb"
+            properties: ["read"]
+            role: "pchwalek declares it as a characteristic under this service; role unknown."
+    commands:
+      description: "Notified on 0000ce82-0000-1000-8000-00805f9b34fb as one 9-byte value each (payload_formats.Remote_Command). pchwalek's sketch uses every one on hardware."
+      screen: [0xFC, 0xEF, 0xFE, 0x86, 0x00, 0x03, 0x01, 0x00, 0x00]
+      mode_cycle: [0xFC, 0xEF, 0xFE, 0x86, 0x00, 0x03, 0x01, 0x01, 0x00]
+      shutter: [0xFC, 0xEF, 0xFE, 0x86, 0x00, 0x03, 0x01, 0x02, 0x00]
+      power_off: [0xFC, 0xEF, 0xFE, 0x86, 0x00, 0x03, 0x01, 0x00, 0x03]
+      notes: >-
+        Shutter takes a photo or starts/stops a recording depending on the
+        current mode. Screen wakes the display; pchwalek's sketch sends it
+        twice as an off/on toggle. insta360ctl calls it "wake display".
+    wake_advertisement:
+      description: >-
+        Advertise this as manufacturer-specific data (AD type 0xFF) to wake a
+        camera that has powered off after being paired with the remote.
+        Layout from pchwalek's sketch (hardware-demonstrated); the vendor
+        app's string pool carries the same ten bytes 09 4f 52 42 49 54 09 ff
+        0f 00.
+      manufacturer_data: ["0x4C 0x00 company ID (Apple, little-endian)", "0x02 0x15 iBeacon type and length", "0x09", "'ORBIT' (4f 52 42 49 54)", "0x09 0xFF 0x0F 0x00", "camera ID: 6 ASCII characters", "0x00 0x00 0x00 0x00 (major, minor)", "0xE4 (measured power, -28 dBm)", "0x01"]
+      example: "4c 00 02 15 09 4f 52 42 49 54 09 ff 0f 00 41 42 43 31 32 33 00 00 00 00 e4 01  (camera ID 'ABC123', invented)"
+      camera_id: >-
+        Six ASCII characters that pchwalek reads from the camera's Settings >
+        Camera Info. In both of the sketch's examples they are uppercase
+        alphanumerics, which fits the last six characters of the serial
+        number, the same fragment that ends the camera's SSID (hypothesis).
+        Do not publish a real one.
+      flags: "pchwalek sets general-discoverable plus the simultaneous LE/BR-EDR flags for this advertisement and stops normal advertising first."
+      insta360ctl_variant: >-
+        insta360ctl builds a different beacon ('ORBIT' at the start of the
+        UUID field, then 0x00, the ID, major 1, minor 1, power 0xC5). It is
+        untested and disagrees with both pchwalek and the vendor app's bytes;
+        do not use it.
+
+  direct_control:
+    envelope:
+      description: "GO-line framing (payload_formats.Framed_Packet). Built by the vendor's native protocol library, per insta360ctl."
+      app_to_camera_message: "FF 07 40 <size lo> <size hi> <inner> <crc lo> <crc hi>"
+      app_to_camera_sync: "FF 07 41 07 00 00 00 00 00 00 00 00 5C 42"
+      camera_to_app: "FF 06 40 ... (message), FF 06 41 ... (sync, body a repeating AB BA)"
+      crc: "CRC-16/MODBUS: reflected polynomial 0xA001, init 0xFFFF, no final xor, over every byte before the CRC, stored low byte first."
+      max_packet_bytes: 500
+      max_body_bytes: >-
+        insta360ctl states 486 (500 - 5 - 9) in its prose and uses 495 as the
+        maximum inner size in code; its arithmetic leaves out the 7-byte
+        packet head, so 479 may be the true body limit. Not established.
+      fragmentation: >-
+        A message longer than one packet is split using the inner header's
+        30-bit fragment offset (bytes 10-13) and the last-fragment bit (byte
+        13 bit 7); the receiver concatenates fragments in offset order until
+        the last one. In single-fragment messages the low byte of the offset
+        field is used as the sequence number.
+      app_string_frames:
+        heartbeat: "ff 07 40 07 00 07 00 00 00 05 00 00 6b 46 (declared as framed_heartbeat; CRC checks)"
+        unknown_camera_frame: "ff 06 40 08 00 08 00 00 00 b0 00 00 01 6d 90: a camera-to-app frame with packet type 0xB0 and a one-byte body 01; CRC checks; role unknown"
+        prefixes: "ff 06 41 (the camera's sync prefix) and ff 0d 03 (role unknown) also appear in the string pool on their own."
+    bare_header16:
+      description: >-
+        insta360ctl's assumed form for X, ONE and Ace models: the 16-byte
+        header written directly to 0000be81-0000-1000-8000-00805f9b34fb, with
+        bytes 0-1 = body length (uint16 LE, header excluded), bytes 2-3 zero,
+        the code in byte 7 only (byte 8 zero), and messages split into 20-byte
+        writes. No sync, heartbeat or authorization. insta360ctl's prose says
+        the two header forms produce identical bytes for small bodies; they do
+        not (a bare empty-body header starts 00 00, the vendor form 10 00).
+        No source ran this form on hardware.
+    authorization:
+      check_authorization: "Code 39 (0x27). Body: field 1 authorization_id (string), field 2 Find My token (string, optional), field 3 initiator type (0 default, 1 user, 2 app, 3 system, 16 background, 32 auto-reconnect). Reply (status 200): payload_formats.Authorization_Status."
+      request_authorization: "Code 86 (0x56). Body: field 1 operation type (0 default, 1 pair, 2 re-pair, 3 unpair per insta360ctl's code; its prose calls 3 'force re-pair'). The camera prompts the user."
+      result: "Notification 8209 (0x2011). Body: field 1 bool authorized."
+      cancel: "CANCEL_AUTHORIZATION (40, 0x28) and CANCEL_REQUEST_AUTHORIZATION (87, 0x57) exist; no open implementation sends them."
+      authorization_id: >-
+        A client-chosen string that identifies the client; insta360ctl sends
+        the camera's own address string, the vendor's field comment suggests
+        the phone's Bluetooth address. Any stable string presumably works;
+        reuse it on every connection. Test vectors use the documentation MAC
+        00:00:5e:00:53:01.
+    wake_up_authorization: >-
+      For a camera in low-power sleep the vendor library has a short frame
+      that skips sync and protobuf: FF 0C 02, uint16 LE length, the
+      authorization_id bytes, CRC-16/MODBUS (insta360ctl, from the native
+      library; never sent by it). Separate from the architecture-A wake
+      advertisement. How the camera answers is not recorded.
+    message_codes:
+      description: >-
+        App-to-camera codes from the vendor table, as transcribed by
+        insta360ctl (the same codes over BLE and TCP). "hw" marks codes
+        insta360ctl ran against a GO 3. The table continues to 201; codes
+        0x1000 and up are phone-request codes and 0x3000 and up factory codes.
+      codes:
+        "1": "START_LIVE_STREAM (TCP preview; body StartLiveStream)"
+        "2": "STOP_LIVE_STREAM"
+        "3": "TAKE_PICTURE (hw)"
+        "4": "START_CAPTURE (hw)"
+        "5": "STOP_CAPTURE (hw)"
+        "6": "CANCEL_CAPTURE"
+        "7": "SET_OPTIONS"
+        "8": "GET_OPTIONS"
+        "9": "SET_PHOTOGRAPHY_OPTIONS"
+        "10": "GET_PHOTOGRAPHY_OPTIONS"
+        "12": "DELETE_FILES"
+        "13": "GET_FILE_LIST"
+        "15": "GET_CURRENT_CAPTURE_STATUS"
+        "22": "START_TIMELAPSE"
+        "23": "STOP_TIMELAPSE"
+        "24": "ERASE_SD_CARD"
+        "25": "CALIBRATE_GYRO (GO 3: battery reply instead)"
+        "26": "SCAN_BT_PERIPHERAL"
+        "27": "CONNECT_TO_BT_PERIPHERAL"
+        "32": "REBOOT_CAMERA"
+        "33": "OPEN_CAMERA_WIFI"
+        "34": "CLOSE_CAMERA_WIFI"
+        "39": "CHECK_AUTHORIZATION (hw)"
+        "40": "CANCEL_AUTHORIZATION"
+        "53": "UPLOAD_GPS (hw)"
+        "56": "SET_STANDBY_MODE"
+        "57": "RESTORE_FACTORY_SETTINGS"
+        "60": "SET_KEY_TIME_POINT (highlight)"
+        "85": "SET_WIFI_SEIZE_ENABLE (field 1: 1 exclusive, 2 seizable)"
+        "86": "REQUEST_AUTHORIZATION (hw)"
+        "87": "CANCEL_REQUEST_AUTHORIZATION"
+        "112": "SET_WIFI_CONNECTION_INFO"
+        "113": "GET_WIFI_CONNECTION_INFO"
+        "120": "SET_APP_ID"
+        "125": "RESET_WIFI"
+        "147": "SET_WIFI_MODE (field 1 placeholder 0, field 2 mode: 0 AP, 1 station, 2 P2P)"
+        "148": "GET_WIFI_SCAN_LIST (field 1 interval s, field 2 count; results in notification 8249)"
+        "149": "GET_CONNECTED_WIFI_LIST"
+        "150": "GET_WIFI_MODE"
+        "164": "PAUSE_RECORDING"
+        "167": "NOTIFY_OTA_ERROR"
+        "175": "DEL_WIFI_HISTORY_INFO"
+    misattributed_codes:
+      description: >-
+        insta360ctl sends these codes for meanings the vendor table does not
+        give them, from an earlier guess at the protocol. Some work on the
+        GO 3; on a camera that follows the table they mean something else.
+        Do not send them outside the model they were observed on.
+      "0x0C": "Sent with a raw mode byte (0 photo, 1 video, 2 timelapse, 3 HDR, 4 bullet time) to set the capture mode; works on the GO 3. The vendor table names it DELETE_FILES."
+      "0x10": "Sent as 'get storage info' (reply parsed as uint32 LE total MB, free MB, file count, formatted flag). The GO 3 answers 500. The vendor table names it SET_FILE_EXTRA."
+      "0x12": "Sent as 'get battery' on non-GO models (reply parsed as level %, uint16 LE millivolts). Untested. The vendor table names it SET_TIMELAPSE_OPTIONS."
+      "0x28": "Sent as 'get device info'. The vendor table names it CANCEL_AUTHORIZATION."
+      "0x33": "Sent with one byte as 'set HDR'. The vendor table names it START_HDR_CAPTURE."
+      "0x37": "Sent as 'power off'. The vendor table names it GET_SYNC_CAPTURE_MODE. Architecture A's power_off frame and the SDK's shutdown call (X5 and later) are the documented routes."
+      "0x3D": "Sent as 'get camera state'. The vendor table names it START_TIMESHIFT_CAPTURE."
+    go3_deviations:
+      firmware: "v1.4.51 (insta360ctl)"
+      notes:
+        - "Code 25 returns battery level and charging state (declared as framed_get_battery_go3)."
+        - "Code 16 returns 500; storage arrives only as notification 0x2010 with storage fields (payload_formats.Go3_Capture_Status)."
+        - "Code 12 accepts a mode byte (see misattributed_codes)."
+        - "Code 26 returns 200 for any body (no-op); code 27 returns 500."
+        - "Notifications 0x2021, 0x2025 and 0x2026 carry battery, power and periodic status and are not in the vendor table; 0x2006 and 0x200A carry capture state and device info."
+    go3_custom_service:
+      notes: >-
+        insta360ctl records a custom 128-bit service on the GO 3 with a
+        write/notify/indicate characteristic beginning e3dd50bf, a write-only
+        one beginning 92e86c7a and a read-only one beginning 347f7608. Only
+        those prefixes are recorded, so the full UUIDs are unknown and nothing
+        is declared.
+    vendor_base_uuids:
+      notes: >-
+        Besides 0000d0ff-3c17-d293-8e48-14fe2e4da212 and
+        000002fd-3c17-d293-8e48-14fe2e4da212, the vendor app's string pool carries
+        00006287-3c17-d293-8e48-14fe2e4da212, 00006387-3c17-d293-8e48-14fe2e4da212,
+        00006487-3c17-d293-8e48-14fe2e4da212, 00006587-3c17-d293-8e48-14fe2e4da212 and
+        020002fd-3c17-d293-8e48-14fe2e4da212. Their roles are unknown.
+
+  wifi_tcp:
+    description: >-
+      The secondary transport: the camera's own access point, or the user's
+      network after the station-mode hand-off. One TCP connection to port
+      6666 carries every command, reply, notification, keep-alive and the
+      preview stream. Sources: Rigacci (ONE RS, reverse-engineered from app
+      traffic, with a working client), insta360ctl (implemented, marked
+      untested), the SDK FAQ (socket for preview and parameters, HTTP for
+      the support list and file downloads).
+    access_point:
+      gateway_ip: "192.168.42.1"
+      ssid: "'<model name> <6-character serial fragment>' with '.OSC' appended on Rigacci's ONE RS ('ONE RS XXXXXX.OSC'); insta360ctl's example is 'GO 3 XXXX'. The vendor app's strings include a pattern for six non-space characters followed by '.OSC'."
+      passphrase: "88888888 on older firmware; random on some firmware (insta360ctl). Readable over BLE through the SDK and over TCP with GET_OPTIONS option 36."
+      band: "5 GHz on the published examples (ONE RS channel 149; the GO 3 quick guide lists 802.11a/n/ac in UNII-1 and UNII-3). The SDK can move the AP to another channel and country code."
+      client_address: "DHCP-assigned address on the camera's 192.168.42.0/24 network."
+    framing:
+      length_prefix: "Every packet starts with a uint32 little-endian length that INCLUDES the 4 prefix bytes."
+      packet_types:
+        "0x01": "stream (preview video, gyro, timing)"
+        "0x04": "message (command, reply or notification)"
+        "0x05": "keep-alive (07 00 00 00 05 00 00)"
+        "0x06": "sync (11 00 00 00 06 00 00 'syNceNdinS')"
+      type_bytes: "Byte 4 is the type; bytes 5-6 are 00 00."
+    message_packet:
+      layout: "uint32 LE total length | 04 00 00 | uint16 LE code | 02 | uint24 LE sequence | 80 | 00 00 | protobuf body"
+      same_as_ble: "This is byte for byte the BLE inner packet (payload_formats.Inner_Header)."
+      sequence: "Rigacci starts at 0, insta360ctl at 1; replies echo it. Notifications carry arbitrary values here (Rigacci saw ff 8a 43 with flag byte f4), so dispatch notifications by code."
+      replies: "Status 200 or 500 in the code field; a 500 body is field 1 error code, field 2 message."
+    session:
+      - "Connect to <camera IP>:6666."
+      - "Send the sync packet; the camera echoes it (insta360ctl waits up to 5 s). Rigacci sends a keep-alive and a SET_OPTIONS right behind it without waiting."
+      - "Send a keep-alive whenever 2 s pass without sending; the camera drops a silent client after about 10 s."
+      - "Commands, replies and notifications as message packets; stream packets arrive while a preview runs."
+    stream_packet:
+      layout: "uint32 LE total length | 01 00 00 | stream type (1 byte) | uint64 LE timestamp in microseconds | payload"
+      stream_types:
+        "0x20": "video: raw H.264 or H.265 NAL units (the SDK documents H.264 with SPS/PPS; insta360ctl's GO 3 example writes H.265)"
+        "0x30": "gyro/IMU: 48-byte samples of six float64 LE (ax, ay, az, gx, gy, gz); units not recorded; out of scope beyond this line"
+        "0x40": "timing sync, 32 bytes"
+      start_live_stream: >-
+        Code 1. Body fields (insta360ctl): 1 enable audio, 2 enable video,
+        4 audio sample rate (Hz), 5 audio bitrate, 6 video bitrate (Rigacci and
+        insta360ctl send 40; unit not stated), 7 resolution, 8 enable gyro,
+        9 second-stream bitrate, 10 second-stream resolution, 11 number of
+        preview streams (0 or 1), 12 enable rotate, 13 for external RTMP live.
+        Resolution values: 9 = 1440x720 at 30 fps, 18 = 480x240 at 30 fps,
+        29 = 1920x1080 at 30 fps, 34 = 424x240 at 15 fps. Rigacci's ONE RS
+        preview: video on, bitrate 40, 29, gyro on, second stream 40 and 34,
+        one preview stream.
+      notes: >-
+        The preview is not RTSP, MJPEG or HLS, so this spec has no `camera`
+        block; a consumer needs this bespoke stream reader.
+    http:
+      notes: >-
+        The SDK's HTTP prefix for the camera is http://192.168.42.1:80 (its
+        documented example), used to initialise the X4-and-later "support
+        list" (a JSON of modes and settings) and to download files. Paths are
+        not documented here.
+    other_ports:
+      notes: >-
+        The research note for this spec recorded ports 8080 and 9999 in the
+        vendor app's strings, apparently disagreeing with 6666. A re-check of
+        the string pool did not bear that out: 8080 appears only with a
+        private-range development address and a third-party messaging SDK's
+        host, 9999 appears in no port-like string, and the camera address
+        appears as http://192.168.42.1:80 and as the bare prefix
+        http://192.168.42.1: with a port appended at run time. Port numbers
+        compiled as integers (6666 among them) are not visible in a string
+        pool at all, so this settles nothing either way; no second camera
+        port is known. Rigacci found no session on 7878, the port some
+        Ambarella cameras use.
+    station_mode_handoff:
+      notes: >-
+        SET_WIFI_CONNECTION_INFO (112) over BLE or TCP, result in notification
+        8232 with the new IP; after a successful join the camera drops its AP
+        and the old TCP connection. The same protocol then runs on the new
+        address. insta360ctl marks the flow untested and warns that some
+        models or firmware may not support it. SET_WIFI_SEIZE_ENABLE (85) sets
+        whether the current Wi-Fi client holds the camera exclusively (1) or
+        can be displaced (2).
+
+  test_vectors:
+    description: >-
+      Frames computed from the algorithm above with the standard library
+      only. Two cross-checks: the heartbeat reproduces the frame the vendor
+      app carries, and the unknown FF 06 40 frame from the app has a valid
+      CRC under the same algorithm. authorization_id is the documentation MAC
+      00:00:5e:00:53:01; the SSID and passphrase are invented.
+    framed_take_picture_seq1: "ff 07 40 10 00 10 00 00 00 04 00 00 03 00 02 01 00 00 80 00 00 6f ac"
+    framed_start_capture_seq1: "ff 07 40 10 00 10 00 00 00 04 00 00 04 00 02 01 00 00 80 00 00 49 9c"
+    framed_stop_capture_seq1: "ff 07 40 10 00 10 00 00 00 04 00 00 05 00 02 01 00 00 80 00 00 44 0c"
+    framed_mark_highlight_seq1: "ff 07 40 10 00 10 00 00 00 04 00 00 3c 00 02 01 00 00 80 00 00 7a 5d"
+    framed_sync_reply: "ff 07 41 07 00 00 00 00 00 00 00 00 5c 42"
+    camera_sync_example: "ff 06 41 0a 00 ab ba ab ba ab ba ab ba ab ba 4e e2 (constructed: ten bytes of AB BA; the real length may differ)"
+    framed_heartbeat: "ff 07 40 07 00 07 00 00 00 05 00 00 6b 46"
+    check_authorization:
+      body: "0a 11 30 30 3a 30 30 3a 35 65 3a 30 30 3a 35 33 3a 30 31 18 02  (field 1 '00:00:5e:00:53:01', field 3 = 2 app)"
+      framed_seq1: "ff 07 40 25 00 25 00 00 00 04 00 00 27 00 02 01 00 00 80 00 00 0a 11 30 30 3a 30 30 3a 35 65 3a 30 30 3a 35 33 3a 30 31 18 02 36 69"
+    request_authorization_pair:
+      body: "08 01"
+      framed_seq2: "ff 07 40 12 00 12 00 00 00 04 00 00 56 00 02 02 00 00 80 00 00 08 01 63 0f"
+    set_wifi_connection_info:
+      body: "0a 23 0a 0a 45 78 61 6d 70 6c 65 4e 65 74 1a 15 63 6f 72 72 65 63 74 20 68 6f 72 73 65 20 62 61 74 74 65 72 79  (ssid 'ExampleNet', passphrase 'correct horse battery')"
+      framed_seq3: "ff 07 40 35 00 35 00 00 00 04 00 00 70 00 02 03 00 00 80 00 00 0a 23 0a 0a 45 78 61 6d 70 6c 65 4e 65 74 1a 15 63 6f 72 72 65 63 74 20 68 6f 72 73 65 20 62 61 74 74 65 72 79 88 b7"
+      tcp_seq3: "35 00 00 00 04 00 00 70 00 02 03 00 00 80 00 00 0a 23 0a 0a 45 78 61 6d 70 6c 65 4e 65 74 1a 15 63 6f 72 72 65 63 74 20 68 6f 72 73 65 20 62 61 74 74 65 72 79"
+    upload_gps:
+      body: "13 61 c3 d3 2b bd 49 40 fa 7e 6a bc 74 93 58 bf 00 00 00 00 00 00 47 40  (51.4779, -0.0015, 46.0 as float64 LE)"
+      framed_seq4: "ff 07 40 28 00 28 00 00 00 04 00 00 35 00 02 04 00 00 80 00 00 13 61 c3 d3 2b bd 49 40 fa 7e 6a bc 74 93 58 bf 00 00 00 00 00 00 47 40 0c 10"
+      bare_seq4: "18 00 00 00 04 00 00 35 00 02 04 00 00 80 00 00 13 61 c3 d3 2b bd 49 40 fa 7e 6a bc 74 93 58 bf 00 00 00 00 00 00 47 40"
+    bare_take_picture_seq1: "00 00 00 00 04 00 00 03 00 02 01 00 00 80 00 00"
+    tcp_sync: "11 00 00 00 06 00 00 73 79 4e 63 65 4e 64 69 6e 53"
+    tcp_keepalive: "07 00 00 00 05 00 00"
+    tcp_take_picture_seq1: "10 00 00 00 04 00 00 03 00 02 01 00 00 80 00 00"
+    tcp_get_options_wifi_info_seq5: "13 00 00 00 04 00 00 08 00 02 05 00 00 80 00 00 0a 01 24"
+    wake_advertisement: "4c 00 02 15 09 4f 52 42 49 54 09 ff 0f 00 41 42 43 31 32 33 00 00 00 00 e4 01"
+
+  conflicts_between_sources:
+    x_one_ace_framing: "insta360ctl: bare 16-byte header, no sync or authorization, for every non-GO model (never run on hardware). Against it: the vendor packet convention puts the total length in bytes 0-3, and the official SDK (X and ONE models only) reports BLE sync-pack (4001) and shake-hand (2207) errors."
+    authorization_status_numbering: "insta360ctl prose: 1 not authorized, 2 pending, 3 authorized, 4 expired, 5 denied. insta360ctl code (ran on a GO 3): 1 authorized, 2 not authorized, 3 pending, 4 denied, 5 expired."
+    authorization_verdict: "insta360ctl prose: the verdict is notification 0x2011. insta360ctl code: it parses the direct reply to 0x56 as the verdict."
+    notification_sequence: "insta360ctl: notifications use sequence 0 (TCP) or 255/unmatched (BLE). Rigacci: arbitrary bytes on TCP. Dispatch by code."
+    remote_static_values: "Byte order of the 0000ce83-0000-1000-8000-00805f9b34fb, 0000ffd3-0000-1000-8000-00805f9b34fb and 0000ffd4-0000-1000-8000-00805f9b34fb values differs between pchwalek (little-endian stores) and insta360ctl (listed order)."
+    remote_info_uuid_base: "The information characteristics 0000ffd1-0000-1000-8000-00805f9b34fb to 0000ffd4-0000-1000-8000-00805f9b34fb are on the Bluetooth base in pchwalek and the vendor app, and on the vendor base 3c17-d293-8e48-14fe2e4da212 in insta360ctl."
+    wake_beacon_layout: "pchwalek and the vendor app agree; insta360ctl's layout differs."
+    ui_summary_http_json: "An earlier research note guessed an HTTP/JSON control API over Wi-Fi. Every source shows protobuf over TCP 6666 for control, with HTTP only for the support list and file downloads."
+
+  out_of_scope:
+    - "USB mass-storage and UVC webcam modes."
+    - "The .insv/.insp containers, gyro metadata and stitching."
+    - "Firmware update mechanics and bytes (features declares only that updates exist)."
+    - "The SDK's online activation beyond the credentials' role; no appId or secretKey is recorded."
+    - "The root telnet shell reported on the AP (security_advisory only)."
+    - "The GO line's charge case/Action Pod sub-protocol beyond its two notifications (0x2019, 0x201E)."
+    - "Bluetooth Classic: the DSS grants (2AWWH-CINSAAJA, 2AWWH-CINSABXA) test BR/EDR modulations, so some cameras also carry a Classic radio (plausibly for headset audio); nothing here uses it."
+
+evidence:
+  open_source_review: >-
+    xaionaro-go/insta360ctl at f94193ce (README, doc/protocol.md,
+    doc/ble_protocol.md, doc/ble_services.md, doc/command_reference.md, and
+    the Go sources for the model table, both header encoders, the envelope,
+    the CRC, the direct-control session, the remote server and the wake
+    beacon). Its CLI help marks photo, record, mode, status, battery, storage
+    and GPS "tested: GO 3" and everything else "not tested, yet"; the
+    Wi-Fi join and the preview stream are among the untested.
+    pchwalek/insta360_ble_esp32 at 83d4748b (Insta_BLE.ino and its modified
+    ESP32 advertising code): the GPS-remote GATT server, the four remote
+    commands, and the wake advertisement, for an X3 and a ONE RS 1-inch.
+    RigacciOrg/insta360-wifi-api at 89320e06 (insta360.py): TCP framing,
+    sync and keep-alive timing, message header, error replies, commands used
+    against a ONE RS. Its compiled pb2 modules were not transcribed.
+  vendor_documentation_review: >-
+    Insta360Develop/Android-SDK README at d2f910c8: supported models, BLE /
+    Wi-Fi / USB connection types, "no large data over BLE", Wi-Fi info
+    (SSID, passphrase, password version, channel, MAC), open/close/restart
+    camera Wi-Fi, channel and country code, shutdown (X5 and later),
+    activation with appId and secretKey and its error codes, connection and
+    firmware-upgrade error codes, the FAQ on socket versus HTTP traffic and
+    the H.264 preview format. Rigacci's rigacci.org write-up (last modified
+    2023-09-08): AP passphrase, root telnet, port 6666, packet anatomy, a
+    worked GET_OPTIONS reply, unsolved settings problems.
+  app_static_analysis: >-
+    com.arashivision.insta360akiko 2.33.0 (versionCode 506297). The base APK
+    has one large dex whose bytecode is packed, so neither jadx nor apktool
+    recovers code and nothing here comes from the app's logic. A strings
+    pass over the dex found: 0000be80-0000-1000-8000-00805f9b34fb; 0000ce80-0000-1000-8000-00805f9b34fb
+    to 0000ce83-0000-1000-8000-00805f9b34fb; 0000ffd0-0000-1000-8000-00805f9b34fb to
+    0000ffd5-0000-1000-8000-00805f9b34fb; 0000ffd8-0000-1000-8000-00805f9b34fb;
+    0000fff1-0000-1000-8000-00805f9b34fb; 0000fff2-0000-1000-8000-00805f9b34fb;
+    0000ae00-0000-1000-8000-00805f9b34fb to 0000ae02-0000-1000-8000-00805f9b34fb;
+    0000d0ff-3c17-d293-8e48-14fe2e4da212; 000002fd-3c17-d293-8e48-14fe2e4da212;
+    020002fd-3c17-d293-8e48-14fe2e4da212; 00006287-3c17-d293-8e48-14fe2e4da212 to
+    00006587-3c17-d293-8e48-14fe2e4da212 (four values); a scan filter string on
+    0000be80-0000-1000-8000-00805f9b34fb; name
+    prefixes including "X4 Air " and "Ace Pro 2 "; a '.OSC' SSID pattern;
+    192.168.42.1, http://192.168.42.1:80 and the bare prefix
+    http://192.168.42.1: (8080 appears only with unrelated hosts, 9999 not
+    as a port);
+    88888888; "syNceNdinS"; the wake-beacon bytes 094f5242495409ff0f00; and
+    the complete frames ff07400700070000000500006b46 (heartbeat) and
+    ff0640080008000000b00000016d90, whose CRC-16/MODBUS values both check.
+    No 0000be81-0000-1000-8000-00805f9b34fb, 0000be82-0000-1000-8000-00805f9b34fb or 0000b000-0000-1000-8000-00805f9b34fb to 0000b004-0000-1000-8000-00805f9b34fb strings were found.
+  fcc_review: >-
+    fccid.co grants for grantee 2AWWH: ING2 (GO 2, 2021-03-03, DXX; label
+    model CING2XX/A; user manual exhibit), CINSABKA (GO 3, 2023-06-26, NII;
+    quick-guide exhibit naming model CINSABKA), CINSABXA (Insta360 X6,
+    2026-07-03, DSS), and three "Camera" grants whose retail names the
+    exhibits do not state: CINSAAJA (2023-11-19, DSS with BR/EDR
+    modulations), CINSABMA (2024-04-11, DTS 2.4 GHz), CINSAATA (2024-06-12,
+    NII 5.8 GHz). The CINSAAJA label exhibit says the regulatory e-label is
+    under the camera's Settings > Certification. Internal photos were not
+    read for chipsets.
+  capture_review: "None. The research store holds no capture of any Insta360 camera."
+  open_questions: >-
+    See remaining_unknowns. The first things to settle with hardware: the
+    X/ONE/Ace direct-control framing and whether they sync and authorize;
+    the authorization status numbering; the camera-side steps to pair a
+    GPS remote; and whether station mode works per model.
+  artifacts:
+    - type: "public_implementation"
+      artifact: "xaionaro-go/insta360ctl @ f94193ce03c5af0921a9992bfd1af6bd946150d0"
+      url: "https://github.com/xaionaro-go/insta360ctl"
+      obtained_via: "git clone, 2026-09"
+      description: "Both BLE architectures, envelope and CRC, message and notification tables, TCP protocol. Hardware-exercised on a GO 3 only."
+    - type: "public_implementation"
+      artifact: "pchwalek/insta360_ble_esp32 @ 83d4748b68d6ee5fd4414994a9e26b7d2f21364b"
+      url: "https://github.com/pchwalek/insta360_ble_esp32"
+      obtained_via: "git clone, 2026-09"
+      description: "GPS-remote emulation and wake advertisement on an ESP32, for an X3 and a ONE RS 1-inch."
+    - type: "public_implementation"
+      artifact: "RigacciOrg/insta360-wifi-api @ 89320e06a2395140e9e506a735c59a7ff8d88446"
+      url: "https://github.com/RigacciOrg/insta360-wifi-api"
+      obtained_via: "git clone, 2026-09"
+      description: "TCP 6666 client for the ONE RS."
+    - type: "public_research"
+      artifact: "Rigacci, 'Insta360: WiFi protocol reverse engineering' (rigacci.org wiki, 2023)"
+      url: "https://www.rigacci.org/wiki/doku.php/doc/appunti/hardware/insta360_one_rs_wifi_reverse_engineering"
+      obtained_via: "fetched 2026-09-28"
+      description: "ONE RS AP passphrase, root telnet, packet anatomy, a decoded GET_OPTIONS reply (SSID pattern, passphrase, channel, option numbers)."
+    - type: "vendor_documentation"
+      artifact: "Insta360Develop/Android-SDK README @ d2f910c8a6a02f6d694e7d6be7a49b345b25e221"
+      url: "https://github.com/Insta360Develop/Android-SDK"
+      obtained_via: "git clone, 2026-09"
+      description: "The vendor's SDK documentation (not the SDK). API surface, BLE limits, activation credentials' role, error codes, FAQ."
+    - type: "static_analysis"
+      artifact: "com.arashivision.insta360akiko 2.33.0 (versionCode 506297), APK"
+      obtained_via: "third-party APK mirror, 2026-09"
+      description: "Packed; string pool only (see app_static_analysis). No class, method or code is cited."
+    - type: "fcc_filing"
+      artifact: "FCC IDs 2AWWH-ING2, 2AWWH-CINSABKA, 2AWWH-CINSABXA, 2AWWH-CINSAAJA, 2AWWH-CINSABMA, 2AWWH-CINSAATA"
+      url: "https://fccid.co/fcc/2AWWH-CINSABKA"
+      obtained_via: "fccid.co, 2026-09-26"
+      description: "Grant-to-model mapping (partial), radio classes, and the GO 2 and GO 3 manual exhibits."
+
+remaining_unknowns:
+  - "Which framing the X-series, ONE RS and Ace cameras expect on 0000be81-0000-1000-8000-00805f9b34fb: insta360ctl's bare 16-byte header (never run on hardware), the GO-line envelope, or something else; and whether they need the sync and authorization exchange."
+  - "The authorization status numbering (the two insta360ctl tables disagree), whether the verdict comes as the reply to 0x56 or as notification 0x2011, and whether the X/ONE/Ace models authorize at all."
+  - "How often the BLE heartbeat must be sent, and whether an idle BLE link is dropped without it."
+  - "What the ONE X, ONE X2 and ONE R serve to a phone over BLE; the official SDK lists ONE X and ONE X2 as BLE-connectable although insta360ctl says they lack 0000be80-0000-1000-8000-00805f9b34fb."
+  - "The camera-side steps for pairing a GPS remote (architecture A), and what the camera writes to 0000ce81-0000-1000-8000-00805f9b34fb."
+  - "Which byte order of the 0000ce83-0000-1000-8000-00805f9b34fb, 0000ffd3-0000-1000-8000-00805f9b34fb and 0000ffd4-0000-1000-8000-00805f9b34fb static values the camera checks, if it checks them."
+  - "Whether the six-character wake ID is always the tail of the serial number."
+  - "Whether UPLOAD_GPS's raw 24-byte float64 body geotags or is merely accepted; the vendor table lists a protobuf body."
+  - "What 0000ae00-0000-1000-8000-00805f9b34fb carries and which models besides the GO 3 serve it; which models serve 0000180f-0000-1000-8000-00805f9b34fb; the full UUIDs of the GO 3's custom 128-bit service."
+  - "The units of the GO 3's storage fields in notification 0x2010."
+  - "Whether station mode (SET_WIFI_CONNECTION_INFO) works, and on which models and firmware."
+  - "The HTTP paths on port 80, and whether the camera listens on any port besides 6666 and 80 (the earlier 8080/9999 reading did not survive a re-check)."
+  - "Which firmware randomises the AP passphrase, and what the SDK's 'password version' encodes."
+  - "Whether an un-activated camera limits any of the local protocol."
+  - "The factory-reset procedure and what RESTORE_FACTORY_SETTINGS clears; whether CANCEL_AUTHORIZATION revokes an approved client."
+  - "Whether the cameras use public or rotating BLE addresses, and whether they accept more than one central."
+  - "The BLE name prefixes of the GO 2 and X6, and which retail models the FCC grants 2AWWH-CINSAAJA, 2AWWH-CINSABMA and 2AWWH-CINSAATA cover."
+  - "Most of the protobuf schema: bodies for SET_OPTIONS/GET_OPTIONS beyond Wi-Fi info, capture options, file lists. RigacciOrg ships compiled Python modules for the ONE RS that were not transcribed here."
+  - "Firmware update mechanism, image format and signing (not investigated)."
+
+helpful_urls:
+  - title: "Insta360 GO 3 (model CINSABKA) quick-start guide, FCC exhibit (PDF)"
+    url: "https://fccid.co/api/files/s1/2awwh_cinsabka_usersmanual_6668120_bd5f3f923d.pdf"
+    kind: "manual"
+    description: >-
+      Vendor quick guide for the GO 3 as filed with FCC ID 2AWWH-CINSABKA
+      (multi-language, 4 pages): power and shutter button timings, Action Pod,
+      mounts, and radio specifications (Bluetooth, 5 GHz 802.11a/n/ac). No
+      reset or pairing procedure.
+  - title: "Insta360 GO 2 user manual, FCC exhibit (PDF)"
+    url: "https://fccid.co/api/files/s1/2awwh_ing2_usersmanual_5146676_f38fdfbedb.pdf"
+    kind: "manual"
+    description: >-
+      Vendor user manual for the GO 2 and its charge case as filed with FCC ID
+      2AWWH-ING2 (Chinese first, then other languages): Action button power
+      on/off and the 6-second forced shutdown. Not the manual for any other
+      model.
+  - title: "Insta360 product support (Internet Archive copy)"
+    url: "http://web.archive.org/web/20260924042801/https://www.insta360.com/support/product-support"
+    kind: "vendor_support"
+    description: >-
+      Archived copy of Insta360's support index, the link the GO 2 manual
+      gives for per-model manuals and tutorials. The live page refuses
+      non-browser clients.
+  - title: "xaionaro-go/insta360ctl"
+    url: "https://github.com/xaionaro-go/insta360ctl"
+    kind: "implementation"
+    description: "Go CLI for both BLE architectures and the Wi-Fi TCP protocol; the model matrix and message tables this spec follows. Hardware-exercised on a GO 3."
+  - title: "insta360ctl: doc/ble_protocol.md (pinned)"
+    url: "https://github.com/xaionaro-go/insta360ctl/blob/f94193ce03c5af0921a9992bfd1af6bd946150d0/doc/ble_protocol.md"
+    kind: "protocol_writeup"
+    description: "The envelope, inner header, CRC, sync, authorization and message-code tables. Two of its claims are corrected here (header forms 'identical'; authorization numbering)."
+  - title: "insta360ctl: doc/protocol.md (pinned)"
+    url: "https://github.com/xaionaro-go/insta360ctl/blob/f94193ce03c5af0921a9992bfd1af6bd946150d0/doc/protocol.md"
+    kind: "protocol_writeup"
+    description: "Architecture A commands and the Wi-Fi TCP protocol, including the station-mode hand-off."
+  - title: "insta360ctl: pkg/camera/model.go (pinned)"
+    url: "https://github.com/xaionaro-go/insta360ctl/blob/f94193ce03c5af0921a9992bfd1af6bd946150d0/pkg/camera/model.go"
+    kind: "implementation"
+    description: "The name-prefix table and which architecture and framing it assigns to each model."
+  - title: "pchwalek/insta360_ble_esp32"
+    url: "https://github.com/pchwalek/insta360_ble_esp32"
+    kind: "implementation"
+    description: "ESP32 GPS-remote emulator for the X3 and ONE RS 1-inch, including the wake advertisement."
+  - title: "pchwalek/insta360_ble_esp32: Insta_BLE.ino (pinned)"
+    url: "https://github.com/pchwalek/insta360_ble_esp32/blob/83d4748b68d6ee5fd4414994a9e26b7d2f21364b/Insta_BLE.ino"
+    kind: "implementation"
+    description: "The GATT server layout, the four remote commands and the wake manufacturer data read for this spec."
+  - title: "Rigacci: Insta360 WiFi protocol reverse engineering"
+    url: "https://www.rigacci.org/wiki/doku.php/doc/appunti/hardware/insta360_one_rs_wifi_reverse_engineering"
+    kind: "protocol_writeup"
+    description: "ONE RS TCP 6666 packet anatomy, the fixed AP passphrase and root telnet finding, and a decoded Wi-Fi info reply."
+  - title: "RigacciOrg/insta360-wifi-api"
+    url: "https://github.com/RigacciOrg/insta360-wifi-api"
+    kind: "implementation"
+    description: "Python TCP 6666 client and curses remote for the ONE RS."
+  - title: "RigacciOrg/insta360-wifi-api: insta360.py (pinned)"
+    url: "https://github.com/RigacciOrg/insta360-wifi-api/blob/89320e06a2395140e9e506a735c59a7ff8d88446/insta360.py"
+    kind: "implementation"
+    description: "Sync, keep-alive timing, message header and reply parsing as used against a ONE RS."
+  - title: "Insta360Develop/Android-SDK"
+    url: "https://github.com/Insta360Develop/Android-SDK"
+    kind: "protocol_writeup"
+    description: "The vendor's SDK documentation: connection types, what BLE cannot carry, Wi-Fi info, activation credentials, error codes. The SDK binaries themselves are issued on application."
+  - title: "Insta360 developer documentation"
+    url: "https://insta360develop.github.io/Insta360-Developer_Docs/"
+    kind: "protocol_writeup"
+    description: "Where Insta360 now publishes its SDK documentation."
+  - title: "FCC ID 2AWWH-CINSABKA (Insta360 GO 3)"
+    url: "https://fccid.co/fcc/2AWWH-CINSABKA"
+    kind: "other"
+    description: "GO 3 grant (5 GHz NII) with the quick-guide exhibit, photos and test reports."
+  - title: "FCC ID 2AWWH-ING2 (Insta360 GO 2)"
+    url: "https://fccid.co/fcc/2AWWH-ING2"
+    kind: "other"
+    description: "GO 2 grant with the user-manual exhibit and label (model CING2XX/A)."
+  - title: "FCC ID 2AWWH-CINSABXA (Insta360 X6)"
+    url: "https://fccid.co/fcc/2AWWH-CINSABXA"
+    kind: "other"
+    description: "The only record of the X6 in this spec's sources; nothing about its protocol."
+  - title: "FCC ID 2AWWH-CINSAAJA (Insta360 camera, retail model not stated)"
+    url: "https://fccid.co/fcc/2AWWH-CINSAAJA"
+    kind: "other"
+    description: "2023 DSS grant with BR/EDR modulations; the retail model is not named in the exhibits."
+  - title: "FCC ID 2AWWH-CINSABMA (Insta360 camera, retail model not stated)"
+    url: "https://fccid.co/fcc/2AWWH-CINSABMA"
+    kind: "other"
+    description: "2024 2.4 GHz DTS grant; the retail model is not named."
+  - title: "FCC ID 2AWWH-CINSAATA (Insta360 camera, retail model not stated)"
+    url: "https://fccid.co/fcc/2AWWH-CINSAATA"
+    kind: "other"
+    description: "2024 5.8 GHz NII grant; the retail model is not named."

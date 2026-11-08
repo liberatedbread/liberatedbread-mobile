@@ -23,6 +23,7 @@ device:
   protocol: "ble"
   transport: "ble-gatt"
   category: "sensor"
+  category_hierarchy: ["measurement", "environmental"]
   type: "radon-monitor"
   notes: >
     Mains-powered environmental radon monitor with two incompatible BLE

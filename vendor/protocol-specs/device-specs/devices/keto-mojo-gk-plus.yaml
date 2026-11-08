@@ -35,6 +35,7 @@ device:
   protocol: "ble"
   transport: "ble-gatt"
   category: "health"
+  category_hierarchy: ["measurement", "health", "metabolic"]
   type: "glucose-ketone-meter"
   notes: >
     A handheld fingerstick meter that reads blood glucose and blood

@@ -1,0 +1,1596 @@
+# ChefSteps / Breville Joule Sous Vide (original) device spec
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Sources (clean-room: derived facts only; every table and sentence below is
+# our own restatement, and no vendor schema text, comment or code is copied):
+#   - Static analysis of the legacy ChefSteps Android app ("Joule: Sous Vide
+#     by ChefSteps" 2.77.5), whose Cordova JavaScript layer carries the whole
+#     device SDK and the protobuf message schema it compiles at run time.
+#     Field numbers, wire types and enum values were read from that schema and
+#     restated here in our own tables; message and field NAMES are ours unless
+#     the role needs the envelope's own name.
+#   - Static analysis of the successor Breville+ Cooking Android app
+#     (1.44.0): its native BLE layer (the "legacy Joule" path) and its Hermes
+#     JavaScript bundle, used to cross-check the GATT roles, the
+#     read-after-notify framing, the model mapping and the pairing prompts.
+#   - mitchcapper/JouleUWP JOULE_PROTOCOL.md (2016 community write-up).
+#   - ChefSteps Help Center articles (factory reset, LED states, owner,
+#     temperature limits, Bluetooth-only pairing in Breville+) and the
+#     ChefSteps firmware release notes, read 2026-09-28.
+#   - Breville's CS10001 instruction book (original Joule).
+# No captures exist. Every byte here is `reported` (read from the apps), never
+# `confirmed`, and device.testing is untested.
+
+device:
+  name: "ChefSteps Joule Sous Vide (original: CS10001 stainless, CS20001 white)"
+  manufacturer: "Breville (formerly ChefSteps)"
+  manufacturer_status: "active"
+  type: "sous-vide-immersion-circulator"
+  category: "appliance"
+  protocol: "ble"
+  transport: "ble-gatt"
+  testing:
+    status: untested
+    notes: >-
+      Nobody on this project has driven a Joule from this document, and the
+      research store holds no HCI capture or pcap of one. Every GATT role,
+      framing rule and byte sequence below was read out of the two vendor
+      Android apps (the legacy ChefSteps app and Breville+ Cooking) and
+      cross-checked between them, plus the 2016 JouleUWP write-up and the
+      vendor's help articles. The protobuf encodings were re-derived here from
+      the field numbers and checked with a throwaway wire-format decoder, not
+      against a device.
+  openness:
+    status: "undocumented"
+    reverse_engineered: true
+    notes: >-
+      ChefSteps never published a local API; a 2016 "developer signup" went
+      nowhere (JouleUWP). The protocol is protobuf over one vendor GATT
+      service, recovered from the apps. The vendor schema itself is not
+      reproduced here, only the fields a client needs, restated.
+  safety_advisory:
+    severity: "warning"
+    summary: >-
+      This starts an 1100 W immersion heater remotely, at up to 98 °C at sea
+      level. Stop-cooking is always one command away; keep it that way in any
+      client.
+    detail: >-
+      The Joule has no manual controls: its only button confirms pairing and
+      high-temperature starts, and pressing it during a cook stops the
+      program. Before starting a cook from a client, make sure the Joule is in
+      a pot with water between 38 mm and 203 mm deep (vendor instruction book)
+      and nothing flammable is near. The firmware stops a program on low
+      water, tip-over, overheating, a stuck motor and power loss (see
+      protocol_details.enums.stop_reason), and a client must never try to work
+      around those stops. Unplugging the Joule stops it immediately and
+      overrides any program (instruction book). This spec only declares what
+      the vendor app does: setpoints of 20-85 °C are ordinary commands, 85.5-98
+      °C is `advanced` (near-boiling water; UL-listed units demand a
+      button-press confirmation first), delayed start and holding temperature
+      are documented but not declared, and firmware flashing is overview only.
+      This project is not affiliated with ChefSteps or Breville.
+    advisory_url: "https://www.breville.com/content/dam/breville/us/assets/miscellaneous/instruction-manual/sous-vide/CS10001-instruction-manual.pdf"
+  notes: |
+    The ChefSteps Joule (2016; Breville bought ChefSteps in 2019) is an
+    1100 W immersion circulator with no manual controls: an app is the only
+    way to set a temperature. It has Bluetooth LE and 2.4 GHz Wi-Fi. Breville
+    shut the ChefSteps Joule app off in March 2026 and moved owners to the
+    account-gated Breville+ Cooking app (Sage+ in Europe), which drives the
+    same hardware with the same protocol. Breville+ needs Joule firmware 175
+    or 123.1 for Bluetooth-only use (ChefSteps help centre).
+
+    LOCAL SURFACE. BLE is the only local control path. Wi-Fi is provisioned
+    over BLE and then used only for an outbound connection to the vendor
+    cloud, which carries the same protobuf messages; JouleUWP found no open
+    ports. So there is no LAN spec to write, and the cloud path is recorded
+    in protocol_details.cloud_path as non-local.
+
+    GATT (all on the vendor base 700b432x-9836-4383-a2b2-31a9098d1473).
+    Service 700b4321-9836-4383-a2b2-31a9098d1473. Characteristics:
+      - 700b4322-9836-4383-a2b2-31a9098d1473 write (with response): requests.
+      - 700b4323-9836-4383-a2b2-31a9098d1473 read: one device message per read.
+      - 700b4325-9836-4383-a2b2-31a9098d1473 notify: a doorbell. Its value is
+        ignored; each notification means "read 700b4323 now".
+      - 700b4326-9836-4383-a2b2-31a9098d1473 write without response: the
+        block-transfer channel for firmware, logs and certificates.
+    No 700b4324-9836-4383-a2b2-31a9098d1473 is referenced by either app.
+
+    FRAMING. Every write to 700b4322 is exactly one protobuf-encoded envelope
+    (the vendor calls it StreamMessage), with no length prefix, header,
+    checksum or chunking layer of its own. Every read of 700b4323 returns
+    exactly one envelope. A message longer than one ATT payload travels as an
+    ATT long write (prepared writes, which write-with-response gives you) or
+    long read (Read Blob), which host stacks do by themselves. The ChefSteps
+    app never raises the MTU; Breville+ asks for 512 on Android 13 and older
+    and forces 23 on Android 14 and newer (reason not recorded). A zero-length
+    read means "nothing queued".
+
+    ENVELOPE (protobuf, proto2). Field 1 handle (fixed32, little-endian, a
+    per-request correlation id the reply echoes), field 4 end (bool, set on
+    the last message of a stream), field 5 sender address and field 6
+    recipient address (bytes; both sent EMPTY over BLE by the ChefSteps app),
+    then exactly one body from a oneof of about 60 request, reply and feed
+    messages (protocol_details.message_catalogue). Requests here are written
+    in field-number order with the empty addresses included, which is what
+    the vendor encoder emits: 0d <handle LE32> 2a 00 32 00 <body>.
+
+    CLIENT RULES.
+      1. Subscribe to 700b4325 first; wait about 500 ms (Breville+ does).
+      2. On every 700b4325 notification, read 700b4323 and decode one
+         envelope. Match replies to requests by handle.
+      3. The first message on every connection must be submit_key with the
+         key this device issued at pairing (device.pairing). It is the only
+         message the device accepts before authorisation.
+      4. Use a fresh handle per request. Most replies arrive within 5 s; key
+         exchange waits up to 35 s and a button-press request up to 300 s for
+         a person (protocol_details.app_behaviour.reply_timeouts_s).
+      5. A request you opened stays open until an envelope with end = true
+         arrives or you send one. For a long-lived stream (the live feed),
+         send keep_alive with that stream's handle every 5 s.
+      6. State comes from the live feed: begin_live_feed opens a stream of
+         data points (bath temperature, program step, time remaining).
+      7. Read identify_circulator's API version once and gate the newer
+         messages on it (protocol_details.api_version_capabilities).
+
+    PAIRING, RECONCILED. This is not ECDH, whatever earlier notes said (the
+    app merely bundles a curve25519 library). Start-key-exchange makes the
+    Joule blink white; when the owner presses its top button the Joule
+    returns a device-issued secret key in the clear. The app stores that key
+    (and uploads it to the vendor account) and presents it with submit_key on
+    every later connection. JouleUWP's 2016 "no pin or security requirement"
+    is true of the Bluetooth link, which never bonds and has no PIN; that
+    write-up had not decoded the BLE traffic, so it never saw the app-layer
+    key. Whether the earliest firmware skipped the check is unknown.
+
+    MODELS AND SCOPE. Covered: the original Joule, CS10001 (stainless) and
+    CS20001 (white). Breville+ files these under its internal model code
+    CSJ100 (with CSJ000 also in its sous-vide list) and finds them by company
+    ID 0x0159. NOT covered, contrary to earlier notes that called CSJ100 the
+    Turbo: the Joule Turbo (retail BSV600) is a separate model in Breville+,
+    advertised under company ID 0x0955 and driven through Breville's own
+    appliance service (protocol_details.excluded). Also out of scope: the
+    vendor cloud REST/WebSocket API as a control surface, the Joule oven,
+    Breville's ovens and espresso machines, factory and test messages, and
+    firmware-flashing byte sequences.
+
+    SAFETY. See safety_advisory. The device enforces its own maximum
+    (get_limits) and stops on its own faults. Setpoints above 85 °C are
+    `advanced`; delayed start and holding temperature are documented in
+    protocol_details only.
+
+  identification:
+    service_uuids:
+      - "700b4321-9836-4383-a2b2-31a9098d1473"
+    manufacturer_data:
+      company_id: 345
+      company_id_hex: "0x0159"
+      description: >-
+        Both vendor apps key on company ID 0x0159 (345). Payload after the
+        two company-ID bytes: byte 0 = flags and version (bit 7 set means
+        another phone is already connected, bits 0-6 an advertisement format
+        version), bytes 1.. = the circulator's messaging address (8 bytes in
+        the SDK's own simulated adverts). On CoreBluetooth the app sees the
+        company-ID bytes too, so its offsets are 2 higher; on Android they are
+        stripped.
+    notes: >-
+      Match the service UUID or company ID 0x0159; both apps check both. Local
+      names are not used for matching (the SDK's simulator uses placeholder
+      names), so none is claimed here. The circulator address in the
+      manufacturer data is per unit: never publish a real one. Since firmware
+      85.39 a Joule already connected to one phone stops appearing as
+      connectable to others (firmware release notes).
+
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          service_uuids:
+            - "700b4321-9836-4383-a2b2-31a9098d1473"
+        notes: "The ChefSteps app scans with this service UUID as its filter."
+      - type: "ble_scan"
+        ble:
+          manufacturer_data:
+            company_id: 345
+            description: "Company ID 0x0159; payload byte 0 = flags/version, bytes 1.. = circulator address."
+        notes: "Breville+ identifies a legacy Joule by this company ID alone."
+    identity:
+      stable_keys: ["manufacturer_data", "address"]
+      display: "local_name"
+      notes: >-
+        The circulator address carried after the flags byte is what both apps
+        and the vendor account use as the device's identity, so it is the
+        preferred key. Whether the BLE address itself is public is not
+        recorded. The user-facing name is the one identify_circulator returns
+        (rename sets it), not an advertised local name.
+    static_ip_required: false
+
+  setup:
+    required: true
+    confidence: "medium"
+    notes: >-
+      A factory-fresh or reset Joule must be paired before it answers anything:
+      the client runs the key exchange, the owner presses the top button, and
+      the client keeps the secret key the Joule returns. Wi-Fi is optional and
+      only serves the vendor cloud; the ChefSteps help centre documents a
+      Bluetooth-only setup. Confidence is medium: both vendor apps agree on
+      the flow and the vendor's help articles describe the button press, but
+      it has not been run here.
+    methods:
+      - type: "ble_provisioning"
+        name: "Pair over Bluetooth (key exchange, Bluetooth only)"
+        role: "primary"
+        verified: false
+        description: >-
+          Connect, ask the Joule for a key exchange, have the owner press the
+          top button while it blinks white, keep the secret key it returns,
+          then authorise with it. Nothing else is needed for local control.
+        ble:
+          service_uuid: "700b4321-9836-4383-a2b2-31a9098d1473"
+          write_characteristic: "700b4322-9836-4383-a2b2-31a9098d1473"
+          read_characteristic: "700b4323-9836-4383-a2b2-31a9098d1473"
+          pairing_required: false
+        issues_credentials:
+          secret_key:
+            command: "start_key_exchange"
+            reply_path: "start_key_exchange_reply.secret_key"
+            notes: >-
+              Envelope oneof field 121, inner field 1 (bytes). The ChefSteps
+              app keeps it as a hex string and also uploads it to the vendor
+              account; store it per device. Its length on real hardware is not
+              recorded (the SDK's simulator issues 16 bytes).
+        steps:
+          - action: "Plug the Joule in. Its LED shows solid white when idle and blinks white when it is ready to pair (ChefSteps LED article)."
+            actor: user
+          - action: "Scan for service 700b4321-9836-4383-a2b2-31a9098d1473 or company ID 0x0159 and connect. Do not pair from the phone's Bluetooth settings (instruction book)."
+            actor: client
+            timeout_seconds: 10
+          - action: "Subscribe to 700b4325-9836-4383-a2b2-31a9098d1473, wait about 500 ms, then write start_key_exchange to 700b4322-9836-4383-a2b2-31a9098d1473."
+            actor: client
+          - action: "Tell the owner to press the button on top of the Joule. The ChefSteps app waits up to 35 s for this."
+            actor: user
+            timeout_seconds: 35
+          - action: "On the doorbell notification, read 700b4323-9836-4383-a2b2-31a9098d1473 and decode the start-key-exchange reply (oneof field 121)."
+            actor: client
+            expect: "Result 0 (success) and a secret key in inner field 1. Store it; it is the only credential this device will accept. To abandon the exchange instead, send cancel_key_exchange."
+          - action: "Authorise with submit_key carrying that key."
+            actor: client
+            expect: "Submit-key reply (oneof field 131) with result 0. The connection is now authorised."
+            timeout_seconds: 5
+          - action: "Optionally send identify_circulator, rename it (protocol_details.message_encodings.rename), and read get_limits."
+            actor: client
+      - type: "ble_provisioning"
+        name: "Pair, then join Wi-Fi for the vendor cloud"
+        role: "alternative"
+        verified: false
+        description: >-
+          What the vendor apps do by default: pair as above, then hand the
+          Joule Wi-Fi credentials over the same BLE link so it can reach the
+          vendor cloud. Wi-Fi adds nothing local; it is only for remote use
+          through the vendor app.
+        stages:
+          - type: "ble_provisioning"
+            name: "Key exchange"
+            description: "The primary method's steps, ending with an authorised connection and a stored secret key."
+            verified: false
+            steps:
+              - action: "Pair as in the primary method (start_key_exchange, top-button press, submit_key)."
+                actor: client
+          - type: "ble_provisioning"
+            name: "Wi-Fi over Bluetooth"
+            description: >-
+              Scan, choose a network and send it SSID, passphrase and security
+              type over the authorised BLE link. The key exchange and all
+              Wi-Fi-joining messages are Bluetooth-only in the vendor router.
+            verified: false
+            steps:
+              - action: "Send scan_wifi_networks. The Joule answers with one Wi-Fi-scan reply per access point on the same handle (SSID, security type, RSSI)."
+                actor: client
+                timeout_seconds: 15
+              - action: "Send a connect-Wi-Fi request with SSID, passphrase and security type (protocol_details.message_encodings.connect_wifi). The Joule takes 2.4 GHz 802.11b/g/n, open/WPA/WPA2 personal, DHCP only."
+                actor: client
+                timeout_seconds: 15
+                expect: "Connect-Wi-Fi reply with result 0. 31 means wrong password, 24 a key error."
+              - action: "Poll get_wifi_status until the connection status reads 5 (got an IP). A cloud status of 101 is what the app treats as healthy."
+                actor: client
+              - action: "The vendor app then fetches a per-device token from the owner's account and pushes it to the Joule (protocol_details.cloud_path). That makes this account the Joule's Wi-Fi owner. A local client has no reason to do this."
+                actor: client
+    factory_reset:
+      applicable: true
+      confidence: "medium"
+      effect: >-
+        Erases the Joule's name, its Wi-Fi settings and its authentication and
+        ownership information (ChefSteps help centre), so every stored secret
+        key stops working and the unit must be paired again. Cook history in
+        the vendor account is not on the device.
+      description: >-
+        The vendor documents a power-on button hold. ChefSteps' 2020 article
+        says at least 10 seconds; Breville's 2026 Bluetooth-only article says
+        at least 15. Firmware 85.39 and 87.39 made the reset harder to trigger
+        by accident, which may be why the time grew. Remove the Joule from the
+        vendor account first if you still use the app. There is also a
+        factory-reset request in the message set; it is documented by role
+        only (protocol_details.message_catalogue.excluded_by_role).
+      procedures:
+        - name: "Hold the top button from power-up until the LED blinks yellow"
+          verified: false
+          basis: "ChefSteps Help Center 'What is a factory reset, and how do I perform one?' (updated 2020-01-30) and 'Pairing ChefSteps Joule to the Breville+ app using Bluetooth only' (updated 2026-03-04). Not run here."
+          hold_seconds: 15
+          power_state: "booting"
+          indicator: "Double-blinking (or blinking) yellow while resetting, then steady white when done."
+          steps:
+            - action: "Unplug the Joule and plug it back in."
+              actor: user
+            - action: "Immediately press and hold the top button for at least 15 seconds (10 in the older article) until the light blinks yellow. If it does not, unplug and try again, holding the button as you plug it in."
+              actor: user
+              expect: "Yellow blinking: a factory reset is in progress."
+            - action: "Wait for the reset to finish."
+              actor: device
+              timeout_seconds: 120
+              expect: "Steady white light: the reset is complete and the Joule can be paired afresh."
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >-
+        To move the Joule to a new router, connect over BLE (authorised), send
+        disconnect_wifi, then provision the new network with connect-Wi-Fi.
+        This is the ChefSteps help centre's own procedure (Settings, My Joules,
+        Disconnect Joule from WiFi, then Connect). The old network does not
+        need to be up. Firmware 103.52 and later keep several Wi-Fi profiles
+        (forget_wifi_profile drops one). Only the account that owns the Joule
+        can put it on Wi-Fi through the vendor app; a factory reset clears the
+        owner.
+      steps:
+        - action: "Connect over BLE and authorise with submit_key."
+          actor: client
+        - action: "Send disconnect_wifi, then connect-Wi-Fi with the new network's credentials."
+          actor: client
+          expect: "get_wifi_status eventually reports connection status 5."
+    credentials:
+      wifi_passphrase_protection: "plaintext"
+      stored_on_device:
+        - "The secret key(s) it issued at pairing"
+        - "Wi-Fi SSIDs and passphrases (several profiles on firmware 103.52 and later)"
+        - "The vendor-cloud bearer token pushed by the owner's app"
+        - "Its user-chosen name"
+      issued_to_client:
+        - "secret_key: returned by start_key_exchange after the top-button press; presented with submit_key on every connection"
+      notes: >-
+        The Wi-Fi passphrase is a plain protobuf string inside the connect-Wi-Fi
+        request, and the BLE link is neither bonded nor encrypted by the apps,
+        so it crosses the air in the clear. The secret key is likewise
+        returned and resubmitted in the clear. The vendor apps also upload the
+        secret key to the owner's vendor account (the circulator record
+        carries it), which is how Breville+ carried ChefSteps-era pairings
+        forward, and how an owner whose account still works could recover
+        their own key without re-pairing. Never publish a key.
+
+  pairing:
+    required: true
+    confidence: "medium"
+    security_mode: "app_layer"
+    bonding: "none"
+    exclusivity:
+      single_connection: true
+      single_bond: "unknown"
+      recovery: >-
+        Close the vendor app (and any other phone) first: since firmware 85.39
+        a Joule connected to one phone is not connectable from another, and the
+        advertisement flag bit 7 shows it. If the secret key is lost or
+        rejected, pair again with the top-button press; if that fails, factory
+        reset.
+      notes: >-
+        Whether a new key exchange invalidates keys issued earlier is not
+        recorded. The help centre says other people can use a Joule over
+        Bluetooth with the owner's account (which shares the stored key) or
+        their own (which runs its own key exchange), which suggests more than
+        one key can be valid, but that is an inference.
+    enter_pairing_mode:
+      required: true
+      window_seconds: 35
+      indicator: "LED blinks white: ready to pair, press the top of the Joule to continue (ChefSteps LED article)."
+      notes: >-
+        The 35 s is the ChefSteps app's wait for the start-key-exchange reply,
+        not a documented device window. Breville+ shows "press the top button
+        on your Joule to confirm, for security" before pairing a Joule.
+      procedures:
+        - name: "Start a key exchange, then press the top button while the LED blinks white"
+          verified: false
+          basis: "ChefSteps app pairing flow and prompts (35 s key-exchange wait), Breville+ pairing prompt for Joule models, ChefSteps Help Center LED-state article, and the Breville+ Bluetooth-only pairing article. Not run here."
+          power_state: "on"
+          indicator: "White blinking LED."
+          steps:
+            - action: "Connect, subscribe to 700b4325-9836-4383-a2b2-31a9098d1473 and send start_key_exchange."
+              actor: client
+            - action: "Press the button on top of the Joule."
+              actor: user
+              expect: "The start-key-exchange reply arrives carrying the secret key."
+    unpair:
+      supported: "unknown"
+      requires_factory_reset: true
+      clears: "Every secret key the Joule has issued, plus its Wi-Fi settings, name and owner (factory reset)."
+      notes: >-
+        The only documented way to revoke pairings is the factory reset.
+        Removing the Joule from a vendor account ("Disconnect Joule") is an
+        account-side operation; whether it clears the device's keys is not
+        established. A forget-device-pairing request exists in the message
+        set's debug/end-use group, but no app flow sends it and its effect is
+        unknown, so it is documented by role only.
+    notes: >-
+      No link-layer pairing: the vendor instruction book says never to pair
+      from the phone's Bluetooth menu, and neither app bonds. The
+      authorisation is app-layer: a device-issued secret key, obtained once
+      with a physical top-button press and presented with submit_key on every
+      connection. Submit-key is the only message the vendor router lets
+      through before authorisation. On UL-listed units (identify's hardware
+      options bit 16) the app additionally asks for a button press before any
+      cook above 85 °C (request_button_press).
+
+  host_compatibility:
+    - stack: android
+      status: compatible
+      verification: reported
+      basis: "Both vendor apps are Android (and iOS) clients of this exact GATT layout: the ChefSteps app through a Cordova BLE plugin, Breville+ through its own native layer."
+      notes: "Breville+ requests MTU 512 on Android 13 and older and forces MTU 23 on Android 14 and newer for this model; nothing records why."
+    - stack: corebluetooth
+      status: compatible
+      verification: reported
+      basis: "The ChefSteps app shipped on iOS; its SDK's simulator fixtures are written in CoreBluetooth advertisement terms and its advert parser expects the company-ID bytes CoreBluetooth includes in manufacturer data."
+    - stack: bluez
+      status: unknown
+      verification: hypothesis
+      basis: "No Linux client is known. Nothing in the layout looks hostile to bluetoothd: one vendor service, a notify doorbell and plain reads and writes, relying on the host's ATT long read and long write."
+    - stack: windows
+      status: unknown
+      verification: hypothesis
+      basis: "JouleUWP targeted Windows but never decoded the BLE traffic, so it proves nothing about the GATT path."
+
+  variants:
+    - model: "CS10001"
+      notes: >-
+        Joule Original, stainless-steel top cap (ChefSteps help centre). The
+        identify reply's hardware-options bit 0 marks stainless. Breville's
+        reissued instruction book covers it with CS20001.
+    - model: "CS20001"
+      notes: >-
+        Joule Original, white polycarbonate top cap. Hardware-options bit 1
+        marks white (bit 2 is a rose-gold finish). Same protocol as CS10001.
+
+initialization:
+  - characteristic: "700b4325-9836-4383-a2b2-31a9098d1473"
+    subscribe: true
+    delay_ms: 500
+    notes: >-
+      Open the doorbell first. Nothing arrives until this is subscribed, and
+      each notification means "read 700b4323-9836-4383-a2b2-31a9098d1473
+      now". Breville+ waits 500 ms after the CCCD write before sending.
+  - description: >-
+      Authorise: send submit_key with the secret key this device issued at
+      pairing (setup.methods issues_credentials.secret_key) and wait up to
+      5 s for a submit-key reply with result 0. Nothing else is accepted
+      before this. Then, on a new session, the vendor apps send
+      identify_circulator (to learn the API version and hardware options),
+      get_limits and begin_live_feed. The key is per device, so this step
+      cannot be stated as fixed bytes.
+
+services:
+  - uuid: "700b4321-9836-4383-a2b2-31a9098d1473"
+    name: "Joule stream service"
+    notes: >-
+      The only vendor service either app uses. The ChefSteps app's simulator
+      lays it out with the service at handle 4 and characteristics at handles
+      5-8 in the order read (4323), notify (4325), write (4322), file (4326),
+      with properties read, notify, write and write-without-response; real
+      hardware handles are not recorded. Whether Device Information or other
+      services are present is not recorded.
+    characteristics:
+      - uuid: "700b4322-9836-4383-a2b2-31a9098d1473"
+        name: "request input"
+        role: "command"
+        properties: ["write"]
+        notes: >-
+          Write one encoded envelope per write, with response (Breville+ uses
+          the default write type). Longer than MTU-3 bytes goes out as an ATT
+          long write, which the host stack handles. Every command below starts
+          0d <handle, 4 bytes LE> 2a 00 32 00 and then carries one oneof body;
+          see protocol_details.envelope. The ChefSteps app retries a failed
+          write twice more before dropping the connection.
+        commands:
+          start_key_exchange:
+            description: >-
+              Ask the Joule to issue a secret key (oneof field 120, empty
+              body). The Joule blinks white and replies only after the owner
+              presses the top button: start-key-exchange reply (oneof field
+              121) with the key in inner field 1 (bytes) and a result code in
+              inner field 2. The ChefSteps app waits 35 s. Allowed before
+              authorisation (the apps send it straight after connecting).
+            template: [0x0d, "{handle}", 0x2a, 0x00, 0x32, 0x00, 0xc2, 0x07, 0x00]
+            parameters:
+              handle: &handle
+                type: "uint32"
+                endianness: "little"
+                auto: "sequence"
+                description: >-
+                  Envelope field 1, a fixed32 correlation id; the reply
+                  carries the same value. Use a fresh value per request. The
+                  ChefSteps SDK picks random handles below 999744 and keeps the
+                  handles it opens to one parity so they cannot collide with
+                  streams the other side opens; any unused value is reported to
+                  work.
+            verification: "reported"
+          cancel_key_exchange:
+            description: "Abandon a pending key exchange (oneof field 125, empty body). Reply: oneof field 126 with a result code."
+            template: [0x0d, "{handle}", 0x2a, 0x00, 0x32, 0x00, 0xea, 0x07, 0x00]
+            parameters:
+              handle: *handle
+            verification: "reported"
+          submit_key:
+            description: >-
+              Authorise this connection with the stored secret key (oneof
+              field 130, inner field 1 = key bytes). Reply: oneof field 131,
+              result 0 on success, after which every other message is
+              accepted. The only message the vendor router allows before
+              authorisation. This template assumes a 16-byte key (the SDK
+              simulator's length): for a key of n bytes the two length bytes
+              are n+2 (0x12 here) and n (0x10 here).
+            template: [0x0d, "{handle}", 0x2a, 0x00, 0x32, 0x00, 0x92, 0x08, 0x12, 0x0a, 0x10, "{secret_key}"]
+            packet_layout:
+              "0": "envelope field 1 tag (fixed32)"
+              "1": "handle, uint32 LE"
+              "5": "envelope field 5 (sender address), empty"
+              "7": "envelope field 6 (recipient address), empty"
+              "9": "oneof field 130 tag (varint 0x92 0x08), then body length 0x12"
+              "12": "inner field 1 tag, key length 0x10"
+              "14": "secret key bytes"
+            parameters:
+              handle: *handle
+              secret_key:
+                type: "bytes"
+                min_length: 16
+                max_length: 16
+                source: "credential:secret_key"
+                description: >-
+                  The key this Joule returned in its start-key-exchange reply
+                  (setup.methods issues_credentials). Per device and secret;
+                  the vendor apps also store it in the owner's account. 16
+                  bytes is the simulator's length, not a hardware observation.
+            verification: "hypothesis"
+          identify_circulator:
+            description: >-
+              Ask who and what the Joule is (oneof field 152, empty body).
+              Reply: oneof field 153 with name, firmware versions, serial
+              number, model number, API version and hardware options
+              (payload_formats.Identify_Reply). The serial number and MAC in
+              it are per unit.
+            template: [0x0d, "{handle}", 0x2a, 0x00, 0x32, 0x00, 0xc2, 0x09, 0x00]
+            parameters:
+              handle: *handle
+            verification: "reported"
+          get_limits:
+            description: >-
+              Read the device's setpoint ceiling (oneof field 180, empty
+              body). Reply: oneof field 181, inner field 1 result, inner field
+              2 maximum temperature (float32 °C). API version 2 and later; the
+              SDK assumes 90 °C when unsupported.
+            template: [0x0d, "{handle}", 0x2a, 0x00, 0x32, 0x00, 0xa2, 0x0b, 0x00]
+            parameters:
+              handle: *handle
+            verification: "reported"
+          ping:
+            description: "Round-trip check (oneof field 18, empty body). The reply is a pong (oneof field 19, empty)."
+            template: [0x0d, "{handle}", 0x2a, 0x00, 0x32, 0x00, 0x92, 0x01, 0x00]
+            parameters:
+              handle: *handle
+            verification: "reported"
+          begin_live_feed:
+            description: >-
+              Open the cook-data feed (oneof field 70, inner field 1 = feed
+              type 1, cook data). The Joule answers with a begin-live-feed
+              reply (oneof field 71, result) and then streams data points
+              (oneof field 90, payload_formats.Data_Point) on the same handle
+              until either side ends the stream. Keep it alive with keep_alive
+              every 5 s. The SDK treats 10 s without a data point as a dropped
+              feed.
+            template: [0x0d, "{handle}", 0x2a, 0x00, 0x32, 0x00, 0xb2, 0x04, 0x02, 0x08, 0x01]
+            parameters:
+              handle: *handle
+            verification: "reported"
+          keep_alive:
+            description: >-
+              Keep an open stream alive (oneof field 72, empty body). Send it
+              every 5 s with the handle of the stream you opened, typically
+              the live feed's. The SDK drops a stream the other side opened
+              after 15 s of silence; that the firmware does the same is a
+              hypothesis.
+            template: [0x0d, "{stream_handle}", 0x2a, 0x00, 0x32, 0x00, 0xc2, 0x04, 0x00]
+            parameters:
+              stream_handle:
+                type: "uint32"
+                endianness: "little"
+                description: "The handle of the stream being kept alive (the one sent with begin_live_feed). Not a fresh value."
+            verification: "reported"
+          stop_cooking:
+            description: >-
+              Stop the running program: heating and circulation stop (oneof
+              field 60, empty body). Reply: oneof field 61 with a result code.
+              The SDK can add optional feed id and sequence number fields for
+              optimistic concurrency; this bare form omits them. Keep this one
+              tap away in any client.
+            template: [0x0d, "{handle}", 0x2a, 0x00, 0x32, 0x00, 0xe2, 0x03, 0x00]
+            parameters:
+              handle: *handle
+            verification: "reported"
+          start_cook:
+            description: >-
+              Start a manual cook that holds the setpoint until stopped (oneof
+              field 50: inner field 1 = program with set point, float32 °C,
+              field 1, and program type 0 = manual, field 5). Reply: oneof
+              field 51 with a result code. Starting a program replaces any
+              running one; that is how the vendor app changes the temperature
+              mid-cook. On a UL-listed unit the app never uses this above
+              85 °C without a button press first. Example for 60.0 °C, handle
+              1: 0d 01 00 00 00 2a 00 32 00 92 03 09 0a 07 0d 00 00 70 42 28 00.
+            template: [0x0d, "{handle}", 0x2a, 0x00, 0x32, 0x00, 0x92, 0x03, 0x09, 0x0a, 0x07, 0x0d, "{set_point}", 0x28, 0x00]
+            packet_layout:
+              "0": "envelope: handle (fixed32 LE) and two empty addresses"
+              "9": "oneof field 50 tag (0x92 0x03), body length 9"
+              "12": "start-program field 1 (the program), length 7"
+              "14": "program field 1 tag (fixed32): set point"
+              "15": "set point, IEEE 754 binary32 LE, °C"
+              "19": "program field 5 (program type) = 0, manual"
+            parameters:
+              handle: *handle
+              set_point: &set_point_low
+                type: "uint32"
+                endianness: "little"
+                description: >-
+                  Setpoint in °C as the bit pattern of an IEEE 754 binary32
+                  float, sent as its four little-endian bytes. The allowed
+                  values are the patterns of 20.0 to 85.0 °C in 0.5 °C steps
+                  (20.0 is 0x41a00000, 60.0 is 0x42700000, 85.0 is
+                  0x42aa0000). Pick a label; never send a °C number as the
+                  integer.
+                notes: >-
+                  20 °C is the vendor's minimum settable temperature. The app
+                  accepts one decimal place, so finer setpoints are valid on
+                  the wire; the list stops at 0.5 °C steps to stay usable.
+                allowed: [0x41a00000, 0x41a40000, 0x41a80000, 0x41ac0000, 0x41b00000, 0x41b40000, 0x41b80000, 0x41bc0000, 0x41c00000, 0x41c40000, 0x41c80000, 0x41cc0000, 0x41d00000, 0x41d40000, 0x41d80000, 0x41dc0000, 0x41e00000, 0x41e40000, 0x41e80000, 0x41ec0000, 0x41f00000, 0x41f40000, 0x41f80000, 0x41fc0000, 0x42000000, 0x42020000, 0x42040000, 0x42060000, 0x42080000, 0x420a0000, 0x420c0000, 0x420e0000, 0x42100000, 0x42120000, 0x42140000, 0x42160000, 0x42180000, 0x421a0000, 0x421c0000, 0x421e0000, 0x42200000, 0x42220000, 0x42240000, 0x42260000, 0x42280000, 0x422a0000, 0x422c0000, 0x422e0000, 0x42300000, 0x42320000, 0x42340000, 0x42360000, 0x42380000, 0x423a0000, 0x423c0000, 0x423e0000, 0x42400000, 0x42420000, 0x42440000, 0x42460000, 0x42480000, 0x424a0000, 0x424c0000, 0x424e0000, 0x42500000, 0x42520000, 0x42540000, 0x42560000, 0x42580000, 0x425a0000, 0x425c0000, 0x425e0000, 0x42600000, 0x42620000, 0x42640000, 0x42660000, 0x42680000, 0x426a0000, 0x426c0000, 0x426e0000, 0x42700000, 0x42720000, 0x42740000, 0x42760000, 0x42780000, 0x427a0000, 0x427c0000, 0x427e0000, 0x42800000, 0x42810000, 0x42820000, 0x42830000, 0x42840000, 0x42850000, 0x42860000, 0x42870000, 0x42880000, 0x42890000, 0x428a0000, 0x428b0000, 0x428c0000, 0x428d0000, 0x428e0000, 0x428f0000, 0x42900000, 0x42910000, 0x42920000, 0x42930000, 0x42940000, 0x42950000, 0x42960000, 0x42970000, 0x42980000, 0x42990000, 0x429a0000, 0x429b0000, 0x429c0000, 0x429d0000, 0x429e0000, 0x429f0000, 0x42a00000, 0x42a10000, 0x42a20000, 0x42a30000, 0x42a40000, 0x42a50000, 0x42a60000, 0x42a70000, 0x42a80000, 0x42a90000, 0x42aa0000]
+                labels: ["20.0 °C", "20.5 °C", "21.0 °C", "21.5 °C", "22.0 °C", "22.5 °C", "23.0 °C", "23.5 °C", "24.0 °C", "24.5 °C", "25.0 °C", "25.5 °C", "26.0 °C", "26.5 °C", "27.0 °C", "27.5 °C", "28.0 °C", "28.5 °C", "29.0 °C", "29.5 °C", "30.0 °C", "30.5 °C", "31.0 °C", "31.5 °C", "32.0 °C", "32.5 °C", "33.0 °C", "33.5 °C", "34.0 °C", "34.5 °C", "35.0 °C", "35.5 °C", "36.0 °C", "36.5 °C", "37.0 °C", "37.5 °C", "38.0 °C", "38.5 °C", "39.0 °C", "39.5 °C", "40.0 °C", "40.5 °C", "41.0 °C", "41.5 °C", "42.0 °C", "42.5 °C", "43.0 °C", "43.5 °C", "44.0 °C", "44.5 °C", "45.0 °C", "45.5 °C", "46.0 °C", "46.5 °C", "47.0 °C", "47.5 °C", "48.0 °C", "48.5 °C", "49.0 °C", "49.5 °C", "50.0 °C", "50.5 °C", "51.0 °C", "51.5 °C", "52.0 °C", "52.5 °C", "53.0 °C", "53.5 °C", "54.0 °C", "54.5 °C", "55.0 °C", "55.5 °C", "56.0 °C", "56.5 °C", "57.0 °C", "57.5 °C", "58.0 °C", "58.5 °C", "59.0 °C", "59.5 °C", "60.0 °C", "60.5 °C", "61.0 °C", "61.5 °C", "62.0 °C", "62.5 °C", "63.0 °C", "63.5 °C", "64.0 °C", "64.5 °C", "65.0 °C", "65.5 °C", "66.0 °C", "66.5 °C", "67.0 °C", "67.5 °C", "68.0 °C", "68.5 °C", "69.0 °C", "69.5 °C", "70.0 °C", "70.5 °C", "71.0 °C", "71.5 °C", "72.0 °C", "72.5 °C", "73.0 °C", "73.5 °C", "74.0 °C", "74.5 °C", "75.0 °C", "75.5 °C", "76.0 °C", "76.5 °C", "77.0 °C", "77.5 °C", "78.0 °C", "78.5 °C", "79.0 °C", "79.5 °C", "80.0 °C", "80.5 °C", "81.0 °C", "81.5 °C", "82.0 °C", "82.5 °C", "83.0 °C", "83.5 °C", "84.0 °C", "84.5 °C", "85.0 °C"]
+            verification: "reported"
+          start_cook_above_85c:
+            description: >-
+              The same manual-cook request with a setpoint of 85.5-98 °C. The
+              vendor app allows up to 98 °C at sea level (2 °C below local
+              boiling at altitude) and recommends 90 °C as the practical
+              maximum. On a UL-listed unit (identify hardware options bit 16)
+              the app first sends request_button_press and starts the cook
+              only after the owner presses the top button. Read get_limits
+              first and never exceed it.
+            template: [0x0d, "{handle}", 0x2a, 0x00, 0x32, 0x00, 0x92, 0x03, 0x09, 0x0a, 0x07, 0x0d, "{set_point}", 0x28, 0x00]
+            parameters:
+              handle: *handle
+              set_point:
+                type: "uint32"
+                endianness: "little"
+                description: >-
+                  Setpoint in °C as a binary32 bit pattern, four LE bytes:
+                  85.5 to 98.0 °C in 0.5 °C steps (85.5 is 0x42ab0000, 98.0 is
+                  0x42c40000).
+                allowed: [0x42ab0000, 0x42ac0000, 0x42ad0000, 0x42ae0000, 0x42af0000, 0x42b00000, 0x42b10000, 0x42b20000, 0x42b30000, 0x42b40000, 0x42b50000, 0x42b60000, 0x42b70000, 0x42b80000, 0x42b90000, 0x42ba0000, 0x42bb0000, 0x42bc0000, 0x42bd0000, 0x42be0000, 0x42bf0000, 0x42c00000, 0x42c10000, 0x42c20000, 0x42c30000, 0x42c40000]
+                labels: ["85.5 °C", "86.0 °C", "86.5 °C", "87.0 °C", "87.5 °C", "88.0 °C", "88.5 °C", "89.0 °C", "89.5 °C", "90.0 °C", "90.5 °C", "91.0 °C", "91.5 °C", "92.0 °C", "92.5 °C", "93.0 °C", "93.5 °C", "94.0 °C", "94.5 °C", "95.0 °C", "95.5 °C", "96.0 °C", "96.5 °C", "97.0 °C", "97.5 °C", "98.0 °C"]
+            advanced: true
+            advanced_reason: >-
+              Water within a few degrees of boiling: scalding risk, heavy
+              evaporation, and at altitude the setpoint can sit above the
+              local boiling point. UL-listed Joules require an on-device button
+              press before the vendor app starts such a cook, and the device's
+              own ceiling (get_limits) may be lower than 98 °C.
+            verification: "reported"
+          start_timed_cook:
+            description: >-
+              Manual cook with a cook time of 128 to 16383 s (program field 2,
+              a varint that is exactly two bytes over this range). The program
+              walks pre-heat, wait-for-food, cook and wait-for-remove-food; the
+              app sends drop_food when the food goes in. Whether the countdown
+              starts at the drop or at the start is not established. The app
+              always sends whole minutes (minutes x 60). Example for 60.0 °C
+              and 1 h, handle 1: 0d 01 00 00 00 2a 00 32 00 92 03 0c 0a 0a 0d
+              00 00 70 42 10 90 1c 28 00.
+            template: [0x0d, "{handle}", 0x2a, 0x00, 0x32, 0x00, 0x92, 0x03, 0x0c, 0x0a, 0x0a, 0x0d, "{set_point}", 0x10, "{cook_time}", 0x28, 0x00]
+            parameters:
+              handle: *handle
+              set_point: *set_point_low
+              cook_time:
+                type: "varint"
+                unit: "s"
+                min: 128
+                max: 16383
+                description: "Cook time in seconds, protobuf varint. Bounded so it always encodes in two bytes, which keeps the length bytes in the template right (up to 4 h 33 min). Longer cooks use start_long_timed_cook."
+            verification: "reported"
+          start_long_timed_cook:
+            description: >-
+              As start_timed_cook for 16384 to 2097151 s (4 h 33 min to 24
+              days), where the cook-time varint is exactly three bytes. The
+              device's maximum cook time is not recorded. Example for 57.0 °C
+              and 24 h, handle 1: 0d 01 00 00 00 2a 00 32 00 92 03 0d 0a 0b 0d
+              00 00 64 42 10 80 a3 05 28 00.
+            template: [0x0d, "{handle}", 0x2a, 0x00, 0x32, 0x00, 0x92, 0x03, 0x0d, 0x0a, 0x0b, 0x0d, "{set_point}", 0x10, "{cook_time}", 0x28, 0x00]
+            parameters:
+              handle: *handle
+              set_point: *set_point_low
+              cook_time:
+                type: "varint"
+                unit: "s"
+                min: 16384
+                max: 2097151
+                description: "Cook time in seconds, protobuf varint, three bytes over this range."
+            verification: "reported"
+          drop_food:
+            description: >-
+              Tell the Joule the food is in the bath (oneof field 102, empty
+              body), moving a program from waiting-for-food to cooking. Reply:
+              oneof field 103 with a result code. Dropping during pre-heat is
+              the "early food drop" of API version 9 and later.
+            template: [0x0d, "{handle}", 0x2a, 0x00, 0x32, 0x00, 0xb2, 0x06, 0x00]
+            parameters:
+              handle: *handle
+            verification: "reported"
+          clear_error:
+            description: "Acknowledge and clear a soft error (oneof field 104, empty body). Reply: oneof field 105 with a result code. API version 6 and later; older firmware needed manual error handling."
+            template: [0x0d, "{handle}", 0x2a, 0x00, 0x32, 0x00, 0xc2, 0x06, 0x00]
+            parameters:
+              handle: *handle
+            verification: "reported"
+          get_cook_events:
+            description: "Read the current cook's milestones (oneof field 54, empty body). Reply: oneof field 55 (payload_formats.Cook_Events_Reply). API version 9 and later."
+            template: [0x0d, "{handle}", 0x2a, 0x00, 0x32, 0x00, 0xb2, 0x03, 0x00]
+            parameters:
+              handle: *handle
+            verification: "reported"
+          list_recent_events:
+            description: "Ask why the last program stopped or what hardware failed (oneof field 92, empty body). Reply: oneof field 93 (payload_formats.Recent_Event_Reply)."
+            template: [0x0d, "{handle}", 0x2a, 0x00, 0x32, 0x00, 0xe2, 0x05, 0x00]
+            parameters:
+              handle: *handle
+            verification: "reported"
+          list_feeds:
+            description: "List the Joule's feeds (oneof field 100, empty body). Replies: oneof field 101, one per feed: feed id (field 1), feed type (field 2, 1 = cook data), active flag (field 3), result (field 4). Use the cook-data feed id with the describe-feed request (protocol_details.message_encodings.describe_feed) to read the running program."
+            template: [0x0d, "{handle}", 0x2a, 0x00, 0x32, 0x00, 0xa2, 0x06, 0x00]
+            parameters:
+              handle: *handle
+            verification: "reported"
+          blink_led:
+            description: >-
+              Light the Joule's LED so you can find it (oneof field 156: inner
+              field 1 colour, field 2 pattern, field 3 duration in ms, fixed
+              here at 5000 ms). Reply: oneof field 157 with a result code.
+              Defaults give a white double blink, the pattern the vendor's LED
+              article calls "the app has requested that Joule identify
+              itself". API version 6 and later.
+            template: [0x0d, "{handle}", 0x2a, 0x00, 0x32, 0x00, 0xe2, 0x09, 0x07, 0x08, "{color}", 0x10, "{pattern}", 0x18, 0x88, 0x27]
+            parameters:
+              handle: *handle
+              color:
+                type: "uint8"
+                default: 3
+                min: 0
+                max: 7
+                labels: ["Red", "Green", "Blue", "White", "Orange", "Yellow", "Off (black)", "Purple"]
+                description: "LED colour enum (a one-byte varint over this range)."
+              pattern:
+                type: "uint8"
+                default: 2
+                min: 0
+                max: 4
+                labels: ["Blink", "Breathe", "Double blink", "Double pulse", "Solid"]
+                description: "LED pattern enum (a one-byte varint over this range)."
+            locate: "flash"
+            verification: "reported"
+          request_button_press:
+            description: >-
+              Ask the owner to confirm at the device (oneof field 190: white,
+              double blink, 35000 ms, as the app sends it before a
+              high-temperature start on UL-listed units). The reply (oneof
+              field 191) arrives only when the button is pressed, with result
+              0; result 13 means it timed out and 19 that it was cancelled.
+              The SDK waits up to 300 s. API version 7 and later.
+            template: [0x0d, "{handle}", 0x2a, 0x00, 0x32, 0x00, 0xf2, 0x0b, 0x08, 0x08, 0x03, 0x10, 0x02, 0x18, 0xb8, 0x91, 0x02]
+            parameters:
+              handle: *handle
+            verification: "reported"
+          cancel_button_press:
+            description: "Withdraw a pending button-press request (oneof field 192, empty body). Reply: oneof field 193 with a result code."
+            template: [0x0d, "{handle}", 0x2a, 0x00, 0x32, 0x00, 0x82, 0x0c, 0x00]
+            parameters:
+              handle: *handle
+            verification: "reported"
+          scan_wifi_networks:
+            description: >-
+              Have the Joule scan for access points (oneof field 41; the
+              optional start flag is omitted, as Breville+ sends it). Replies:
+              oneof field 42, one per access point, on the same handle
+              (payload_formats.Wifi_Scan_Reply). Bluetooth-only in the vendor
+              router.
+            template: [0x0d, "{handle}", 0x2a, 0x00, 0x32, 0x00, 0xca, 0x02, 0x00]
+            parameters:
+              handle: *handle
+            verification: "reported"
+          get_wifi_status:
+            description: "Read the current Wi-Fi profile and link state (oneof field 45, index omitted as Breville+ sends it; the ChefSteps SDK sends index -1). Reply: oneof field 47 (payload_formats.Wifi_Status_Reply)."
+            template: [0x0d, "{handle}", 0x2a, 0x00, 0x32, 0x00, 0xea, 0x02, 0x00]
+            parameters:
+              handle: *handle
+            verification: "reported"
+          disconnect_wifi:
+            description: "Drop the current Wi-Fi connection (oneof field 160, empty body). Reply: oneof field 161 with a result code. Bluetooth-only in the vendor router. The first half of moving to a new network."
+            template: [0x0d, "{handle}", 0x2a, 0x00, 0x32, 0x00, 0x82, 0x0a, 0x00]
+            parameters:
+              handle: *handle
+            verification: "reported"
+          forget_wifi_profile:
+            description: >-
+              Forget a stored Wi-Fi profile (oneof field 48, inner field 1 =
+              index as int32). This is the ChefSteps SDK's default form, index
+              -1, which encodes as the ten-byte varint ff ff ff ff ff ff ff ff
+              ff 01; what -1 selects (probably the current profile) is not
+              established. Reply: oneof field 49 with a result code.
+            template: [0x0d, "{handle}", 0x2a, 0x00, 0x32, 0x00, 0x82, 0x03, 0x0b, 0x08, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x01]
+            parameters:
+              handle: *handle
+            verification: "reported"
+      - uuid: "700b4323-9836-4383-a2b2-31a9098d1473"
+        name: "message output"
+        properties: ["read"]
+        notes: >-
+          Read after every doorbell notification. Each read returns exactly
+          one encoded envelope (replies, data points, event messages); longer
+          values arrive through the host's ATT long read. A zero-length read
+          means nothing is queued. Breville+ ignores reads of 4 bytes or
+          fewer. The value is protobuf, so no fixed-offset `format` applies;
+          see protocol_details.envelope and payload_formats.
+      - uuid: "700b4325-9836-4383-a2b2-31a9098d1473"
+        name: "doorbell"
+        properties: ["notify"]
+        notes: >-
+          Subscribe once per connection. The notification's value is ignored
+          by both apps; it only signals that 700b4323 has a message to read.
+          One read per notification.
+      - uuid: "700b4326-9836-4383-a2b2-31a9098d1473"
+        name: "file transfer"
+        role: "bulk"
+        properties: ["write_without_response"]
+        notes: >-
+          Block channel for firmware images, logs and certificates, written
+          without response in small blocks (the ChefSteps app's preferred
+          block size is 16 bytes, two packets per connection interval, 10 s
+          per block and five retries). Only used during a file transfer that
+          request messages on 700b4322 set up. Overview only:
+          features[].dfu and protocol_details.firmware_update. No flashing
+          bytes are given here.
+
+payload_formats:
+  Envelope:
+    description: >-
+      Every write to 700b4322 and every read of 700b4323 is one protobuf
+      (proto2) envelope. Field numbers and wire types are the contract; names
+      are ours.
+    fields:
+      - name: "handle"
+        description: "Field 1, fixed32 (wire type 5), little-endian uint32. Correlates a reply or stream message with the request that opened it."
+      - name: "end"
+        description: "Field 4, bool varint. 1 on the last message of a stream. Replies to one-shot requests carry it."
+      - name: "sender_address"
+        description: "Field 5, bytes. Empty over BLE from the ChefSteps app. Breville+ fills it from the advert; either is reported to work."
+      - name: "recipient_address"
+        description: "Field 6, bytes. As sender_address."
+      - name: "body"
+        description: "Exactly one of the oneof fields listed in protocol_details.message_catalogue, as a length-delimited sub-message (wire type 2)."
+    parse_rules:
+      - "Decode fields in any order; unknown field numbers must be skipped, not rejected (Breville+-era firmware may add messages)."
+      - "The oneof field number tells you what the message is: an odd reply number is usually request number + 1."
+      - "A reply's inner field 1 is usually a result code (protocol_details.enums.result); 0 is success."
+    example: "0d 01 00 00 00 20 01 2a 00 32 00 ea 03 02 08 00  (stop-cooking reply, handle 1, end set, result 0)"
+  Data_Point:
+    description: >-
+      Live-feed data point: oneof field 90 of an envelope on the live feed's
+      handle. Floats are IEEE 754 binary32 LE (wire type 5); the rest are
+      varints. Absent optional fields mean "not reported".
+    fields:
+      - name: "feed_id"
+        description: "Field 1, varint. Identifies the feed (and so the program); changes when a new program starts."
+      - name: "sequence_number"
+        description: "Field 2, varint. Increments per data point."
+      - name: "timestamp"
+        unit: "ms"
+        description: "Field 3, varint, milliseconds since the Joule's processor started."
+      - name: "error_state"
+        description: "Field 4, varint enum: 0 none, 1 soft error, 2 hard error."
+      - name: "bath_temperature"
+        unit: "C"
+        description: "Field 10, float32. Water temperature. The app shows it to 0.1 °C."
+      - name: "program_step"
+        description: "Field 11, varint enum (protocol_details.enums.program_step). Absent when no program runs."
+      - name: "time_remaining"
+        unit: "s"
+        description: "Field 12, varint, seconds left on the cook timer."
+      - name: "heater_temperature"
+        unit: "C"
+        description: "Field 50, float32."
+      - name: "upper_board_temperature"
+        unit: "C"
+        description: "Field 52, float32 (the cooler part of the board)."
+      - name: "lower_board_temperature"
+        unit: "C"
+        description: "Field 53, float32 (the hotter part of the board)."
+      - name: "motor_speed"
+        unit: "rpm"
+        description: "Field 54, int32 varint (negative values are ten-byte varints). Sign gives pumping direction."
+      - name: "heater_duty"
+        unit: "%"
+        description: "Field 55, float32, heater PWM on-percentage."
+      - name: "motor_voltage"
+        unit: "V"
+        description: "Field 56, float32."
+      - name: "motor_duty"
+        unit: "%"
+        description: "Field 57, float32, motor PWM on-percentage."
+      - name: "motor_current"
+        unit: "A"
+        description: "Field 58, float32."
+      - name: "pressure"
+        unit: "hPa"
+        description: "Field 61, float32. Absent on hardware without the pressure sensor (the SDK treats a hardware version starting 'JC' as having none)."
+      - name: "motor_fault_flags"
+        description: "Field 63, varint, raw motor-controller fault bits (meaning not recorded)."
+      - name: "motor_peak_current"
+        unit: "A"
+        description: "Field 64, float32."
+      - name: "cook_start_time"
+        unit: "s"
+        description: "Field 65, varint. Identifies the cook by when it started, because the feed id can change."
+    parse_rules:
+      - "Take the program's setpoint from the describe-feed reply for this feed_id; data points do not carry it."
+      - "No program_step and no describe-feed program means the Joule is idle."
+      - "Treat 10 s without a data point as a lost feed and reopen it (SDK behaviour)."
+    example: "0d 01 00 00 00 2a 00 32 00 d2 05 12 08 07 10 2a 18 c0 c4 07 55 00 00 5d 42 58 03 60 88 0e  (feed 7, seq 42, t=123456 ms, 55.25 °C, step 3 cook, 1800 s left; built from the field numbers, not captured)"
+  Identify_Reply:
+    description: "Oneof field 153. Strings unless noted."
+    fields:
+      - name: "name"
+        description: "Field 1, the user-given name."
+      - name: "firmware_version"
+        description: "Field 2."
+      - name: "hardware_version"
+        description: "Field 3. The SDK assumes pressure sensing unless this starts 'JC'."
+      - name: "serial_number"
+        description: "Field 4. Per unit; do not publish."
+      - name: "ble_mac"
+        description: "Field 5. Per unit; do not publish."
+      - name: "softdevice_version"
+        description: "Field 6."
+      - name: "bootloader_version"
+        description: "Field 7."
+      - name: "app_firmware_version"
+        description: "Field 8."
+      - name: "wifi_firmware_version"
+        description: "Field 9."
+      - name: "certificate_version"
+        description: "Field 10."
+      - name: "model_number"
+        description: "Field 11."
+      - name: "api_version"
+        description: "Field 12, varint. Gates newer messages (protocol_details.api_version_capabilities)."
+      - name: "hardware_options"
+        description: "Field 13, varint bit field (protocol_details.enums.hardware_options): finish, voltage, plug, UL and CE listing."
+      - name: "build_date"
+        description: "Field 14, varint. The app shows digits 3-4 then 1-2 as a month/year."
+      - name: "pcba_revision"
+        description: "Field 15."
+  Limits_Reply:
+    description: "Oneof field 181."
+    fields:
+      - name: "result"
+        description: "Field 1, result code."
+      - name: "max_temperature"
+        unit: "C"
+        description: "Field 2, float32. The device's setpoint ceiling."
+  Cook_Events_Reply:
+    description: "Oneof field 55: field 1 result, field 2 a sub-message of optional varint timestamps (seconds; epoch not recorded)."
+    fields:
+      - name: "program_started"
+        unit: "s"
+        description: "Sub-message field 1."
+      - name: "food_dropped"
+        unit: "s"
+        description: "Sub-message field 2."
+      - name: "set_point_reached"
+        unit: "s"
+        description: "Sub-message field 3."
+      - name: "cook_finished"
+        unit: "s"
+        description: "Sub-message field 4."
+  Recent_Event_Reply:
+    description: "Oneof field 93."
+    fields:
+      - name: "event_type"
+        description: "Field 1, varint: 0 none, 1 hardware failure, 2 program stopped."
+      - name: "event_reason"
+        description: "Field 2, varint (protocol_details.enums.stop_reason)."
+      - name: "event_time"
+        unit: "ms"
+        description: "Field 3, varint. For a hardware failure, ms since processor start; for a stopped program, ms since the last start-program; 0 for none."
+      - name: "feed_id"
+        description: "Field 4, varint."
+      - name: "sequence_number"
+        description: "Field 5, varint."
+    parse_rules:
+      - "Fields 6-15 carry crash diagnostics (fault type, registers, reset reason, fault count). A client can ignore them."
+  Wifi_Scan_Reply:
+    description: "Oneof field 42, one per access point, all on the scan request's handle."
+    fields:
+      - name: "ssid"
+        description: "Field 1000, string."
+      - name: "security_type"
+        description: "Field 1001, varint (protocol_details.enums.wifi_security)."
+      - name: "rssi"
+        unit: "dBm"
+        description: "Field 1002, sint32 (zigzag varint)."
+  Wifi_Status_Reply:
+    description: "Oneof field 47."
+    fields:
+      - name: "result"
+        description: "Field 1. 29 means not connected."
+      - name: "ssid"
+        description: "Field 2, string."
+      - name: "cloud_token_set"
+        description: "Field 3, bool. Whether the vendor-cloud bearer token has been pushed."
+      - name: "connection_status"
+        description: "Field 4, varint: 0 idle, 1 connecting, 2 wrong password, 3 no AP found, 4 connect failed, 5 got IP."
+      - name: "ms_since_last_packet"
+        unit: "ms"
+        description: "Field 5, varint."
+      - name: "cloud_status"
+        description: "Field 6, varint. 101 is what the app treats as a healthy cloud link (it matches HTTP 101, the WebSocket upgrade)."
+      - name: "wifi_mac"
+        description: "Field 7, bytes. Per unit; do not publish."
+
+features:
+  - type: "firmware_update"
+    dfu:
+      mechanisms: ["vendor_ble", "custom"]
+      transport: ["ble", "udp", "http"]
+      image:
+        signing: "unknown"
+        source: "vendor_cloud"
+        notes: >-
+          Five image kinds: the BLE SoC's application, its SoftDevice and
+          bootloader, the Wi-Fi module's firmware and a certificate bundle.
+          The BLE-path transfer carries a checksum; the Wi-Fi path carries a
+          SHA-256 the device checks after download. JouleUWP reported that no
+          signature is verified; that was a reading of app code, not a test,
+          so signing stays unknown.
+      dfu_mode:
+        notes: >-
+          What the Joule advertises while in its bootloader is not recorded.
+          The LED blinks blue while an update downloads and is solid blue
+          while it installs, then the Joule restarts to solid white (vendor LED
+          article).
+      recovery:
+        interrupted: "unknown"
+        notes: "The Wi-Fi module keeps three image slots (one running, one factory) and refuses to overwrite the active or factory slot, which suggests an interrupted Wi-Fi update keeps the old image. Nothing is recorded for the BLE SoC."
+      verification: "reported"
+      notes: >-
+        Two paths, both driven by the vendor app with images from the vendor
+        cloud. BLE: a boot-mode request reboots the SoC into its bootloader
+        and the image goes over 700b4326-9836-4383-a2b2-31a9098d1473 in blocks
+        framed by start-transfer, block and complete messages. Wi-Fi: a
+        request tells the Joule to fetch an image itself by TFTP or HTTP from a
+        named host with a SHA-256, then a set-firmware message switches slots.
+        No entry command is declared (dfu.enter is omitted on purpose): the
+        boot-mode and transfer messages are documented by role only in
+        protocol_details.firmware_update, and no flashing bytes are given.
+        Firmware is updated through the vendor app (it needs a temporary Wi-Fi
+        link); Breville+ needs 175 or 123.1 for Bluetooth-only use.
+
+entities:
+  - platform: "button"
+    name: "Stop Cooking"
+    icon: "mdi:stop-circle"
+    commands:
+      press: "stop_cooking"
+    notes: "Stops heating and circulation. Put this first. Unplugging the Joule also stops it immediately."
+  - platform: "select"
+    name: "Start Cook"
+    icon: "mdi:pot-steam"
+    commands:
+      select_option: "start_cook"
+    notes: >-
+      Picking a temperature starts (or restarts) a manual cook at it: the
+      Joule has no setpoint without a running program, so there is no
+      "set temperature but stay idle". Options are start_cook's labels
+      (20-85 °C in 0.5 °C steps). The current program's setpoint is read with
+      the describe-feed request for the live feed's feed id
+      (protocol_details.message_encodings.describe_feed).
+  - platform: "button"
+    name: "Drop Food"
+    icon: "mdi:food-steak"
+    commands:
+      press: "drop_food"
+  - platform: "button"
+    name: "Clear Error"
+    icon: "mdi:alert-remove"
+    commands:
+      press: "clear_error"
+    notes: "API version 6 and later."
+  - platform: "button"
+    name: "Identify"
+    icon: "mdi:led-on"
+    commands:
+      press: "blink_led"
+    notes: "White double blink for 5 s. API version 6 and later."
+  - platform: "sensor"
+    name: "Water Temperature"
+    device_class: "temperature"
+    unit: "C"
+    precision: 0.1
+    state_characteristic: "700b4323-9836-4383-a2b2-31a9098d1473"
+    notes: "payload_formats.Data_Point bath_temperature (field 10, float32 °C), from the live feed opened with begin_live_feed."
+  - platform: "sensor"
+    name: "Time Remaining"
+    unit: "s"
+    icon: "mdi:timer-sand"
+    state_characteristic: "700b4323-9836-4383-a2b2-31a9098d1473"
+    notes: "payload_formats.Data_Point time_remaining (field 12)."
+  - platform: "sensor"
+    name: "Program Step"
+    icon: "mdi:state-machine"
+    state_characteristic: "700b4323-9836-4383-a2b2-31a9098d1473"
+    notes: "payload_formats.Data_Point program_step (field 11), decoded with protocol_details.enums.program_step. Absent means idle."
+  - platform: "sensor"
+    name: "Maximum Setpoint"
+    device_class: "temperature"
+    unit: "C"
+    state_characteristic: "700b4323-9836-4383-a2b2-31a9098d1473"
+    commands:
+      poll: "get_limits"
+    notes: "payload_formats.Limits_Reply max_temperature (float32 °C)."
+
+protocol_details:
+  envelope:
+    wire_form: >-
+      0d <handle, uint32 LE> [20 01 when ending a stream] 2a 00 32 00 <oneof
+      tag varint> <body length varint> <body>. The oneof tag is (field number
+      x 8 + 2) as a varint: 50 -> 92 03, 60 -> e2 03, 130 -> 92 08, 152 -> c2
+      09. Bodies are ordinary protobuf; nested lengths are varints.
+    handles: >-
+      The reply to a request, and every message of a stream the request opened
+      (live-feed data points, Wi-Fi scan results), carries the request's
+      handle. The ChefSteps SDK draws a random handle below 999744 per request
+      and keeps its handles to one parity per peer (even when the peer's
+      address sorts above its own); Breville+ derives handles from the device
+      address plus a per-message-group offset. Neither scheme appears to
+      matter to the Joule, which is reported to echo whatever it gets.
+    streams: >-
+      A request that expects one reply is complete when that reply arrives;
+      the SDK ends its side with an end-flagged envelope if the reply did not
+      carry end. A long-lived stream (the live feed) stays open until either
+      side sends an envelope with end set on its handle. The opener sends a
+      keep-alive on the handle every 5 s; the SDK times out a stream the
+      other side opened after 15 s without a message.
+    addresses: >-
+      Over BLE the ChefSteps app clears both address fields to empty bytes
+      before every write. Over the cloud WebSocket they carry the app's and
+      the Joule's messaging addresses (hex strings of up to 9 bytes). The
+      Joule's address is the one in its advertisement. Breville+ fills the
+      addresses from the advertisement even over BLE; both forms are reported
+      to work.
+    empty_and_short_reads: >-
+      A zero-length read of 700b4323 means nothing is queued. The ChefSteps
+      app's plugin reports it as an error; if a start-program request is
+      outstanding at that moment the app fabricates a successful reply and
+      re-syncs, otherwise it drops the connection. Breville+ ignores reads of
+      4 bytes or fewer. A client should treat an empty read as "nothing to
+      do" and confirm a start from the live feed instead.
+  message_catalogue:
+    notes: >-
+      Oneof field numbers of the messages in scope, restated from the app's
+      schema. Replies are normally request + 1. The BLE-only column is the
+      vendor router's rule; everything else may also travel over the cloud
+      WebSocket.
+    basic:
+      "14": "no-op"
+      "15": "reply: unhandled message"
+      "16": "reply: connection ready"
+      "17": "reply: recipient unavailable (field 1 address, field 2 reason: 0 offline, 1 unauthorised)"
+      "18/19": "ping / pong"
+      "20/21": "list streams / reply"
+      "30/31": "list operations / reply (field 1000 name)"
+      "72": "keep-alive"
+    cook_control:
+      "50/51": "start program / reply"
+      "52/53": "update program / reply (API 12+; see update_program)"
+      "54/55": "get cook events / reply (API 9+)"
+      "60/61": "stop / reply"
+      "102/103": "drop food / reply"
+      "104/105": "clear error / reply (API 6+)"
+    feeds:
+      "70/71": "begin live feed / reply"
+      "80/81": "retransmit feed range (field 1 feed id, 2 first seq, 3 last seq) / reply"
+      "90": "data point (payload_formats.Data_Point)"
+      "91": "debug log message (debug feed, feed type 2)"
+      "92/93": "list recent events / reply"
+      "95/96": "describe feed / reply (field 1 feed id; reply field 2 = the program)"
+      "100/101": "list feeds / reply"
+    wifi:
+      "41/42": "scan Wi-Fi / one reply per access point (BLE only)"
+      "43/44": "connect Wi-Fi / reply (BLE only)"
+      "45/47": "Wi-Fi status (list profile) / reply"
+      "48/49": "forget Wi-Fi profile / reply"
+      "160/161": "disconnect Wi-Fi / reply (BLE only)"
+    pairing_and_identity:
+      "120/121": "start key exchange / reply with secret key (BLE only)"
+      "125/126": "cancel key exchange / reply"
+      "130/131": "submit key / reply (BLE only; the only message allowed before authorisation)"
+      "132/133": "submit cloud bearer token / reply (cloud_path)"
+      "150/151": "rename / reply (reply field 2 = the name now set)"
+      "152/153": "identify / reply"
+      "154/155": "set messaging address / reply (not used over BLE by either app)"
+      "156/157": "display LED / reply (API 6+)"
+      "180/181": "get limits / reply (API 2+)"
+      "190/191": "request button press / reply (API 7+)"
+      "192/193": "cancel button press / reply"
+    excluded_by_role: >-
+      Also in the oneof, deliberately without numbers here: boot-mode entry,
+      file transfer start/block/complete and file receive (firmware, logs,
+      certificates), the Wi-Fi module's firmware status, download and
+      set-firmware messages, factory reset, device restart, a test reset, a
+      forget-device-pairing request, simulator on/off, reading and writing
+      the temperature sensor's calibration coefficients, and usage-data and
+      crash-data read and reset. They are factory, test or firmware tooling;
+      several can leave a unit uncalibrated or unbootable. If ever declared,
+      every one of them is `advanced`.
+  message_encodings:
+    program:
+      notes: >-
+        The program sub-message (start-program field 1; describe-feed reply
+        field 2). Only fields 1 and 5 are needed for a manual cook.
+      fields:
+        "1": "set point, float32 °C (required)"
+        "2": "cook time, varint seconds"
+        "3": "delayed start, varint seconds (see advanced_fields)"
+        "4": "holding temperature, float32 °C (see advanced_fields)"
+        "5": "program type, varint: 0 manual, 1 automatic/guided (required)"
+        "6": "metadata sub-message: guide, program, timer and cook ids (strings, fields 1-4); app bookkeeping, not needed locally"
+        "7": "turbo state, varint: 0 none, 1 enabled, 2 timed out (API 13+). The app always sends 0 unless the user picks turbo"
+        "8": "food thickness, varint micrometres (turbo cooks)"
+        "9": "food weight, varint milligrams (turbo cooks)"
+      start_program_extras: "Start-program fields 2 (feed id) and 3 (sequence number), both varints, are optional optimistic-concurrency guards the app fills with the last data point's values."
+      advanced_fields:
+        advanced: true
+        advanced_reason: >-
+          Delayed start leaves food in unheated water before cooking starts,
+          and a holding temperature lets the bath drift down after the cook;
+          both are food-safety decisions the vendor app made for the user in
+          guided recipes. The ChefSteps app never sent delayed start from its
+          UI (JouleUWP saw none either).
+        notes: "Encode as field 3 (varint s) and field 4 (float32 °C) inside the program, in field-number order, and fix up both length bytes."
+    update_program:
+      notes: >-
+        Oneof field 52 (API 12+): field 1 cook time (varint s), 2 set point
+        (float32 °C), 3 set-point time (varint), 4 update type (1 regular, 2
+        turbo). The ChefSteps app changes a running cook by starting a new
+        program instead (and resumes with the remaining time as the cook
+        time), so update_program is not declared.
+    describe_feed:
+      notes: >-
+        Oneof field 95 with field 1 = feed id (varint). For feed id 7, handle
+        1: 0d 01 00 00 00 2a 00 32 00 fa 05 02 08 07. The body length is 2 for
+        ids up to 127 and 3 up to 16383. The reply (field 96) carries field 1
+        feed id, field 2 the program (absent when idle), field 3 result.
+    connect_wifi:
+      notes: >-
+        Oneof field 43 (tag da 02). Body: field 1 SSID (string), field 2
+        passphrase (string, empty for open networks), field 3 security type
+        (varint, enums.wifi_security). Body length = (2 + SSID length) + (2 +
+        passphrase length) + 2 while each string is under 128 bytes. SSIDs up
+        to 32 and passphrases up to 63 characters since firmware 85.39.
+      example: "SSID 'ExampleNet', passphrase 'example-pass', WPA2, handle 1: 0d 01 00 00 00 2a 00 32 00 da 02 1c 0a 0a 45 78 61 6d 70 6c 65 4e 65 74 12 0c 65 78 61 6d 70 6c 65 2d 70 61 73 73 18 05 (invented credentials)"
+    rename:
+      notes: "Oneof field 150 (tag b2 09). Body: field 1 name (string). Reply field 151: field 1 result, field 2 the name as stored."
+      example: "Name 'Kitchen', handle 1: 0d 01 00 00 00 2a 00 32 00 b2 09 09 0a 07 4b 69 74 63 68 65 6e"
+  enums:
+    result:
+      "0": "success"
+      "3": "internal error"
+      "5": "not found"
+      "6": "not supported"
+      "7": "invalid parameter"
+      "8": "invalid state (not allowed now)"
+      "11": "invalid data"
+      "13": "timed out"
+      "15": "forbidden"
+      "17": "busy"
+      "19": "already exists (a button-press request was superseded or cancelled)"
+      "21": "not connected"
+      "22": "unknown request"
+      "24": "Wi-Fi key error"
+      "25-33": "Wi-Fi errors: bad role, wrong security type, bad WEP index, already disconnected, not connected, unexpected disconnect, wrong password, receive overrun, AP ended the connection"
+      "34-44": "socket and DNS errors"
+      "45-52": "cloud WebSocket errors (45 not authorised)"
+      "53-57": "internal SPI and queue errors"
+      "58": "could not decode the envelope"
+      "59": "Wi-Fi operation in progress"
+      "60-61": "TLS failure / invalid certificate"
+    program_step:
+      "0": "unknown"
+      "1": "pre-heat (the app shows 'cooling' if the bath is above the setpoint)"
+      "2": "at temperature, waiting for food"
+      "3": "cooking"
+      "4": "cook done, waiting for the food to come out"
+      "5": "error"
+      "6": "waiting for update (the app shows it as turbo)"
+    stop_reason:
+      "0": "none"
+      "2": "top button pressed (program stopped)"
+      "3": "low water"
+      "4": "tipped over"
+      "5": "overheating"
+      "6": "power loss"
+      "12": "stuck motor"
+      "14": "firmware crash"
+      "7": "hardware failure: heater thermistor"
+      "8": "hardware failure: bath thermistor"
+      "9": "hardware failure: pressure sensor"
+      "10": "hardware failure: accelerometer"
+      "11": "hardware failure: bad motor"
+      "13": "hardware failure: bad heater"
+      "1": "hardware failure (old generic value)"
+    hardware_options:
+      "1": "stainless finish"
+      "2": "white finish"
+      "4": "rose-gold finish"
+      "256": "230 V unit"
+      "512": "type G (UK) plug"
+      "1024": "CEE 7 (EU) plug"
+      "2048": "type J plug"
+      "65536": "UL-listed: the app requires a button press before starting above 85 °C"
+      "131072": "CE-marked"
+    wifi_security:
+      "0": "open"
+      "1": "WEP"
+      "2": "WPA"
+      "3": "WPS"
+      "4": "unknown"
+      "5": "WPA2"
+      "6": "WPA/WPA2 mixed"
+    led_color: "0 red, 1 green, 2 blue, 3 white, 4 orange, 5 yellow, 6 black (off), 7 purple"
+    led_pattern: "0 blink, 1 breathe, 2 double blink, 3 double pulse, 4 solid"
+  api_version_capabilities:
+    notes: "Cumulative: a Joule reporting API version N supports everything at N and below (the SDK's own table, restated)."
+    "1": "usage data"
+    "2": "get limits"
+    "3": "restartable debug feed"
+    "4": "updated event timestamps"
+    "5": "richer connect-Wi-Fi errors"
+    "6": "clear error, display LED, describe feed without an id"
+    "7": "button-press requests"
+    "8": "multiple Wi-Fi profiles"
+    "9": "cook events, early food drop"
+    "10": "updated automatic-cook timer"
+    "11": "crash data"
+    "12": "update program"
+    "13": "turbo cooking"
+  app_behaviour:
+    reply_timeouts_s:
+      default: 5
+      identify: 5
+      submit_key: 5
+      describe_feed: 10
+      connect_wifi: 15
+      wifi_status_and_forget: 15
+      submit_bearer_token: 15
+      start_key_exchange: 35
+      request_button_press: 300
+    connection: "Scan 4 s (tripled on Android), connect timeout 10 s, reconnect back-off from 0.5 s to 5 s."
+    live_feed: "The app keeps one live feed open while a Joule is active and re-opens it after 10 s without a data point. It associates each feed id with its program through describe-feed, and on a power loss or firmware crash it asks list_recent_events why."
+    high_temperature_starts: "If the setpoint is above 85 °C and hardware-options bit 16 (UL) is set, the app sends request_button_press (white, double blink, 35 s), tells the user to press the button, and starts the program only on a successful reply."
+    temperature_limits: "UI minimum 20 °C; a user setting caps the UI at 92 °C by default and 98 °C otherwise; the SDK falls back to 90 °C if get_limits is unsupported."
+  app_defects:
+    empty_read_fabricates_success: "The ChefSteps app, on a zero-length read while a start-program request is outstanding, invents a successful start-program reply instead of reporting a problem. A cook that never started can therefore show as started until the live feed says otherwise."
+    breville_plus_short_reads: "Breville+ drops any read of 4 bytes or fewer without decoding it."
+    breville_plus_mtu: "Breville+ forces MTU 23 for this model on Android 14 and newer, and 512 on older Android; the reason is not recorded and may be a firmware quirk with large MTUs."
+  cloud_path:
+    local: false
+    notes: >-
+      Not a local surface; recorded so nobody goes looking for one. Once on
+      Wi-Fi the Joule keeps an outbound TLS connection to the vendor cloud.
+      The app reaches it through a WebSocket (wss://production-cc-app-1.chefsteps.com/direct)
+      that tunnels the same envelopes, with the address fields filled in.
+      The Joule authenticates with a bearer token the owner's app fetches
+      from the vendor account and pushes over BLE with the submit-bearer-token
+      request (oneof 132, field 1 string); get_wifi_status field 3 then
+      reads true and cloud status 101. The first account to do this is the
+      Joule's "owner". The vendor REST API also stores each Joule's secret
+      key in the owner's account. None of this is specified here as a control
+      surface. JouleUWP's port scan found no open ports on the Joule.
+  firmware_update:
+    advanced: true
+    advanced_reason: >-
+      Rebooting the SoC into its bootloader or flashing an image can leave
+      the Joule unbootable; the Wi-Fi download path accepts an image from any
+      host the request names. Overview only: no request bytes are given.
+    notes: >-
+      BLE path: the app requests boot mode (softdevice, bootloader or
+      application), then streams the image over
+      700b4326-9836-4383-a2b2-31a9098d1473 using start-transfer (file type,
+      block count, byte count, checksum, version), per-block and
+      transfer-complete messages. Wi-Fi path: a download request names a host,
+      a file name, the image's SHA-256 and TFTP or HTTP; the Joule reports
+      progress and outcome (busy while cooking, checksum mismatch, bad image,
+      refusing to overwrite the active or factory slot) and a set-firmware
+      message activates a slot. The app checks the Wi-Fi status up to 4 times
+      8 s apart and gives up after 240 s without progress. Image kinds: BLE
+      application, SoftDevice, bootloader, Wi-Fi firmware, certificates.
+  excluded:
+    joule_turbo: >-
+      The Joule Turbo (retail BSV600, orange ring on the top cap) is not this
+      protocol, contrary to earlier notes that equated it with model code
+      CSJ100. In Breville+, CSJ100 is the code for a Joule found under company
+      ID 0x0159 (this spec), while the Turbo is found under company ID 0x0955
+      (2389) with model byte 2 in its manufacturer data, and is driven through
+      Breville's own appliance service c6f2d9e3-49e7-4125-9014-bfc6d669ff00
+      (serial number, Wi-Fi MAC, proximity state, message characteristics on
+      the same base). One Breville+ write path addresses a Breville
+      characteristic under the 700b4321-9836-4383-a2b2-31a9098d1473 service
+      UUID, so whether the Turbo also exposes that service is unknown. The
+      Turbo cannot pair with the ChefSteps app (ChefSteps help centre).
+    breville_plus_uuid_e2a6b338: >-
+      e2a6b338-d148-49ca-84a8-f5b9a7b93c6e, flagged earlier as a possible GATT
+      UUID, is not one: in the Breville+ bundle it is the id of a built-in
+      manual-cook recipe definition (heater, timer and wait steps) for
+      Breville's newer appliances. It plays no part in this protocol.
+    other: "The Joule oven and Breville's BOV/BES/CST appliances in the same app use Breville's own stack and are out of scope."
+  test_vectors:
+    notes: "Built from the field numbers with a scratch encoder and decoded back; not captured. Handle 1 throughout. Addresses and keys are invented."
+    advertisement_payload: "Manufacturer data after company ID 0x0159: 10 0a 1b 2c 3d 4e 5f 60 71 -> flags 0x10 (bit 7 clear: nobody connected; version 16), circulator address 0a1b2c3d4e5f6071 (invented)."
+    set_point_float: "60.0 °C -> 00 00 70 42; 56.5 °C -> 00 00 62 42; 85.0 °C -> 00 00 aa 42"
+    cook_time_varint: "3600 s -> 90 1c; 16383 s -> ff 7f; 16384 s -> 80 80 01; 86400 s -> 80 a3 05"
+    stop_cooking: "0d 01 00 00 00 2a 00 32 00 e2 03 00"
+    stop_cooking_reply: "0d 01 00 00 00 20 01 2a 00 32 00 ea 03 02 08 00  (result 0, end set)"
+    begin_live_feed: "0d 01 00 00 00 2a 00 32 00 b2 04 02 08 01"
+    submit_key: "16-byte key 00..0f: 0d 01 00 00 00 2a 00 32 00 92 08 12 0a 10 00 01 02 03 04 05 06 07 08 09 0a 0b 0c 0d 0e 0f"
+    request_button_press: "0d 01 00 00 00 2a 00 32 00 f2 0b 08 08 03 10 02 18 b8 91 02"
+
+evidence:
+  app_static_analysis: >-
+    The legacy ChefSteps app (2.77.5) was read for: the scan filter and
+    advert parser, the GATT UUIDs and the simulator's property table, the
+    subscribe-then-read loop and the empty-read handling, the write path that
+    blanks the addresses, the request/reply table with its timeouts, the
+    router's Bluetooth-only and pre-authorisation rules, the pairing sequence
+    (open, key exchange, submit key), the UL button-press rule for
+    high-temperature starts, the API-version capability table, and the
+    protobuf schema's field numbers, restated in our own tables. Breville+
+    (1.44.0) was read for its native legacy-Joule path (the same UUIDs,
+    write-with-response, the 500 ms post-subscribe wait, MTU handling, model
+    detection by company ID) and its JS bundle (pairing prompts, the
+    secret-key reuse, the minimum read size). Nothing was executed.
+  documentation_review: >-
+    ChefSteps Help Center articles (factory reset; LED colours; owner; the
+    Bluetooth-only Breville+ pairing procedure; model identification; Joule
+    Turbo pairing; minimum and maximum temperatures; Wi-Fi requirements) and
+    the ChefSteps firmware release notes, read 2026-09-28. Breville's CS10001
+    instruction book for water depth, radio bands and the "pair in the app"
+    rule.
+  open_source_review: >-
+    JouleUWP's JOULE_PROTOCOL.md (2016): no BLE PIN, no open ports, the
+    program model, and the TFTP firmware remark. It never decoded BLE
+    traffic. sameer/joule-ha, cited in earlier notes, is an empty repository
+    as of 2026-09-28; the Home Assistant community thread shows no working
+    local integration. chromeJoule, mentioned there, republishes vendor app
+    code and is deliberately not cited.
+  open_questions: >-
+    See remaining_unknowns. The first things to settle with a unit: the real
+    secret-key length, whether submit_key is truly required on current
+    firmware, whether the empty-address envelopes are accepted, and whether
+    the live feed dies without keep-alives.
+  artifacts:
+    - type: "static_analysis"
+      artifact: "com.chefsteps.circulator 2.77.5 (versionCode 277050), XAPK/APK"
+      obtained_via: "third-party APK mirror, 2026-09-01"
+      description: "Legacy ChefSteps Joule app; its JavaScript device SDK and embedded protobuf schema are the primary source."
+    - type: "static_analysis"
+      artifact: "com.breville.cookingapp (Breville+ Cooking) 1.44.0 (versionCode 755)"
+      obtained_via: "third-party APK mirror, 2026-09-17"
+      description: "Successor app: native legacy-Joule BLE path and decompiled Hermes bundle, used for cross-checks and the model mapping."
+    - type: "public_research"
+      artifact: "mitchcapper/JouleUWP JOULE_PROTOCOL.md"
+      url: "https://github.com/mitchcapper/JouleUWP/blob/master/JOULE_PROTOCOL.md"
+      obtained_via: "fetched 2026-09-28"
+      description: "2016 community write-up. Its linked release archive republishes decompiled vendor code and is not used."
+    - type: "vendor_documentation"
+      artifact: "ChefSteps Help Center articles and Joule firmware release notes"
+      url: "https://www.chefsteps.com/joule/firmware-release-notes"
+      obtained_via: "fetched 2026-09-28 (help-centre article bodies through the Zendesk API)"
+      description: "Factory reset, LED states, owner model, temperature limits, Bluetooth-only pairing, firmware history."
+    - type: "vendor_documentation"
+      artifact: "Breville 'the Joule Sous Vide' instruction book, CS10001/CS20001"
+      url: "https://www.breville.com/content/dam/breville/us/assets/miscellaneous/instruction-manual/sous-vide/CS10001-instruction-manual.pdf"
+      obtained_via: "fetched 2026-09-28"
+      description: "Water depth limits, radio bands, the in-app pairing instruction, the no-manual-controls statement."
+
+remaining_unknowns:
+  - "The secret key's length on real hardware (the SDK simulator issues 16 bytes; submit_key's template assumes 16)."
+  - "Whether current firmware really refuses everything before submit_key, and whether the earliest (2016) firmware did (JouleUWP saw no BLE security, but never decoded the traffic)."
+  - "Whether envelopes with empty address fields (the ChefSteps app's BLE form) and with filled ones (Breville+) are both accepted."
+  - "Whether a new key exchange invalidates keys issued earlier, and whether the forget-device-pairing request revokes them."
+  - "Whether the live feed ends without keep-alives, and after how long."
+  - "When a timed cook's countdown starts (at start or at drop_food), and what the Joule does when it reaches zero."
+  - "The device's maximum cook time and the reply to an out-of-range setpoint."
+  - "What bit 7 of the advertisement flags byte means exactly (the app reads it as already connected) and what the low bits' version values are."
+  - "Real ATT handles, full characteristic properties, any extra services, and whether the BLE address is public."
+  - "Why Breville+ forces MTU 23 on Android 14 and newer for this model."
+  - "What the Joule advertises in its bootloader, and whether its images are signed."
+  - "Whether the Joule Turbo (BSV600) also exposes the 700b4321-9836-4383-a2b2-31a9098d1473 service alongside Breville's own."
+  - "The meaning of forget_wifi_profile's index -1 and of get_wifi_status without an index."
+
+helpful_urls:
+  - title: "Breville: the Joule Sous Vide instruction book, CS10001 / CS20001 (PDF)"
+    url: "https://www.breville.com/content/dam/breville/us/assets/miscellaneous/instruction-manual/sous-vide/CS10001-instruction-manual.pdf"
+    kind: "manual"
+    description: >-
+      Vendor-hosted instruction book for the original Joule, stainless
+      CS10001 and white CS20001 (English and French). Safety, water depth
+      38-203 mm, radio bands, and "pair through the app, not the phone's
+      Bluetooth menu". Not the Joule Turbo's.
+  - title: "Breville: Joule Turbo BSV600 safety guide / instruction booklet (PDF)"
+    url: "https://assets.breville.com/BSV600/BSV600_USCM_SG3_D24_LR.pdf"
+    kind: "manual"
+    description: >-
+      Vendor booklet for the Joule Turbo BSV600, the excluded sibling, so a
+      Turbo owner can tell the two apart. Not the manual for the original
+      Joule this spec covers.
+  - title: "ChefSteps Help Center: factory reset"
+    url: "https://support.chefsteps.com/hc/en-us/articles/222979667-What-is-a-factory-reset-and-how-do-I-perform-one"
+    kind: "vendor_support"
+    description: "What a reset erases and the power-on top-button hold. Zendesk refuses non-browser clients (403)."
+  - title: "ChefSteps Help Center: LED colours and blink patterns"
+    url: "https://support.chefsteps.com/hc/en-us/articles/223021708-Why-is-the-LED-on-my-Joule-blinking-and-what-does-the-light-color-mean"
+    kind: "vendor_support"
+    description: "White blinking means ready to pair (press the top), double-blinking white is an identify request, yellow blinking is a reset."
+  - title: "ChefSteps Help Center: pairing ChefSteps Joule to Breville+ using Bluetooth only"
+    url: "https://support.chefsteps.com/hc/en-us/articles/36606559991319-Pairing-ChefSteps-Joule-to-the-Breville-app-using-Bluetooth-only"
+    kind: "vendor_support"
+    description: "The 2026 post-migration procedure: reset, top-button press, skip Wi-Fi. Firmware 175 or 123.1 required."
+  - title: "ChefSteps Help Center: which Joule model do I have?"
+    url: "https://support.chefsteps.com/hc/en-us/articles/16314955461015-Which-Joule-sous-vide-model-do-I-have"
+    kind: "vendor_support"
+    description: "Tells the Turbo BSV600 from the original CS10001 and CS20001 by the top cap."
+  - title: "ChefSteps Help Center: minimum and maximum temperatures"
+    url: "https://support.chefsteps.com/hc/en-us/articles/214790827-What-is-the-minimum-maximum-temperatures-that-can-be-set-for-Joule"
+    kind: "vendor_support"
+    description: "20 °C minimum, 98 °C maximum at sea level (2 °C below boiling at altitude), 90 °C recommended."
+  - title: "ChefSteps Help Center: what does it mean to be Joule's owner?"
+    url: "https://support.chefsteps.com/hc/en-us/articles/223020788-What-does-it-mean-to-be-Joule-s-owner"
+    kind: "vendor_support"
+    description: "The Wi-Fi owner model behind the cloud bearer token."
+  - title: "ChefSteps: Joule firmware release notes"
+    url: "https://www.chefsteps.com/joule/firmware-release-notes"
+    kind: "vendor_support"
+    description: "Versions 61.22 to 175: the 98 °C ceiling, one-phone-at-a-time Bluetooth, multiple Wi-Fi profiles, harder-to-trigger reset."
+  - title: "mitchcapper/JouleUWP: JOULE_PROTOCOL.md"
+    url: "https://github.com/mitchcapper/JouleUWP/blob/master/JOULE_PROTOCOL.md"
+    kind: "protocol_writeup"
+    description: "2016 community notes: protobuf over BLE and the cloud WebSocket, no BLE PIN, no open ports, the program model, TFTP firmware fetch. Written before the BLE traffic was decoded."
+  - title: "Breville+ Cooking on Google Play"
+    url: "https://play.google.com/store/apps/details?id=com.breville.cookingapp"
+    kind: "other"
+    description: "The vendor app that now drives the Joule."
+  - title: "ChefSteps community: Joule users, download the Breville+ app"
+    url: "https://community.chefsteps.com/discussion/78615/joule-sous-vide-users-download-the-breville-cooking-app"
+    kind: "forum"
+    description: "The 2026 migration notice that retired the ChefSteps app."
+  - title: "The Spoon: Breville acquires ChefSteps (2019)"
+    url: "https://thespoon.tech/developing-breville-acquires-chefsteps-maker-of-the-joule-sous-vide/"
+    kind: "other"
+    description: "Why the manufacturer is Breville now."

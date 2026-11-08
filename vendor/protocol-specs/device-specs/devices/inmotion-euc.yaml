@@ -1,0 +1,1959 @@
+# InMotion electric unicycles (legacy CAN-over-serial and V2 BLE protocols) device spec
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Sources (clean-room; derived facts only, restated in our own words and tables,
+# no code or enum listings copied):
+#   - Wheellog/Wheellog.Android (GPL-3.0) at commit 1b3707973e3b, cited by file:
+#     app/src/main/java/com/cooper/wheellog/utils/InMotionAdapter.java (legacy
+#     decoder), .../utils/InmotionAdapterV2.java (V2 decoder), .../utils/Constants.kt
+#     (UUIDs), app/src/main/res/raw/bluetooth_services.json (GATT fingerprints),
+#     .../WheelData.java and .../BluetoothService.kt (connect and write paths),
+#     and the two adapters' unit tests, whose captured frames are the test
+#     vectors below (identifying serials replaced with invented ones).
+#   - INMOTION user manuals filed with the FCC (V11, V12, V12 Pro, V13): the BLE
+#     name convention.
+#   - A vendor app-store listing screenshot (Vehicle Information screen): the
+#     name-to-serial relation and the per-board firmware list. Serial, name
+#     suffix and account handle in it are NOT reproduced; placeholders only.
+#   - Static analysis of the vendor app com.inmotion.android.app 8.1.34, used to
+#     corroborate UUIDs and scope only. No byte layout here comes from it.
+
+device:
+  name: "InMotion Electric Unicycles (legacy and V2 BLE protocols)"
+  manufacturer: "INMOTION Technologies"
+  manufacturer_status: "active"
+  type: "electric-unicycle"
+  category: "vehicle"
+  protocol: "ble"
+  testing:
+    status: untested
+    notes: >-
+      Nobody on this project has connected to an InMotion wheel from this
+      document, and the research store holds no capture of one. Both wire
+      formats are transcribed from WheelLog's open-source decoders, so every
+      byte layout is verification "reported". The frames used as test vectors
+      come from WheelLog's own unit tests; they were captured upstream from real
+      wheels, but that is WheelLog's evidence, not ours, and none of them was
+      replayed here.
+  openness:
+    status: "undocumented"
+    reverse_engineered: true
+    source_code: "https://github.com/Wheellog/Wheellog.Android"
+    upstream_docs:
+      - url: "https://github.com/Wheellog/Wheellog.Android/blob/1b3707973e3b4528bd88778f9ebdf7a79817cf3f/app/src/main/java/com/cooper/wheellog/utils/InMotionAdapter.java"
+        title: "WheelLog InMotionAdapter.java (legacy protocol)"
+        covers: "Legacy AA AA ... 55 55 framing, the 16-byte CAN-style message, message IDs, the password and polling loop, fast-info and slow-info layouts, the legacy model table."
+      - url: "https://github.com/Wheellog/Wheellog.Android/blob/1b3707973e3b4528bd88778f9ebdf7a79817cf3f/app/src/main/java/com/cooper/wheellog/utils/InmotionAdapterV2.java"
+        title: "WheelLog InmotionAdapterV2.java (V2 protocol)"
+        covers: "V2 framing, flags, command and control sub-command bytes, the MainInfo identification replies, and the per-model real-time, settings and total-stats layouts."
+    notes: >-
+      INMOTION publishes nothing about either protocol. WheelLog's contributors
+      worked both out from wheel traffic and maintain the decoders; this spec
+      restates their findings. The firmware is closed.
+  safety_advisory:
+    severity: "warning"
+    summary: >-
+      This is a self-balancing vehicle. A command that changes how the wheel
+      drives, sent while someone is riding, can throw the rider.
+    detail: >-
+      The controls this spec exposes by default are lights, sounds and
+      volume. Lock and unlock, ride mode, calibration, transport mode and
+      power-off are marked advanced, and a client should send them only with
+      the wheel stationary and nobody on it. WheelLog refuses power-off and
+      calibration unless the wheel reports it is standing still (under
+      0.1 km/h), and asks for confirmation first. What the wheel does if it receives lock, power-off or
+      calibration while moving has not been established, so do not find out on
+      a road. Speed-limit, tilt-back, alarm-speed, pedal-tilt and pedal-
+      sensitivity writes are deliberately not documented here. Turning the
+      headlight off from a phone at night takes it off for the rider too. This
+      spec is not affiliated with INMOTION, and INMOTION's own instructions
+      govern how the vehicle is used.
+    acknowledge_required: true
+  notes: >
+    InMotion electric unicycles talk to the phone directly over BLE. There is no
+    cloud on the control path, although the vendor app wants an account to
+    register ("activate") a wheel and to use owner-only features. Two wire
+    formats exist, split by product generation, and a client must pick the
+    right one before it can read anything.
+
+    LEGACY PROTOCOL (V5/V5+/V5F/V5D, V8, V8F/V8S, Glide 3, V10 family). Notify on
+    0000ffe4-0000-1000-8000-00805f9b34fb (service
+    0000ffe0-0000-1000-8000-00805f9b34fb); write to
+    0000ffe9-0000-1000-8000-00805f9b34fb (a separate service,
+    0000ffe5-0000-1000-8000-00805f9b34fb). Every message is a 16-byte CAN-style
+    record (32-bit ID little-endian, 8 data bytes, length, channel, format,
+    type), optionally followed by an extended payload, framed as AA AA,
+    escaped message, sum-8 checksum, 55 55. Escaping puts A5 before any AA, 55
+    or A5 byte. The client sends a six-digit password message first, then polls:
+    slow info (identity and settings) until it has the model, then fast info
+    (telemetry) about every 250 ms, and the wheel answers each poll. Writes
+    longer than 20 bytes are split into 20-byte chunks.
+
+    V2 PROTOCOL (V9, V11, V11Y, V12 HS/HT/Pro, V12S, V13/V13 Pro, V14). Nordic
+    UART UUIDs: write 6e400002-b5a3-f393-e0a9-e50e24dcca9e, notify
+    6e400003-b5a3-f393-e0a9-e50e24dcca9e, service
+    6e400001-b5a3-f393-e0a9-e50e24dcca9e. Frames are AA AA, flags, length,
+    command, data, XOR checksum, with A5 escaping of AA and A5 (not 55). The
+    client identifies the wheel with three MainInfo requests (model, serial,
+    per-board versions), reads settings once, then alternates real-time and
+    total-statistics requests. Real-time layouts differ per model family; see
+    payload_formats and protocol_details.v2_layout_selection.
+
+    IDENTIFYING A WHEEL. Both service sets are generic (HM-10-style modules use
+    0000ffe0-0000-1000-8000-00805f9b34fb, countless products reuse the Nordic
+    UART UUIDs), so match on the advertised name, never on a service UUID
+    alone. INMOTION's manuals give the V2 BLE name as model, hyphen, and the
+    last eight characters of the 16-character serial number (V11-XXXXXXXX,
+    V12Pro-XXXXXXXX, V13-XXXXXXXX), so the name identifies model and unit
+    before connecting. After connecting, the presence of
+    6e400001-b5a3-f393-e0a9-e50e24dcca9e means V2; a wheel with
+    0000ffe0-0000-1000-8000-00805f9b34fb and
+    0000ffe5-0000-1000-8000-00805f9b34fb and no Nordic UART service is legacy.
+    WheelLog has seen V2 wheels that also expose the ffe0/ffe5 pair, so check
+    for the Nordic UART service first.
+
+    PICKING A DECODE. The model code in the legacy slow-info reply, or in the V2
+    MainInfo car-type reply, selects the layout. The V11 additionally changes
+    layout and two command bytes with its main-board firmware (before and after
+    1.4), which the V2 versions reply reports.
+
+    NOT COVERED: main-controller and co-processor firmware-update byte layouts
+    (left out so nobody bricks a wheel), the eSIM (LPA) BLE service on cellular
+    models, the vendor cloud, INMOTION's kick scooters (Climber, L-series and
+    relatives) and SCV self-balancing vehicles, and Ninebot Z wheels, which use
+    a separate XOR-keyed protocol that WheelLog also decodes. King Song,
+    Gotway/Begode and Veteran wheels are in euc-wheellog-ble.
+
+  identification:
+    local_name_prefixes: ["V11-", "V12Pro-", "V13-"]
+    notes: >-
+      These three prefixes are the ones INMOTION's own manuals state (V11 and
+      V12 Pro) or show in the app (V13): model, hyphen, then the last eight
+      characters of the serial number. The same convention very likely holds
+      for the V9, V11Y, V12 HS/HT, V12S, V13 Pro and V14, and possibly for the
+      legacy V5/V8/V10 wheels, but none of those names is recorded in a source
+      read here, so they are matched only by the broader pattern in
+      discovery.methods[0].ble.local_name. The Glide 3's name is unknown. Do not
+      add 0000ffe0-0000-1000-8000-00805f9b34fb or
+      6e400001-b5a3-f393-e0a9-e50e24dcca9e here; both would claim thousands of
+      unrelated devices.
+
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          local_name:
+            match: "regex"
+            value: "^V[0-9]{1,2}[A-Za-z]*-[0-9A-Za-z]{8}$"
+        notes: >-
+          Model token (V plus one or two digits, optional letters such as Pro,
+          S or Y), a hyphen, and eight serial characters. Established for V11,
+          V12 Pro and V13 (vendor manuals and app screenshot); assumed for the
+          other V2 models and unconfirmed for legacy wheels. Confirm after
+          connecting from the GATT table and the model code (device.notes).
+    identity:
+      stable_keys: ["local_name", "address"]
+      display: "local_name"
+      notes: >-
+        The name carries the serial suffix, so it survives any address change.
+        Whether the wheels use a public or a random address is not recorded.
+        The wheel's serial (V2 MainInfo, legacy slow info) is the stronger key
+        once connected.
+    static_ip_required: false
+
+  setup:
+    required: false
+    confidence: "medium"
+    notes: >-
+      Nothing is provisioned over BLE. Power the wheel on, connect, and run the
+      per-connection handshake for its protocol (top-level initialization is
+      per service here). The vendor app's account registration, activation and
+      Owner Authorization are cloud features; WheelLog reads and controls
+      wheels without any of them. Whether a factory-new wheel refuses to ride
+      until the vendor app has activated it (V2 wheels have a transport mode,
+      see troubleshooting) is not established. Confidence medium: a
+      long-maintained open implementation drives both generations, but the
+      flow has not been replayed here.
+    methods:
+      - type: "ble_direct"
+        name: "Legacy wheels (V5, V8, Glide 3, V10): password message, then polling"
+        role: "variant"
+        verified: false
+        description: >-
+          For wheels whose GATT table has 0000ffe0-0000-1000-8000-00805f9b34fb
+          and 0000ffe5-0000-1000-8000-00805f9b34fb and no Nordic UART service.
+          Subscribe to 0000ffe4-0000-1000-8000-00805f9b34fb, send the password
+          message, then poll slow info until the model is known, then fast info
+          about every 250 ms. Every frame written to
+          0000ffe9-0000-1000-8000-00805f9b34fb goes out in chunks of at most 20
+          bytes.
+        ble:
+          service_uuid: "0000ffe0-0000-1000-8000-00805f9b34fb"
+          write_characteristic: "0000ffe9-0000-1000-8000-00805f9b34fb"
+          read_characteristic: "0000ffe4-0000-1000-8000-00805f9b34fb"
+          pairing_required: false
+          pin_source: "the owner's six-digit wheel password, sent in an application message (see initialization); not a link-layer PIN"
+        steps:
+          - action: "Power the wheel on."
+            actor: "user"
+          - action: "Scan for the wheel's name and connect (see device.discovery)."
+            actor: "client"
+          - action: "Discover services. Confirm 0000ffe0-0000-1000-8000-00805f9b34fb and 0000ffe5-0000-1000-8000-00805f9b34fb are present and 6e400001-b5a3-f393-e0a9-e50e24dcca9e is not."
+            actor: "client"
+          - action: "Enable notifications on 0000ffe4-0000-1000-8000-00805f9b34fb (CCCD 00002902-0000-1000-8000-00805f9b34fb)."
+            actor: "client"
+          - action: "Send the password message (message ID 0x0F550307, data = six ASCII digits then two zero bytes), in 20-byte chunks. Repeat every 250 ms, up to six times, until a reply with the same ID arrives."
+            actor: "client"
+            expect: "A reply frame whose message ID is 0x0F550307. WheelLog moves on after six unanswered attempts anyway."
+          - action: "Send legacy_request_slow_info every 250 ms until an extended slow-info reply arrives; decode serial, model code and firmware version from it (payload_formats.Legacy_SlowInfo)."
+            actor: "client"
+            expect: "A frame with ID 0x0F550114, length byte 0xFE and an extended payload of about 124-133 bytes."
+          - action: "Poll legacy_request_fast_info about every 250 ms (sooner after each reply) and decode telemetry (payload_formats.Legacy_FastInfo). Send a queued setting command in place of one poll, then re-read slow info."
+            actor: "client"
+        timing:
+          poll_interval_ms: 250
+          poll_interval_basis: "WheelLog's timer ticks every 25 ms and sends on every tenth tick, restarting the count when a complete frame arrives, so the next request goes out about 25 ms after each reply and at most 250 ms after the last request. The first request goes 200 ms after the timer starts."
+          write_chunk_bytes: 20
+          write_chunk_gap_ms: 20
+          write_chunk_basis: "WheelLog's legacy write path splits every frame into 20-byte write-without-response chunks with 20 ms between them."
+        troubleshooting:
+          - symptom: "Connected and subscribed, but no fast-info or slow-info replies arrive."
+            causes:
+              - "The wheel's password is not the one sent. WheelLog always sends 000000 and offers no way to enter another, so a wheel whose owner set a different password in the vendor app may stay silent to it; whether a wrong password blocks the data is not established."
+              - "A frame longer than 20 bytes was written in one piece to a link with the default ATT MTU and was truncated or rejected. Chunk every write."
+              - "The vendor app is still connected in the background (a store review reports it reconnecting to a V10F on its own). Close it."
+          - symptom: "Frames fail the checksum now and then."
+            causes:
+              - "The client summed the escaped bytes, or forgot to remove A5 escape bytes before summing. The checksum covers the unescaped message only."
+      - type: "ble_direct"
+        name: "V2 wheels (V9, V11, V12, V13, V14): MainInfo identification, then polling"
+        role: "variant"
+        verified: false
+        description: >-
+          For wheels whose GATT table has the Nordic UART service
+          6e400001-b5a3-f393-e0a9-e50e24dcca9e. Subscribe to
+          6e400003-b5a3-f393-e0a9-e50e24dcca9e, ask for car type, serial and
+          versions, read settings once, then alternate real-time and total
+          statistics requests about every 250 ms. No password.
+        ble:
+          service_uuid: "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
+          write_characteristic: "6e400002-b5a3-f393-e0a9-e50e24dcca9e"
+          read_characteristic: "6e400003-b5a3-f393-e0a9-e50e24dcca9e"
+          pairing_required: false
+        steps:
+          - action: "Power the wheel on."
+            actor: "user"
+          - action: "Scan for the wheel's name (V11-XXXXXXXX style) and connect."
+            actor: "client"
+          - action: "Enable notifications on 6e400003-b5a3-f393-e0a9-e50e24dcca9e (CCCD 00002902-0000-1000-8000-00805f9b34fb)."
+            actor: "client"
+          - action: "Write v2_request_car_type every 250 ms until the reply arrives; the model code is series x 10 + type (payload_formats.V2_MainInfo_CarType)."
+            actor: "client"
+            expect: "A frame with flags 0x11, command 0x82 and first data byte 0x01."
+          - action: "Write v2_request_serial every 250 ms until the reply arrives."
+            actor: "client"
+            expect: "Flags 0x11, command 0x82, first data byte 0x02, then 16 ASCII serial characters. The last eight match the advertised name's suffix."
+          - action: "Write v2_request_versions once and decode the board versions. For a V11, a main-board version below 1.4 selects the early layout and command bytes."
+            actor: "client"
+          - action: "Write v2_request_settings once (and again after any setting command)."
+            actor: "client"
+          - action: "Alternate v2_request_total_stats and v2_request_realtime about every 250 ms, decoding real-time data with the layout for the model (protocol_details.v2_layout_selection). Send a queued control command in place of one request."
+            actor: "client"
+        timing:
+          poll_interval_ms: 250
+          poll_interval_basis: "Same timer as the legacy path (25 ms ticks, a send every tenth tick, restarted by each complete reply); the first request goes 100 ms after the timer starts."
+        troubleshooting:
+          - symptom: "A new wheel will not ride, and the vendor app cannot get it out of transport mode (store reviews of the vendor app)."
+            causes:
+              - "V2 settings replies carry a transport-mode flag, and WheelLog offers a transport-mode switch (v2_transport_mode_off). Whether clearing it over BLE is all that activation does, or whether the vendor's cloud activation is also required, is not established."
+          - symptom: "Readings look scrambled: speed in the voltage field, temperatures around -176 C."
+            causes:
+              - "The wrong real-time layout for the model. Each model family places fields differently; select by the car-type model code, and for a V11 also by main-board version."
+              - "A raw temperature byte of 0 decodes to -176 C. That is an absent sensor, not a reading; hide it."
+          - symptom: "Lights and sounds do nothing on a V11."
+            causes:
+              - "A V11 on main-board firmware before 1.4 uses the older control bytes (0x40 light, 0x41 sound). Use the early-firmware commands."
+    factory_reset:
+      applicable: "unknown"
+      confidence: low
+      effect: >-
+        No factory reset is documented for either generation. The wheel stores
+        a password (legacy), a touch-screen access code (V12 family, set in the
+        vendor app per its manual), ride settings, a lock state and, in the
+        vendor cloud, an owner binding. Nothing known clears them together.
+      description: >-
+        Basis for "unknown": the V11, V12, V12 Pro and V13 user manuals filed
+        with the FCC were read for reset, restore and password instructions and
+        contain none, and WheelLog sends no reset command. A forgotten legacy
+        password has no documented recovery path beyond the vendor's own app or
+        service.
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >-
+        There is no network membership. A different phone connects the same
+        way, once the previous one has disconnected. The vendor cloud's owner
+        binding is separate and is not needed for anything in this spec.
+    credentials:
+      wifi_passphrase_protection: not_applicable
+      stored_on_device:
+        - "Legacy wheels: a six-digit password, sent in the clear in an application message"
+        - "V12 family: a touch-screen access code set from the vendor app (vendor manual); how it is set over BLE is not known"
+      issued_to_client: []
+      notes: >-
+        The legacy password is plaintext inside a checksummed frame, so anyone
+        listening to the link learns it. V2 wheels accept requests and commands
+        with no credential at all per WheelLog. No Wi-Fi.
+
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "app_layer"
+    bonding: "none"
+    exclusivity:
+      single_connection: "unknown"
+      single_bond: "unknown"
+      recovery: >-
+        Close the vendor app and any other EUC app first; a store review
+        reports the vendor app reconnecting to a wheel on its own. If the wheel
+        still does not appear, power it off and on.
+      notes: >-
+        The wheels' BLE modules probably accept one central at a time and stop
+        advertising while connected, which is the usual behaviour for this
+        class of module, but that is not recorded.
+    enter_pairing_mode:
+      required: false
+    notes: >-
+      Nothing pairs or bonds at the link layer; WheelLog connects and writes
+      straight away on both generations. Legacy wheels have an
+      application-layer password (six ASCII digits in a message with ID
+      0x0F550307) that the client sends before polling; see the ffe0 service's
+      initialization. V2 wheels have no known credential at all. The speaker on
+      audio-equipped wheels pairs separately as an ordinary Bluetooth audio
+      device, which has nothing to do with this control link.
+
+  host_compatibility:
+    - stack: android
+      status: compatible
+      verification: reported
+      basis: >-
+        WheelLog is an Android app that drives both generations through the
+        platform GATT client: write-without-response on
+        6e400002-b5a3-f393-e0a9-e50e24dcca9e for V2, 20-byte chunked
+        write-without-response on 0000ffe9-0000-1000-8000-00805f9b34fb for
+        legacy wheels. The vendor app is also an Android client.
+    - stack: corebluetooth
+      status: compatible
+      verification: reported
+      variants: ["V11", "V12 HS / HT / Pro", "V13 / V13 Pro"]
+      basis: >-
+        The V11, V12 Pro and V13 manuals list iOS support for the vendor app,
+        which reaches these wheels through CoreBluetooth. Nothing records an
+        iOS client for the legacy wheels or for the other V2 models.
+
+  variants:
+    - model: "V5 / V5+ / V5F / V5D"
+      notes: "Legacy protocol; model codes 50-53. No decorative-LED control and no dedicated beep command (WheelLog plays sound 4 instead)."
+    - model: "V8"
+      notes: "Legacy protocol; model code 80. Decorative LEDs; beep via sound 4."
+    - model: "V8F / V8S"
+      notes: "Legacy protocol; model codes 86 and 87. Decorative LEDs, dedicated beep, ride-mode setting. The FCC granted a V8S in 2024 (2ADUSV8S); whether that revision still speaks the legacy protocol is not established."
+    - model: "Glide 3"
+      notes: "Legacy protocol; model code 85 (sold under the Solowheel brand). Decorative LEDs; beep via sound 4."
+    - model: "V10 / V10F / V10T / V10FT / V10S / V10SF"
+      notes: "Legacy protocol; model codes 140-143, 100 and 101. Decorative LEDs, dedicated beep, ride-mode setting."
+    - model: "V9"
+      notes: "V2 protocol; model code 121. Real-time layout of the V14 family."
+    - model: "V11"
+      identification:
+        local_name_prefix: "V11-"
+      notes: "V2 protocol; model code 61. Two real-time layouts and two sets of light/sound command bytes, selected by main-board firmware (before or from 1.4). Headlight brightness control. Has a handle (lift) button."
+    - model: "V11Y"
+      notes: "V2 protocol; model code 62. Real-time layout of the V14 family. No speaker (WheelLog)."
+    - model: "V12 HS / HT / Pro"
+      identification:
+        local_name_prefix: "V12Pro-"
+      notes: "V2 protocol; model codes 71 (HS), 72 (HT), 73 (Pro). Separate low and high beams. The prefix is the V12 Pro's (vendor manual); the V12 manual repeats the V11's name text, so the HS and HT prefixes are not established. The FCC grant 2ADUSV12 also lists model numbers V12S, V12F, V12D, V12E and V12C."
+    - model: "V12S"
+      notes: "V2 protocol; model code 111. Real-time layout of the V14 family. WheelLog's settings screen treats it as a two-beam wheel."
+    - model: "V13 / V13 Pro"
+      identification:
+        local_name_prefix: "V13-"
+      notes: "V2 protocol; model codes 81 and 82. Own real-time layout. Two battery packs reported separately. The V13's FCC filing includes a 4G antenna, which matches the eSIM stack in the vendor app."
+    - model: "V14 (50GB / 50S)"
+      notes: "V2 protocol; model codes 91 (50GB) and 92 (50S). No speaker (WheelLog). Two battery packs."
+
+protocol_handler: "inmotion_euc"
+
+services:
+  - uuid: "0000ffe0-0000-1000-8000-00805f9b34fb"
+    name: "Legacy notify service (HM-10-style module)"
+    notes: >-
+      Legacy wheels only. The UUID is shared with every HM-10-style serial
+      module, so it identifies nothing on its own. WheelLog's GATT fingerprint
+      for a legacy wheel lists, besides this service and
+      0000ffe5-0000-1000-8000-00805f9b34fb: Device Information
+      (0000180a-0000-1000-8000-00805f9b34fb), Battery
+      (0000180f-0000-1000-8000-00805f9b34fb), and module services fff0 (nine
+      characteristics fff1-fff9), ffd0, ffc0, ffb0, ffa0, ff90, fc60 and fe00,
+      all on the Bluetooth base UUID. None of the module services is used by any
+      client known here. Some V2 wheels also expose this service; on those the
+      Nordic UART service is the control link.
+    initialization:
+      - characteristic: "0000ffe4-0000-1000-8000-00805f9b34fb"
+        subscribe: true
+        notes: "Every reply, including the password acknowledgement, arrives here."
+      - characteristic: "0000ffe9-0000-1000-8000-00805f9b34fb"
+        description: >-
+          Send the password message: message ID 0x0F550307, data = the owner's
+          six-digit password as six ASCII digits followed by two zero bytes,
+          length 8, channel 5, standard format, data type (payload_formats.
+          Legacy_CAN_Message), framed and escaped as payload_formats.
+          Legacy_Frame and written in 20-byte chunks. Repeat every 250 ms, at
+          most six times, until a reply with the same ID arrives.
+        notes: >-
+          Left as a description because the password is per-owner and because
+          some V2 wheels also expose this service, where a legacy write has no
+          business going. The frame for WheelLog's default 000000 is the
+          declared command legacy_send_default_password.
+      - characteristic: "0000ffe9-0000-1000-8000-00805f9b34fb"
+        description: >-
+          Poll legacy_request_slow_info until the extended slow-info reply
+          arrives and the model code is known, then poll
+          legacy_request_fast_info about every 250 ms for as long as the client
+          wants telemetry. The wheel sends fast info only in answer to a poll.
+    characteristics:
+      - uuid: "0000ffe4-0000-1000-8000-00805f9b34fb"
+        name: "Legacy notify (wheel to phone)"
+        properties: ["notify"]
+        role: "notify"
+        notes: >-
+          Carries AA AA ... 55 55 frames split across notifications of up to
+          20 bytes; a slow-info reply spans about eight notifications.
+          Reassemble per payload_formats.Legacy_Frame before decoding. Spontaneous
+          alert messages (ID 0x0F780101) arrive here too.
+
+  - uuid: "0000ffe5-0000-1000-8000-00805f9b34fb"
+    name: "Legacy write service (HM-10-style module)"
+    notes: "Legacy wheels only. Holds the single write characteristic."
+    characteristics:
+      - uuid: "0000ffe9-0000-1000-8000-00805f9b34fb"
+        name: "Legacy write (phone to wheel)"
+        properties: ["write_without_response"]
+        role: "command"
+        framing:
+          length_prefix: false
+          max_chunk_size: 20
+        notes: >-
+          Every command below is one complete legacy frame (AA AA, escaped
+          16-byte message, checksum, 55 55) and is 22 bytes long because the
+          0x55 inside the message ID is escaped. Write it as consecutive chunks
+          of at most 20 bytes, in order, without response; WheelLog leaves 20 ms
+          between chunks. The wheel reassembles from AA AA to 55 55. WheelLog
+          pads the last chunk to 20 bytes with leftover bytes of the previous
+          chunk; the wheel evidently ignores bytes after 55 55, but a client
+          should send the real length. Only write-without-response is recorded;
+          the characteristic's full property set is not. Parameterised
+          commands (speaker volume, arbitrary sounds, a custom password) need a
+          framer that escapes and checksums (protocol_details.legacy), so only
+          fixed frames are declared here.
+        commands:
+          legacy_request_fast_info:
+            description: >-
+              GetFastInfo poll (ID 0x0F550113, data FF x 8, data type). WheelLog
+              calls it the keep-alive. The reply is an extended fast-info
+              message (payload_formats.Legacy_FastInfo).
+            value: [0xaa, 0xaa, 0x13, 0x01, 0xa5, 0x55, 0x0f, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x08, 0x05, 0x00, 0x00, 0x7d, 0x55, 0x55]
+            verification: "reported"
+          legacy_request_slow_info:
+            description: >-
+              GetSlowInfo request (ID 0x0F550114, data FF x 8, remote-frame
+              type). The reply is an extended slow-info message carrying serial,
+              model code, firmware version and settings
+              (payload_formats.Legacy_SlowInfo).
+            value: [0xaa, 0xaa, 0x14, 0x01, 0xa5, 0x55, 0x0f, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x08, 0x05, 0x00, 0x01, 0x7f, 0x55, 0x55]
+            verification: "reported"
+          legacy_send_default_password:
+            description: >-
+              Password message with the digits 000000 (ID 0x0F550307), which is
+              what WheelLog always sends: it pads an empty password with zeros
+              and has no way to enter another. It authenticates only to a wheel
+              whose password is still 000000 (presumably the factory setting;
+              unconfirmed). For any other password, build the message with the
+              owner's digits (protocol_details.legacy.password_message).
+            value: [0xaa, 0xaa, 0x07, 0x03, 0xa5, 0x55, 0x0f, 0x30, 0x30, 0x30, 0x30, 0x30, 0x30, 0x00, 0x00, 0x08, 0x05, 0x00, 0x00, 0x9b, 0x55, 0x55]
+            verification: "reported"
+          legacy_headlight_on:
+            description: "Headlight on (Light ID 0x0F55010D, data[0] = 1). The wheel answers with the same ID, data[0] = 1 on success."
+            value: [0xaa, 0xaa, 0x0d, 0x01, 0xa5, 0x55, 0x0f, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x08, 0x05, 0x00, 0x00, 0x80, 0x55, 0x55]
+            verification: "reported"
+          legacy_headlight_off:
+            description: "Headlight off (Light ID 0x0F55010D, data[0] = 0)."
+            value: [0xaa, 0xaa, 0x0d, 0x01, 0xa5, 0x55, 0x0f, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x08, 0x05, 0x00, 0x00, 0x7f, 0x55, 0x55]
+            verification: "reported"
+          legacy_decor_leds_on:
+            description: "Decorative LEDs on (RemoteControl ID 0x0F550116, data B2 00 00 00 0F 00 00 00). V8, V8F/V8S, Glide 3 and V10 family only."
+            value: [0xaa, 0xaa, 0x16, 0x01, 0xa5, 0x55, 0x0f, 0xb2, 0x00, 0x00, 0x00, 0x0f, 0x00, 0x00, 0x00, 0x08, 0x05, 0x00, 0x00, 0x49, 0x55, 0x55]
+            verification: "reported"
+          legacy_decor_leds_off:
+            description: "Decorative LEDs off (RemoteControl ID 0x0F550116, data B2 00 00 00 10 00 00 00)."
+            value: [0xaa, 0xaa, 0x16, 0x01, 0xa5, 0x55, 0x0f, 0xb2, 0x00, 0x00, 0x00, 0x10, 0x00, 0x00, 0x00, 0x08, 0x05, 0x00, 0x00, 0x4a, 0x55, 0x55]
+            verification: "reported"
+          legacy_beep:
+            description: "Beep (RemoteControl ID 0x0F550116, data B2 00 00 00 11 00 00 00). V8F/V8S and V10 family; older wheels lack it and use legacy_play_sound_4."
+            value: [0xaa, 0xaa, 0x16, 0x01, 0xa5, 0x55, 0x0f, 0xb2, 0x00, 0x00, 0x00, 0x11, 0x00, 0x00, 0x00, 0x08, 0x05, 0x00, 0x00, 0x4b, 0x55, 0x55]
+            locate: "sound"
+            verification: "reported"
+          legacy_play_sound_4:
+            description: >-
+              Play built-in sound number 4 (PlaySound ID 0x0F550609, data[0] =
+              sound number). WheelLog uses this as the beep on V5, V8 and Glide
+              3, which have no beep command. What the other sound numbers are is
+              not recorded.
+            value: [0xaa, 0xaa, 0x09, 0x06, 0xa5, 0x55, 0x0f, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x08, 0x05, 0x00, 0x00, 0x84, 0x55, 0x55]
+            locate: "sound"
+            verification: "reported"
+          legacy_power_off:
+            description: "Power the wheel off (RemoteControl ID 0x0F550116, data B2 00 00 00 05 00 00 00)."
+            value: [0xaa, 0xaa, 0x16, 0x01, 0xa5, 0x55, 0x0f, 0xb2, 0x00, 0x00, 0x00, 0x05, 0x00, 0x00, 0x00, 0x08, 0x05, 0x00, 0x00, 0x3f, 0x55, 0x55]
+            advanced: true
+            advanced_reason: >-
+              Switches the wheel off, which drops a rider who is on it. WheelLog
+              sends it only when the wheel reports it is standing still (under
+              0.1 km/h) and after a confirmation; do the same. Recover by
+              pressing the wheel's power button.
+            verification: "reported"
+          legacy_calibrate:
+            description: >-
+              Start the wheel's balance calibration (Calibration ID 0x0F550119,
+              data 32 54 76 98 00 00 00 00). The reply's data[0] is 1 on
+              success. The physical procedure (how the wheel must be held) is
+              the vendor's and is not recorded here.
+            value: [0xaa, 0xaa, 0x19, 0x01, 0xa5, 0x55, 0x0f, 0x32, 0x54, 0x76, 0x98, 0x00, 0x00, 0x00, 0x00, 0x08, 0x05, 0x00, 0x00, 0x1f, 0x55, 0x55]
+            advanced: true
+            advanced_reason: >-
+              Re-zeroes the wheel's level reference. Done in the wrong position
+              it leaves the pedals tilted while riding, which changes how the
+              wheel accelerates and brakes. Send only with the wheel stationary,
+              unridden and positioned as the vendor instructs; repeat the
+              calibration correctly to recover.
+            verification: "reported"
+          legacy_ride_mode_classic:
+            description: "Ride mode classic (RideMode ID 0x0F550115, data 0A 00 00 00 01 00 00 00). V8F/V8S and V10 family."
+            value: [0xaa, 0xaa, 0x15, 0x01, 0xa5, 0x55, 0x0f, 0x0a, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x08, 0x05, 0x00, 0x00, 0x92, 0x55, 0x55]
+            advanced: true
+            advanced_reason: >-
+              Changes how the wheel responds to the rider's lean. Change it only
+              when stationary, then ride slowly until used to it. Send
+              legacy_ride_mode_comfort to go back.
+            verification: "reported"
+          legacy_ride_mode_comfort:
+            description: "Ride mode comfort (RideMode ID 0x0F550115, data 0A 00 00 00 00 00 00 00). V8F/V8S and V10 family."
+            value: [0xaa, 0xaa, 0x15, 0x01, 0xa5, 0x55, 0x0f, 0x0a, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x08, 0x05, 0x00, 0x00, 0x91, 0x55, 0x55]
+            advanced: true
+            advanced_reason: >-
+              Changes how the wheel responds to the rider's lean. Change it only
+              when stationary. Send legacy_ride_mode_classic to go back.
+            verification: "reported"
+
+  - uuid: "0000180a-0000-1000-8000-00805f9b34fb"
+    name: "Device Information (legacy wheels)"
+    notes: >-
+      In WheelLog's legacy fingerprint with three characteristics. Their values
+      are not recorded; they most likely describe the BLE module rather than
+      the wheel.
+    characteristics:
+      - uuid: "00002a23-0000-1000-8000-00805f9b34fb"
+        name: "System ID"
+        properties: ["read"]
+        notes: "SIG-defined read property; the fingerprint records presence only."
+      - uuid: "00002a26-0000-1000-8000-00805f9b34fb"
+        name: "Firmware Revision String"
+        properties: ["read"]
+        notes: "Probably the BLE module's firmware, not the wheel's (the wheel's version is in slow info)."
+      - uuid: "00002a29-0000-1000-8000-00805f9b34fb"
+        name: "Manufacturer Name String"
+        properties: ["read"]
+
+  - uuid: "0000180f-0000-1000-8000-00805f9b34fb"
+    name: "Battery Service (legacy wheels)"
+    notes: >-
+      In WheelLog's legacy fingerprint. Whether its level tracks the wheel's
+      pack or is a module placeholder is not established; WheelLog ignores it
+      and estimates charge from voltage.
+    characteristics:
+      - uuid: "00002a19-0000-1000-8000-00805f9b34fb"
+        name: "Battery Level"
+        properties: ["read"]
+        notes: "SIG-defined read property; the fingerprint records presence only."
+
+  - uuid: "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
+    name: "V2 control link (Nordic UART service UUIDs)"
+    notes: >-
+      V2 wheels only, and the service that marks a wheel as V2. The UUIDs are
+      Nordic's published UART service, reused by many unrelated products
+      (Ninebot and Xiaomi scooters among them), so they identify nothing on
+      their own. WheelLog's V2 fingerprints add only Generic Access and Generic
+      Attribute, and in one of them also the legacy
+      0000ffe0-0000-1000-8000-00805f9b34fb / 0000ffe5-0000-1000-8000-00805f9b34fb
+      pair.
+    initialization:
+      - characteristic: "6e400003-b5a3-f393-e0a9-e50e24dcca9e"
+        subscribe: true
+        notes: "Every reply arrives here as a notification."
+      - characteristic: "6e400002-b5a3-f393-e0a9-e50e24dcca9e"
+        write: [0xaa, 0xaa, 0x11, 0x02, 0x02, 0x01, 0x10]
+        delay_ms: 250
+        notes: >-
+          MainInfo, car type. The reply (flags 0x11, command 0x82, data[0] =
+          0x01) gives the model code (payload_formats.V2_MainInfo_CarType).
+          WheelLog repeats this every 250 ms until the reply arrives.
+      - characteristic: "6e400002-b5a3-f393-e0a9-e50e24dcca9e"
+        write: [0xaa, 0xaa, 0x11, 0x02, 0x02, 0x02, 0x13]
+        delay_ms: 250
+        notes: "MainInfo, serial number. Repeated until answered (payload_formats.V2_MainInfo_Serial)."
+      - characteristic: "6e400002-b5a3-f393-e0a9-e50e24dcca9e"
+        write: [0xaa, 0xaa, 0x11, 0x02, 0x02, 0x06, 0x17]
+        delay_ms: 250
+        notes: "MainInfo, board versions, sent once (payload_formats.V2_MainInfo_Versions). Then read settings once and start polling (setup.methods[1])."
+    characteristics:
+      - uuid: "6e400002-b5a3-f393-e0a9-e50e24dcca9e"
+        name: "V2 write (phone to wheel)"
+        properties: ["write_without_response"]
+        role: "command"
+        notes: >-
+          Every command below is one complete V2 frame (AA AA, escaped flags,
+          length, command and data, XOR checksum) and is written in one piece
+          without response, as WheelLog does. Only write-without-response is
+          recorded; whether write-with-response is also declared is not. The
+          templated commands carry an encoder-filled XOR checksum over every
+          byte after the AA AA header; for the parameter ranges declared, no
+          byte in those frames can be AA or A5, so no escaping is needed (see
+          protocol_details.v2.escape_proof).
+        commands:
+          v2_request_car_type:
+            description: "MainInfo request (flags 0x11, command 0x02, data 01): model code. Reply: payload_formats.V2_MainInfo_CarType."
+            value: [0xaa, 0xaa, 0x11, 0x02, 0x02, 0x01, 0x10]
+            verification: "reported"
+          v2_request_serial:
+            description: "MainInfo request (flags 0x11, command 0x02, data 02): 16-character serial. Reply: payload_formats.V2_MainInfo_Serial."
+            value: [0xaa, 0xaa, 0x11, 0x02, 0x02, 0x02, 0x13]
+            verification: "reported"
+          v2_request_versions:
+            description: "MainInfo request (flags 0x11, command 0x02, data 06): per-board firmware versions. Reply: payload_formats.V2_MainInfo_Versions."
+            value: [0xaa, 0xaa, 0x11, 0x02, 0x02, 0x06, 0x17]
+            verification: "reported"
+          v2_request_settings:
+            description: "Settings request (flags 0x14, command 0x20, data 20). The reply (command 0xA0) is model-specific; protocol_details.v2.settings_reply."
+            value: [0xaa, 0xaa, 0x14, 0x02, 0x20, 0x20, 0x16]
+            verification: "reported"
+          v2_request_realtime:
+            description: "RealTimeInfo request (flags 0x14, command 0x04, no data). Reply command 0x84; decode with the model's layout (protocol_details.v2_layout_selection)."
+            value: [0xaa, 0xaa, 0x14, 0x01, 0x04, 0x11]
+            verification: "reported"
+          v2_request_battery:
+            description: "BatteryRealTimeInfo request (flags 0x14, command 0x05, no data). Reply command 0x85, payload_formats.V2_BatteryRealTime. WheelLog decodes but does not display it."
+            value: [0xaa, 0xaa, 0x14, 0x01, 0x05, 0x10]
+            verification: "reported"
+          v2_request_total_stats:
+            description: "TotalStats request (flags 0x14, command 0x11, no data). Reply command 0x91: odometer, energy, ride and power-on time (payload_formats.V2_TotalStats)."
+            value: [0xaa, 0xaa, 0x14, 0x01, 0x11, 0x04]
+            verification: "reported"
+          v2_request_diagnostic:
+            description: "Diagnostic request (flags 0x14, command 0x03, no data). Reply command 0x83; WheelLog treats an all-zero payload as healthy and decodes nothing else."
+            value: [0xaa, 0xaa, 0x14, 0x01, 0x03, 0x16]
+            verification: "reported"
+          v2_beep:
+            description: "Beep (Control 0x60, sub-command 0x51, data 51 02 64). WheelLog's beep for V13, V13 Pro, V14 and V11Y."
+            value: [0xaa, 0xaa, 0x14, 0x04, 0x60, 0x51, 0x02, 0x64, 0x47]
+            locate: "sound"
+            verification: "reported"
+          v2_play_sound:
+            description: "Play built-in sound 0x18 (Control 0x60, sub-command 0x51, data 51 18 01). WheelLog's beep for V9, V11 (main board 1.4+), V12 family and V12S. The third byte's meaning is not recorded."
+            value: [0xaa, 0xaa, 0x14, 0x04, 0x60, 0x51, 0x18, 0x01, 0x38]
+            locate: "sound"
+            verification: "reported"
+          v2_play_sound_v11_early:
+            description: "The same sound for a V11 on main-board firmware before 1.4, which uses sub-command 0x41 (data 41 18 01)."
+            value: [0xaa, 0xaa, 0x14, 0x04, 0x60, 0x41, 0x18, 0x01, 0x28]
+            locate: "sound"
+            verification: "reported"
+          v2_headlight_on:
+            description: "Headlight on (Control 0x60, sub-command 0x50, data 50 01). Single-beam V2 wheels, and V11 on main board 1.4+."
+            value: [0xaa, 0xaa, 0x14, 0x03, 0x60, 0x50, 0x01, 0x26]
+            verification: "reported"
+          v2_headlight_off:
+            description: "Headlight off (data 50 00)."
+            value: [0xaa, 0xaa, 0x14, 0x03, 0x60, 0x50, 0x00, 0x27]
+            verification: "reported"
+          v2_headlight_on_v11_early:
+            description: "Headlight on for a V11 on main-board firmware before 1.4 (sub-command 0x40, data 40 01)."
+            value: [0xaa, 0xaa, 0x14, 0x03, 0x60, 0x40, 0x01, 0x36]
+            verification: "reported"
+          v2_headlight_off_v11_early:
+            description: "Headlight off for a V11 on main-board firmware before 1.4 (data 40 00)."
+            value: [0xaa, 0xaa, 0x14, 0x03, 0x60, 0x40, 0x00, 0x37]
+            verification: "reported"
+          v2_set_beams:
+            description: >-
+              Set both beams of a two-beam wheel at once (Control 0x60,
+              sub-command 0x50, data 50 <low> <high>, each 0 or 1). V12 HS/HT/Pro;
+              WheelLog's settings screen also sends it to the V12S. The two
+              flags travel as one big-endian 16-bit parameter so a single
+              choice sets both.
+            template: [0xaa, 0xaa, 0x14, 0x04, 0x60, 0x50, "{beams}", "{checksum}"]
+            parameters:
+              beams:
+                type: "uint16"
+                endianness: "big"
+                allowed: [0, 1, 256, 257]
+                labels: ["off", "high beam only", "low beam only", "low and high beam"]
+                description: "High byte = low beam (1 on), low byte = high beam (1 on), sent in that order."
+              checksum:
+                type: "uint8"
+                auto: "xor_checksum"
+                checksum_start: 2
+                description: "XOR of every frame byte after AA AA."
+            verification: "reported"
+          v2_drl_on:
+            description: "Daytime running (decorative) light on (Control 0x60, sub-command 0x2D, data 2D 01). WheelLog offers it on the non-V12 models."
+            value: [0xaa, 0xaa, 0x14, 0x03, 0x60, 0x2d, 0x01, 0x5b]
+            verification: "reported"
+          v2_drl_off:
+            description: "Daytime running light off (data 2D 00)."
+            value: [0xaa, 0xaa, 0x14, 0x03, 0x60, 0x2d, 0x00, 0x5a]
+            verification: "reported"
+          v2_set_speaker_volume:
+            description: "Speaker volume (Control 0x60, sub-command 0x26, data 26 <volume>). Models with a speaker: V9, V11, V12 family, V12S, V13."
+            template: [0xaa, 0xaa, 0x14, 0x03, 0x60, 0x26, "{volume}", "{checksum}"]
+            parameters:
+              volume:
+                type: "uint8"
+                min: 0
+                max: 100
+                unit: "%"
+                description: "Volume in percent (WheelLog's slider range)."
+              checksum:
+                type: "uint8"
+                auto: "xor_checksum"
+                checksum_start: 2
+                description: "XOR of every frame byte after AA AA."
+            verification: "reported"
+          v2_sound_on:
+            description: "Voice prompts and sounds on (Control 0x60, sub-command 0x2C, data 2C 01). WheelLog calls this the mute switch; 1 means sound enabled."
+            value: [0xaa, 0xaa, 0x14, 0x03, 0x60, 0x2c, 0x01, 0x5a]
+            verification: "reported"
+          v2_sound_off:
+            description: "Voice prompts and sounds muted (data 2C 00)."
+            value: [0xaa, 0xaa, 0x14, 0x03, 0x60, 0x2c, 0x00, 0x5b]
+            verification: "reported"
+          v2_set_headlight_brightness:
+            description: "Headlight brightness (Control 0x60, sub-command 0x2B, data 2B <brightness>). WheelLog offers it on the V11 only; the V12 family takes two values (low and high beam) in the same sub-command, not declared here."
+            template: [0xaa, 0xaa, 0x14, 0x03, 0x60, 0x2b, "{brightness}", "{checksum}"]
+            parameters:
+              brightness:
+                type: "uint8"
+                min: 0
+                max: 100
+                unit: "%"
+                description: "Brightness in percent (WheelLog's slider range)."
+              checksum:
+                type: "uint8"
+                auto: "xor_checksum"
+                checksum_start: 2
+                description: "XOR of every frame byte after AA AA."
+            verification: "reported"
+          v2_lock:
+            description: "Lock the wheel (Control 0x60, sub-command 0x31, data 31 01). The vendor app's lock button presumably does the same; what locked means on the wheel is not recorded."
+            value: [0xaa, 0xaa, 0x14, 0x03, 0x60, 0x31, 0x01, 0x47]
+            advanced: true
+            advanced_reason: >-
+              Immobilises the wheel. What happens if it arrives while someone is
+              riding has not been established, so send it only with the wheel
+              stationary and unridden. Send v2_unlock to undo.
+            verification: "reported"
+          v2_unlock:
+            description: "Unlock the wheel (data 31 00)."
+            value: [0xaa, 0xaa, 0x14, 0x03, 0x60, 0x31, 0x00, 0x46]
+            advanced: true
+            advanced_reason: >-
+              Makes a locked wheel rideable again, overriding the owner's lock.
+              Anyone in radio range can send it, which is why it is signposted.
+            verification: "reported"
+          v2_transport_mode_on:
+            description: "Transport mode on (Control 0x60, sub-command 0x32, data 32 01)."
+            value: [0xaa, 0xaa, 0x14, 0x03, 0x60, 0x32, 0x01, 0x44]
+            advanced: true
+            advanced_reason: >-
+              Puts the wheel into its shipping state, in which it is not meant
+              to be ridden. Send only when stationary; v2_transport_mode_off
+              reverses it.
+            verification: "reported"
+          v2_transport_mode_off:
+            description: "Transport mode off (data 32 00). Whether this alone makes a factory-new wheel rideable is not established."
+            value: [0xaa, 0xaa, 0x14, 0x03, 0x60, 0x32, 0x00, 0x45]
+            advanced: true
+            advanced_reason: >-
+              Takes the wheel out of its shipping state. On a new wheel, check
+              tyre pressure and the vendor's first-ride instructions before
+              riding. v2_transport_mode_on reverses it.
+            verification: "reported"
+          v2_classic_mode_on:
+            description: "Classic ride mode on (Control 0x60, sub-command 0x23, data 23 01). WheelLog's ride-mode switch."
+            value: [0xaa, 0xaa, 0x14, 0x03, 0x60, 0x23, 0x01, 0x55]
+            advanced: true
+            advanced_reason: >-
+              Changes how the wheel responds to the rider's lean. Change it only
+              when stationary, then ride slowly until used to it.
+              v2_classic_mode_off goes back.
+            verification: "reported"
+          v2_classic_mode_off:
+            description: "Classic ride mode off (data 23 00)."
+            value: [0xaa, 0xaa, 0x14, 0x03, 0x60, 0x23, 0x00, 0x54]
+            advanced: true
+            advanced_reason: >-
+              Changes how the wheel responds to the rider's lean. Change it only
+              when stationary. v2_classic_mode_on goes back.
+            verification: "reported"
+          v2_power_off_stage1:
+            description: >-
+              First half of power-off (flags 0x11, Diagnostic command 0x03,
+              data 81 00). The wheel answers with a Diagnostic reply carrying
+              flags 0x11; only then does the client send v2_power_off_stage2.
+              A client that cannot wait for that reply should not send this.
+            value: [0xaa, 0xaa, 0x11, 0x03, 0x03, 0x81, 0x00, 0x90]
+            advanced: true
+            advanced_reason: >-
+              Starts switching the wheel off, which drops a rider who is on it.
+              WheelLog allows it only when the wheel reports it is standing
+              still (under 0.1 km/h) and after confirmation. Recover with the
+              wheel's power button.
+            verification: "reported"
+          v2_power_off_stage2:
+            description: "Second half of power-off (flags 0x11, command 0x03, data 82), sent after the wheel answers stage 1."
+            value: [0xaa, 0xaa, 0x11, 0x02, 0x03, 0x82, 0x92]
+            advanced: true
+            advanced_reason: >-
+              Completes switching the wheel off. Send only as the answer to the
+              wheel's reply to v2_power_off_stage1.
+            verification: "reported"
+          v2_calibrate_turn:
+            description: "Turn calibration (Control 0x60, sub-command 0x52, data 52 01 00 01). WheelLog's wheel-calibration action on every V2 model except an early-firmware V11."
+            value: [0xaa, 0xaa, 0x14, 0x05, 0x60, 0x52, 0x01, 0x00, 0x01, 0x23]
+            advanced: true
+            advanced_reason: >-
+              Re-zeroes a sensor reference the balancing loop uses. Done in the
+              wrong position it degrades how the wheel rides. Send only with
+              the wheel stationary, unridden and positioned as the vendor
+              instructs; repeat correctly to recover.
+            verification: "reported"
+          v2_calibrate_balance:
+            description: "Balance calibration (Control 0x60, sub-command 0x52, data 52 01 01 00)."
+            value: [0xaa, 0xaa, 0x14, 0x05, 0x60, 0x52, 0x01, 0x01, 0x00, 0x23]
+            advanced: true
+            advanced_reason: >-
+              Re-zeroes the wheel's level reference. Done in the wrong position
+              it leaves the pedals tilted while riding. Send only with the
+              wheel stationary, unridden and positioned as the vendor
+              instructs; repeat correctly to recover.
+            verification: "reported"
+          v2_calibrate_v11_early:
+            description: "Calibration for a V11 on main-board firmware before 1.4 (sub-command 0x42, data 42 01 00 01)."
+            value: [0xaa, 0xaa, 0x14, 0x05, 0x60, 0x42, 0x01, 0x00, 0x01, 0x33]
+            advanced: true
+            advanced_reason: >-
+              Re-zeroes a sensor reference the balancing loop uses. Send only
+              with the wheel stationary, unridden and positioned as the vendor
+              instructs. On other models sub-command 0x42 means something else
+              (split mode on the V12 family), so never send this to anything but
+              an early-firmware V11.
+            verification: "reported"
+      - uuid: "6e400003-b5a3-f393-e0a9-e50e24dcca9e"
+        name: "V2 notify (wheel to phone)"
+        properties: ["notify"]
+        role: "notify"
+        notes: >-
+          Carries AA AA-framed replies, split across notifications when a frame
+          is longer than the ATT payload (a real-time reply is 55-90 bytes).
+          Reassemble and unescape per payload_formats.V2_Frame before decoding.
+          Field offsets in payload_formats count from the first data byte of an
+          unescaped frame, never from the notification.
+
+  - uuid: "0000ae00-0000-1000-8000-00805f9b34fb"
+    name: "JieLi RCSP / OTA service (co-processor firmware update)"
+    notes: >-
+      Reported from the vendor app, which embeds a JieLi OTA library configured
+      with this service, write ae01 and notify ae02 (all on the Bluetooth base
+      UUID), for what the app treats as the audio/Bluetooth co-processor. It is
+      in neither of WheelLog's GATT fingerprints, so which radio serves it
+      (the wheel's control module, or the separate Bluetooth audio chip on
+      wheels with speakers) is not established. It is JieLi's stock service,
+      shared by every JieLi product, so it identifies a JieLi part, not this
+      wheel. Listed so a GATT explorer keeps it read-only; no update bytes are
+      documented here.
+    characteristics:
+      - uuid: "0000ae01-0000-1000-8000-00805f9b34fb"
+        name: "JieLi OTA write"
+        properties: ["write_without_response"]
+        notes: "Property as JieLi's library uses it; not observed on a wheel."
+      - uuid: "0000ae02-0000-1000-8000-00805f9b34fb"
+        name: "JieLi OTA notify"
+        properties: ["notify"]
+
+payload_formats:
+  Legacy_Frame:
+    description: >-
+      Wire framing of every legacy message in both directions. Between the
+      AA AA header and the 55 55 trailer sit the escaped message (16 bytes,
+      plus an extended payload when the length byte is 0xFE) and a one-byte
+      checksum.
+    parse_rules:
+      - "Accumulate notification bytes. A frame starts at AA AA."
+      - "Unescape as you go: an A5 byte is dropped and the byte after it is taken literally, whatever it is (so A5 AA is a data AA, A5 55 a data 55, A5 A5 a data A5)."
+      - "A standard frame ends at the first unescaped 55 55. An extended frame (message byte 12 = 0xFE) ends once 21 + L unescaped bytes are in hand, where L is the extended length from message bytes 4-7 (uint32 LE); WheelLog uses only the low byte of L, and drops a frame that grows past that length."
+      - "Unescaped layout: AA AA, message (16 + L bytes), checksum (1 byte), 55 55."
+      - "Checksum = sum of the unescaped message bytes (16 + L), modulo 256. Drop the frame if it differs."
+      - "When building a frame, escape every AA, 55 and A5 in the message and in the checksum. WheelLog leaves the checksum unescaped on write, which would break a frame whose checksum is one of those three values; none of the fixed frames declared here has that problem."
+      - "Split the finished frame into writes of at most 20 bytes (services[].characteristics ffe9)."
+    example: "aa aa 13 01 a5 55 0f ff ff ff ff ff ff ff ff 08 05 00 00 7d 55 55   (legacy_request_fast_info: ID 0x0F550113, the 55 escaped as a5 55, checksum 0x7d)"
+  Legacy_CAN_Message:
+    description: "The 16-byte message inside a legacy frame. Offsets are into the unescaped message."
+    fields:
+      - index: 0
+        name: "message_id"
+        description: "Bytes 0-3, uint32 LE. 0x0F550113 = 13 01 55 0F on the wire. See protocol_details.legacy.message_ids."
+      - index: 4
+        name: "data"
+        description: "Bytes 4-11, eight data bytes. In an extended message, bytes 4-7 are the extended payload length L (uint32 LE) and bytes 8-11 carry a value decoders ignore."
+      - index: 12
+        name: "length"
+        description: "Byte 12. 8 for a standard message (every request the phone sends); 0xFE for an extended message whose L-byte payload follows byte 15."
+      - index: 13
+        name: "channel"
+        description: "Byte 13. The phone sends 5; replies seen carry 0."
+      - index: 14
+        name: "format"
+        description: "Byte 14. 0 = standard, 1 = extended. Requests use 0; extended replies carry 1."
+      - index: 15
+        name: "frame_type"
+        description: "Byte 15. 0 = data frame, 1 = remote frame (the slow-info request uses 1)."
+  Legacy_FastInfo:
+    description: >-
+      Extended payload of the reply to legacy_request_fast_info (ID
+      0x0F550113). Offsets count from the first byte after the 16-byte
+      message. Offsets and scales for the V5, V8, Glide 3 and V10 families
+      (speed factor 3812); other legacy products scale differently and are out
+      of scope.
+    fields:
+      - index: 0
+        name: "pitch_angle"
+        scale: 0.0000152587890625
+        unit: "°"
+        description: "Bytes 0-3, int32 LE, value / 65536 degrees."
+      - index: 12
+        name: "speed_counter_a"
+        scale: 0.00047219307450157396
+        unit: "km/h"
+        description: "Bytes 12-15, int32 LE. Speed = |a + b| x 3.6 / (2 x 3812) km/h; the scale here is 3.6/7624 per count. Sum with speed_counter_b before taking the magnitude."
+      - index: 16
+        name: "speed_counter_b"
+        scale: 0.00047219307450157396
+        unit: "km/h"
+        description: "Bytes 16-19, int32 LE, same scaling as speed_counter_a."
+      - index: 20
+        name: "current"
+        scale: 0.01
+        unit: "A"
+        description: "Bytes 20-23, int32 LE, hundredths of an amp, signed (negative when braking)."
+      - index: 24
+        name: "voltage"
+        scale: 0.01
+        unit: "V"
+        description: "Bytes 24-27, uint32 LE, hundredths of a volt."
+      - index: 32
+        name: "temperature"
+        unit: "C"
+        description: "Byte 32, int8, whole degrees Celsius (which sensor is not recorded; WheelLog shows it as the wheel temperature)."
+      - index: 34
+        name: "imu_temperature"
+        unit: "C"
+        description: "Byte 34, int8, whole degrees Celsius; 0 on a V5F capture."
+      - index: 44
+        name: "total_distance"
+        scale: 0.001
+        unit: "km"
+        description: "Bytes 44-47, uint32 LE, metres."
+      - index: 48
+        name: "trip_distance"
+        scale: 0.001
+        unit: "km"
+        description: "Bytes 48-51, uint32 LE, metres."
+      - index: 60
+        name: "work_mode"
+        description: "Bytes 60-63, uint32 LE. V8F/V8S and V10 family: value >> 4 is 1 = shutdown, 2 = drive, 3 = charging, and value & 0x0F = 1 adds motor off. Other models: value & 0x0F is 0 idle, 1 drive, 2 zero, 3 large angle, 4 check, 5 lock, 6 error, 7 carry, 8 remote control, 9 shutdown, 10 pedal-off stop, 12 unlock."
+      - index: 72
+        name: "roll_angle"
+        scale: 0.011111111111111112
+        unit: "°"
+        description: "Bytes 72-75, int32 LE, value / 90 per WheelLog; the unit is not confirmed. WheelLog zeroes it for the V8F/V8S and V10 family."
+    parse_rules:
+      - "The payload length is L from the message (96 bytes on a V5F capture)."
+      - "Battery percentage is not in the message. WheelLog estimates it from voltage: V5, V8, V8F/V8S, Glide 3 and V10 by default map 68.0 V to 0 % and 82.5 V to 100 %, linearly. That is a client heuristic, not a wheel reading."
+    example: "aaaa1301a5550f60000000b4720020fe000100ff3f00003a18deff5d01000029f0ffff29f0ffffecffffff15200000000000001a1a000000000000000000001ce3130000000000000026061a03d207210000006f0100006f010000f7010000420c00002b110000070000000000000000000000265555  (V5F, WheelLog test data: 82.13 V, -0.20 A, 3.83 km/h, 26 C, odometer 1303.324 km, pitch 0.25 deg)"
+  Legacy_SlowInfo:
+    description: >-
+      Extended payload of the reply to legacy_request_slow_info (ID
+      0x0F550114), 124 bytes on a V5F and 133 on a V8F. Offsets count from the
+      first byte after the 16-byte message; fields past the payload's end are
+      absent on that model.
+    fields:
+      - index: 0
+        name: "serial"
+        description: "Bytes 0-7, uint64 LE, shown as 16 uppercase hex digits (most significant first)."
+      - index: 24
+        name: "firmware_version"
+        description: "Bytes 24-27: version = byte27.byte26.(bytes 24-25 as uint16 LE), e.g. 1.3.506."
+      - index: 56
+        name: "pedal_horizon"
+        scale: 0.0000152587890625
+        unit: "°"
+        description: "Bytes 56-59, int32 LE, value / 65536 degrees (pedal tilt offset). Read only here; the write is not documented."
+      - index: 60
+        name: "max_speed_setting"
+        scale: 0.001
+        unit: "km/h"
+        description: "Bytes 60-61, uint16 LE, the tilt-back speed setting in thousandths of km/h. Read only here; the write is deliberately not documented."
+      - index: 80
+        name: "headlight"
+        values: {"0": "off", "1": "on"}
+        description: "Byte 80."
+      - index: 104
+        name: "model_code_type"
+        description: "Byte 104. Model code = byte107 x 10 + byte104 (protocol_details.legacy.model_codes)."
+      - index: 107
+        name: "model_code_series"
+        description: "Byte 107. WheelLog falls back to V8 when the code is unknown."
+      - index: 124
+        name: "pedal_hardness"
+        description: "Byte 124, raw; WheelLog shows raw - 28 as a percentage (0x20 minimum, 0x80 maximum)."
+      - index: 125
+        name: "speaker_volume"
+        scale: 0.01
+        unit: "%"
+        description: "Bytes 125-126, uint16 LE, hundredths of a percent (0-10000 = 0-100 %)."
+      - index: 129
+        name: "handle_button"
+        values: {"0": "disabled", "1": "enabled"}
+        description: "Byte 129, the handle (lift) cut-off button."
+      - index: 130
+        name: "decorative_leds"
+        values: {"0": "off", "1": "on"}
+        description: "Byte 130."
+      - index: 132
+        name: "ride_mode"
+        values: {"0": "comfort", "1": "classic"}
+        description: "Byte 132."
+    parse_rules:
+      - "Treat the reply as valid only when it is an extended message whose L matches the bytes received."
+      - "Nothing past byte 124 exists on a 124-byte payload."
+    example: "aaaa1401a5550f7c000000b4720020fe000100d4c3b2a10000000000000000000000000100000000000000fa010301fa0103010402020100000000c2040001c2040001900302010000000000000000a86100000010000000000000000000000000000000000000010000000000000000000000000000000000000002000005000000000000000000000000040203017b5555  (a V5F capture from WheelLog's tests with the serial replaced by the invented 00000000A1B2C3D4 and the checksum recomputed: model code 52 = V5F, firmware 1.3.506, max speed 25 km/h, headlight off)"
+  Legacy_Alert:
+    description: "Standard message the wheel pushes on its own, ID 0x0F780101, len 8. Offsets are into the eight data bytes."
+    fields:
+      - index: 0
+        name: "alert_id"
+        values: {"5": "start from tilt angle", "6": "tilt-back", "25": "fall down", "29": "bad battery cell", "32": "low battery", "33": "speed cut-off", "38": "high load"}
+        description: "Byte 0."
+      - index: 2
+        name: "value"
+        description: "Bytes 2-3, int16 LE. Tilt angle x 100 for alert 5, speed limit x 1000 for alert 6, current x 1000 (A) for alert 38."
+      - index: 4
+        name: "value2"
+        description: "Bytes 4-7, int32 LE. For speed-related alerts, |value2 / 3812 x 3.6| km/h; for alerts 29 and 32, pack voltage x 100."
+  V2_Frame:
+    description: "Wire framing of every V2 message in both directions."
+    parse_rules:
+      - "A frame starts at AA AA. Unescape everything after the header: an A5 is dropped and the next byte taken literally. V2 escapes only AA and A5; 55 is not special."
+      - "Unescaped layout: AA AA, flags (1), len (1), command (1), data (len - 1 bytes), checksum (1). len counts the command byte plus the data."
+      - "The frame is complete when len + 5 unescaped bytes are in hand."
+      - "Checksum = XOR of flags, len, command and every data byte. Drop the frame if it differs."
+      - "Flags: 0x11 for MainInfo and the power-off exchange, 0x14 for everything else. Replies set bit 7 of the command (0x02 -> 0x82, 0x04 -> 0x84); mask it off before dispatching."
+      - "When building a frame, escape AA and A5 in every byte after the header, the checksum included. The wheel does escape its own checksum (a WheelLog capture ends A5 A5 for checksum 0xA5); WheelLog does not escape its written checksum, which would matter only for a frame whose checksum is AA or A5."
+    example: "aa aa 11 08 82 01 02 06 01 02 01 00 9c   (car-type reply of a V11, WheelLog test data: flags 0x11, len 8, command 0x82, data 01 02 06 01 02 01 00, checksum 0x9c; model code 6 x 10 + 1 = 61)"
+  V2_MainInfo_CarType:
+    description: "Data of the MainInfo reply (flags 0x11, command 0x82) whose first byte is 0x01."
+    fields:
+      - index: 0
+        name: "subtype"
+        description: "Byte 0 = 0x01."
+      - index: 1
+        name: "main_series"
+        description: "Byte 1 (2 on the V11, V12 and V13 samples)."
+      - index: 2
+        name: "series"
+        description: "Byte 2. Model code = series x 10 + type (protocol_details.v2.model_codes)."
+      - index: 3
+        name: "type"
+        description: "Byte 3."
+      - index: 4
+        name: "batch"
+        description: "Byte 4, meaning not recorded."
+      - index: 5
+        name: "feature"
+        description: "Byte 5, meaning not recorded."
+    example: "aaaa110882010206010201009c"
+  V2_MainInfo_Serial:
+    description: "Data of the MainInfo reply whose first byte is 0x02."
+    fields:
+      - index: 0
+        name: "subtype"
+        description: "Byte 0 = 0x02."
+      - index: 1
+        name: "serial"
+        description: "Bytes 1-16, 16 ASCII characters. The last eight are the advertised name's suffix. Zero padding follows."
+    example: "aaaa111782023030303030303030313233343536373800000000008e  (invented serial 0000000012345678; the wheel would advertise as <model>-12345678)"
+  V2_MainInfo_Versions:
+    description: >-
+      Data of the MainInfo reply whose first byte is 0x06. WheelLog reads three
+      versions at fixed offsets, each as patch (uint16 LE), minor, major. The
+      sample also fits a list of per-board records, each a one-byte board tag
+      followed by two 4-byte versions (tags 0x22 driver board, 0x21 main board,
+      0x23 BLE board), which would explain the vendor app's five-board version
+      list; that reading is a hypothesis.
+    fields:
+      - index: 2
+        name: "driver_board_version"
+        description: "Bytes 2-5: bytes 2-3 patch (uint16 LE), byte 4 minor, byte 5 major. 3.4.8 in the sample."
+      - index: 11
+        name: "main_board_version"
+        description: "Bytes 11-14, same layout. 1.1.64 in the sample. On a V11, a version below 1.4 (major below 2 and minor below 4) selects the early layout and command bytes."
+      - index: 20
+        name: "ble_board_version"
+        description: "Bytes 20-23, same layout. 1.1.13 in the sample."
+    example: "aaaa111d820622080004030f000602214000010110000602230d00010107000001f3  (V11, WheelLog test data: Main 1.1.64, Driver 3.4.8, BLE 1.1.13)"
+  V2_RealTime_V11_Early:
+    description: >-
+      RealTimeInfo reply data (command 0x84) of a V11 on main-board firmware
+      before 1.4. Temperatures are uint8 minus 176 C; a raw 0 means no sensor.
+    fields:
+      - {index: 0, name: "voltage", scale: 0.01, unit: "V", description: "uint16 LE"}
+      - {index: 2, name: "current", scale: 0.01, unit: "A", description: "int16 LE"}
+      - {index: 4, name: "speed", scale: 0.01, unit: "km/h", description: "int16 LE, negative when rolling backwards"}
+      - {index: 6, name: "torque", scale: 0.01, unit: "N·m", description: "int16 LE"}
+      - {index: 8, name: "battery_power", unit: "W", description: "int16 LE"}
+      - {index: 10, name: "motor_power", unit: "W", description: "int16 LE"}
+      - {index: 12, name: "trip_distance", scale: 0.01, unit: "km", description: "uint16 LE, tens of metres"}
+      - {index: 14, name: "remaining_range", scale: 0.01, unit: "km", description: "uint16 LE, tens of metres"}
+      - {index: 16, name: "battery_level", unit: "%", description: "uint8, low 7 bits; bit 7 is a battery-mode flag"}
+      - {index: 17, name: "mos_temperature", value_offset: -176, unit: "C", description: "uint8"}
+      - {index: 18, name: "motor_temperature", value_offset: -176, unit: "C", description: "uint8"}
+      - {index: 19, name: "battery_temperature", value_offset: -176, unit: "C", description: "uint8"}
+      - {index: 20, name: "board_temperature", value_offset: -176, unit: "C", description: "uint8"}
+      - {index: 21, name: "lamp_temperature", value_offset: -176, unit: "C", description: "uint8"}
+      - {index: 22, name: "pitch_angle", scale: 0.01, unit: "°", description: "int16 LE"}
+      - {index: 24, name: "pitch_target_angle", scale: 0.01, unit: "°", description: "int16 LE"}
+      - {index: 26, name: "roll_angle", scale: 0.01, unit: "°", description: "int16 LE"}
+      - {index: 28, name: "dynamic_speed_limit", scale: 0.01, unit: "km/h", description: "uint16 LE, the limit the wheel is enforcing right now"}
+      - {index: 30, name: "dynamic_current_limit", scale: 0.01, unit: "A", description: "uint16 LE"}
+      - {index: 32, name: "ambient_brightness", description: "uint8, raw"}
+      - {index: 33, name: "light_brightness", unit: "%", description: "uint8"}
+      - {index: 34, name: "cpu_temperature", value_offset: -176, unit: "C", description: "uint8"}
+      - {index: 35, name: "imu_temperature", value_offset: -176, unit: "C", description: "uint8"}
+      - {index: 36, name: "pwm", scale: 0.01, unit: "%", description: "uint16 LE, present only when the data is 49 bytes or longer"}
+    parse_rules:
+      - "State bytes start at S = 36 when the data is shorter than 49 bytes, else 38 (after the PWM word)."
+      - "Byte S: bits 0-2 PC mode, bits 3-5 MC mode, bit 6 motor active, bit 7 charging. Byte S+1: bit 0 headlight, bit 1 decorative light, bit 2 lifted, bits 3-4 tail light, bit 5 fan."
+      - "Error flags start at S + 5 (protocol_details.v2.error_bits)."
+    example: "aaaa143184e61eeb0561094a11ae04a004df01402958cbb000ce004a010000d4ff7c15641900000000492b00000000000000000000c6  (WheelLog test data: 79.10 V, 15.15 A, 24.01 km/h, 44.26 N·m, battery 88 %, trip 4.79 km, remaining 105.60 km, MOS 27 C, board 30 C, limit 55.00 km/h)"
+  V2_RealTime_V11_1_4:
+    description: "RealTimeInfo reply data of a V11 on main-board firmware 1.4 or later. Same encodings as V2_RealTime_V11_Early."
+    fields:
+      - {index: 0, name: "voltage", scale: 0.01, unit: "V", description: "uint16 LE"}
+      - {index: 2, name: "current", scale: 0.01, unit: "A", description: "int16 LE"}
+      - {index: 4, name: "speed", scale: 0.01, unit: "km/h", description: "int16 LE"}
+      - {index: 6, name: "torque", scale: 0.01, unit: "N·m", description: "int16 LE"}
+      - {index: 8, name: "pwm", scale: 0.01, unit: "%", description: "int16 LE"}
+      - {index: 10, name: "battery_power", unit: "W", description: "int16 LE"}
+      - {index: 12, name: "motor_power", unit: "W", description: "int16 LE"}
+      - {index: 16, name: "pitch_angle", scale: 0.01, unit: "°", description: "int16 LE"}
+      - {index: 18, name: "pitch_target_angle", scale: 0.01, unit: "°", description: "int16 LE"}
+      - {index: 20, name: "roll_angle", scale: 0.01, unit: "°", description: "int16 LE"}
+      - {index: 26, name: "trip_distance", scale: 0.01, unit: "km", description: "uint16 LE"}
+      - {index: 28, name: "battery_level", scale: 0.01, unit: "%", description: "uint16 LE"}
+      - {index: 30, name: "remaining_range", scale: 0.01, unit: "km", description: "uint16 LE"}
+      - {index: 34, name: "dynamic_speed_limit", scale: 0.01, unit: "km/h", description: "uint16 LE"}
+      - {index: 36, name: "dynamic_current_limit", scale: 0.01, unit: "A", description: "uint16 LE"}
+      - {index: 42, name: "mos_temperature", value_offset: -176, unit: "C", description: "uint8"}
+      - {index: 43, name: "motor_temperature", value_offset: -176, unit: "C", description: "uint8"}
+      - {index: 44, name: "battery_temperature", value_offset: -176, unit: "C", description: "uint8 (reads 0, absent, on samples)"}
+      - {index: 45, name: "board_temperature", value_offset: -176, unit: "C", description: "uint8"}
+      - {index: 46, name: "cpu_temperature", value_offset: -176, unit: "C", description: "uint8"}
+      - {index: 47, name: "imu_temperature", value_offset: -176, unit: "C", description: "uint8"}
+      - {index: 48, name: "lamp_temperature", value_offset: -176, unit: "C", description: "uint8"}
+      - {index: 50, name: "light_brightness", unit: "%", description: "uint8"}
+    parse_rules:
+      - "Byte 56: bits 0-2 PC mode, 3-5 MC mode, bit 6 motor active, bit 7 charging. Byte 57: bit 0 low beam, bit 1 high beam, bit 2 lifted, bits 3-4 tail light, bit 5 firmware update in progress."
+      - "Error flags start at byte 61."
+  V2_RealTime_V12:
+    description: "RealTimeInfo reply data of the V12 HS/HT/Pro. Same encodings as the V11 layouts."
+    fields:
+      - {index: 0, name: "voltage", scale: 0.01, unit: "V", description: "uint16 LE"}
+      - {index: 2, name: "current", scale: 0.01, unit: "A", description: "int16 LE"}
+      - {index: 4, name: "speed", scale: 0.01, unit: "km/h", description: "int16 LE"}
+      - {index: 6, name: "torque", scale: 0.01, unit: "N·m", description: "int16 LE"}
+      - {index: 8, name: "pwm", scale: 0.01, unit: "%", description: "int16 LE"}
+      - {index: 10, name: "battery_power", unit: "W", description: "int16 LE"}
+      - {index: 12, name: "motor_power", unit: "W", description: "int16 LE"}
+      - {index: 16, name: "pitch_angle", scale: 0.01, unit: "°", description: "int16 LE"}
+      - {index: 18, name: "pitch_target_angle", scale: 0.01, unit: "°", description: "int16 LE"}
+      - {index: 20, name: "roll_angle", scale: 0.01, unit: "°", description: "int16 LE"}
+      - {index: 22, name: "trip_distance", scale: 0.01, unit: "km", description: "uint16 LE"}
+      - {index: 24, name: "battery_level", scale: 0.01, unit: "%", description: "uint16 LE"}
+      - {index: 26, name: "remaining_range", scale: 0.01, unit: "km", description: "uint16 LE"}
+      - {index: 30, name: "dynamic_speed_limit", scale: 0.01, unit: "km/h", description: "uint16 LE"}
+      - {index: 32, name: "dynamic_current_limit", scale: 0.01, unit: "A", description: "uint16 LE"}
+      - {index: 40, name: "mos_temperature", value_offset: -176, unit: "C", description: "uint8"}
+      - {index: 41, name: "motor_temperature", value_offset: -176, unit: "C", description: "uint8"}
+      - {index: 43, name: "board_temperature", value_offset: -176, unit: "C", description: "uint8"}
+      - {index: 44, name: "cpu_temperature", value_offset: -176, unit: "C", description: "uint8"}
+      - {index: 45, name: "imu_temperature", value_offset: -176, unit: "C", description: "uint8"}
+    parse_rules:
+      - "Byte 54: mode bits as the V11 1.4 layout's byte 56. Byte 55: bit 0 low beam, bit 1 high beam, bit 2 lifted, bits 3-4 tail light, bit 5 firmware update."
+      - "Error flags start at byte 59."
+  V2_RealTime_V13:
+    description: "RealTimeInfo reply data of the V13 and V13 Pro. WheelLog marks several offsets as unsure; they are flagged below."
+    fields:
+      - {index: 0, name: "voltage", scale: 0.01, unit: "V", description: "uint16 LE"}
+      - {index: 2, name: "current", scale: 0.01, unit: "A", description: "int16 LE"}
+      - {index: 6, name: "pitch_angle", scale: 0.01, unit: "°", description: "int16 LE (unsure)"}
+      - {index: 8, name: "speed", scale: 0.01, unit: "km/h", description: "int16 LE"}
+      - {index: 10, name: "trip_distance", scale: 0.001, unit: "km", description: "Bytes 10-13, uint32 in metres with its two 16-bit halves swapped: value = (b11 << 24) | (b10 << 16) | (b13 << 8) | b12 (unsure)"}
+      - {index: 14, name: "pwm", scale: 0.01, unit: "%", description: "int16 LE"}
+      - {index: 16, name: "battery_power", unit: "W", description: "int16 LE"}
+      - {index: 18, name: "torque", scale: 0.01, unit: "N·m", description: "int16 LE (unsure)"}
+      - {index: 20, name: "pitch_target_angle", scale: 0.01, unit: "°", description: "int16 LE (unsure)"}
+      - {index: 22, name: "motor_power", unit: "W", description: "int16 LE (unsure)"}
+      - {index: 24, name: "roll_angle", scale: 0.01, unit: "°", description: "int16 LE (unsure)"}
+      - {index: 34, name: "battery_level_pack1", scale: 0.01, unit: "%", description: "uint16 LE; WheelLog shows the mean of the two packs"}
+      - {index: 36, name: "battery_level_pack2", scale: 0.01, unit: "%", description: "uint16 LE"}
+      - {index: 40, name: "dynamic_speed_limit", scale: 0.01, unit: "km/h", description: "uint16 LE"}
+      - {index: 50, name: "dynamic_current_limit", scale: 0.01, unit: "A", description: "uint16 LE"}
+      - {index: 58, name: "mos_temperature", value_offset: -176, unit: "C", description: "uint8"}
+      - {index: 59, name: "motor_temperature", value_offset: -176, unit: "C", description: "uint8"}
+      - {index: 61, name: "board_temperature", value_offset: -176, unit: "C", description: "uint8"}
+      - {index: 62, name: "cpu_temperature", value_offset: -176, unit: "C", description: "uint8"}
+      - {index: 63, name: "imu_temperature", value_offset: -176, unit: "C", description: "uint8"}
+    parse_rules:
+      - "Byte 74: mode bits as above. Byte 75: bit 0 low beam, bit 1 high beam, bit 2 lifted, bits 3-4 tail light, bit 5 firmware update. Byte 76 bit 1: headlight."
+      - "Error flags start at byte 76."
+  V2_RealTime_V14_Family:
+    description: "RealTimeInfo reply data of the V14, V11Y, V9 and V12S, which WheelLog decodes with near-identical parsers. Offsets WheelLog marks unsure are flagged."
+    fields:
+      - {index: 0, name: "voltage", scale: 0.01, unit: "V", description: "uint16 LE"}
+      - {index: 2, name: "current", scale: 0.01, unit: "A", description: "int16 LE"}
+      - {index: 8, name: "speed", scale: 0.01, unit: "km/h", description: "int16 LE"}
+      - {index: 12, name: "torque", scale: 0.01, unit: "N·m", description: "int16 LE (unsure)"}
+      - {index: 14, name: "pwm", scale: 0.01, unit: "%", description: "int16 LE"}
+      - {index: 16, name: "battery_power", unit: "W", description: "int16 LE"}
+      - {index: 18, name: "motor_power", unit: "W", description: "int16 LE (unsure)"}
+      - {index: 20, name: "pitch_angle", scale: 0.01, unit: "°", description: "int16 LE (unsure)"}
+      - {index: 22, name: "roll_angle", scale: 0.01, unit: "°", description: "int16 LE (unsure)"}
+      - {index: 24, name: "pitch_target_angle", scale: 0.01, unit: "°", description: "int16 LE (unsure)"}
+      - {index: 28, name: "trip_distance", scale: 0.01, unit: "km", description: "uint16 LE, tens of metres"}
+      - {index: 34, name: "battery_level_pack1", scale: 0.01, unit: "%", description: "uint16 LE; WheelLog shows the mean of the two packs"}
+      - {index: 36, name: "battery_level_pack2", scale: 0.01, unit: "%", description: "uint16 LE"}
+      - {index: 40, name: "dynamic_speed_limit", scale: 0.01, unit: "km/h", description: "uint16 LE"}
+      - {index: 50, name: "dynamic_current_limit", scale: 0.01, unit: "A", description: "uint16 LE"}
+      - {index: 58, name: "mos_temperature", value_offset: -176, unit: "C", description: "uint8"}
+      - {index: 59, name: "motor_temperature", value_offset: -176, unit: "C", description: "uint8"}
+      - {index: 61, name: "board_temperature", value_offset: -176, unit: "C", description: "uint8"}
+      - {index: 62, name: "cpu_temperature", value_offset: -176, unit: "C", description: "uint8"}
+      - {index: 63, name: "imu_temperature", value_offset: -176, unit: "C", description: "uint8"}
+    parse_rules:
+      - "Byte 74: mode bits as above. V14: byte 76 bit 1 headlight, bit 2 lifted, bit 4 tail light, bit 5 firmware update. V11Y, V9, V12S: byte 75 bit 0 low beam, bit 1 high beam, bit 2 lifted, bit 5 firmware update; byte 76 bit 1 headlight, bit 4 tail light."
+      - "Error flags start at byte 77."
+  V2_TotalStats:
+    description: "TotalStats reply data (command 0x91), 24 bytes on the V11 sample."
+    fields:
+      - {index: 0, name: "total_distance", scale: 0.01, unit: "km", description: "uint32 LE, tens of metres"}
+      - {index: 4, name: "energy_consumed", scale: 0.01, description: "uint32 LE; unit not established (WheelLog prints value / 100)"}
+      - {index: 8, name: "energy_recovered", scale: 0.01, description: "uint32 LE; unit not established"}
+      - {index: 12, name: "ride_time", unit: "s", description: "uint32 LE"}
+      - {index: 16, name: "power_on_time", unit: "s", description: "uint32 LE"}
+    example: "aaaa141991e86c000066191c002db2040064e60000974d050000c7df01a4  (V11, WheelLog test data: 278.80 km, ride time 16:23:00, power-on 96:32:23)"
+  V2_BatteryRealTime:
+    description: "BatteryRealTimeInfo reply data (command 0x85). WheelLog reads these fields and uses none of them; units are not established."
+    fields:
+      - {index: 0, name: "pack1_voltage", description: "uint16 LE (probably hundredths of a volt, as elsewhere)"}
+      - {index: 4, name: "pack1_temperature", description: "uint8, raw"}
+      - {index: 5, name: "pack1_status", description: "bit 0 valid, bit 1 enabled; byte 6 bits 0-1 work status"}
+      - {index: 8, name: "pack2_voltage", description: "uint16 LE"}
+      - {index: 12, name: "pack2_temperature", description: "uint8, raw"}
+      - {index: 13, name: "pack2_status", description: "bit 0 valid, bit 1 enabled; byte 14 bits 0-1 work status"}
+      - {index: 16, name: "charge_voltage", description: "uint16 LE"}
+      - {index: 18, name: "charge_current", description: "uint16 LE"}
+
+entities:
+  # ---- Legacy wheels (poll: legacy_request_fast_info / slow_info) ----
+  - platform: "sensor"
+    name: "Speed"
+    device_class: "speed"
+    unit: "km/h"
+    precision: 0.01
+    variants: &legacy ["V5 / V5+ / V5F / V5D", "V8", "V8F / V8S", "Glide 3", "V10 / V10F / V10T / V10FT / V10S / V10SF"]
+    state_characteristic: "0000ffe4-0000-1000-8000-00805f9b34fb"
+    commands:
+      poll: "legacy_request_fast_info"
+    notes: "payload_formats.Legacy_FastInfo: |speed_counter_a + speed_counter_b| x 3.6 / 7624."
+  - platform: "sensor"
+    name: "Battery Voltage"
+    device_class: "voltage"
+    unit: "V"
+    precision: 0.01
+    variants: *legacy
+    state_characteristic: "0000ffe4-0000-1000-8000-00805f9b34fb"
+    commands:
+      poll: "legacy_request_fast_info"
+    notes: "payload_formats.Legacy_FastInfo voltage."
+  - platform: "sensor"
+    name: "Battery"
+    device_class: "battery"
+    unit: "%"
+    variants: *legacy
+    state_characteristic: "0000ffe4-0000-1000-8000-00805f9b34fb"
+    commands:
+      poll: "legacy_request_fast_info"
+    notes: "Estimated by the client from voltage (payload_formats.Legacy_FastInfo parse_rules); the wheel does not report a percentage."
+  - platform: "sensor"
+    name: "Current"
+    device_class: "current"
+    unit: "A"
+    precision: 0.01
+    variants: *legacy
+    state_characteristic: "0000ffe4-0000-1000-8000-00805f9b34fb"
+    commands:
+      poll: "legacy_request_fast_info"
+    notes: "payload_formats.Legacy_FastInfo current; negative while braking."
+  - platform: "sensor"
+    name: "Temperature"
+    device_class: "temperature"
+    unit: "C"
+    variants: *legacy
+    state_characteristic: "0000ffe4-0000-1000-8000-00805f9b34fb"
+    commands:
+      poll: "legacy_request_fast_info"
+    notes: "payload_formats.Legacy_FastInfo temperature (byte 32)."
+  - platform: "sensor"
+    name: "Trip Distance"
+    device_class: "distance"
+    unit: "km"
+    precision: 0.01
+    variants: *legacy
+    state_characteristic: "0000ffe4-0000-1000-8000-00805f9b34fb"
+    commands:
+      poll: "legacy_request_fast_info"
+  - platform: "sensor"
+    name: "Total Distance"
+    device_class: "distance"
+    unit: "km"
+    precision: 0.1
+    variants: *legacy
+    state_characteristic: "0000ffe4-0000-1000-8000-00805f9b34fb"
+    commands:
+      poll: "legacy_request_fast_info"
+  - platform: "sensor"
+    name: "Firmware Version"
+    icon: "mdi:chip"
+    variants: *legacy
+    state_characteristic: "0000ffe4-0000-1000-8000-00805f9b34fb"
+    commands:
+      poll: "legacy_request_slow_info"
+    notes: "payload_formats.Legacy_SlowInfo firmware_version."
+  - platform: "light"
+    name: "Headlight"
+    variants: *legacy
+    state_characteristic: "0000ffe4-0000-1000-8000-00805f9b34fb"
+    commands:
+      turn_on: "legacy_headlight_on"
+      turn_off: "legacy_headlight_off"
+    notes: "State from slow-info byte 80 (re-read slow info after a change, as WheelLog does)."
+  - platform: "switch"
+    name: "Decorative LEDs"
+    variants: ["V8", "V8F / V8S", "Glide 3", "V10 / V10F / V10T / V10FT / V10S / V10SF"]
+    state_characteristic: "0000ffe4-0000-1000-8000-00805f9b34fb"
+    commands:
+      turn_on: "legacy_decor_leds_on"
+      turn_off: "legacy_decor_leds_off"
+    notes: "State from slow-info byte 130."
+  - platform: "button"
+    name: "Beep"
+    icon: "mdi:bullhorn"
+    variants: ["V8F / V8S", "V10 / V10F / V10T / V10FT / V10S / V10SF"]
+    commands:
+      press: "legacy_beep"
+  - platform: "button"
+    name: "Beep"
+    icon: "mdi:bullhorn"
+    variants: ["V5 / V5+ / V5F / V5D", "V8", "Glide 3"]
+    commands:
+      press: "legacy_play_sound_4"
+  - platform: "button"
+    name: "Power Off"
+    icon: "mdi:power"
+    variants: *legacy
+    commands:
+      press: "legacy_power_off"
+    notes: "Advanced. Offer only when the wheel reports it is standing still (under 0.1 km/h), behind a confirmation."
+
+  # ---- V2 wheels (poll: v2_request_realtime unless noted) ----
+  - platform: "sensor"
+    name: "Speed"
+    device_class: "speed"
+    unit: "km/h"
+    precision: 0.01
+    variants: &v2 ["V9", "V11", "V11Y", "V12 HS / HT / Pro", "V12S", "V13 / V13 Pro", "V14 (50GB / 50S)"]
+    state_characteristic: "6e400003-b5a3-f393-e0a9-e50e24dcca9e"
+    commands:
+      poll: "v2_request_realtime"
+    notes: "speed field of the model's real-time layout (protocol_details.v2_layout_selection)."
+  - platform: "sensor"
+    name: "Battery Voltage"
+    device_class: "voltage"
+    unit: "V"
+    precision: 0.01
+    variants: *v2
+    state_characteristic: "6e400003-b5a3-f393-e0a9-e50e24dcca9e"
+    commands:
+      poll: "v2_request_realtime"
+  - platform: "sensor"
+    name: "Battery"
+    device_class: "battery"
+    unit: "%"
+    variants: *v2
+    state_characteristic: "6e400003-b5a3-f393-e0a9-e50e24dcca9e"
+    commands:
+      poll: "v2_request_realtime"
+    notes: "battery_level, or on two-pack models (V13, V14 family) the mean of battery_level_pack1 and _pack2, as WheelLog shows it."
+  - platform: "sensor"
+    name: "Current"
+    device_class: "current"
+    unit: "A"
+    precision: 0.01
+    variants: *v2
+    state_characteristic: "6e400003-b5a3-f393-e0a9-e50e24dcca9e"
+    commands:
+      poll: "v2_request_realtime"
+  - platform: "sensor"
+    name: "MOSFET Temperature"
+    device_class: "temperature"
+    unit: "C"
+    variants: *v2
+    state_characteristic: "6e400003-b5a3-f393-e0a9-e50e24dcca9e"
+    commands:
+      poll: "v2_request_realtime"
+    notes: "mos_temperature (raw uint8 - 176). Hide it when the raw byte is 0."
+  - platform: "sensor"
+    name: "Motor Temperature"
+    device_class: "temperature"
+    unit: "C"
+    variants: *v2
+    state_characteristic: "6e400003-b5a3-f393-e0a9-e50e24dcca9e"
+    commands:
+      poll: "v2_request_realtime"
+    notes: "motor_temperature (raw uint8 - 176). Hide it when the raw byte is 0."
+  - platform: "sensor"
+    name: "Trip Distance"
+    device_class: "distance"
+    unit: "km"
+    precision: 0.01
+    variants: *v2
+    state_characteristic: "6e400003-b5a3-f393-e0a9-e50e24dcca9e"
+    commands:
+      poll: "v2_request_realtime"
+  - platform: "sensor"
+    name: "Remaining Range"
+    device_class: "distance"
+    unit: "km"
+    precision: 0.01
+    variants: ["V11", "V12 HS / HT / Pro"]
+    state_characteristic: "6e400003-b5a3-f393-e0a9-e50e24dcca9e"
+    commands:
+      poll: "v2_request_realtime"
+    notes: "The wheel's own estimate; not located in the V13 and V14-family layouts."
+  - platform: "sensor"
+    name: "Speed Limit (current)"
+    device_class: "speed"
+    unit: "km/h"
+    precision: 0.01
+    variants: *v2
+    state_characteristic: "6e400003-b5a3-f393-e0a9-e50e24dcca9e"
+    commands:
+      poll: "v2_request_realtime"
+    notes: "dynamic_speed_limit: the limit the wheel is enforcing now, which drops as the pack empties or heats. Read-only here."
+  - platform: "sensor"
+    name: "Total Distance"
+    device_class: "distance"
+    unit: "km"
+    precision: 0.01
+    variants: *v2
+    state_characteristic: "6e400003-b5a3-f393-e0a9-e50e24dcca9e"
+    commands:
+      poll: "v2_request_total_stats"
+    notes: "payload_formats.V2_TotalStats total_distance."
+  - platform: "sensor"
+    name: "Total Ride Time"
+    device_class: "duration"
+    unit: "s"
+    variants: *v2
+    state_characteristic: "6e400003-b5a3-f393-e0a9-e50e24dcca9e"
+    commands:
+      poll: "v2_request_total_stats"
+  - platform: "sensor"
+    name: "Serial Number"
+    icon: "mdi:identifier"
+    variants: *v2
+    state_characteristic: "6e400003-b5a3-f393-e0a9-e50e24dcca9e"
+    commands:
+      poll: "v2_request_serial"
+  - platform: "sensor"
+    name: "Firmware Versions"
+    icon: "mdi:chip"
+    variants: *v2
+    state_characteristic: "6e400003-b5a3-f393-e0a9-e50e24dcca9e"
+    commands:
+      poll: "v2_request_versions"
+    notes: "Main, driver and BLE board versions (payload_formats.V2_MainInfo_Versions)."
+  - platform: "light"
+    name: "Headlight"
+    variants: ["V9", "V11Y", "V13 / V13 Pro", "V14 (50GB / 50S)"]
+    state_characteristic: "6e400003-b5a3-f393-e0a9-e50e24dcca9e"
+    commands:
+      turn_on: "v2_headlight_on"
+      turn_off: "v2_headlight_off"
+    notes: "State from the real-time state bytes (headlight bit)."
+  - platform: "light"
+    name: "Headlight"
+    features: ["brightness"]
+    variants: ["V11"]
+    state_characteristic: "6e400003-b5a3-f393-e0a9-e50e24dcca9e"
+    commands:
+      turn_on: "v2_headlight_on"
+      turn_off: "v2_headlight_off"
+      set_brightness: "v2_set_headlight_brightness"
+    notes: "V11 on main-board firmware 1.4 or later. Brightness 0-100 %."
+  - platform: "light"
+    name: "Headlight (V11 firmware before 1.4)"
+    variants: ["V11"]
+    state_characteristic: "6e400003-b5a3-f393-e0a9-e50e24dcca9e"
+    commands:
+      turn_on: "v2_headlight_on_v11_early"
+      turn_off: "v2_headlight_off_v11_early"
+    notes: "Use instead of Headlight when the main-board version is below 1.4."
+  - platform: "select"
+    name: "Headlight Beams"
+    variants: ["V12 HS / HT / Pro", "V12S"]
+    state_characteristic: "6e400003-b5a3-f393-e0a9-e50e24dcca9e"
+    state_mapping:
+      options:
+        "0": "Off"
+        "1": "High beam only"
+        "256": "Low beam only"
+        "257": "Low and high beam"
+    commands:
+      select_option: "v2_set_beams"
+    notes: "Current state from the real-time low-beam and high-beam bits (value = low x 256 + high)."
+  - platform: "switch"
+    name: "Daytime Running Light"
+    variants: ["V9", "V11", "V11Y", "V13 / V13 Pro", "V14 (50GB / 50S)"]
+    state_characteristic: "6e400003-b5a3-f393-e0a9-e50e24dcca9e"
+    commands:
+      turn_on: "v2_drl_on"
+      turn_off: "v2_drl_off"
+    notes: "Settings reply carries the state on the V13/V14 family (protocol_details.v2.settings_reply)."
+  - platform: "button"
+    name: "Beep"
+    icon: "mdi:bullhorn"
+    variants: ["V11Y", "V13 / V13 Pro", "V14 (50GB / 50S)"]
+    commands:
+      press: "v2_beep"
+  - platform: "button"
+    name: "Beep"
+    icon: "mdi:bullhorn"
+    variants: ["V9", "V11", "V12 HS / HT / Pro", "V12S"]
+    commands:
+      press: "v2_play_sound"
+  - platform: "button"
+    name: "Beep (V11 firmware before 1.4)"
+    icon: "mdi:bullhorn"
+    variants: ["V11"]
+    commands:
+      press: "v2_play_sound_v11_early"
+  - platform: "number"
+    name: "Speaker Volume"
+    unit: "%"
+    min: 0
+    max: 100
+    step: 1
+    variants: ["V9", "V11", "V12 HS / HT / Pro", "V12S", "V13 / V13 Pro"]
+    state_characteristic: "6e400003-b5a3-f393-e0a9-e50e24dcca9e"
+    commands:
+      set_value: "v2_set_speaker_volume"
+    notes: "Current value from the settings reply on the V11 and V12 family (protocol_details.v2.settings_reply); not located for the others. V11Y and V14 have no speaker."
+  - platform: "switch"
+    name: "Sound Prompts"
+    variants: *v2
+    state_characteristic: "6e400003-b5a3-f393-e0a9-e50e24dcca9e"
+    commands:
+      turn_on: "v2_sound_on"
+      turn_off: "v2_sound_off"
+  - platform: "switch"
+    name: "Lock"
+    icon: "mdi:lock"
+    variants: *v2
+    state_characteristic: "6e400003-b5a3-f393-e0a9-e50e24dcca9e"
+    commands:
+      turn_on: "v2_lock"
+      turn_off: "v2_unlock"
+    notes: "Both commands are advanced. Lock state is in the V11 settings reply; not located for other models."
+
+features:
+  - type: "firmware_update"
+    dfu:
+      mechanisms: ["vendor_ble", "jieli_ota"]
+      transport: "ble"
+      image:
+        signing: "unknown"
+        source: "vendor_cloud"
+        notes: >-
+          The vendor app fetches images from its cloud (the download base URL
+          is obfuscated in the app build examined and is not recorded) and
+          bundles none. No image has been examined.
+      enter:
+        how: "unknown"
+        notes: >-
+          Main controller: the vendor app sends firmware as a series of block
+          and status messages over the normal control link. JieLi
+          co-processor: JieLi's own OTA protocol on
+          0000ae00-0000-1000-8000-00805f9b34fb. Neither byte layout is
+          documented here, deliberately; an interrupted main-controller update
+          on a vehicle is not something to invite.
+      dfu_mode:
+        notes: "How a wheel looks mid-update is not recorded. The V11 1.4+ and V12 real-time state bytes carry a firmware-update-in-progress bit."
+      services: ["0000ae00-0000-1000-8000-00805f9b34fb"]
+      recovery:
+        interrupted: "unknown"
+      verification: "reported"
+      notes: >-
+        From static analysis of the vendor app only (JieLi OTA library, the
+        firmware block/status message types, the obfuscated download
+        endpoint). The UI lists five separately versioned boards (driver,
+        HMIC, BT, BMS 1, BMS 2), so there are probably several update paths
+        relayed through the BT board. Store reviews report updates failing
+        part-way and a V5F whose sound transfer crashed its controller.
+
+protocol_details:
+  legacy:
+    framing: "AA AA | escaped (16-byte message + optional L-byte extended payload) | checksum (sum-8 of unescaped message) | 55 55. Escape byte A5 precedes any AA, 55 or A5. See payload_formats.Legacy_Frame."
+    message_ids:
+      "0x0F550113": "GetFastInfo. Phone: data FF x 8, data type (the poll). Wheel: extended fast-info reply."
+      "0x0F550114": "GetSlowInfo. Phone: data FF x 8, remote type. Wheel: extended slow-info reply. WheelLog also has unused variants with data 00 00 00 0F ... (battery levels) and 20 00 ... (version)."
+      "0x0F550115": "RideMode. Also carries the max-speed (tilt-back), pedal-tilt and pedal-sensitivity writes, selected by data[0] (0x01, 0x00 with the angle in data[4..7], 0x06). Only the ride-mode form (data[0] = 0x0A) is declared."
+      "0x0F550116": "RemoteControl. data[0] = 0xB2, data[4] selects: 0x05 power off, 0x0F decorative LEDs on, 0x10 off, 0x11 beep."
+      "0x0F550119": "Calibration. data 32 54 76 98 00 00 00 00; reply data[0] = 1 on success."
+      "0x0F550307": "PinCode (password). data = six ASCII digits, 00 00."
+      "0x0F55010D": "Light. data[0] = 1 on, 0 off."
+      "0x0F55012E": "HandleButton. data[0] = 0 disables the handle (lift) cut-off, 1 enables it. Not declared: disabling a cut-off is a safety change."
+      "0x0F550609": "PlaySound. data[0] = sound number."
+      "0x0F55060A": "SpeakerVolume. data[0..1] = volume x 100 as uint16 LE (0-10000 for 0-100 %)."
+      "0x0F780101": "Alert, pushed by the wheel (payload_formats.Legacy_Alert)."
+    replies_to_settings: "The wheel answers Calibration, RideMode, RemoteControl, Light, HandleButton and SpeakerVolume with the same ID and data[0] = 1 on success, anything else on failure."
+    password_message: "ID 0x0F550307, data = the six password digits as ASCII (0x30-0x39), then 00 00; length 8, channel 5, format 0, type 0. Build it with a framer: the ID's 0x55 must be escaped and the checksum computed over the unescaped message."
+    speaker_volume_message: "ID 0x0F55060A, data[0] = low byte and data[1] = high byte of volume x 100, remaining data 0; length 8, channel 5, format 0, type 0. Not declared as a command because a generic template cannot escape the ID and checksum correctly."
+    model_codes:
+      notes: "Model code = slow-info byte 107 x 10 + byte 104. Only the V5, V8, Glide 3 and V10 rows are in this spec's scope; the rest are codes WheelLog's legacy decoder recognises for other INMOTION products (the L6 is a kick scooter) and are listed so a client can say what it found."
+      "50": "V5"
+      "51": "V5+"
+      "52": "V5F"
+      "53": "V5D"
+      "80": "V8"
+      "85": "Glide 3 (Solowheel)"
+      "86": "V8F"
+      "87": "V8S"
+      "100": "V10S"
+      "101": "V10SF"
+      "140": "V10"
+      "141": "V10F"
+      "142": "V10T"
+      "143": "V10FT"
+      "0-7": "R1 family (R1N, R1S, R1CF, R1AP, R1EX, R1 sample, R1T, R10): out of scope"
+      "10-13": "V3 family (V3, V3C, V3 Pro, V3S): out of scope"
+      "20-24": "R2 family (R2, R2N, R2S, R2 sample, R2EX): out of scope"
+      "30": "R0: out of scope"
+      "60": "L6: out of scope (kick scooter)"
+      "61": "Lively: out of scope"
+    polling_loop: "Timer: 200 ms initial delay, 25 ms tick, one request per ten ticks, tick count restarted by every complete received frame. Order: password (up to six times, until a 0x0F550307 reply), then slow info (until the model and a valid slow-info payload are known), then a queued setting command if any (after which slow info is re-read), otherwise fast info."
+  v2:
+    framing: "AA AA | escaped (flags, len, command, data) | escaped XOR checksum. Escape byte A5 precedes any AA or A5. See payload_formats.V2_Frame."
+    flags:
+      "0x11": "Initial: MainInfo requests and replies, and the two power-off messages."
+      "0x14": "Default: everything else."
+    commands:
+      "0x01": "MainVersion (WheelLog builds it, never sends it)."
+      "0x02": "MainInfo; data[0] selects 0x01 car type, 0x02 serial, 0x06 versions."
+      "0x03": "Diagnostic; also the power-off exchange with flags 0x11 (data 81 00, then 82)."
+      "0x04": "RealTimeInfo."
+      "0x05": "BatteryRealTimeInfo."
+      "0x10": "Unknown. WheelLog sends it once with data 00 01 after reading settings and ignores the reply."
+      "0x11": "TotalStats."
+      "0x20": "Settings (request data 20)."
+      "0x60": "Control; data[0] is the sub-command."
+    control_subcommands:
+      notes: "Data[0] of a Control (0x60) message, then its arguments. 'declared' names the command in services; the rest are recorded so the next person knows they exist, not so they get sent."
+      "0x21": "Max speed (tilt-back): speed x 100 as uint16 LE; the V13/V14 family, V11Y, V9 and V12S add a second uint16 LE, the alarm speed x 100. Not declared (speed limit)."
+      "0x22": "Pedal tilt: tenths of a degree x 10 (hundredths of a degree) as int16 LE. Not declared."
+      "0x23": "Classic ride mode: declared (v2_classic_mode_on/off), advanced."
+      "0x24": "'Fancier' ride mode flag. Not declared."
+      "0x25": "Pedal sensitivity: the same byte twice. Not declared."
+      "0x26": "Speaker volume: declared (v2_set_speaker_volume)."
+      "0x28": "Standby delay: seconds as uint16 LE. Not declared."
+      "0x2B": "Headlight brightness; one byte (V11, declared) or two (V12 low, high)."
+      "0x2C": "Sound enabled: declared (v2_sound_on/off)."
+      "0x2D": "Daytime running light: declared (v2_drl_on/off)."
+      "0x2E": "Handle button: 1 disables the lift cut-off. Not declared (safety cut-off)."
+      "0x2F": "Auto headlight on/off (V12 family, V13). Not declared; harmless, left for a later pass."
+      "0x31": "Lock: declared (v2_lock/v2_unlock), advanced."
+      "0x32": "Transport mode: declared, advanced."
+      "0x37": "Go-home mode (V11, V11Y). Not declared."
+      "0x38": "Fan quiet mode (V11). Not declared (cooling)."
+      "0x39": "Sound wave (V12 family). Not declared."
+      "0x3E": "Alarm speeds (V12 family, two uint16 LE, speed x 100) or split mode (others). Not declared."
+      "0x3F": "Split-mode acceleration and braking (0x40 on the V12 family). Not declared."
+      "0x40": "Headlight on a V11 before main board 1.4 (declared); split-mode acceleration and braking on the V12 family."
+      "0x41": "Play sound on a V11 before main board 1.4 (declared)."
+      "0x42": "Calibration on a V11 before main board 1.4 (declared, advanced); split mode on the V12 family."
+      "0x43": "Fan on/off (V11). Not declared (cooling)."
+      "0x45": "Berm-angle mode (V13, V14, V12S). Not declared."
+      "0x50": "Headlight: one byte (declared) or low and high beam bytes (declared as v2_set_beams)."
+      "0x51": "Play sound/beep: sound number, then a third byte (0x01 or 0x64). Declared for sounds 0x02 and 0x18."
+      "0x52": "Calibration: 01 00 01 turn, 01 01 00 balance. Declared, advanced."
+    escape_proof: "v2_set_speaker_volume and v2_set_headlight_brightness: every byte after AA AA is below 0x80 when the argument is 0-100, and so is their XOR, so none can be AA or A5. v2_set_beams: arguments are 0 or 1, and the XOR of 14 04 60 50 with them is 0x20-0x21. No escaping is ever needed for the declared ranges."
+    model_codes:
+      notes: "Model code = car-type series x 10 + type."
+      "61": "V11"
+      "62": "V11Y"
+      "71": "V12 HS"
+      "72": "V12 HT"
+      "73": "V12 Pro"
+      "81": "V13"
+      "82": "V13 Pro"
+      "91": "V14 50GB"
+      "92": "V14 50S"
+      "111": "V12S"
+      "121": "V9"
+    settings_reply: "Command 0xA0, flags 0x14. Model-specific. V11 (offsets into data): 1-2 speed limit x 100 (uint16 LE, km/h), 3-4 pitch zero (int16 LE, hundredths of a degree), 5 drive/ride mode nibbles, 6-7 comfort and classic sensitivity, 8 volume (%), 18 headlight brightness, 22 bits 2-3 lock state and bits 4-5 transport mode. V12 family: 9-10 speed limit x 100, 11-14 two alarm speeds, 22 volume, 26-27 low and high beam brightness, 39 bit 0 mute, bit 2 handle button, bit 3 auto light, bit 6 transport mode. V13, V14, V11Y, V9, V12S: 1-2 speed limit x 100, 3-4 alarm speed, 31 bit 0 mute and bit 2 daytime running light, 32 bit 4 transport mode. Volume is not located for these."
+    error_bits: "Seven bytes of flags from the layout's error offset: phase and bus current sensors, motor hall, battery, IMU, controller and BLE communication, temperature sensors, fan, RTC, external ROM, bus and battery voltage sensors, cannot-power-off, under/over voltage, over bus current (2 bits), low battery (2 bits), MOSFET/motor/battery/board over-temperature, over speed, output saturation, motor spin and block, posture, risky behaviour, motor no-load, no self-test, compatibility, power-key long press, forced DFU, device lock, CPU and IMU over-temperature, hardware compatibility, fan low speed (in that bit order, per WheelLog)."
+    polling_loop: "Timer: 100 ms initial delay, 25 ms tick, one request per ten ticks, restarted by every complete reply. Order: car type (until answered), serial (until answered), versions (once), settings (once, and again after any control command), command 0x10 with data 00 01 (once), then TotalStats and RealTimeInfo alternately. A queued control command replaces the next request."
+  v2_layout_selection:
+    "V11, main board before 1.4": "V2_RealTime_V11_Early"
+    "V11, main board 1.4 or later": "V2_RealTime_V11_1_4"
+    "V12 HS / HT / Pro": "V2_RealTime_V12"
+    "V13 / V13 Pro": "V2_RealTime_V13"
+    "V14, V11Y, V9, V12S": "V2_RealTime_V14_Family"
+    notes: "Until the versions reply arrives, a V11's layout is unknown; WheelLog uses the early layout by default."
+  gatt_fingerprints:
+    notes: "WheelLog picks the protocol by matching the full discovered GATT table against res/raw/bluetooth_services.json. Legacy: 180a (2a23, 2a26, 2a29), 180f (2a19), ffe0 (ffe4), ffe5 (ffe9), fff0 (fff1-fff9), ffd0 (ffd1-ffd4), ffc0 (ffc1, ffc2), ffb0 (ffb1-ffb4), ffa0 (ffa1, ffa2), ff90 (ff91-ff9a), fc60 (fc64), fe00 (fe01-fe06), all 16-bit on the Bluetooth base. V2: 1800 (2a00, 2a01, 2a04, 2aa6), 1801 (2a05, or empty), 6e400001 (6e400002, 6e400003); one V2 variant also has ffe5 (ffe9) and ffe0 (ffe4)."
+  discrepancies:
+    fff1_family: "Our research notes said newer wheels (V11/V13 generation) use an 'fff1 family' of UUIDs. That is not supported: WheelLog drives V2 wheels over the Nordic UART UUIDs, the vendor app's string table carries the Nordic UART trio, ffe0/ffe4 and ffe5/ffe9 and no fff1 UUID, and the only fff0/fff1 service in any source is the unused module service in WheelLog's LEGACY fingerprint. Treated as an error in the notes, unverified until a wheel is scanned."
+    unexplained_vendor_uuids: "Two UUID-shaped strings in the vendor app turned out not to be GATT UUIDs: b48903b0-a70e-4d46-8b06-c00dc593911b is a help-desk chat widget key in the app's bundled help pages, and 383f2407-53f9-475b-87bd-6d2f1ce12105 sits among HTTP/WebSocket library constants, next to the RFC 6455 WebSocket GUID."
+    v12_manual_name: "The V12 user manual filed with the FCC gives the BLE ID as V11-XXXXXXXX, text evidently copied from the V11 manual; the V12's real prefix is not established."
+  vendor_app_findings: "com.inmotion.android.app 8.1.34 is a heavily obfuscated Flutter app. Its string table carries the UUIDs above (legacy pair, Nordic UART trio, CCCD, JieLi ae00-ae02). Its decoders are organised per product generation, and the newer generations have separate message types for BMS cell voltages, BMS warnings and protection, real-time errors and total statistics, so there is BMS detail beyond WheelLog's battery message whose layout is not recorded. It embeds a JieLi OTA library, an eSIM LPA stack on BLE service 0000ff00-0000-1000-8000-00805f9b34fb (0000ff02/0000ff03 on the same base) for cellular models, and firmware block/status messages for main-controller updates. Its listing screenshots show lock, lights, speaker (wheels only), Owner Authorization, and a Vehicle Information screen with five board versions (driver, HMIC, BT, BMS 1, BMS 2)."
+  client_defects:
+    notes: "WheelLog behaviours that explain field symptoms; wrong turns not to copy."
+    unescaped_checksum: "Both WheelLog writers append the checksum without escaping it. A frame whose checksum is AA or A5 (and, on legacy, 55) would be misread by the wheel. The declared commands avoid this; a general framer should escape."
+    last_chunk_padding: "WheelLog's legacy writer always writes 20 bytes, so the tail chunk carries stale bytes after 55 55."
+    fixed_password: "WheelLog always sends password 000000 to legacy wheels and offers no way to change it."
+    low_byte_length: "WheelLog's legacy reassembler uses only the low byte of the extended length."
+  not_declared:
+    notes: "Deliberately left out: speed-limit/tilt-back and alarm-speed writes (both protocols), pedal tilt and sensitivity, handle-button disable, fan and quiet mode, standby delay, split and berm-angle modes, go-home mode, and every firmware-update byte. Region or speed overrides beyond what the vendor app offers are not documented anywhere here."
+  test_vectors:
+    notes: "Request frames were computed from the rules above and match what WheelLog's builders produce. Reply frames are WheelLog unit-test captures from third-party wheels; the one identifying frame (a legacy slow-info reply) has its serial replaced with an invented value and its checksum recomputed."
+    legacy_fast_info_request: "aa aa 13 01 a5 55 0f ff ff ff ff ff ff ff ff 08 05 00 00 7d 55 55"
+    legacy_password_000000: "aa aa 07 03 a5 55 0f 30 30 30 30 30 30 00 00 08 05 00 00 9b 55 55"
+    legacy_fast_info_reply_v5f: "see payload_formats.Legacy_FastInfo.example; checksum 0x26 = sum of the 112 unescaped message bytes"
+    legacy_slow_info_reply_v5f_synthetic: "see payload_formats.Legacy_SlowInfo.example; checksum 0x7b"
+    v2_car_type_request: "aa aa 11 02 02 01 10  (XOR 11^02^02^01 = 10)"
+    v2_car_type_reply_v11: "aa aa 11 08 82 01 02 06 01 02 01 00 9c -> model 61, V11"
+    v2_realtime_reply_escaped_v11: "aaaa1431843020a5a50068025207870080009400882c5fc4b000d7001000f4ff2b037c1564190000d9d9492b00000000000000000000a5a5 -> data A5 escaped at offset 2 (a5 a5), checksum 0xA5 escaped at the end; 82.40 V, 1.65 A, 6.16 km/h"
+    v2_realtime_reply_v11_1_4: "aaaa1445842d1d10000000efff070000000000000000002b0300000000000000008a149612e02e8813641900000000cbb000cccad1000028000000000049140000000000000000000021 -> 74.69 V, 0.00 km/h, battery 52.58 %, MOS 27 C, board 28 C, CPU 26 C, IMU 33 C"
+    v2_serial_reply_synthetic: "see payload_formats.V2_MainInfo_Serial.example"
+  excluded:
+    ninebot_z: "Ninebot Z wheels use a separate XOR-keyed protocol (WheelLog NinebotZAdapter.java); a candidate for its own spec."
+    scooters_and_scv: "INMOTION kick scooters (Climber, L-series and relatives) and SCV self-balancing vehicles share the vendor app but are not covered."
+    esim_lpa: "The eSIM LPA BLE service on cellular models (service 0000ff00-0000-1000-8000-00805f9b34fb) is out of scope."
+    cloud: "Account, activation, Owner Authorization, firmware download: out of scope."
+
+evidence:
+  open_source_review: >-
+    Wheellog/Wheellog.Android at commit 1b3707973e3b (2026-09-21), read in
+    full for the InMotion paths: both adapters (framing, escaping, checksums,
+    message IDs and control sub-commands, polling loops, every real-time,
+    settings and total-stats layout), Constants.kt (UUIDs),
+    bluetooth_services.json (GATT fingerprints), WheelData.java (protocol
+    detection and the password default), BluetoothService.kt (write types and
+    legacy chunking), the settings screen (which controls WheelLog offers per
+    model, its slider ranges, and the speed gate on power-off and
+    calibration), and the adapters' unit tests. The frames in those tests were
+    re-checked with an independent transcription of the framing rules: every
+    checksum verified and every decoded value matched the tests.
+  documentation_review: >-
+    The user manuals INMOTION filed with the FCC for the V11, V12, V12 Pro and
+    V13 (the V11 and V13 text layers are glyph-shifted, so the relevant pages
+    were read from renders). They give the BLE name convention and iOS/Android
+    app support, and none documents a reset. The FCC grant pages for
+    2ADUSV11, 2ADUSV12, 2ADUSV12PRO, 2ADUSV13 and 2ADUSV8S give BLE-band
+    operation, the V12 grant's list of related model numbers, and the V13's
+    4G antenna.
+  app_static_analysis: >-
+    com.inmotion.android.app 8.1.34, a heavily obfuscated Flutter build:
+    string-table and decompile search for UUIDs, OTA and eSIM stacks, and
+    firmware-update message types. Used for corroboration and scope only
+    (protocol_details.vendor_app_findings); no byte layout in this spec comes
+    from it, and no internal names are reproduced.
+  ui_review: >-
+    Five vendor app-store listing screenshots: the vehicle dashboard (speed,
+    battery and range, ride time and distance, max speed, odometer; lock,
+    lights, speaker and settings buttons), the scooter variant (no speaker),
+    the Vehicle Information screen (serial, BLE name, model, activation date,
+    five board versions) and the Me screen (Owner Authorization, a release
+    build's environment switch). The serial, BLE-name suffix and account
+    handle visible there are not reproduced. Google Play reviews (sampled
+    2026-09-22) supplied the troubleshooting symptoms.
+  open_questions: >-
+    See remaining_unknowns. First things to settle with a wheel in hand: the
+    V2 names of the V9, V12 HS/HT, V14 and legacy wheels, whether a legacy
+    wheel with a non-default password withholds data, what lock and
+    transport mode do to a wheel, and a capture of the vendor app's settings
+    and firmware exchanges.
+  artifacts:
+    - type: "public_implementation"
+      artifact: "Wheellog/Wheellog.Android @ 1b3707973e3b4528bd88778f9ebdf7a79817cf3f (GPL-3.0)"
+      url: "https://github.com/Wheellog/Wheellog.Android"
+      obtained_via: "git clone into the research store, 2026-09"
+      description: "The source of both wire formats and of the test vectors."
+    - type: "vendor_documentation"
+      artifact: "INMOTION V11, V12, V12 Pro and V13 user manuals (FCC user-manual exhibits)"
+      url: "https://fccid.co/fcc/2ADUSV13"
+      obtained_via: "fccid.co, harvested 2026-09-26"
+      description: "BLE name convention (V11-, V12Pro-, V13- plus the last eight serial characters), app platform support; no reset procedure."
+    - type: "fcc_filing"
+      artifact: "FCC IDs 2ADUSV11, 2ADUSV12, 2ADUSV12PRO, 2ADUSV13, 2ADUSV8S (INMOTION TECHNOLOGIES CO., LTD.)"
+      url: "https://fccid.co/fcc/2ADUSV11"
+      obtained_via: "fccid.co, harvested 2026-09-26"
+      description: "2402-2480 MHz DTS grants (2020-2024); related model numbers; the V13's 4G FPC antenna."
+    - type: "static_analysis"
+      artifact: "com.inmotion.android.app 8.1.34 (XAPK)"
+      obtained_via: "third-party APK mirror, 2026-09"
+      description: "Corroboration only: UUID set, JieLi OTA, eSIM LPA stack, firmware block/status messages, obfuscated cloud endpoint; no fff1 UUID."
+    - type: "vendor_store_listing"
+      artifact: "INMOTION app Google Play listing screenshots (5) and reviews (188 sampled)"
+      obtained_via: "Play store scrape, 2026-09-22"
+      description: "UI survey (control surface, five-board version list, BLE name/serial relation) and field symptoms. Identifiers in the screenshots are not reproduced."
+
+remaining_unknowns:
+  - "Advertised names of the V9, V11Y, V12 HS/HT, V12S, V13 Pro and V14, and of every legacy wheel. Only V11-, V12Pro- and V13- are sourced."
+  - "Whether the wheels use public or random BLE addresses, and whether they accept more than one central."
+  - "Whether a legacy wheel whose owner set a non-default password withholds data from a client that sends the wrong one, and whether 000000 is the factory default."
+  - "What the wheel does with lock, power-off, calibration or ride-mode commands received while moving. Treat as dangerous until established."
+  - "What V2 lock actually does (immobiliser, alarm, both) and how lock state is reported on models other than the V11."
+  - "Whether clearing transport mode over BLE is enough to make a factory-new V2 wheel rideable without the vendor's cloud activation."
+  - "The meaning of V2 command 0x10 (sent once with data 00 01), MainInfo bytes 4-6, and the third byte of the play-sound sub-command."
+  - "Units of the V2 total-stats energy fields and of every V2 BatteryRealTimeInfo field; the layout of the BMS cell-voltage, warning and protection messages the vendor app decodes."
+  - "Several V13 and V14-family real-time offsets WheelLog itself marks unsure (pitch, torque, motor power, roll, the V13 trip-distance word order)."
+  - "Where the per-board versions for the HMIC board and the two BMS boards come from (the versions reply only yields main, driver and BLE in WheelLog), and whether the reply is really a tagged per-board list."
+  - "Which radio serves the JieLi OTA service 0000ae00-0000-1000-8000-00805f9b34fb, and the main-controller update protocol (out of scope on purpose, but unknown)."
+  - "How the V12 touch-screen access code and the vendor app's Owner Authorization are set or enforced over BLE."
+  - "Whether the 2024 V8S (FCC 2ADUSV8S) still speaks the legacy protocol."
+  - "Whether the legacy Battery Service level (00002a19-0000-1000-8000-00805f9b34fb) reflects the pack."
+  - "Whether the wheel ever sends a legacy checksum of AA, 55 or A5 unescaped; the V2 captures show the wheel escaping its checksum."
+
+helpful_urls:
+  - title: "INMOTION V11 user manual (PDF, FCC exhibit)"
+    url: "https://fccid.co/api/files/s1/2adusv11_usersmanual_4904476_0813a721b0.pdf"
+    kind: "manual"
+    description: >-
+      The 16-page user manual for the INMOTION V11 electric unicycle, as filed
+      with FCC ID 2ADUSV11 (2020). States the BLE name V11-XXXXXXXX (last eight
+      serial digits). Its text layer is garbled; read the pages.
+  - title: "INMOTION V12 user manual (PDF, FCC exhibit)"
+    url: "https://fccid.co/api/files/s1/2adusv12_usersmanual_5182155_e65090bccd.pdf"
+    kind: "manual"
+    description: >-
+      The 16-page user manual for the INMOTION V12, as filed with FCC ID
+      2ADUSV12 (2021). Its app section repeats the V11's BLE-name text.
+  - title: "INMOTION V12 Pro user manual (PDF, FCC exhibit)"
+    url: "https://fccid.co/api/files/s1/2adusv12pro_usersmanual_7203048_ec4e0fad4a.pdf"
+    kind: "manual"
+    description: >-
+      The 30-page user manual for the INMOTION V12 Pro, as filed with FCC ID
+      2ADUSV12PRO (2024). States the BLE name V12Pro-XXXXXXXX and the 16-character
+      serial.
+  - title: "INMOTION V13 Challenger user manual (PDF, FCC exhibit)"
+    url: "https://fccid.co/api/files/s1/2adusv13_usersmanual_6271116_7e90838860.pdf"
+    kind: "manual"
+    description: >-
+      The 20-page user manual for the INMOTION V13 Challenger, as filed with
+      FCC ID 2ADUSV13 (2022). States the BLE name V13-XXXXXXXX. Its text layer
+      is garbled; read the pages.
+  - title: "Wheellog/Wheellog.Android"
+    url: "https://github.com/Wheellog/Wheellog.Android"
+    kind: "implementation"
+    description: "GPL-3.0 Android EUC client that decodes both InMotion protocols; the source of this spec."
+  - title: "WheelLog InMotionAdapter.java (legacy protocol, pinned)"
+    url: "https://github.com/Wheellog/Wheellog.Android/blob/1b3707973e3b4528bd88778f9ebdf7a79817cf3f/app/src/main/java/com/cooper/wheellog/utils/InMotionAdapter.java"
+    kind: "implementation"
+    description: "Legacy framing, message IDs, polling loop and fast/slow-info decoding."
+  - title: "WheelLog InmotionAdapterV2.java (V2 protocol, pinned)"
+    url: "https://github.com/Wheellog/Wheellog.Android/blob/1b3707973e3b4528bd88778f9ebdf7a79817cf3f/app/src/main/java/com/cooper/wheellog/utils/InmotionAdapterV2.java"
+    kind: "implementation"
+    description: "V2 framing, MainInfo, control sub-commands and the per-model real-time layouts."
+  - title: "WheelLog Constants.kt (UUIDs, pinned)"
+    url: "https://github.com/Wheellog/Wheellog.Android/blob/1b3707973e3b4528bd88778f9ebdf7a79817cf3f/app/src/main/java/com/cooper/wheellog/utils/Constants.kt"
+    kind: "implementation"
+    description: "The InMotion and InMotion V2 service and characteristic UUIDs."
+  - title: "WheelLog bluetooth_services.json (GATT fingerprints, pinned)"
+    url: "https://github.com/Wheellog/Wheellog.Android/blob/1b3707973e3b4528bd88778f9ebdf7a79817cf3f/app/src/main/res/raw/bluetooth_services.json"
+    kind: "implementation"
+    description: "The full GATT tables WheelLog matches to pick the legacy or V2 decoder."
+  - title: "WheelLog InmotionAdapterV2Test.kt (captured V2 frames, pinned)"
+    url: "https://github.com/Wheellog/Wheellog.Android/blob/1b3707973e3b4528bd88778f9ebdf7a79817cf3f/app/src/test/java/com/cooper/wheellog/utils/InmotionAdapterV2Test.kt"
+    kind: "implementation"
+    description: "Real V11 frames with their decoded values; the V2 test vectors here."
+  - title: "WheelLog InmotionAdapterTest.kt (captured legacy frames, pinned)"
+    url: "https://github.com/Wheellog/Wheellog.Android/blob/1b3707973e3b4528bd88778f9ebdf7a79817cf3f/app/src/test/java/com/cooper/wheellog/utils/InmotionAdapterTest.kt"
+    kind: "implementation"
+    description: "Real V5F and V8F frames with their decoded values; the legacy test vectors here."
+  - title: "FCC ID 2ADUSV11 (INMOTION V11)"
+    url: "https://fccid.co/fcc/2ADUSV11"
+    kind: "other"
+    description: "Grant (2020) with the user manual, photos and test report."
+  - title: "FCC ID 2ADUSV12 (INMOTION V12)"
+    url: "https://fccid.co/fcc/2ADUSV12"
+    kind: "other"
+    description: "Grant (2021); the antenna declaration lists model numbers V12, V12S, V12F, V12D, V12E and V12C."
+  - title: "FCC ID 2ADUSV12PRO (INMOTION V12 Pro)"
+    url: "https://fccid.co/fcc/2ADUSV12PRO"
+    kind: "other"
+    description: "Grant (2024) with the V12 Pro manual."
+  - title: "FCC ID 2ADUSV13 (INMOTION V13)"
+    url: "https://fccid.co/fcc/2ADUSV13"
+    kind: "other"
+    description: "Grant (2022) with the V13 manual and the 4G antenna declaration."
+  - title: "FCC ID 2ADUSV8S (INMOTION V8S, 2024 grant)"
+    url: "https://fccid.co/fcc/2ADUSV8S"
+    kind: "other"
+    description: "A 2024 grant for a V8S revision; which protocol it speaks is not established."
+  - title: "INMOTION official site"
+    url: "https://www.inmotionworld.com"
+    kind: "vendor_support"
+    description: "Vendor home page, with current manuals and the app download."

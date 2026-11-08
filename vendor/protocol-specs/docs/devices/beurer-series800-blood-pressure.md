@@ -2,7 +2,7 @@
 
 > **Status**: Research
 > **Protocol**: BLE
-> **Manufacturer**: Beurer
+> **Manufacturer**: Beurer GmbH
 > **Manufacturer Status**: Active (vendor in business; cloud strictly optional)
 
 ## Overview
@@ -33,6 +33,9 @@ the vendor apps and corroborated by community work on the sister BM85.
 | Property | Value |
 |----------|-------|
 | Model Number | BM92 (US "Series 800" / "Premium 800"); wrist sister BC54W advertises as `PREMIUM800W` |
+| Category / hierarchy | `health` + `["measurement", "health", "blood_pressure"]` |
+| Manufacturer | Beurer GmbH |
+| Companion app | beurer HealthManager Pro (`com.beurer.healthmanager`); no account required for local use |
 | Chipset | Unknown (no teardown/FCC detail retrieved) |
 | Radio | BLE only — no WiFi |
 | FCC ID | Unknown — device.report lists a filing dated 2023-08-30 but is bot-blocked; the printed manual should carry it |
@@ -40,8 +43,9 @@ the vendor apps and corroborated by community work on the sister BM85.
 
 ## Initial Setup
 
-Nothing to provision. The monitor is usable straight out of the box: scan,
-connect, bond, enable indications, read.
+Nothing to provision or register. Enable Bluetooth in the monitor settings,
+select the user memory before inflation, and connect when the monitor
+transfers the saved result.
 
 | Property | Value |
 |----------|-------|
@@ -49,21 +53,37 @@ connect, bond, enable indications, read.
 | Method | `ble_direct` |
 | Advertised name | `PREMIUM800` (BM92), `PREMIUM800W` (BC54W) |
 | Passphrase protection | not_applicable (no WiFi, no PIN found in app code) |
-| Confidence | medium (app decompile; not replayed against hardware) |
+| Confidence | medium (app analysis and vendor manual; not replayed against hardware) |
 
-The app requests Android bonding (`createBond()`). No app-level PIN exists for
-blood-pressure devices, so bonding is expected to be JustWorks or Numeric
-Comparison — unconfirmed until someone pairs one.
+The app requests OS bonding. No app-level PIN exists for blood-pressure
+devices, so bonding is expected to be Just Works or Numeric Comparison —
+unconfirmed until someone pairs one.
 
-A typical sync session:
+The BM92-specific manual workflow is:
 
-1. Wake the device (take a measurement) so it advertises.
-2. Connect and bond.
-3. Write standard Current Time (`0x2A2B` on service `0x1805`) so stored
+1. With the monitor switched on, hold **MEMORY** to enter settings. The 2023
+   US manual says **three seconds**; the Pro 1.17.2 tutorial says **five
+   seconds**. Follow the prompt for the actual device/app version rather
+   than generalizing either hold time.
+2. Advance through the settings until the Bluetooth icon flashes, select
+   **On** with the arrow buttons, and confirm with **START/STOP**. Set a
+   valid date/time before taking offline measurements.
+3. Select user memory **1** or **2** with the User button, then inflate the
+   cuff and take a measurement. The result saves automatically.
+4. With HealthManager Pro or another BLE client ready, connect and bond when
+   the monitor advertises for its automatic transfer. Do not power it off
+   during transfer.
+5. Write standard Current Time (`0x2A2B` on service `0x1805`) so subsequent
    records carry correct timestamps.
-4. Enable **indications** on `0x2A35` (CCCD write of `0x0002`).
-5. The device streams one indication per stored record; parse per the format
-   below.
+6. Enable **indications** on `0x2A35` (CCCD write of `0x0002`) and collect
+   saved records, parsing them per the format below.
+
+This is **post-measurement saved-record transfer**, not app-controlled cuff
+inflation or continuous live-pressure streaming. The manual does not establish
+that merely powering on an already-paired monitor exports every missed
+record; use the Pro reconnect/transfer prompt or take a new measurement until
+a capture establishes other behavior. Measurements still work without the
+phone and remain in the two 120-entry user memories.
 
 **Factory reset**: unknown. Neither app contains a BP-monitor reset procedure
 and no hardware was available. Check the printed manual; do not guess a button
@@ -150,26 +170,28 @@ in the app, which itself works fully without registration.
 
 Practical guidance:
 
-- Any generic BLE Blood Pressure Profile client can read the BM92. In Home
-  Assistant, an ESPHome Bluetooth proxy plus a small parser for the quirks
-  above (big-endian SFLOATs, kPa flag) is enough; there is no dedicated HA
-  integration yet, but none is strictly needed.
+- Use a BLE Blood Pressure Profile client with the Beurer parser above. In
+  Home Assistant, an ESPHome Bluetooth proxy plus a parser for the big-endian
+  SFLOATs and kPa flag is the likely route, but this spec remains untested on
+  a BM92 and has no dedicated HA integration yet.
 - Blocking or DNS-redirecting `hmpro*.connect.beurer.com` and
   `sync.connect-beurer.com` does not impair local BLE operation, if you want
   the vendor app but not its telemetry.
 - smurfix/ble-stuff demonstrates fully cloud-free sync of the sister BM85
-  over the identical `0x1810`/`0x2A35` path — the strongest evidence that
-  nothing here dies with the vendor.
+  over the identical `0x1810`/`0x2A35` path — supporting evidence for local
+  access, not a substitute for a BM92 capture.
 
 ## Tools Used
 
-- [ ] jadx decompiles of both vendor apps (Pro 1.17.2, classic 2.17)
-- [ ] Live HTTPS probes of the cloud endpoints (2026-08-18)
-- [ ] No packet capture yet — bonding type, 0x2A49 presence, and the exact
-      BM92 record tail are open questions waiting on hardware
+- [x] Static analysis of both vendor apps (Pro 1.17.2, classic 2.17)
+- [x] Live HTTPS probes of the cloud endpoints (2026-08-18)
+- [x] US BM92 manual and Pro workflow review (2026-11-07)
+- [ ] No BM92 packet capture yet — bonding type, 0x2A49 presence, exact
+      record tail, and history-transfer behavior still need hardware
 
 ## References
 
+- [Official Beurer BM92 / Premium 800 instructions (2023 US edition)](https://www.shop-beurer.com/cdn/shop/files/101.55_BM92_2023-04-04_01_IM_BEU-USA.pdf?v=17104474228358017001) — Bluetooth setup, user selection before measurement, automatic saved-result transfer and troubleshooting
 - [Beurer Premium 800 product page](https://www.shop-beurer.com/products/copy-of-beurer-blood-pressure-arm-monitor-auto-400)
 - [beurer HealthManager Pro (Google Play)](https://play.google.com/store/apps/details?id=com.beurer.healthmanager)
 - [beurer HealthManager classic (Google Play)](https://play.google.com/store/apps/details?id=com.beurer.connect.healthmanager)

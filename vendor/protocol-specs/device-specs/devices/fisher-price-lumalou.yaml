@@ -1,0 +1,1877 @@
+# Fisher-Price Lumalou (GLD09) sleep-trainer night light device spec
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Evidence base (clean-room; derived facts only, in our own words):
+#   - stramanu/lumalou (MIT): docs/protocol.md, docs/reversing.md,
+#     spec/protocol.json and the Python/JS packages at main 9fa5ecf
+#     (2026-07-28). The author reports the handshake and framing were checked
+#     bit-exact against the vendor's native crypto library (run in an
+#     emulator), against Android HCI captures of the vendor app, and against
+#     a physical unit.
+#   - stramanu/lumalou pull request #2 (open, unmerged; head 492c365,
+#     2026-09-25): advertisement layout, factory-token length, the
+#     acknowledgement events on the receive side, and response layouts for
+#     schedules, playlist, clock and current date.
+#   - The upstream author's deployed web client bundle (hash in `evidence`):
+#     schedule, alarm and routine argument builders and range checks.
+#   - kvdb/gld09-control (MIT, 6e3aff8, 2026-09-23): a second, independent
+#     client its author ran against GLD09 hardware. Token field map,
+#     advertisement flags, unsolicited notifications, the routine and
+#     task-status encodings, and which commands are inert.
+#   - Mattel's GLD09 owner's manual and Smart Connect FAQ (pairing button,
+#     power-cycle reset, clock loss on power failure, one phone at a time).
+# Nothing here was run against hardware by this project and no capture of
+# our own exists: every protocol fact is `reported`, the spec is `untested`.
+# The manufacturing public key the vendor app uses to check the factory
+# token is deliberately NOT reproduced; see protocol_details.mpid.
+
+device:
+  name: "Fisher-Price Lumalou Better Bedtime Routine System"
+  manufacturer: "Fisher-Price (Mattel)"
+  manufacturer_status: "shutdown"
+  openness:
+    status: "undocumented"
+    reverse_engineered: true
+  testing:
+    status: untested
+    notes: >
+      No capture or hardware session by this project. The facts rest on two
+      independent third-party clients (stramanu/lumalou and
+      kvdb/gld09-control) whose authors each report driving a GLD09 unit;
+      that supports per-fact `verification: reported`, not this flag.
+  protocol: "ble"
+  transport: "ble-gatt"
+  model: "GLD09"
+  type: "sleep-trainer-nightlight"
+  category: "light"
+  category_hierarchy: ["light", "led"]
+  notes: >
+    A wall-mounted "cloud" night light and sleep trainer for a child's room:
+    a colour night light with ten presets, a speaker with twelve lullabies
+    and six sound loops, a clock, a star that shows red for "stay in bed"
+    and green for "OK to wake", and a strip of routine task icons (eight
+    fixed tasks plus three custom ones) that a child checks off with the
+    included infrared button remote. Mains powered (5 V 1 A adapter). The
+    product code the vendor app uses is `gld09`, API level 1.
+
+    The Fisher-Price Smart Connect app (Android package
+    com.fisher_price.android, last release 10.0.0) was removed from Google
+    Play in March 2025 and its backend shut down in August 2025. The device
+    never needed the cloud for control: everything the app did goes over a
+    local, encrypted BLE session that any client can open. The upstream
+    write-ups call the vendor's stack "MPID"; this spec keeps the name.
+
+    The session in one paragraph: read a 192-byte manufacturing token from
+    4cea0004-c678-4202-b5d3-712dbb5e5b14 (it carries the device's
+    compressed P-256 public key and a 4-byte salt); do ephemeral ECDH;
+    stretch the shared X coordinate with 100 rounds of AES-128-CTR to get a
+    16-byte session key; write your compressed public key and a 4-byte nonce
+    to 4cea0005-c678-4202-b5d3-712dbb5e5b14. After that every write to
+    4cea0002-c678-4202-b5d3-712dbb5e5b14 and every notification on
+    4cea0003-c678-4202-b5d3-712dbb5e5b14 is an MPID frame (cleartext 8-byte
+    header, AES-128-CTR body with a CRC-8). Inside the body an application
+    command is `[opcode, args...]` wrapped in an FE frame (0xFE, length,
+    bytes, XOR) behind a two-byte route (01 10 to the device). Nothing
+    identifies the client: no per-device secret, no cloud key and no bond.
+    The command `templates` below are that decrypted body; the MPID header
+    and encryption are protocol_details.mpid.
+
+    The device does not advertise as "Lumalou". Its local name is the unit's
+    ten-digit AP number, and the manufacturer data is company 0x03B6
+    (Mattel, per the Bluetooth SIG list) followed by ASCII "MB", a format
+    byte, a connection-state byte and the firmware version in ASCII.
+
+    Out of scope: the Nordic legacy DFU service on the same device (never
+    write to it; see features), and the other Smart Connect products. The
+    upstream author says the Bunny (gmn58) and Whisper (ghp38) belong to the
+    same MPID generation (same handshake, different command set), but
+    nobody has tested them; the older swings, mobiles, sleepers and soothers
+    use a different characteristic layout and crypto.
+
+  identification:
+    manufacturer_data:
+      company_id: 950
+      company_id_hex: "0x03B6"
+    notes: >
+      Company 0x03B6 is "Mattel" in the Bluetooth SIG company-identifier list
+      (checked 2026-09-28), so it alone matches any Mattel BLE product; the
+      payload prefix "MB" (4d 42) in discovery narrows it. The local name is
+      a per-unit number, not a product string, so it cannot be a matcher. The
+      custom service UUID is not advertised (stramanu/lumalou reversing.md).
+
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          manufacturer_data:
+            company_id: 950
+            match: "prefix"
+            pattern: "4d42"
+            description: >
+              Payload after the company id starts with ASCII "MB". Byte 2 is
+              a format byte (opaque), byte 3 the connection state, bytes 4..
+              the firmware version as ASCII (see payload_formats.Advertisement).
+              Whether other Mattel MPID products (Bunny, Whisper) also send
+              "MB" is not known, so confirm with a connection: the
+              4cea0001-c678-4202-b5d3-712dbb5e5b14 service and a factory token
+              whose serial carries this unit's AP number.
+    identity:
+      stable_keys: ["address"]
+      display: "local_name"
+    static_ip_required: false
+
+  setup:
+    required: false
+    confidence: "medium"
+    notes: >
+      Nothing to provision: no Wi-Fi, no account, no bond, and no per-device
+      secret. Any central in range can open a session. What the unit does
+      need from a client is the time: it keeps time in a volatile clock, and
+      after a power cut the routine and sleep-trainer features stay disabled
+      until something sets the clock again (owner's manual, "Here's some
+      help"). Confidence medium: two independent open clients report the
+      flow against hardware, unreplayed here.
+    methods:
+      - type: "ble_direct"
+        name: "Direct local session, no pairing button"
+        role: "primary"
+        verified: false
+        description: >
+          What both open clients do. Scan for company 0x03B6 with an "MB"
+          payload, connect, run the initialization sequence (token read,
+          ECDH, session write, ENABLE_RX), then set the clock. No button on
+          the unit is pressed and nothing is stored on either side.
+        ble:
+          protocol: "Mattel MPID (ECDH P-256 + AES-128-CTR)"
+          service_uuid: "4cea0001-c678-4202-b5d3-712dbb5e5b14"
+          write_characteristic: "4cea0002-c678-4202-b5d3-712dbb5e5b14"
+          read_characteristic: "4cea0003-c678-4202-b5d3-712dbb5e5b14"
+          pairing_required: false
+        steps:
+          - action: "Plug the unit in. The clock lights at once and the unit starts advertising."
+            actor: "user"
+          - action: "Close the Smart Connect app on any phone that still has it; the unit takes one central at a time."
+            actor: "user"
+          - action: "Scan for manufacturer data company 950 (0x03B6) whose payload starts 4d 42 (\"MB\"); byte 3 of the payload should read 0x00 (idle), not bit 7 (already connected)."
+            actor: "client"
+          - action: "Connect and run the top-level `initialization` sequence."
+            actor: "client"
+            request:
+              protocol: "ble_gatt"
+              service: "4cea0001-c678-4202-b5d3-712dbb5e5b14"
+            expect: "Notifications on 4cea0003 decrypt with a valid CRC-8; once ENABLE_RX is sent the unit streams CURRENT_DATE about once a second."
+          - action: "Send set_current_date with the host's local time (packed BCD hour, minute, second; weekday 0 = Sunday)."
+            actor: "client"
+            request:
+              protocol: "ble_gatt"
+              action: "set_current_date"
+            expect: "The clock face shows the new time. The vendor app did this at the end of pairing; the manual says the clock updating is the sign pairing worked."
+          - action: "Optionally send request_global_state and decode the 0x02 reply to learn the current light, sound and mode."
+            actor: "client"
+            request:
+              protocol: "ble_gatt"
+              action: "request_global_state"
+        timing:
+          after_session_write_ms: 400
+          after_enable_rx_ms: 300
+          between_commands_ms: 150
+          notes: >
+            stramanu/lumalou waits 400 ms after the session write and 300 ms
+            after ENABLE_RX, and spaces every write 150-160 ms ("the device is
+            sensitive to bursts"). kvdb/gld09-control uses 200 ms after
+            ENABLE_RX and 200-300 ms between commands. No lower bound has
+            been measured.
+        troubleshooting:
+          - symptom: "The unit is not in the scan, or connecting fails."
+            causes:
+              - "A phone with the Smart Connect app is connected (payload byte 3 bit 7 set). The vendor FAQ says only one phone can control it; close the app, or wait about 30 seconds after it closes."
+              - "Out of range; the vendor FAQ quotes up to about 150 ft line of sight."
+          - symptom: "Commands are accepted but no reply arrives on 4cea0003."
+            causes:
+              - "ENABLE_RX (plaintext 01 50 01) was not sent after the handshake. Without it the unit only acknowledges requests (00 7f ... / 01 10 04 ...) and sends no data frames."
+          - symptom: "Every notification fails its CRC after decryption."
+            causes:
+              - "Nonce and salt in the wrong order in the receive IV: device-to-app is seq || device salt || app nonce || 0, the mirror of the transmit IV."
+              - "The session key was taken from the raw ECDH secret instead of the 100-round stretch."
+          - symptom: "Routines and the sleep-trainer star do nothing."
+            causes:
+              - "The clock was lost in a power cut. Send set_current_date."
+              - "The sleep trainer runs its red-to-green cycle only with both a bedtime and a wake time set, and the green star only fires with an audible alarm armed (kvdb/gld09-control, hardware-observed)."
+      - type: "ble_direct"
+        name: "Smart Connect app with the unit's pairing button (defunct)"
+        role: "historical"
+        verified: false
+        description: >
+          The vendor flow from the owner's manual: open Fisher-Price Smart
+          Connect, touch the Lumalou icon, hold the phone within about 6 ft,
+          and press the pairing button on the unit; the clock then updates to
+          the phone's time. The app is delisted and its backend is gone, so
+          this cannot be completed today. The button puts the unit into
+          operation mode 4 (pairing) and sets bit 6 of the advertised state
+          byte; the app then sent a pairing-complete command whose arguments
+          are not documented. Open clients show the button is not needed to
+          open a session.
+        steps:
+          - action: "Open the Smart Connect app and touch the Lumalou icon; stay within about 6 ft (1.8 m) of the unit."
+            actor: "user"
+          - action: "Press the pairing button on the unit."
+            actor: "user"
+            expect: "The clock updates to the current time."
+    factory_reset:
+      applicable: "unknown"
+      confidence: "low"
+      effect: >
+        No factory reset is documented. The manual's only reset is a power
+        cycle, which restarts the electronics and loses the time (routines
+        and the sleep trainer stay off until the clock is set again). Whether
+        schedules, routines and the custom playlist survive it is not known.
+      procedures:
+        - name: "Power cycle at the adapter"
+          verified: false
+          basis: "GLD09 owner's manual, mounting section: if the unit behaves erratically, unplug the AC adapter for about 10 seconds and plug it back in."
+          power_state: "on"
+          hold_seconds: 10
+          indicator: "The clock lights again when power returns."
+          steps:
+            - action: "Unplug the AC adapter from the wall for about 10 seconds, then plug it back in."
+              actor: "user"
+            - action: "Reconnect and send set_current_date."
+              actor: "client"
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        Nothing binds the unit to a phone or an owner, so a new controller
+        simply connects. The only obstacle is another central holding the
+        single connection.
+    credentials:
+      wifi_passphrase_protection: "not_applicable"
+      stored_on_device:
+        - "The unit's P-256 key pair and its manufacturing-signed factory token (fixed at the factory)."
+      issued_to_client: []
+      notes: >
+        No Wi-Fi. The session key is ephemeral and derived fresh on every
+        connection; a client stores nothing. The factory token is readable
+        by anyone, and the ECDH only authenticates the device (if the client
+        checks the token signature), never the client.
+
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "none"
+    bonding: "none"
+    exclusivity:
+      single_connection: true
+      recovery: >
+        Close the Smart Connect app (or disconnect the other client); if the
+        unit still refuses, wait about 30 seconds, or unplug the adapter for
+        about 10 seconds.
+      notes: >
+        The vendor FAQ: only one phone can control a Smart Connect product
+        at a time ("Someone else is already connected"), and pairing should
+        be done from the app, not the phone's Bluetooth settings, where a PIN
+        prompt would appear. The advertised state byte shows the connection
+        (bit 7 set = a central is connected).
+    enter_pairing_mode:
+      required: false
+      notes: >
+        The pairing button only served the vendor app's own flow (see the
+        historical setup method); both open clients connect and run the
+        session without it. While pairing, the advertised state byte has bit
+        6 set and GLOBAL_STATE reports operation mode 4.
+      procedures:
+        - name: "Pairing button on the unit"
+          verified: false
+          basis: "GLD09 owner's manual, 'Pair the Lumalou unit to your device' page; mode and flag meaning from kvdb/gld09-control and stramanu/lumalou spec/protocol.json."
+          power_state: "on"
+          press_count: 1
+          indicator: "Advertised state byte bit 6 set; the clock updates once the vendor app finishes."
+    unpair:
+      supported: false
+      notes: >
+        Nothing to unpair: no link-layer bond is made and the unit keeps no
+        list of clients.
+    notes: >
+      Link layer: nothing. The MPID session in `initialization` is key
+      agreement, not authorisation; it runs identically for any central.
+      Confidence medium: two open clients (bleak) connect without pairing,
+      per their source and their authors' hardware reports.
+
+  host_compatibility:
+    - stack: "android"
+      status: "compatible"
+      verification: "reported"
+      basis: "The vendor Smart Connect app ran on Android, and stramanu/lumalou drove the unit from Chrome's Web Bluetooth on Android and captured the vendor app with Android HCI snoop logs."
+    - stack: "corebluetooth"
+      status: "compatible"
+      verification: "reported"
+      basis: "The vendor Smart Connect app shipped on the iOS App Store (owner's manual); stramanu/lumalou reports its web client works on iOS through the Bluefy browser."
+    - stack: "bluez"
+      status: "compatible"
+      verification: "reported"
+      basis: "kvdb/gld09-control is a bleak client its author runs against the unit and recommends hosting on a Raspberry Pi; no BlueZ quirk is reported by either open client."
+
+# Declarative name for the consumer-side handler that runs the MPID session
+# (ECDH + stretch), wraps each command body in the MPID header and encrypts
+# it, and decrypts notifications. See protocol_details.mpid.
+protocol_handler: "mattel_mpid"
+
+initialization:
+  - characteristic: "4cea0003-c678-4202-b5d3-712dbb5e5b14"
+    subscribe: true
+    notes: >
+      Both open clients subscribe before touching anything else, so no reply
+      to the handshake or to ENABLE_RX is missed.
+  - characteristic: "4cea0004-c678-4202-b5d3-712dbb5e5b14"
+    read: true
+    notes: >
+      192-byte factory token (payload_formats.FactoryToken). Take the
+      device's compressed P-256 public key from bytes 25-57 and the 4-byte
+      device salt from the last four bytes. Read it on every connection. An
+      optional check verifies the ECDSA P-256/SHA-256 signature at bytes
+      124-187 over bytes 0-123 with the manufacturing public key the vendor
+      app carries for key id 12; that key is not reproduced here (the open
+      clients carry it). Skipping the check still yields a working session;
+      it only drops the assurance that the peer is a genuine unit.
+  - characteristic: "4cea0005-c678-4202-b5d3-712dbb5e5b14"
+    description: >
+      Generate an ephemeral P-256 key pair and 4 random bytes (the app
+      nonce). shared = ECDH(app private key, device public key), the 32-byte
+      X coordinate. session_key = the 100-round stretch of `shared`
+      (protocol_details.mpid.key_derivation). Write 37 bytes, the app's
+      33-byte compressed public key followed by the nonce, as a write WITH
+      response. The unit derives the same key. The bytes are fresh every
+      connection, so this step cannot be stated as data.
+    delay_ms: 400
+  - characteristic: "4cea0002-c678-4202-b5d3-712dbb5e5b14"
+    description: >
+      Send the enable_rx command (plaintext 01 50 01) as the first MPID frame
+      of the session (sequence 1). Until this arrives the unit acknowledges
+      requests but sends no data frames; once it has, it streams
+      CURRENT_DATE (0x13) about once a second and pushes GLOBAL_STATE (0x02)
+      and ROUTINE_TASK_STATUS (0x94) when something changes on the unit
+      (kvdb/gld09-control, observed on hardware). The frame is encrypted, so
+      its bytes cannot be stated as data.
+    delay_ms: 300
+
+services:
+  - uuid: "4cea0001-c678-4202-b5d3-712dbb5e5b14"
+    name: "MPID Control Service"
+    notes: >
+      The vendor app's custom service for the Lumalou (product code gld09,
+      API level 1). Not advertised. The four characteristics share its base.
+      Every characteristic role below was seen in a live GATT dump by
+      stramanu/lumalou and in the vendor app's bundled product config for
+      the 8.6.4 release.
+    characteristics:
+      - uuid: "4cea0002-c678-4202-b5d3-712dbb5e5b14"
+        name: "tx"
+        properties: ["write", "write_without_response"]
+        role: "command"
+        encryption:
+          algorithm: "aes-128-ctr"
+          key_derivation: "handshake"
+        notes: >
+          App-to-device MPID frames. Every `value`/`template` below is the
+          decrypted MPID BODY (its plaintext), not what goes on air: the
+          client appends the body CRC-8, encrypts, and prefixes the 8-byte
+          header (protocol_details.mpid.frame). Application commands are
+          01 10 (route to the unit's toy controller) + FE frame
+          [0xFE, n, opcode, args..., x], where n counts opcode + args and x is
+          the XOR of n with every opcode/arg byte; the `checksum` parameter
+          of each template is that x. Both open clients write without
+          response. Largest body is 20 bytes (29 on air), above a 23-byte ATT
+          MTU's 20-byte limit, so a larger MTU must be negotiated (bleak,
+          CoreBluetooth and Android do this on their own). Keep at least
+          150 ms between writes.
+        commands:
+          enable_rx:
+            description: >
+              Transport command, not an application command: tells the unit to
+              start streaming responses on 4cea0003. Send once per session,
+              right after the session write. Upstream names it ENABLE_RX; it
+              is not FE-framed.
+            verification: "reported"
+            value: [0x01, 0x50, 0x01]
+          request_global_state:
+            description: "REQUEST_GLOBAL_STATE (0x53). The unit answers with GLOBAL_STATE (0x02), decoded by 4cea0003's `format`."
+            verification: "reported"
+            command_id: 0x53
+            value: [0x01, 0x10, 0xFE, 0x01, 0x53, 0x52]
+          set_global_on:
+            description: >
+              SET_GLOBAL_ON (0x03): start (1) or stop (0) soothing, the unit's
+              combined light-and-sound mode (what the remote's button toggles
+              outside a routine). The light and sound it plays are the ones
+              last configured.
+            verification: "reported"
+            command_id: 0x03
+            template: [0x01, 0x10, 0xFE, 0x02, 0x03, "{state}", "{checksum}"]
+            parameters:
+              state:
+                type: "uint8"
+                min: 0
+                max: 1
+                labels: ["stop soothing", "start soothing"]
+              checksum:
+                type: "uint8"
+                auto: "xor_checksum"
+                checksum_start: 3
+          set_light_color:
+            description: >
+              SET_LIGHT_COLOR (0x3C): pick a colour preset. This also turns
+              the night light on. The unit stores colour as a 4-bit preset
+              index in GLOBAL_STATE, so it cannot show an arbitrary RGB
+              colour.
+            verification: "reported"
+            command_id: 0x3C
+            template: [0x01, 0x10, 0xFE, 0x02, 0x3C, "{color}", "{checksum}"]
+            parameters:
+              color:
+                type: "uint8"
+                min: 0
+                max: 9
+                labels: ["warm", "red", "yellow", "orange", "green", "blue", "purple", "night light", "cool", "rainbow"]
+                notes: >
+                  kvdb/gld09-control also sends 10 as "off"; stramanu's
+                  clients accept only 0-9. Use turn_off_night_light instead.
+              checksum:
+                type: "uint8"
+                auto: "xor_checksum"
+                checksum_start: 3
+          set_led_brightness:
+            description: "SET_LED_BRIGHTNESS (0x3A): night-light brightness step, 0-9."
+            verification: "reported"
+            command_id: 0x3A
+            template: [0x01, 0x10, 0xFE, 0x02, 0x3A, "{level}", "{checksum}"]
+            parameters:
+              level:
+                type: "uint8"
+                min: 0
+                max: 9
+                notes: "Dimensionless step. Range from both open clients' range checks."
+              checksum:
+                type: "uint8"
+                auto: "xor_checksum"
+                checksum_start: 3
+          turn_off_night_light:
+            description: "TURN_OFF_CLOUD_BACKLIGHT (0x3E): night light off. No arguments."
+            verification: "reported"
+            command_id: 0x3E
+            value: [0x01, 0x10, 0xFE, 0x01, 0x3E, 0x3F]
+          set_light_duration:
+            description: "SET_SOOTHER_MODE_LIGHT_DURATION (0x6C): how long the light stays on when soothing starts."
+            verification: "reported"
+            command_id: 0x6C
+            template: [0x01, 0x10, 0xFE, 0x02, 0x6C, "{duration}", "{checksum}"]
+            parameters:
+              duration:
+                type: "uint8"
+                min: 0
+                max: 5
+                labels: ["15 min", "30 min", "60 min", "90 min", "continuous", "1 min"]
+              checksum:
+                type: "uint8"
+                auto: "xor_checksum"
+                checksum_start: 3
+          play_audio:
+            description: >
+              PLAY_AUDIO (0x3F): start a sound source. 0 is the built-in
+              Ready-Settle-Sleep playlist, 1 the custom playlist set by
+              set_music_playlist, 2-7 are looping sound effects.
+            verification: "reported"
+            command_id: 0x3F
+            template: [0x01, 0x10, 0xFE, 0x02, 0x3F, "{source}", "{checksum}"]
+            parameters:
+              source:
+                type: "uint8"
+                min: 0
+                max: 7
+                labels: ["sleep playlist", "custom playlist", "pink noise", "ocean", "rain", "brown noise", "nature", "highway"]
+              checksum:
+                type: "uint8"
+                auto: "xor_checksum"
+                checksum_start: 3
+          turn_off_audio:
+            description: "TURN_OFF_AUDIO (0x38): stop sound. No arguments."
+            verification: "reported"
+            command_id: 0x38
+            value: [0x01, 0x10, 0xFE, 0x01, 0x38, 0x39]
+          set_volume:
+            description: "SET_VOLUME (0x37): speaker volume step, 0-9."
+            verification: "reported"
+            command_id: 0x37
+            template: [0x01, 0x10, 0xFE, 0x02, 0x37, "{level}", "{checksum}"]
+            parameters:
+              level:
+                type: "uint8"
+                min: 0
+                max: 9
+                notes: "Dimensionless step. kvdb/gld09-control sends 0 before any other change so reconfiguring near a sleeping child is silent."
+              checksum:
+                type: "uint8"
+                auto: "xor_checksum"
+                checksum_start: 3
+          set_playlist_duration:
+            description: "SET_PLAYLIST_DURATION (0x42): sound sleep timer."
+            verification: "reported"
+            command_id: 0x42
+            template: [0x01, 0x10, 0xFE, 0x02, 0x42, "{duration}", "{checksum}"]
+            parameters:
+              duration:
+                type: "uint8"
+                min: 0
+                max: 6
+                labels: ["15 min", "30 min", "60 min", "90 min", "120 min", "continuous", "1 min"]
+              checksum:
+                type: "uint8"
+                auto: "xor_checksum"
+                checksum_start: 3
+          set_music_playlist:
+            description: >
+              SET_MUSIC_PLAYLIST (0x40): the custom playlist played by
+              play_audio source 1. Exactly twelve slots, in play order.
+            verification: "reported"
+            command_id: 0x40
+            template: [0x01, 0x10, 0xFE, 0x0D, 0x40, "{songs}", "{checksum}"]
+            parameters:
+              songs:
+                type: "bytes"
+                min_length: 12
+                max_length: 12
+                notes: >
+                  Twelve song ids, one byte each: 1-12 are the built-in
+                  lullabies (payload_formats.MusicPlaylist lists them), 0 an
+                  empty slot. Both open clients put the songs first and pad
+                  with zeros. kvdb/gld09-control reports the unit rejects ids
+                  above 12, so the sound effects (13-18 in GLOBAL_STATE's
+                  current_song) cannot be queued here.
+              checksum:
+                type: "uint8"
+                auto: "xor_checksum"
+                checksum_start: 3
+          set_current_date:
+            description: >
+              SET_CURRENT_DATE (0x30): set the unit's clock. Four packed-BCD
+              bytes: hour, minute, second, weekday. There is no date or time
+              zone; send local wall time. Needed after every power loss.
+            verification: "reported"
+            command_id: 0x30
+            template: [0x01, 0x10, 0xFE, 0x05, 0x30, "{hour_bcd}", "{minute_bcd}", "{second_bcd}", "{weekday}", "{checksum}"]
+            parameters:
+              hour_bcd:
+                type: "uint8"
+                min: 0x00
+                max: 0x23
+                notes: "Hour 0-23 as packed BCD ((tens << 4) | units): 19:00 is 0x19. Not every raw value in range is valid BCD."
+              minute_bcd:
+                type: "uint8"
+                min: 0x00
+                max: 0x59
+                notes: "Minute 0-59 as packed BCD."
+              second_bcd:
+                type: "uint8"
+                min: 0x00
+                max: 0x59
+                notes: "Second 0-59 as packed BCD."
+              weekday:
+                type: "uint8"
+                min: 0
+                max: 6
+                labels: ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
+                notes: "Sunday first. BCD of a single digit is the digit."
+              checksum:
+                type: "uint8"
+                auto: "xor_checksum"
+                checksum_start: 3
+          set_clock_settings:
+            description: >
+              SET_CLOCK_SETTINGS (0x79): clock display on/off, and one byte
+              packing clock brightness (high nibble, 0-9) with the time format
+              (low nibble, 0 = 12-hour, 1 = 24-hour).
+            verification: "reported"
+            command_id: 0x79
+            template: [0x01, 0x10, 0xFE, 0x03, 0x79, "{display_on}", "{brightness_format}", "{checksum}"]
+            parameters:
+              display_on:
+                type: "uint8"
+                min: 0
+                max: 1
+                labels: ["clock off", "clock on"]
+              brightness_format:
+                type: "uint8"
+                allowed: [0x00, 0x01, 0x10, 0x11, 0x20, 0x21, 0x30, 0x31, 0x40, 0x41, 0x50, 0x51, 0x60, 0x61, 0x70, 0x71, 0x80, 0x81, 0x90, 0x91]
+                labels: ["brightness 0, 12-hour", "brightness 0, 24-hour", "brightness 1, 12-hour", "brightness 1, 24-hour", "brightness 2, 12-hour", "brightness 2, 24-hour", "brightness 3, 12-hour", "brightness 3, 24-hour", "brightness 4, 12-hour", "brightness 4, 24-hour", "brightness 5, 12-hour", "brightness 5, 24-hour", "brightness 6, 12-hour", "brightness 6, 24-hour", "brightness 7, 12-hour", "brightness 7, 24-hour", "brightness 8, 12-hour", "brightness 8, 24-hour", "brightness 9, 12-hour", "brightness 9, 24-hour"]
+                notes: "(brightness << 4) | format. The upstream strict model rejects any other value."
+              checksum:
+                type: "uint8"
+                auto: "xor_checksum"
+                checksum_start: 3
+          set_r2r_status:
+            description: >
+              SET_R2R_STATUS (0x44): sleep trainer ("ready to rise") on or off.
+              kvdb/gld09-control sends it last, after set_sleepy_times,
+              set_r2r_times and set_r2r_alarms, which is the vendor app's
+              order.
+            verification: "reported"
+            command_id: 0x44
+            template: [0x01, 0x10, 0xFE, 0x02, 0x44, "{state}", "{checksum}"]
+            parameters:
+              state:
+                type: "uint8"
+                min: 0
+                max: 1
+                labels: ["sleep trainer off", "sleep trainer on"]
+              checksum:
+                type: "uint8"
+                auto: "xor_checksum"
+                checksum_start: 3
+          set_sleepy_times:
+            description: "SET_SLEEPY_TIMES (0x48): bedtime (red star, 'stay in bed') for each day of the week."
+            verification: "reported"
+            command_id: 0x48
+            template: [0x01, 0x10, 0xFE, 0x0F, 0x48, "{times}", "{checksum}"]
+            parameters:
+              times:
+                type: "bytes"
+                min_length: 14
+                max_length: 14
+                notes: "payload_formats.WeeklyTimes: seven [BCD hour, BCD minute] pairs, Sunday first; FF FF = no time that day (00 00 is midnight, not 'none')."
+              checksum:
+                type: "uint8"
+                auto: "xor_checksum"
+                checksum_start: 3
+          set_r2r_times:
+            description: "SET_R2R_TIMES (0x46): wake time (green star, 'OK to wake') for each day of the week."
+            verification: "reported"
+            command_id: 0x46
+            template: [0x01, 0x10, 0xFE, 0x0F, 0x46, "{times}", "{checksum}"]
+            parameters:
+              times:
+                type: "bytes"
+                min_length: 14
+                max_length: 14
+                notes: "payload_formats.WeeklyTimes, same layout as set_sleepy_times."
+              checksum:
+                type: "uint8"
+                auto: "xor_checksum"
+                checksum_start: 3
+          set_r2r_alarms:
+            description: >
+              SET_R2R_ALARMS (0x4A): per-day wake alarm, seven nibbles Sunday
+              first, packed two per byte high nibble first, then one trailing
+              nibble (payload_formats.WeeklyAlarms).
+            verification: "reported"
+            command_id: 0x4A
+            template: [0x01, 0x10, 0xFE, 0x05, 0x4A, "{alarms}", "{checksum}"]
+            parameters:
+              alarms:
+                type: "bytes"
+                min_length: 4
+                max_length: 4
+                notes: "Nibble values: 0 = at the wake time, 1-8 = 15-120 min after it in 15-min steps, 9 = no alarm, 10 = 1 min after. All seven off with the trailing nibble 0 is 99 99 99 90."
+              checksum:
+                type: "uint8"
+                auto: "xor_checksum"
+                checksum_start: 3
+          start_nap:
+            description: >
+              START_NAP_TIME (0x4D): start a nap timer of the given length, or
+              stop it with 0. kvdb/gld09-control reports a nap only starts
+              with the sleep trainer on.
+            verification: "reported"
+            command_id: 0x4D
+            template: [0x01, 0x10, 0xFE, 0x02, 0x4D, "{duration}", "{checksum}"]
+            parameters:
+              duration:
+                type: "uint8"
+                min: 0
+                max: 11
+                labels: ["stop", "15 min", "30 min", "45 min", "60 min", "75 min", "90 min", "105 min", "120 min", "150 min", "180 min", "1 min"]
+              checksum:
+                type: "uint8"
+                auto: "xor_checksum"
+                checksum_start: 3
+          set_routine_mode_status:
+            description: "SET_ROUTINE_MODE_STATUS (0x58): enable (1) or disable (0) scheduled routines."
+            verification: "reported"
+            command_id: 0x58
+            template: [0x01, 0x10, 0xFE, 0x02, 0x58, "{state}", "{checksum}"]
+            parameters:
+              state:
+                type: "uint8"
+                min: 0
+                max: 1
+                labels: ["routines off", "routines on"]
+              checksum:
+                type: "uint8"
+                auto: "xor_checksum"
+                checksum_start: 3
+          set_day_routine:
+            description: >
+              SET_<DAY>_ROUTINE: one day's routine, a start time and up to
+              twelve task icons. The day is the opcode itself (Sunday 0x5A,
+              then every second opcode to Saturday 0x66). The icons light at
+              the start time and the child checks them off with the remote
+              (payload_formats.DayRoutine).
+            verification: "reported"
+            template: [0x01, 0x10, 0xFE, 0x0F, "{day}", "{routine}", "{checksum}"]
+            packet_layout:
+              "0": "0x01 route (SSI0)"
+              "1": "0x10 route: write to the toy controller"
+              "2": "0xFE FE-frame marker"
+              "3": "0x0F length: opcode + 14 bytes"
+              "4": "day opcode"
+              "5": "start hour, packed BCD, or 0xFF for no time"
+              "6": "start minute, packed BCD, or 0xFF"
+              "7": "twelve task slots, one byte each, to offset 18"
+              "19": "XOR of offsets 3-18"
+            parameters:
+              day:
+                type: "uint8"
+                allowed: [0x5A, 0x5C, 0x5E, 0x60, 0x62, 0x64, 0x66]
+                labels: ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
+              routine:
+                type: "bytes"
+                min_length: 14
+                max_length: 14
+                notes: "[BCD hour, BCD minute] (FF FF = no time) + 12 task bytes, each (step << 4) | task_icon with step 1-12, zero-padded."
+              checksum:
+                type: "uint8"
+                auto: "xor_checksum"
+                checksum_start: 3
+          set_routine_music_status:
+            description: >
+              SET_ROUTINE_MUSIC_STATUS (0x69): routine background music, and
+              the reward sounds for each checked-off task (high nibble of the
+              second byte) and for finishing the routine (low nibble).
+            verification: "reported"
+            command_id: 0x69
+            template: [0x01, 0x10, 0xFE, 0x03, 0x69, "{music}", "{rewards}", "{checksum}"]
+            parameters:
+              music:
+                type: "uint8"
+                min: 0
+                max: 1
+                labels: ["routine music off", "routine music on"]
+                notes: "Both clients' UIs send 0 or 1; the builders accept a full byte, meaning of other values unknown."
+              rewards:
+                type: "uint8"
+                allowed: [0x00, 0x01, 0x10, 0x11]
+                labels: ["no reward sounds", "sound at routine end only", "sound on each task only", "sound on each task and at the end"]
+              checksum:
+                type: "uint8"
+                auto: "xor_checksum"
+                checksum_start: 3
+          set_routine_volume:
+            description: "SET_ROUTINE_MODE_VOLUME (0x77): volume used during routines."
+            verification: "hypothesis"
+            command_id: 0x77
+            template: [0x01, 0x10, 0xFE, 0x02, 0x77, "{level}", "{checksum}"]
+            parameters:
+              level:
+                type: "uint8"
+                min: 0
+                max: 9
+                notes: >
+                  Opcode reported by both clients; the RANGE is an assumption
+                  borrowed from set_volume. GLOBAL_STATE holds it in a nibble,
+                  kvdb/gld09-control sends 0 and 5, and nobody has established
+                  the unit's own limit.
+              checksum:
+                type: "uint8"
+                auto: "xor_checksum"
+                checksum_start: 3
+          start_routine_mode:
+            description: "START_ROUTINE_MODE (0x7B): start today's routine now. No arguments."
+            verification: "reported"
+            command_id: 0x7B
+            value: [0x01, 0x10, 0xFE, 0x01, 0x7B, 0x7A]
+          routine_control:
+            description: "ROUTINE_CONTROL_COMMAND (0x6B): what the remote's button does during a routine, and more."
+            verification: "reported"
+            command_id: 0x6B
+            template: [0x01, 0x10, 0xFE, 0x02, 0x6B, "{action}", "{checksum}"]
+            parameters:
+              action:
+                type: "uint8"
+                min: 0
+                max: 4
+                labels: ["complete current task", "previous task", "restart routine", "complete routine", "cancel routine"]
+                notes: "kvdb/gld09-control: the first 'complete' only makes task 1 current; each later one marks the current task done."
+              checksum:
+                type: "uint8"
+                auto: "xor_checksum"
+                checksum_start: 3
+          request_current_date:
+            description: "REQUEST_CURRENT_DATE (0x31). Reply CURRENT_DATE (0x13), payload_formats.CurrentDate. The unit also streams it unprompted about once a second after ENABLE_RX."
+            verification: "reported"
+            command_id: 0x31
+            value: [0x01, 0x10, 0xFE, 0x01, 0x31, 0x30]
+          request_toyic_fw_version:
+            description: "REQUEST_TOYIC_FW_VERSION (0x35): firmware of the toy controller behind the BLE module. Reply 0x12; its layout is not established."
+            verification: "reported"
+            command_id: 0x35
+            value: [0x01, 0x10, 0xFE, 0x01, 0x35, 0x34]
+          request_music_playlist:
+            description: "REQUEST_MUSIC_PLAYLIST (0x41). Reply CURRENT_PLAYLIST (0x19): twelve song-id bytes (payload_formats.MusicPlaylist)."
+            verification: "reported"
+            command_id: 0x41
+            value: [0x01, 0x10, 0xFE, 0x01, 0x41, 0x40]
+          request_clock_settings:
+            description: "REQUEST_CLOCK_SETTINGS (0x7A). Reply CLOCK_SETTINGS (0x99): the same two bytes set_clock_settings takes."
+            verification: "reported"
+            command_id: 0x7A
+            value: [0x01, 0x10, 0xFE, 0x01, 0x7A, 0x7B]
+          request_sleepy_times:
+            description: "REQUEST_SLEEPY_TIMES (0x49). Reply SLEEPY_TIME_TIMES (0x23), payload_formats.WeeklyTimes."
+            verification: "reported"
+            command_id: 0x49
+            value: [0x01, 0x10, 0xFE, 0x01, 0x49, 0x48]
+          request_r2r_times:
+            description: "REQUEST_R2R_TIMES (0x47). Reply READY_TO_RISE_TIMES (0x22), payload_formats.WeeklyTimes."
+            verification: "reported"
+            command_id: 0x47
+            value: [0x01, 0x10, 0xFE, 0x01, 0x47, 0x46]
+          request_r2r_alarms:
+            description: "REQUEST_R2R_ALARMS (0x4C). Reply READY_TO_RISE_ALARM_TIMES (0x27), payload_formats.WeeklyAlarms."
+            verification: "reported"
+            command_id: 0x4C
+            value: [0x01, 0x10, 0xFE, 0x01, 0x4C, 0x4D]
+          request_r2r_alarm_status:
+            description: "REQUEST_R2R_ALARM_STATUS (0x4B). Reply READY_TO_RISE_ALARM_STATUS (0x26); kvdb/gld09-control reads byte 0 as 1 = today's alarm is armed."
+            verification: "reported"
+            command_id: 0x4B
+            value: [0x01, 0x10, 0xFE, 0x01, 0x4B, 0x4A]
+          request_day_routine:
+            description: "REQUEST_<DAY>_ROUTINE. Reply 0x2B-0x2F for Sunday-Thursday, 0x90 Friday, 0x91 Saturday; payload_formats.DayRoutine."
+            verification: "reported"
+            template: [0x01, 0x10, 0xFE, 0x01, "{day}", "{checksum}"]
+            parameters:
+              day:
+                type: "uint8"
+                allowed: [0x5B, 0x5D, 0x5F, 0x61, 0x63, 0x65, 0x67]
+                labels: ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
+              checksum:
+                type: "uint8"
+                auto: "xor_checksum"
+                checksum_start: 3
+          request_routine_task_status:
+            description: >
+              0x68: request routine progress. Reply ROUTINE_TASK_STATUS (0x94),
+              payload_formats.RoutineTaskStatus. spec/protocol.json on main
+              calls 0x68 SET_ROUTINE_TASK_STATUS; upstream PR #2 and
+              kvdb/gld09-control both send it with no arguments as a request,
+              and kvdb reports the unit ignores any arguments.
+            verification: "reported"
+            command_id: 0x68
+            value: [0x01, 0x10, 0xFE, 0x01, 0x68, 0x69]
+          set_time_prescaler:
+            description: >
+              SET_TIME_PRESCALER (0x52): run the unit's clock fast so schedule
+              transitions fire in seconds; a test feature the manual does not
+              mention. Send 0 to return to real time, then set_current_date.
+            verification: "reported"
+            advanced: true
+            advanced_reason: >
+              stramanu/lumalou lists it as unsafe and never sends it. While it
+              is above 0 every bedtime, wake alarm, nap and routine fires at the
+              wrong wall-clock time, which on a nursery device means sound and
+              light in the middle of the night. kvdb/gld09-control uses it and
+              always resets it to 0.
+            command_id: 0x52
+            template: [0x01, 0x10, 0xFE, 0x02, 0x52, "{rate}", "{checksum}"]
+            parameters:
+              rate:
+                type: "uint8"
+                min: 0
+                max: 3
+                labels: ["real time (1x)", "10x", "60x", "3600x"]
+              checksum:
+                type: "uint8"
+                auto: "xor_checksum"
+                checksum_start: 3
+      - uuid: "4cea0003-c678-4202-b5d3-712dbb5e5b14"
+        name: "rx"
+        properties: ["notify"]
+        role: "notify"
+        encryption:
+          algorithm: "aes-128-ctr"
+          key_derivation: "handshake"
+        notes: >
+          Device-to-app MPID frames. Decrypt with the receive IV (device salt
+          before app nonce) and check the body CRC-8; the offsets in `format`
+          are into the decrypted body without its trailing CRC. Bodies seen:
+          application responses 01 50 + FE frame [0xFE, n, response_opcode,
+          data..., x]; acknowledgement events 00 7f 01 XX 00 00 00 00 00
+          (XX = 03, 06, 07, 12) and 01 10 XX 00 (XX = 04, 05, 10), which carry
+          no data and must not be taken as a reply; and other non-FE events on
+          the 01 50 route, which the clients ignore. The reply sequence number
+          is not proven to echo the request's, so match replies by response
+          opcode. `format` decodes GLOBAL_STATE only (response 0x02,
+          13 bytes = 26 nibbles, high nibble first); other replies are in
+          payload_formats. A strict decoder also checks bytes 0-3 are
+          01 50 fe 0e and the FE XOR.
+        format_match:
+          offset: 4
+          value: 0x02
+          notes: "Response opcode 0x02 = GLOBAL_STATE. Every other reply and event is not decoded by `format`."
+        format:
+          - offset: 5
+            length: 1
+            name: "operation_mode"
+            type: "uint8"
+            mask: 0xF0
+            values:
+              0: "soother"
+              2: "daytime awake"
+              3: "sleepy time"
+              4: "pairing"
+              5: "firmware update"
+              6: "nap time"
+              7: "routine"
+          - offset: 5
+            length: 1
+            name: "activity_state"
+            type: "uint8"
+            mask: 0x0F
+            notes: "Raw code; meaning not established."
+          - offset: 6
+            length: 1
+            name: "music_status"
+            type: "uint8"
+            mask: 0xF0
+            notes: "Raw code; kvdb/gld09-control and stramanu both expose it unlabelled. Nonzero while sound plays is the likely reading, not established."
+          - offset: 6
+            length: 2
+            name: "current_song"
+            type: "uint16"
+            endianness: "big"
+            mask: 0x0FF0
+            notes: "Straddles a byte boundary: low nibble of byte 6 is the high half, high nibble of byte 7 the low half."
+            values:
+              0: "no song"
+              1: "Sleep Baby Sleep"
+              2: "Hour Glass"
+              3: "Frère Jacques"
+              4: "How Lovely the Evening"
+              5: "Tárrega Lágrima"
+              6: "What's the Matter Dear"
+              7: "Suo Gân"
+              8: "Water Color Dreams"
+              9: "Dance of the Jellyfish"
+              10: "Inside the Bubble"
+              11: "Paper Kites"
+              12: "Crickets in Space"
+              13: "pink noise"
+              14: "ocean"
+              15: "rain"
+              16: "brown noise"
+              17: "nature"
+              18: "highway"
+          - offset: 7
+            length: 1
+            name: "volume"
+            type: "uint8"
+            mask: 0x0F
+            notes: "Volume step 0-9, dimensionless."
+          - offset: 8
+            length: 1
+            name: "playlist_duration"
+            type: "uint8"
+            mask: 0xF0
+            values:
+              0: "15 min"
+              1: "30 min"
+              2: "60 min"
+              3: "90 min"
+              4: "120 min"
+              5: "continuous"
+              6: "1 min"
+          - offset: 8
+            length: 1
+            name: "light_status"
+            type: "uint8"
+            mask: 0x0F
+            values:
+              0: "off"
+              1: "on"
+            notes: "kvdb/gld09-control reads it as light on/off."
+          - offset: 9
+            length: 1
+            name: "light_brightness"
+            type: "uint8"
+            mask: 0xF0
+            notes: "Night-light brightness step 0-9, dimensionless."
+          - offset: 9
+            length: 1
+            name: "light_color"
+            type: "uint8"
+            mask: 0x0F
+            values:
+              0: "warm"
+              1: "red"
+              2: "yellow"
+              3: "orange"
+              4: "green"
+              5: "blue"
+              6: "purple"
+              7: "night light"
+              8: "cool"
+              9: "rainbow"
+          - offset: 10
+            length: 1
+            name: "nap_status"
+            type: "uint8"
+            mask: 0xF0
+            notes: "Raw code; meaning not established."
+          - offset: 10
+            length: 1
+            name: "nap_duration"
+            type: "uint8"
+            mask: 0x0F
+            values:
+              0: "inactive"
+              1: "15 min"
+              2: "30 min"
+              3: "45 min"
+              4: "60 min"
+              5: "75 min"
+              6: "90 min"
+              7: "105 min"
+              8: "120 min"
+              9: "150 min"
+              10: "180 min"
+              11: "1 min"
+          - offset: 11
+            length: 1
+            name: "r2r_status"
+            type: "uint8"
+            mask: 0xF0
+            values:
+              0: "off"
+              1: "on"
+            notes: "Sleep trainer enabled, the state set_r2r_status writes."
+          - offset: 11
+            length: 1
+            name: "r2r_alarm_status"
+            type: "uint8"
+            mask: 0x0F
+            notes: "Raw code; see request_r2r_alarm_status."
+          - offset: 12
+            length: 1
+            name: "time_prescaler"
+            type: "uint8"
+            mask: 0xF0
+            values:
+              0: "real time"
+              1: "10x"
+              2: "60x"
+              3: "3600x"
+          - offset: 12
+            length: 1
+            name: "current_stage"
+            type: "uint8"
+            mask: 0x0F
+            values:
+              0: "none"
+              1: "ready"
+              2: "settle"
+              3: "sleep"
+            notes: "Stage of the Ready-Settle-Sleep sequence."
+          - offset: 13
+            length: 1
+            name: "clock_display"
+            type: "uint8"
+            mask: 0xF0
+            values:
+              0: "off"
+              1: "on"
+          - offset: 13
+            length: 1
+            name: "clock_brightness"
+            type: "uint8"
+            mask: 0x0F
+            notes: "Clock brightness step 0-9, dimensionless."
+          - offset: 14
+            length: 1
+            name: "clock_format"
+            type: "uint8"
+            mask: 0xF0
+            values:
+              0: "12-hour"
+              1: "24-hour"
+          - offset: 14
+            length: 1
+            name: "routine_music_status"
+            type: "uint8"
+            mask: 0x0F
+          - offset: 15
+            length: 1
+            name: "task_reward_sfx"
+            type: "uint8"
+            mask: 0xF0
+          - offset: 15
+            length: 1
+            name: "routine_reward_sfx"
+            type: "uint8"
+            mask: 0x0F
+          - offset: 16
+            length: 1
+            name: "light_duration"
+            type: "uint8"
+            mask: 0xF0
+            values:
+              0: "15 min"
+              1: "30 min"
+              2: "60 min"
+              3: "90 min"
+              4: "continuous"
+              5: "1 min"
+          - offset: 16
+            length: 1
+            name: "routine_volume"
+            type: "uint8"
+            mask: 0x0F
+          - offset: 17
+            length: 1
+            name: "routine_mode_status"
+            type: "uint8"
+            mask: 0xF0
+            values:
+              0: "off"
+              1: "on"
+          - offset: 17
+            length: 1
+            name: "alarm_executing"
+            type: "uint8"
+            mask: 0x0F
+            notes: "Raw code; nonzero while an alarm sounds is the likely reading, not established."
+      - uuid: "4cea0004-c678-4202-b5d3-712dbb5e5b14"
+        name: "factory"
+        properties: ["read"]
+        notes: >
+          The 192-byte manufacturing token, cleartext. Field map from
+          kvdb/gld09-control (both open clients use the key and salt offsets).
+          The serial and AP number identify one physical unit; keep them out
+          of logs you publish. Bytes 58-62 are not described by anyone.
+        format:
+          - offset: 0
+            length: 1
+            name: "token_version"
+            type: "uint8"
+            notes: "10 on the units the open clients have read."
+          - offset: 1
+            length: 24
+            name: "serial"
+            type: "string"
+            notes: "ASCII. Bytes 7-16 are the ten-digit AP number (also the advertised local name); bytes 19-24 the item number."
+          - offset: 25
+            length: 33
+            name: "device_public_key"
+            type: "bytes"
+            notes: "Compressed P-256 point (02/03 prefix + X). The ECDH peer key."
+          - offset: 63
+            length: 2
+            name: "machine_id"
+            type: "uint16"
+            endianness: "big"
+          - offset: 65
+            length: 3
+            name: "manufacturing_key_id"
+            type: "uint24"
+            endianness: "big"
+            notes: "Which manufacturing public key signed the token; 12 on every unit reported."
+          - offset: 68
+            length: 2
+            name: "config_table_id"
+            type: "uint16"
+            endianness: "big"
+          - offset: 70
+            length: 54
+            name: "config_table"
+            type: "bytes"
+            notes: "Device-attribute table; contents not decoded."
+          - offset: 124
+            length: 64
+            name: "signature"
+            type: "bytes"
+            notes: "ECDSA P-256 / SHA-256 over bytes 0-123, raw r || s (32 + 32, big-endian)."
+          - offset: 188
+            length: 4
+            name: "device_salt"
+            type: "bytes"
+            notes: "Outside the signed region. The device's half of the CTR IVs."
+      - uuid: "4cea0005-c678-4202-b5d3-712dbb5e5b14"
+        name: "session"
+        properties: ["write"]
+        notes: >
+          Session bootstrap, written once per connection with a write request
+          (with response): 37 bytes = the app's ephemeral compressed P-256
+          public key (33) + a 4-byte random app nonce. See `initialization`.
+          Nothing is written here again during the session.
+
+  - uuid: "00001530-1212-efde-1523-785feabcd123"
+    name: "Nordic legacy DFU (DO NOT WRITE)"
+    notes: >
+      Nordic's legacy (nRF5 SDK 11 and earlier) DFU service, seen in a live
+      GATT dump of the application (stramanu/lumalou reversing.md). Both
+      open clients treat every 0000153x characteristic as off limits; the
+      upstream author warns a wrong write bricks the unit. A generic client
+      may list it read-only and must never write to it. Its characteristics
+      are not recorded for this device (the stack's defaults are in
+      docs/protocols/firmware-update.md), and no update sequence is given
+      here on purpose.
+
+features:
+  - type: "firmware_update"
+    dfu:
+      mechanisms: ["nordic_legacy_dfu"]
+      transport: "ble"
+      image:
+        signing: "unknown"
+        source: "unknown"
+        notes: >
+          The vendor FAQ says the Smart Connect app pushed product "software"
+          updates. Where the images came from is not documented; from app 9.x
+          the per-device config came from the now-dead backend, so any image
+          source there is gone too. No image is available to anyone.
+      enter:
+        how: "unknown"
+        notes: >
+          Not established, and deliberately not researched further: the
+          upstream author reports a wrong write to the DFU service bricks the
+          unit. The MPID layer also has firmware hooks (operation mode 5
+          "firmware update", response 0x11 OTA_COMPLETE), so the toy
+          controller may take firmware through the encrypted channel as well;
+          no OTA opcode is published and none is documented here.
+      dfu_mode:
+        notes: >
+          Not observed. A stock legacy Nordic bootloader advertises "DfuTarg";
+          nothing ties such an advertisement to this product.
+      services: ["00001530-1212-efde-1523-785feabcd123"]
+      recovery:
+        interrupted: "unknown"
+      verification: "reported"
+      notes: >
+        Recorded so that a client knows the service exists and never touches
+        it. Do not write to it.
+
+entities:
+  - platform: "light"
+    name: "Night Light"
+    features: ["brightness", "effect"]
+    state_characteristic: "4cea0003-c678-4202-b5d3-712dbb5e5b14"
+    command_characteristic: "4cea0002-c678-4202-b5d3-712dbb5e5b14"
+    state_mapping:
+      is_on: "light_status"
+      brightness: "light_brightness"
+      effect: "light_color"
+    commands:
+      turn_on: {command: "set_light_color", values: {color: 0}}
+      turn_off: "turn_off_night_light"
+      set_brightness: "set_led_brightness"
+      set_effect: "set_light_color"
+    notes: >
+      There is no plain "on": the light comes on when a colour is chosen.
+      turn_on sends warm (0); a client that has read GLOBAL_STATE should send
+      the last light_color instead. Effects are the ten colour presets;
+      brightness is a 0-9 step.
+  - platform: "select"
+    name: "Night Light Timer"
+    state_characteristic: "4cea0003-c678-4202-b5d3-712dbb5e5b14"
+    command_characteristic: "4cea0002-c678-4202-b5d3-712dbb5e5b14"
+    state_mapping:
+      value: "light_duration"
+      options:
+        "0": "15 min"
+        "1": "30 min"
+        "2": "60 min"
+        "3": "90 min"
+        "4": "continuous"
+        "5": "1 min"
+    commands:
+      select_option: "set_light_duration"
+  - platform: "number"
+    name: "Volume"
+    min: 0
+    max: 9
+    step: 1
+    state_characteristic: "4cea0003-c678-4202-b5d3-712dbb5e5b14"
+    command_characteristic: "4cea0002-c678-4202-b5d3-712dbb5e5b14"
+    state_mapping:
+      value: "volume"
+    commands:
+      set_value: "set_volume"
+  - platform: "select"
+    name: "Sound"
+    command_characteristic: "4cea0002-c678-4202-b5d3-712dbb5e5b14"
+    state_mapping:
+      options:
+        "0": "sleep playlist"
+        "1": "custom playlist"
+        "2": "pink noise"
+        "3": "ocean"
+        "4": "rain"
+        "5": "brown noise"
+        "6": "nature"
+        "7": "highway"
+    commands:
+      select_option: "play_audio"
+    notes: >
+      Starts a source. GLOBAL_STATE reports the song or loop playing
+      (current_song), not the source that was picked, so this select has no
+      read-back of its own.
+  - platform: "button"
+    name: "Stop Sound"
+    command_characteristic: "4cea0002-c678-4202-b5d3-712dbb5e5b14"
+    commands:
+      press: "turn_off_audio"
+  - platform: "select"
+    name: "Sound Timer"
+    state_characteristic: "4cea0003-c678-4202-b5d3-712dbb5e5b14"
+    command_characteristic: "4cea0002-c678-4202-b5d3-712dbb5e5b14"
+    state_mapping:
+      value: "playlist_duration"
+      options:
+        "0": "15 min"
+        "1": "30 min"
+        "2": "60 min"
+        "3": "90 min"
+        "4": "120 min"
+        "5": "continuous"
+        "6": "1 min"
+    commands:
+      select_option: "set_playlist_duration"
+  - platform: "button"
+    name: "Start Soothing"
+    command_characteristic: "4cea0002-c678-4202-b5d3-712dbb5e5b14"
+    commands:
+      press: {command: "set_global_on", values: {state: 1}}
+  - platform: "button"
+    name: "Stop Soothing"
+    command_characteristic: "4cea0002-c678-4202-b5d3-712dbb5e5b14"
+    commands:
+      press: {command: "set_global_on", values: {state: 0}}
+  - platform: "select"
+    name: "Nap"
+    state_characteristic: "4cea0003-c678-4202-b5d3-712dbb5e5b14"
+    command_characteristic: "4cea0002-c678-4202-b5d3-712dbb5e5b14"
+    state_mapping:
+      value: "nap_duration"
+      options:
+        "0": "stop"
+        "1": "15 min"
+        "2": "30 min"
+        "3": "45 min"
+        "4": "60 min"
+        "5": "75 min"
+        "6": "90 min"
+        "7": "105 min"
+        "8": "120 min"
+        "9": "150 min"
+        "10": "180 min"
+        "11": "1 min"
+    commands:
+      select_option: "start_nap"
+    notes: "Picking a length starts a nap now; 'stop' ends it. Needs the sleep trainer on."
+  - platform: "switch"
+    name: "Sleep Trainer"
+    state_characteristic: "4cea0003-c678-4202-b5d3-712dbb5e5b14"
+    command_characteristic: "4cea0002-c678-4202-b5d3-712dbb5e5b14"
+    state_mapping:
+      is_on: "r2r_status"
+    commands:
+      turn_on: {command: "set_r2r_status", values: {state: 1}}
+      turn_off: {command: "set_r2r_status", values: {state: 0}}
+    notes: "Does nothing useful until bedtimes and wake times are set (set_sleepy_times, set_r2r_times)."
+  - platform: "switch"
+    name: "Routines"
+    state_characteristic: "4cea0003-c678-4202-b5d3-712dbb5e5b14"
+    command_characteristic: "4cea0002-c678-4202-b5d3-712dbb5e5b14"
+    state_mapping:
+      is_on: "routine_mode_status"
+    commands:
+      turn_on: {command: "set_routine_mode_status", values: {state: 1}}
+      turn_off: {command: "set_routine_mode_status", values: {state: 0}}
+  - platform: "button"
+    name: "Start Routine"
+    command_characteristic: "4cea0002-c678-4202-b5d3-712dbb5e5b14"
+    commands:
+      press: "start_routine_mode"
+  - platform: "button"
+    name: "Complete Current Task"
+    command_characteristic: "4cea0002-c678-4202-b5d3-712dbb5e5b14"
+    commands:
+      press: {command: "routine_control", values: {action: 0}}
+  - platform: "number"
+    name: "Routine Volume"
+    min: 0
+    max: 9
+    step: 1
+    state_characteristic: "4cea0003-c678-4202-b5d3-712dbb5e5b14"
+    command_characteristic: "4cea0002-c678-4202-b5d3-712dbb5e5b14"
+    state_mapping:
+      value: "routine_volume"
+    commands:
+      set_value: "set_routine_volume"
+    notes: "Range 0-9 is assumed (see set_routine_volume)."
+  - platform: "select"
+    name: "Clock Brightness and Format"
+    command_characteristic: "4cea0002-c678-4202-b5d3-712dbb5e5b14"
+    commands:
+      select_option: {command: "set_clock_settings", values: {display_on: 1}}
+    notes: >
+      Options are the brightness_format labels. Keeps the clock on;
+      GLOBAL_STATE reports clock_brightness and clock_format separately.
+  - platform: "sensor"
+    name: "Operation Mode"
+    state_characteristic: "4cea0003-c678-4202-b5d3-712dbb5e5b14"
+    state_mapping:
+      value: "operation_mode"
+    commands:
+      poll: "request_global_state"
+  - platform: "sensor"
+    name: "Bedtime Stage"
+    state_characteristic: "4cea0003-c678-4202-b5d3-712dbb5e5b14"
+    state_mapping:
+      value: "current_stage"
+    commands:
+      poll: "request_global_state"
+  - platform: "sensor"
+    name: "Now Playing"
+    state_characteristic: "4cea0003-c678-4202-b5d3-712dbb5e5b14"
+    state_mapping:
+      value: "current_song"
+    commands:
+      poll: "request_global_state"
+
+payload_formats:
+  Advertisement:
+    description: >
+      Manufacturer-specific AD data under company 0x03B6, offsets from the
+      first byte AFTER the two company-id bytes. From upstream PR #2 and
+      kvdb/gld09-control; both report idle units with firmware 0.3.7.
+    fields:
+      - index: 0
+        name: "magic"
+        description: "Bytes 0-1: ASCII \"MB\" (4d 42)."
+      - index: 2
+        name: "format_version"
+        description: "Byte 2: format byte, opaque."
+      - index: 3
+        name: "connection_state"
+        description: "Byte 3: bit 7 = a central is connected, bit 6 = pairing mode, 0x00 = idle. Other combinations not observed."
+      - index: 4
+        name: "firmware_version"
+        description: "Bytes 4..end: firmware version, ASCII (e.g. \"0.3.7\"); stop at a 0x00 if one appears."
+    parse_rules:
+      - "Require company id 950 and payload bytes 0-1 == 4d 42."
+      - "state = payload[3]: connected if bit 7, else pairing if bit 6, else idle if 0."
+      - "firmware = payload[4:] decoded as ASCII up to the first 0x00."
+      - "The local name is the unit's ten-digit AP number, not a product name."
+    example: "4d 42 xx 00 30 2e 33 2e 37  (xx = the format byte, value not recorded; 00 = idle; 30 2e 33 2e 37 = \"0.3.7\")"
+  FactoryToken:
+    description: "The 192-byte read of 4cea0004. Declared field by field on that characteristic's `format`."
+    parse_rules:
+      - "Reject a token that is not exactly 192 bytes (upstream PR #2 does)."
+      - "device_public_key = token[25:58]; device_salt = token[188:192]."
+      - "Optional: verify token[124:188] (r || s) over token[0:124] with ECDSA P-256 / SHA-256 and the manufacturing public key for key id token[65:68]. The vendor key is not reproduced here; the open clients carry it."
+  CurrentDate:
+    description: "Response 0x13 data: four packed-BCD bytes, hour, minute, second, weekday (0 = Sunday). A running clock, not a calendar date."
+    fields:
+      - index: 0
+        name: "hour"
+        description: "Packed BCD 00-23."
+      - index: 1
+        name: "minute"
+        description: "Packed BCD 00-59."
+      - index: 2
+        name: "second"
+        description: "Packed BCD 00-59."
+      - index: 3
+        name: "weekday"
+        description: "0-6, Sunday first."
+    example: "23 59 00 03"
+  WeeklyTimes:
+    description: "Argument of set_sleepy_times / set_r2r_times and data of responses 0x23 / 0x22: fourteen bytes."
+    parse_rules:
+      - "Seven two-byte entries, Sunday first: [BCD hour, BCD minute]."
+      - "FF FF = no time that day. 00 00 is midnight and must not be read as 'none'."
+    example: "ff ff 06 45 06 45 06 45 06 45 06 45 06 45"
+  WeeklyAlarms:
+    description: "Argument of set_r2r_alarms and data of response 0x27: four bytes, eight nibbles, high nibble first."
+    parse_rules:
+      - "Nibbles 0-6 are Sunday-Saturday: 0 = alarm at the wake time, 1-8 = 15, 30 ... 120 min after it, 9 = no alarm, 10 = 1 min after."
+      - "Nibble 7: kvdb/gld09-control sends 0 and reports the unit ignores it; the upstream web client treats it as a reward-sound id 0-15. Send 0."
+      - "kvdb/gld09-control reports the green 'OK to wake' star only changes when an audible alarm is armed for that day."
+    example: "90 99 99 90"
+  DayRoutine:
+    description: "Argument of the day-routine SETs and data of responses 0x2B-0x2F, 0x90, 0x91: fourteen bytes."
+    parse_rules:
+      - "Bytes 0-1: start time [BCD hour, BCD minute], or FF FF for none."
+      - "Bytes 2-13: twelve task slots. Slot byte = (step << 4) | task_icon with step 1-12; 0x00 is an empty slot. Task icon 0 at step 1 is 0x10, not padding."
+      - "Task icons: 1 change clothes, 2 wash up, 3 brush teeth, 4 go potty, 5 pack bag, 6 eat, 7 read, 8 clean up, 9-11 the three custom tasks (both open clients draw them as a heart, a swirl/burst and a star/spiral)."
+      - "kvdb/gld09-control gives each task its own step (1, 2, 3 ...); the upstream web client lets several tasks share a step. Preserve slot order and step numbers on read-back."
+      - "kvdb/gld09-control observed the unit clearing a morning routine's icons on its own some hours after the start time; there is no command to clear them."
+    example: "07 00 11 23 36 00 00 00 00 00 00 00 00 00"
+  RoutineTaskStatus:
+    description: "Data of response 0x94: seven bytes of routine progress (runtime only)."
+    parse_rules:
+      - "Byte 0: current task position, 1-based; 0 = not started."
+      - "Bytes 1-6: twelve nibbles, high first, indexed by task icon 1-12: 0 pending, 1 current, 2 done (kvdb/gld09-control, hardware-observed)."
+  MusicPlaylist:
+    description: "Argument of set_music_playlist and data of response 0x19: twelve song ids."
+    parse_rules:
+      - "One byte per slot in play order; 0 = empty."
+      - "Song ids 1-12: 1 Sleep Baby Sleep, 2 Hour Glass, 3 Frère Jacques, 4 How Lovely the Evening, 5 Tárrega Lágrima, 6 What's the Matter Dear, 7 Suo Gân, 8 Water Color Dreams, 9 Dance of the Jellyfish, 10 Inside the Bubble, 11 Paper Kites, 12 Crickets in Space."
+    example: "01 02 03 00 00 00 00 00 00 00 00 00"
+  ClockSettings:
+    description: "Data of response 0x99 and argument of set_clock_settings: [display_on, (brightness << 4) | format]."
+    example: "01 31"
+
+protocol_details:
+  mpid:
+    description: >
+      The session and framing layer both open clients implement, restated in
+      our own words from stramanu/lumalou docs/protocol.md and
+      docs/reversing.md and kvdb/gld09-control's README and source. Verified
+      against our own invented test vectors below, which both upstream
+      implementations reproduce.
+    key_agreement:
+      curve: "P-256 (secp256r1)"
+      device_public_key: "token[25:58], compressed (33 bytes)"
+      app_key: "Ephemeral per connection, sent compressed (33 bytes)"
+      shared_secret: "ECDH X coordinate, 32 bytes, big-endian"
+      app_nonce: "4 random bytes per connection, sent after the app key on 4cea0005"
+      device_salt: "token[188:192]"
+    key_derivation:
+      summary: "session_key = first 16 bytes after 100 in-place AES-128-CTR rounds over the 32-byte shared secret."
+      algorithm_steps:
+        - "1. state = shared_secret (32 bytes)."
+        - "2. For round r = 0 .. 99: key = state[0:16]; iv = 00 00 00 00 || r as uint32 big-endian || 00 6d 61 74 74 65 6c 00 (the ASCII 'mattel' between two zero bytes); state = AES-128-CTR(key, iv, state), all 32 bytes."
+        - "3. session_key = state[0:16]."
+      notes: >
+        CTR increments the whole 16-byte counter block as one big-endian
+        integer (standard CTR), so the second block of each round uses the
+        IV with its last byte 01. 'mattel' is a fixed protocol constant, not
+        a secret. Both sides compute this; nothing about it is per-device.
+    frame:
+      header: "7e || seq (uint32 BE) || body_len (uint16 BE) || crc8(first 7 bytes). Cleartext, 8 bytes."
+      body_len: "Length of the encrypted part = plaintext length + 1 (the body CRC byte)."
+      body: "AES-128-CTR(session_key, iv, plaintext || crc8(plaintext))"
+      iv_app_to_device: "seq (uint32 BE) || app_nonce (4) || device_salt (4) || 00 00 00 00"
+      iv_device_to_app: "seq (uint32 BE) || device_salt (4) || app_nonce (4) || 00 00 00 00"
+      crc8: "Polynomial 0x07, initial value 0xFF, no reflection, no final XOR. Check value over ASCII '123456789' is 0xFB. Note this is NOT the schema's `auto: crc8` (init 0x00)."
+      sequence: "Client's own counter, starting at 1 for the first frame of a session (ENABLE_RX) and incremented per frame. The device keeps its own counter for notifications."
+      max_plaintext: "kvdb/gld09-control states 0x1FF bytes; the largest known command body is 20 bytes."
+    body_routes:
+      "01 10": "App to device: application command follows as an FE frame. Also seen device-to-app as a short acknowledgement 01 10 XX 00."
+      "01 50": "App to device: 01 50 01 is ENABLE_RX. Device to app: application response follows as an FE frame, or a non-FE event the clients ignore."
+      "00 7f": "Device to app: acknowledgement event 00 7f 01 XX 00 00 00 00 00 (XX = 03, 06, 07, 12). Not a reply."
+    fe_frame: "fe || n || opcode || args || x, n = 1 + len(args), x = n XOR opcode XOR each arg byte."
+    encoding_helpers:
+      bcd: "Packed BCD: (value // 10) << 4 | value % 10; 0xFF marks 'no value' in schedule times."
+      nibble_pack: "Values 0-15 packed two per byte, first value in the high nibble; an odd count gets a leading 0 nibble. In the upstream aggregate command 0x0F means 'leave unchanged'."
+    reply_handling: >
+      Replies are matched by response opcode. Upstream PR #2 found no proof
+      that the device's sequence echoes the request's, and the device pushes
+      GLOBAL_STATE, ROUTINE_TASK_STATUS and CURRENT_DATE on its own after
+      ENABLE_RX, so a reply of the expected opcode may be unsolicited.
+    test_vectors:
+      notes: >
+        Invented inputs (not from any unit or from the upstream vector file),
+        computed with a transcription that imports only a crypto library, and
+        reproduced by both stramanu/lumalou 9fa5ecf and kvdb/gld09-control
+        6e3aff8.
+      crc8:
+        input_ascii: "123456789"
+        output: "fb"
+      key_agreement:
+        app_private_scalar: "1111111111111111111111111111111111111111111111111111111111111111"
+        device_private_scalar: "2222222222222222222222222222222222222222222222222222222222222222"
+        app_public_compressed: "020217e617f0b6443928278f96999e69a23a4f2c152bdf6d6cdf66e5b80282d4ed"
+        device_public_compressed: "03d65a93977caa3d1b081852ff57a79e465f1660577304baead505dd3a48589cf3"
+        shared_x: "ccfc261f58193c98ca4ad4a53bbac6f0ee29bc4d48438090446908622ca79af6"
+        session_key: "ac0ee25389a81249cae457666d29215a"
+        session_write_with_nonce_a1a2a3a4: "020217e617f0b6443928278f96999e69a23a4f2c152bdf6d6cdf66e5b80282d4eda1a2a3a4"
+      stretch_only:
+        shared_x: "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
+        session_key: "f579f3d6caee3e91f5f9c606e3b4ddcd"
+      command_bodies:
+        set_light_color_green: "0110fe023c043a"
+        set_volume_4: "0110fe02370431"
+        request_global_state: "0110fe015352"
+        set_current_date_0730_00_monday: "0110fe05300730000103"
+        set_r2r_times_sun_none_else_0645: "0110fe0f46ffff06450645064506450645064549"
+      frames:
+        session_key: "000102030405060708090a0b0c0d0e0f"
+        app_nonce: "a1a2a3a4"
+        device_salt: "b1b2b3b4"
+        tx_seq1_enable_rx: "7e00000001000422f9b2b8ef"
+        tx_seq2_set_light_color_green: "7e000000020008bbaeb6896dfb1ccf32"
+        tx_seq3_request_global_state: "7e000000030007fde608ee08e41b7e"
+        rx_seq9_global_state_frame: "7e00000009001403bf980718dc58e7163ac5d6be2ce1b042be802fed"
+        rx_seq9_plaintext: "0150fe0e020110345164001002131010451048"
+        rx_seq9_decoded: >
+          operation_mode 0 (soother), activity_state 1, music_status 1,
+          current_song 3, volume 4, playlist_duration 5 (continuous),
+          light_status 1, light_brightness 6, light_color 4 (green),
+          nap_status 0, nap_duration 0, r2r_status 1, r2r_alarm_status 0,
+          time_prescaler 0, current_stage 2 (settle), clock_display 1,
+          clock_brightness 3, clock_format 1 (24-hour),
+          routine_music_status 0, task_reward_sfx 1, routine_reward_sfx 0,
+          light_duration 4 (continuous), routine_volume 5,
+          routine_mode_status 1, alarm_executing 0
+  opcodes:
+    description: >
+      Every application opcode known, hex. `declared` names the command
+      above; the rest are listed so nobody re-derives them. Source:
+      stramanu/lumalou spec/protocol.json (main), corrected by PR #2 where
+      noted, cross-checked with kvdb/gld09-control.
+    commands:
+      "0x01": "SET_GLOBAL_STATE: eight nibbles [lights_on, brightness, music_on, volume, r2r, r2r_alarm, nap_alarm, routine], 0xF = leave unchanged. Not declared: kvdb/gld09-control reports the unit applies only brightness, volume and r2r from it, which the dedicated commands cover."
+      "0x03": "SET_GLOBAL_ON (declared: set_global_on)"
+      "0x30": "SET_CURRENT_DATE (declared)"
+      "0x31": "REQUEST_CURRENT_DATE (declared)"
+      "0x34": "SEND_PAIRING_COMPLETE: the vendor app's end-of-pairing message. Arguments unknown; upstream lists it unsafe. Do not send."
+      "0x35": "REQUEST_TOYIC_FW_VERSION (declared)"
+      "0x37": "SET_VOLUME (declared)"
+      "0x38": "TURN_OFF_AUDIO (declared)"
+      "0x39": "REQUEST_VOLUME"
+      "0x3A": "SET_LED_BRIGHTNESS (declared)"
+      "0x3B": "REQUEST_LED_BRIGHTNESS"
+      "0x3C": "SET_LIGHT_COLOR (declared)"
+      "0x3D": "REQUEST_LIGHT_COLOR"
+      "0x3E": "TURN_OFF_CLOUD_BACKLIGHT (declared: turn_off_night_light)"
+      "0x3F": "PLAY_AUDIO (declared)"
+      "0x40": "SET_MUSIC_PLAYLIST (declared)"
+      "0x41": "REQUEST_MUSIC_PLAYLIST (declared)"
+      "0x42": "SET_PLAYLIST_DURATION (declared)"
+      "0x43": "REQUEST_PLAYLIST_DURATION"
+      "0x44": "SET_R2R_STATUS (declared)"
+      "0x45": "REQUEST_R2R_STATUS"
+      "0x46": "SET_R2R_TIMES (declared)"
+      "0x47": "REQUEST_R2R_TIMES (declared)"
+      "0x48": "SET_SLEEPY_TIMES (declared)"
+      "0x49": "REQUEST_SLEEPY_TIMES (declared)"
+      "0x4A": "SET_R2R_ALARMS (declared)"
+      "0x4B": "REQUEST_R2R_ALARM_STATUS (declared)"
+      "0x4C": "REQUEST_R2R_ALARMS (declared)"
+      "0x4D": "START_NAP_TIME (declared: start_nap)"
+      "0x4E": "REQUEST_CURRENT_NAP_TIME_STATUS"
+      "0x4F": "SET_NAP_TIME_ALARM: one Alarm-enum byte per the upstream builder. Not declared: kvdb/gld09-control reports it inert on current firmware, and no client or app screen is known to use it."
+      "0x50": "REQUEST_NAP_TIME_ALARM_STATUS"
+      "0x51": "REQUEST_NAP_TIME_ALARM"
+      "0x52": "SET_TIME_PRESCALER (declared, advanced)"
+      "0x53": "REQUEST_GLOBAL_STATE (declared)"
+      "0x55": "REQUEST_SONG_PLAYING"
+      "0x58": "SET_ROUTINE_MODE_STATUS (declared)"
+      "0x59": "REQUEST_ROUTINE_MODE_STATUS"
+      "0x5A-0x67": "Day routines: SET at 0x5A (Sunday), 0x5C, 0x5E, 0x60, 0x62, 0x64, 0x66 (Saturday); REQUEST at SET + 1 (declared: set_day_routine, request_day_routine)"
+      "0x68": "REQUEST_ROUTINE_TASK_STATUS (declared). Named SET_ROUTINE_TASK_STATUS on upstream main; PR #2 and kvdb/gld09-control use it as a request."
+      "0x69": "SET_ROUTINE_MUSIC_STATUS (declared)"
+      "0x6A": "REQUEST_ROUTINE_MUSIC_STATUS"
+      "0x6B": "ROUTINE_CONTROL_COMMAND (declared: routine_control)"
+      "0x6C": "SET_SOOTHER_MODE_LIGHT_DURATION (declared: set_light_duration)"
+      "0x6D": "REQUEST_SOOTHER_MODE_LIGHT_DURATION"
+      "0x72": "REQUEST_OPERATION_MODE"
+      "0x73": "REQUEST_TIME_PRESCALER"
+      "0x74": "REQUEST_ACTIVITY_STATE"
+      "0x75": "REQUEST_CURRENT_STAGE"
+      "0x76": "REQUEST_TRANSMISSION_MODE"
+      "0x77": "SET_ROUTINE_MODE_VOLUME (declared: set_routine_volume)"
+      "0x78": "REQUEST_ROUTINE_MODE_VOLUME"
+      "0x79": "SET_CLOCK_SETTINGS (declared)"
+      "0x7A": "REQUEST_CLOCK_SETTINGS (declared)"
+      "0x7B": "START_ROUTINE_MODE (declared)"
+    responses:
+      "0x02": "GLOBAL_STATE (13 bytes; decoded by 4cea0003 format)"
+      "0x11": "OTA_COMPLETE"
+      "0x12": "TOYIC_FW_VERSION (layout unknown)"
+      "0x13": "CURRENT_DATE (payload_formats.CurrentDate)"
+      "0x14": "CURRENT_SONG"
+      "0x15": "CURRENT_VOLUME"
+      "0x16": "LIGHT_STATUS"
+      "0x17": "LIGHT_BRIGHTNESS"
+      "0x18": "LIGHT_COLOR"
+      "0x19": "CURRENT_PLAYLIST (payload_formats.MusicPlaylist)"
+      "0x1A": "AUDIO_TIMER_DURATION"
+      "0x1B": "TIMER_ABOUT_TO_EXPIRE"
+      "0x1C": "NAP_TIME_STATUS"
+      "0x1D": "TRANSMISSION_MODE"
+      "0x1E": "OPERATION_MODE"
+      "0x1F": "ACTIVITY_STATE"
+      "0x20": "CURRENT_STAGE"
+      "0x21": "READY_TO_RISE_STATUS"
+      "0x22": "READY_TO_RISE_TIMES (payload_formats.WeeklyTimes)"
+      "0x23": "SLEEPY_TIME_TIMES (payload_formats.WeeklyTimes)"
+      "0x24": "NAP_TIME_ALARM_STATUS"
+      "0x25": "NAP_TIME_ALARM_TIME"
+      "0x26": "READY_TO_RISE_ALARM_STATUS"
+      "0x27": "READY_TO_RISE_ALARM_TIMES (payload_formats.WeeklyAlarms)"
+      "0x28": "TIME_PRESCALER"
+      "0x2B-0x2F": "SUNDAY_ROUTINE .. THURSDAY_ROUTINE (payload_formats.DayRoutine)"
+      "0x90": "FRIDAY_ROUTINE"
+      "0x91": "SATURDAY_ROUTINE"
+      "0x92": "ROUTINE_MODE_STATUS"
+      "0x93": "ROUTINE_MUSIC_STATUS (layout unknown)"
+      "0x94": "ROUTINE_TASK_STATUS (payload_formats.RoutineTaskStatus)"
+      "0x95": "LIGHT_DURATION"
+      "0x98": "ROUTINE_VOLUME_LEVEL"
+      "0x99": "CLOCK_SETTINGS (payload_formats.ClockSettings)"
+    response_layouts_unknown: >
+      Only GLOBAL_STATE, CURRENT_DATE, the weekly times and alarms, day
+      routines, routine task status, playlist and clock settings have
+      established reply layouts. The single-value replies (volume, colour,
+      status bytes, ...) are named but their lengths are not established; do
+      not guess them from the matching SET argument.
+  do_not_write:
+    - "Anything on service 00001530-1212-efde-1523-785feabcd123 (Nordic legacy DFU): upstream reports a wrong write bricks the unit."
+    - "SEND_PAIRING_COMPLETE (0x34): arguments unknown, listed unsafe upstream."
+    - "Any OTA opcode on the MPID channel: none is published; operation mode 5 and response 0x11 show the path exists."
+
+evidence:
+  community_implementations: >
+    stramanu/lumalou (MIT) main at 9fa5ecf: prose protocol and process
+    write-up, the opcode/enum JSON, Python and TypeScript clients, golden
+    vectors. The author reports the key stretch and framing were run
+    bit-exact against the vendor's native library in an emulator, checked
+    against Android HCI captures of the vendor app, and confirmed by
+    decrypting real notifications from a unit. PR #2 (open, by a second
+    contributor) adds strict decoders, the advertisement and token layout,
+    receive-side acknowledgement events, the 0x68 correction and response
+    layouts, citing read-only observations of a unit. kvdb/gld09-control
+    (MIT) at 6e3aff8 is an independent Python client whose author documents
+    live verification of ENABLE_RX, response routes, token fields, advert
+    flags, alarm packing, routine encoding, task status and which commands
+    are inert. Where the two disagree this spec says so.
+  documentation_review: >
+    GLD09 owner's manual (Mattel instruction sheet GLD09-0970, 2020): the
+    pairing button and 6 ft range, the power-cycle reset, clock loss on power
+    failure disabling routines and the sleep trainer, the task list, the
+    printed April 2022 digital-service disclaimer, FCC Part 15 Class B and
+    ISED statements with no FCC ID printed. Mattel's Smart Connect FAQ: pair
+    through the app not phone settings, one controlling phone at a time with
+    a 30-second recovery, app-pushed firmware updates.
+  identifiers_checked: >
+    Company identifier 0x03B6 = "Mattel" in the Bluetooth SIG assigned
+    numbers (company_identifiers.yaml, fetched 2026-09-28).
+  fcc: >
+    No FCC ID is printed in the manual, and the research pass found no GLD09
+    grant under Mattel's grantee code PIY. Radio module and chipset are
+    therefore unconfirmed (a Nordic nRF5 part is implied by the legacy DFU
+    service only).
+  open_questions: >
+    Whether our own unit accepts every declared command, the reply layouts
+    of the single-value requests, the trailing nibble of the weekly alarm
+    block, the ranges of routine volume and routine music, what survives a
+    power cycle, and whether the Bunny/Whisper share this command set.
+  artifacts:
+    - type: "public_implementation"
+      artifact: "stramanu/lumalou main 9fa5ecfc7f6e82ec02e13d01f00fca7be6852567"
+      url: "https://github.com/stramanu/lumalou"
+      obtained_via: "git clone, 2026-09-28"
+      description: "Protocol write-up, reversing notes, opcode/enum JSON, Python and JS packages. Source of the handshake, framing and opcode table."
+    - type: "public_implementation"
+      artifact: "stramanu/lumalou pull request #2 head 492c3653dd2ca86d8893b80d560a173357f234a8 (unmerged)"
+      url: "https://github.com/stramanu/lumalou/pull/2"
+      obtained_via: "git fetch refs/pull/2/head, 2026-09-28"
+      description: "Advertisement layout, 192-byte token, acknowledgement events, response layouts, 0x68 as a request. Not yet accepted upstream."
+    - type: "public_implementation"
+      artifact: "Lumalou web client bundle index-CP__DzxD.js"
+      url: "https://lumalou.emanuelestrazzullo.dev/"
+      sha256: "30bef51fe4ed6728ccd4a811b7f855368cc587d804a578660da368c2ece70b09"
+      obtained_via: "https fetch, 2026-09-28"
+      description: "Weekly-times, alarm, day-routine and routine-music builders and their range checks; task and song label order."
+    - type: "public_implementation"
+      artifact: "kvdb/gld09-control 6e3aff894b0065b760ba44f43a36c7e9988cead9"
+      url: "https://github.com/kvdb/gld09-control"
+      obtained_via: "git clone, 2026-09-28"
+      description: "Independent hardware-tested client: token field map, advertisement flags, unsolicited notifications, alarm and routine encodings, inert commands (0x01 partly, 0x4F)."
+    - type: "vendor_documentation"
+      artifact: "Mattel instruction sheet GLD09-0970-1102345604-DOM (owner's manual, 28 pp, 2020)"
+      url: "https://service.mattel.com/instruction_sheets/GLD09-0970-1102345604-DOM.pdf"
+      obtained_via: "vendor site, 2026-09-28"
+      description: "Setup, pairing button, reset, clock behaviour, task list. No protocol content, no FCC ID."
+
+remaining_unknowns:
+  - "Nothing has been run against a unit by this project. First check: the handshake and a GLOBAL_STATE read."
+  - "Reply layouts and lengths of the single-value requests (volume, colour, brightness, playlist duration, status bytes, operation mode, activity state, stage, transmission mode, prescaler, nap alarm, routine music status 0x93) and of TOYIC_FW_VERSION."
+  - "Meaning of GLOBAL_STATE activity_state, music_status, nap_status, r2r_alarm_status, routine_music_status, the reward nibbles beyond 0/1, and alarm_executing."
+  - "The trailing nibble of the weekly alarm block: ignored padding (kvdb/gld09-control) or a reward-sound id (upstream web client)."
+  - "Whether light colour 10 is a documented 'off' (kvdb/gld09-control sends it) or an accident of the firmware."
+  - "The real range of routine volume and routine music."
+  - "Whether the device salt in the token changes between connections, and what bytes 58-62 of the token hold."
+  - "What survives a power cycle besides the clock being lost: schedules, routines, playlist, clock settings, volume."
+  - "Whether the device's notification sequence number relates to the request's."
+  - "The largest ATT MTU the unit accepts and whether it fragments frames when the MTU is small."
+  - "The arguments and effect of SEND_PAIRING_COMPLETE (0x34), and whether SET_NAP_TIME_ALARM (0x4F) does anything on any firmware."
+  - "How firmware updates were entered and delivered (Nordic legacy DFU on the BLE module, an OTA path on the MPID channel, or both), and whether an interrupted update bricks the unit. Deliberately not probed."
+  - "Radio chipset and FCC ID: no grant found; the legacy DFU service implies a Nordic nRF5 part."
+  - "Whether the Bunny (gmn58) and Whisper (ghp38) share the MPID transport, and whether they also advertise the \"MB\" payload that discovery matches on."
+
+helpful_urls:
+  - title: "Fisher-Price Lumalou GLD09 owner's manual (PDF)"
+    url: "https://service.mattel.com/instruction_sheets/GLD09-0970-1102345604-DOM.pdf"
+    kind: "manual"
+    description: >
+      Mattel-hosted owner's manual for the GLD09 Lumalou (instruction sheet
+      GLD09-0970, US English, 2020): mounting, the pairing button, the
+      unplug-for-10-seconds reset, routines, the sleep trainer and remote.
+  - title: "Mattel: Smart Connect app FAQ (GLD09)"
+    url: "https://service.mattel.com/us/FAQ_Results.aspx?CatID=0&index=0&flag=0&siteid=27&prodno=GLD09"
+    kind: "vendor_support"
+    description: >
+      Mattel consumer-relations FAQ linked from the GLD09 product page, for
+      the whole Smart Connect range: pair through the app, one phone at a
+      time, 30-second recovery, app-pushed firmware updates.
+  - title: "stramanu/lumalou: protocol.md"
+    url: "https://github.com/stramanu/lumalou/blob/main/docs/protocol.md"
+    kind: "protocol_writeup"
+    description: "The upstream protocol summary: GATT roles, handshake, frame layers, ENABLE_RX."
+  - title: "stramanu/lumalou: reversing.md"
+    url: "https://github.com/stramanu/lumalou/blob/main/docs/reversing.md"
+    kind: "protocol_writeup"
+    description: "How the protocol was recovered and validated, the advertisement, the token layout and the DFU warning."
+  - title: "stramanu/lumalou: spec/protocol.json"
+    url: "https://github.com/stramanu/lumalou/blob/main/spec/protocol.json"
+    kind: "protocol_writeup"
+    description: "Machine-readable opcode, response and enum tables (0x68 is misnamed there; see PR #2)."
+  - title: "stramanu/lumalou: Python package"
+    url: "https://github.com/stramanu/lumalou/tree/main/packages/python/src/lumalou"
+    kind: "implementation"
+    description: "Reference client (bleak): crypto.py for the stretch, protocol.py for framing, responses.py for GLOBAL_STATE."
+  - title: "stramanu/lumalou: spec/vectors.json"
+    url: "https://github.com/stramanu/lumalou/blob/main/spec/vectors.json"
+    kind: "implementation"
+    description: "Upstream golden vectors for the CRC, key derivation, framing and state decode."
+  - title: "stramanu/lumalou pull request #2"
+    url: "https://github.com/stramanu/lumalou/pull/2"
+    kind: "implementation"
+    description: "Unmerged extension: strict decoders, advertisement and token layout, schedule codecs, read-request table, receive-side acknowledgements."
+  - title: "stramanu/lumalou repository"
+    url: "https://github.com/stramanu/lumalou"
+    kind: "implementation"
+    description: "Project root: README with the related Smart Connect products and their protocol generations."
+  - title: "Lumalou web client"
+    url: "https://lumalou.emanuelestrazzullo.dev/"
+    kind: "implementation"
+    description: "The upstream author's Web Bluetooth client (Chrome/Edge, or Bluefy on iOS)."
+  - title: "kvdb/gld09-control"
+    url: "https://github.com/kvdb/gld09-control"
+    kind: "implementation"
+    description: "Independent hardware-tested Python controller for the GLD09, with a README documenting the wire format, token layout and sleep-trainer and routine behaviour."
+  - title: "kvdb/gld09-control: lumalou_mpid.py (pinned)"
+    url: "https://github.com/kvdb/gld09-control/blob/6e3aff894b0065b760ba44f43a36c7e9988cead9/lumalou_mpid.py"
+    kind: "implementation"
+    description: "Session, framing, encodings and decoders at the commit read here; also where an owner finds the manufacturing public key for the optional token check."
+  - title: "lumalou on PyPI"
+    url: "https://pypi.org/project/lumalou/"
+    kind: "implementation"
+    description: "Installable release of the upstream Python client."
+  - title: "Bluetooth SIG assigned numbers"
+    url: "https://www.bluetooth.com/specifications/assigned-numbers/"
+    kind: "standard"
+    description: "Company identifiers list; 0x03B6 is Mattel."

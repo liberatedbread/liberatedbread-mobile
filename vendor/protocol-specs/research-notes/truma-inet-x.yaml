@@ -1,0 +1,82 @@
+# Truma iNet X strict-read structured research note — 2026-11-06
+
+scope:
+  hardware_testing: false
+  legacy_inet_box_protocol: separate_TRBT_ASCII_over_Nordic_UART_do_not_mix
+  permitted: topology_and_conditional_telemetry
+  excluded: [actuation, configuration, clock_updates, measurement_triggers, resets, firmware, bond_management]
+  read_only_requires_GATT_writes: true
+  default_client_clock_and_last_message_frames: omit
+
+ble:
+  local_name_prefix: Truma iNetX
+  advertised_service: fc310001-f3b2-11e8-8eb2-f2801f1b9fd1
+  main_service: fc314000-f3b2-11e8-8eb2-f2801f1b9fd1
+  control: fc314001-f3b2-11e8-8eb2-f2801f1b9fd1
+  request: fc314002-f3b2-11e8-8eb2-f2801f1b9fd1
+  data: fc314003-f3b2-11e8-8eb2-f2801f1b9fd1
+  optional_notification: fc314004-f3b2-11e8-8eb2-f2801f1b9fd1
+  software_revision: 00002a28-0000-1000-8000-00805f9b34fb
+  address: rapidly_rotating_resolvable_private_not_durable_identity
+  pairing: reported_Just_Works_only_in_add_device_mode_about_four_slots
+
+frame:
+  little_endian_header: true
+  offsets:
+    target: 0
+    source: 2
+    body_length: 4
+    operation: 6
+    sequence: 8
+    flags: 16
+    cbor: 18
+  bodyLength_formula: 1 + 8 + 2 + cborLength
+  physical_frame_length_formula: bodyLength + 7
+  validate_length_and_header_before_CBOR: true
+
+control_exchange:
+  - subscribe_control_and_data
+  - announce_01_with_request_length
+  - wait_81_00_then_send_request
+  - wait_f0_01_acceptance
+  - on_83_response_length_send_03_00
+  - reassemble_to_announced_length_allow_queued_responses
+  - acknowledge_each_response_f0_01
+
+strict_read:
+  protocol_version: {operation: 1, result: pv_and_assigned_client_address}
+  topic_registration: {operation: 3, flags: 0x0002, body: tn_array}
+  device_list: {operation: 2, flags: 0x0001}
+  group_read: {operation: 3, flags: 0x0004, target_offset: 0, learned_source_offset: 2}
+  retain_client_source_for_session: true
+  excluded_frames: [client-system-time, client-last-message, parameter_setters, reset_install_demo, bond_management]
+  reduced_sequence_hardware_validated: false
+
+telemetry:
+  identity: [sourceGroup, topic, parameter]
+  response_shapes: [record, [context, record]]
+  fields: [topics, tn, pn, v, type, min, max, enum, avail, a, perm, Devices]
+  metadata_not_actuation_permission: true
+  candidates:
+    temperatures: AirHeating.Temp, WaterHeating.Temp
+    tanks: FreshWater.Level, GreyWater.Level
+    voltage: VBat.Voltage, L1Bat.Voltage
+    shore_power: LinePower.Plugged, System.Plugged
+    fan: AirCirculation.FanLevel
+    active: AirHeating.Active, AirCooling.Active, RoomClimate.Active
+    gas: GasBtl.FillLevelW, GasBtl.RemTime
+  cautions:
+    - topic_group_hints_not_universal
+    - scale_and_sentinel_per_parameter_not_global
+    - type_105_active_semantics_not_RoomClimate_type_107
+    - GasBtl.RemTime_unit_unresolved
+    - multiple_publishers_require_groups
+
+redact_by_default: [CertThumb, Muid, SerialNr, UniqueID, UserName, Uuid, real_MACs, assigned_labels, raw_identity_responses, account_data]
+
+remaining_validation:
+  - live_pairing_encryption_and_panel_inventory
+  - reduced_sequence_completeness
+  - ATT_MTU_fragmentation
+  - firmware_parameter_scales_and_sentinels
+  - optional_remote_module_behavior

@@ -1,0 +1,1821 @@
+# Meizu MYVU / Star Air AR glasses (model XGA010C) device spec
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Scope: the Air-family MYVU glasses, model XGA010C (sold as MYVU / MYVU Air /
+# StarV Air; the FCC antenna sheet calls it "Star Air"). The primary transport
+# is BLE: GATT service 0x0bd1 with characteristics 0x2020-0x2023, the
+# app-layer ECDH bond, the 3 s heartbeat and the RunAsOne relay session. The
+# mandatory Classic RFCOMM relay link is in protocol_details.classic_relay
+# (its service UUID is random per session, which no schema field can hold
+# yet). Covered actions: the launcher's system settings and queries, clock
+# sync, notifications, the phone trackpad, the weather push and the
+# AI-assistant state machine. V2 units (characteristics 0x2010-0x2012) appear
+# only as a variant whose roles are unmapped.
+#
+# Out of scope: cloud and account functions, activation and factory reset
+# (the upstream SDK leaves these out on purpose), firmware update/OTA,
+# navigation and teleprompter (they address other on-glasses packages; the
+# SDK implements both), and every other Meizu/StarV product (MYVU Discovery,
+# StarV Air2, View, Ring2) until one is shown to share this protocol.
+#
+# Evidence is entirely secondary: one MIT-licensed open-source SDK
+# (Panny777/Meizu-Myvu-SDK, PROTOCOL.md plus source at commit 81a2d32, v0.3.0)
+# whose author worked from captures of one pair of glasses and from the
+# official app, and the vendor's English user manual. Nothing here has been
+# run against hardware by this project, so every byte-level fact is
+# `reported`. The worked test vectors in payload_formats were computed here
+# from this spec's own transcription, with a documentation-range identity.
+
+device:
+  name: "Meizu MYVU / Star Air AR Glasses (XGA010C)"
+  manufacturer: "Meizu (Hubei Xingji Meizu Group Co., Ltd.)"
+  manufacturer_status: "active"
+  openness:
+    status: "undocumented"
+    reverse_engineered: true
+    upstream_docs:
+      - url: "https://github.com/Panny777/Meizu-Myvu-SDK/blob/main/PROTOCOL.md"
+        title: "MYVU wire protocol (unofficial, Panny777/Meizu-Myvu-SDK)"
+        covers: >
+          Two-link order, GATT layout, BLE packet types, ECDH bond,
+          LinkProtocol commands, RunAsOne ability handshake, relay TlvBox
+          frame, init-burst role, RFCOMM frame, weather and AI code map.
+    source_code: "https://github.com/Panny777/Meizu-Myvu-SDK"
+    license: "MIT"
+    notes: >
+      Meizu publishes no developer, SDK or protocol documentation for these
+      glasses (developer.meizu.com is behind a login; the myvu.cn developer
+      hosts do not resolve). The only protocol reference is an unofficial,
+      MIT-licensed Android SDK and its PROTOCOL.md. Its author says both came
+      from packet captures of the glasses and the official app, and that they
+      were checked on one pair of glasses. `source_code` and `license` name
+      that third-party SDK, not the glasses' firmware.
+  testing:
+    status: untested
+    notes: >
+      No one on this project has driven a pair of MYVU glasses. The research
+      store holds the English user manual and nothing else: no capture, no
+      firmware, no decompiled app. Every protocol fact comes from the
+      upstream SDK, whose author reports running it on one pair (Android API
+      31, and an earlier Windows Python client). Those runs are upstream's
+      evidence, not ours.
+  protocol: "ble"
+  transport: "ble-gatt"
+  category: "wearable"
+  type: "ar-glasses"
+  notes: >
+    Meizu MYVU AR glasses, model XGA010C: a pair of display glasses with a
+    touchpad on the temple, a power button, microphones and speakers, a
+    183 mAh battery and Bluetooth 5.1. Sold globally as MYVU / MYVU Air
+    (meizu.com calls the product page "StarV Air"). The FCC grant is FCC ID
+    2BHGZ-XGA010C, filed by Hubei Xingji Meizu Group as "AR Glasses", brand
+    MYVU; its antenna sheet is titled "Star Air". The glasses run their own
+    launcher and apps, and they have a Wi-Fi radio of their own (the protocol
+    has a Wi-Fi toggle and a Wi-Fi list query).
+
+
+    TWO RADIOS, IN A FIXED ORDER. BLE comes first and is mandatory. The
+    Classic (BR/EDR) radio does not answer a page until BLE has woken the
+    glasses: upstream measured a cold Classic bond attempt timing out after
+    about 13 s with no ACL link. BLE carries the app-layer ECDH bond, a 3 s
+    heartbeat, and a RunAsOne session of its own. It is also the only place
+    the glasses announce where their app relay lives: LinkProtocol cmd 70
+    carries a random 16-bit RFCOMM service UUID that the glasses regenerate
+    every session. The main app traffic then runs over a Classic RFCOMM
+    socket to that UUID, found through SDP. That link has no app-layer
+    crypto; BR/EDR link encryption covers it. A client that stops at BLE can
+    still send actions over the external characteristic. Upstream warns that
+    some features (navigation HUD, teleprompter) may not respond without the
+    relay. The Classic side is described in protocol_details.classic_relay.
+
+
+    LAYERS, bottom up (payload_formats has each one):
+      1. BLE packets (little-endian): a 2-byte sequence number `sn`;
+         sn == 0 is a control packet (type at byte 2, package type or ACK
+         status at byte 3), sn >= 1 is data fragment number sn.
+         Fragment size is MTU - 5.
+      2. On the internal characteristic 0x2020: the version negotiation
+         JSON, then LinkProtocol protobuf records {device_id, cmd, data}
+         that carry the ECDH bond (cmds 11 and 13) and the relay lifecycle
+         (cmds 70-73).
+      3. On the external characteristic 0x2021 (and on the RFCOMM relay):
+         first a bare StreamReq (class byte 0x02) for the RunAsOne ability
+         handshake, then relay frames (prefix 0x01, big-endian TlvBox)
+         whose message body is an StMessage protobuf envelope holding the
+         action JSON.
+      4. On the RFCOMM relay only: each layer-3 payload is wrapped as
+         ea ca 93 53 + 4-byte big-endian length + 00 02 + payload.
+
+
+    BYTE ORDER TRAP. The BLE packet layer and the cmd 70 UUID payload are
+    little-endian. The TlvBox relay layer, its integers and the RFCOMM
+    length are big-endian. Upstream stresses that these must not be unified.
+
+
+    SEQUENCING. The relay msgId starts at 1 for each new session and must
+    run with no gaps. The glasses remember the last id and buffer, without
+    delivering, anything that looks like an out-of-order jump. That is why
+    replaying a capture's msgIds fails, and why a reconnect must start from
+    a fresh counter. The glasses' relay dispatcher also stays half-asleep
+    until it has seen an opening "init burst" of app messages (see
+    initialization and protocol_details.init_burst).
+
+
+    SECURITY. The ECDH exchange has no certificate, no signature and no
+    vendor or cloud secret: the AES-256 key is the raw 32-byte X coordinate
+    of the P-256 shared point, with no KDF. Any client that speaks the
+    protocol is accepted, provided no other central holds the glasses.
+
+
+    CONFIDENCE. Everything is `reported` from the upstream SDK. Upstream says
+    it confirmed the RFCOMM frame byte for byte and the device_id transform
+    against a capture. It says the weather icon codes are only partly
+    attested, and it replays the init burst from a captured asset rather
+    than specifying it. Nothing has been replayed here.
+  identification:
+    local_name_prefixes: ["MYVU"]
+    service_uuids:
+      - "00000bd3-0000-1000-8000-00805f9b34fb"
+      - "00000bd1-0000-1000-8000-00805f9b34fb"
+    notes: >
+      Upstream's scanner comment gives the advertised and bonded name as
+      "MYVU DCxx": the brand followed by a short per-unit hex suffix. Whether
+      the suffix comes from the Bluetooth address is not established, and
+      the SDK matches "MYVU" anywhere in the name, case-insensitively. The
+      official app's scan filters on the advertised 16-bit service 0x0bd3.
+      Upstream says some builds advertise the GATT service 0x0bd1 instead,
+      and that some firmware puts the service UUID only in the scan
+      response. The SDK therefore scans unfiltered and accepts either UUID
+      or the name. Neither 16-bit value is a Bluetooth SIG assignment. No
+      manufacturer-data layout or company ID is documented anywhere.
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          local_name:
+            match: "contains"
+            value: "MYVU"
+          service_uuids:
+            - "00000bd3-0000-1000-8000-00805f9b34fb"
+            - "00000bd1-0000-1000-8000-00805f9b34fb"
+    identity:
+      stable_keys: ["address"]
+      display: "local_name"
+      notes: >
+        The SDK saves the discovered address and reconnects to it directly.
+        It also opens the RFCOMM relay to the same address it used for GATT,
+        so the BR/EDR and LE addresses are reported to be the same. Whether
+        the LE address is public or rotates is not stated. Upstream's
+        persistence of the address across sessions suggests it is stable.
+        As a fallback, the SDK connects to the first host-bonded device
+        whose name contains "MYVU" when the scan finds nothing, because
+        bonded glasses may be asleep and not advertising.
+    static_ip_required: false
+  setup:
+    required: false
+    confidence: "medium"
+    notes: >
+      There is nothing to provision for a local client: no network
+      credentials, no key and no account appear in the local protocol. The
+      per-connection work (MTU, subscriptions, heartbeat, ECDH bond, ability
+      handshake, init burst, relay) is in `initialization`. The one lasting
+      effect of a first connection is a BR/EDR bond, which upstream says
+      forms on its own once the BLE session is up. The vendor app also
+      offers account sign-in and an activation step. Upstream leaves those
+      out on purpose, and whether glasses that were never activated with the
+      vendor app will accept a third-party client is not established.
+      Confidence medium: a working open implementation, not replayed here.
+    methods:
+      - type: "ble_direct"
+        name: "BLE bond and session, then the Classic relay (no account)"
+        verified: false
+        description: >
+          One route in two phases, both required and in this order. First,
+          BLE: connect over LE, run the app-layer ECDH bond and the RunAsOne
+          session, and keep the heartbeat going. Second, Classic: open the
+          RFCOMM relay to the per-session UUID the glasses announce over
+          BLE. The BR/EDR bond that the second phase needs is a lasting fact
+          of this pairing between phone and glasses. The bytes of every step
+          are in `initialization`.
+        stages:
+          - type: "ble_direct"
+            name: "Wake the glasses over BLE and run the app-layer bond"
+            verified: false
+            description: >
+              Close the vendor app (or turn Bluetooth off) on any other phone
+              that is driving the glasses: they accept one central at a
+              time. Connect over LE, not "auto" transport. Upstream found
+              that a dual-mode Android stack could otherwise route GATT over
+              BR/EDR.
+            ble:
+              service_uuid: "00000bd1-0000-1000-8000-00805f9b34fb"
+              write_characteristic: "00002020-0000-1000-8000-00805f9b34fb"
+              read_characteristic: "00002020-0000-1000-8000-00805f9b34fb"
+              pairing_required: false
+            steps:
+              - action: "Power the glasses on (hold the power button about 3 s, per the manual) and make sure no other phone's vendor app is connected to them."
+                actor: "user"
+              - action: "Scan for a name containing MYVU, or for advertised service 0x0bd3 or 0x0bd1, and connect over LE."
+                actor: "client"
+                request:
+                  protocol: "ble_gatt"
+                expect: "The link stays up. The glasses drop an unknown central about 1 s after connecting when their own phone still holds them."
+              - action: "Run the connect sequence in `initialization`: MTU 517, notifications on 0x2020 and 0x2021, heartbeat, version negotiation, WRITE_SWITCH_KEY, WRITE_SWITCH_INFO, the ability handshake and the init burst."
+                actor: "client"
+                expect: "The glasses' DeviceInfo decrypts under the derived key, and the lens leaves its 'open the MYVU app' prompt once AUTH_SUCCESS has been sent."
+                timeout_seconds: 20
+          - type: "bt_classic_pairing"
+            name: "Open the per-session RFCOMM relay"
+            verified: false
+            description: >
+              After the BLE session is ready, the glasses send LinkProtocol
+              cmd 70 with a fresh 16-bit RFCOMM service UUID. The client
+              opens an RFCOMM socket to that UUID through SDP. The SDK tries
+              a secure (authenticated) socket first and falls back to an
+              insecure one. Upstream reports that the BR/EDR bond appears by
+              itself at this point, and the device then shows as bonded on
+              both transports. The SDK auto-confirms any SSP pairing request
+              the host raises, as the official app does. Upstream's desktop
+              client README instead lists an existing BR/EDR bond as a
+              prerequisite; see protocol_details.classic_relay.pairing.
+            steps:
+              - action: "Wait for LinkProtocol cmd 70 on 0x2020 and turn its 4-byte little-endian payload into 0000xxxx-0000-1000-8000-00805f9b34fb."
+                actor: "client"
+                expect: "A UUID such as 00001234-0000-1000-8000-00805f9b34fb; a different one every session."
+              - action: "Open an RFCOMM socket to that service UUID on the glasses' address (secure first, insecure if that fails). Accept the SSP confirmation if the host asks."
+                actor: "client"
+                expect: "The socket connects; the glasses publish an SDP record for the per-session UUID."
+                timeout_seconds: 15
+              - action: "On the new socket, repeat the ability handshake, AUTH_SUCCESS and init burst with a fresh msgId counter, each payload wrapped in the RFCOMM frame."
+                actor: "client"
+                expect: "The glasses ACK relay frames on the socket (msgType 4). A socket that answers the handshake but never ACKs app messages is the wrong channel."
+        timing:
+          heartbeat_interval_ms: 3000
+          liveness_check_after_subscribe_ms: 1500
+          discover_services_after_mtu_ms: 600
+          pairing_timeout_ms: 20000
+          ack_timeout_ms: 6000
+          auth_success_to_init_burst_ms: 500
+          init_burst_spacing_ms: 200
+          relay_establish_timeout_ms: 15000
+          relay_supervisor_poll_ms: 3000
+          relay_reconnect_attempts: 6
+          notes: >
+            Values are the SDK's. The heartbeat interval and bytes come from
+            the official app. The 1.5 s liveness wait catches the glasses
+            dropping an unwanted central. The 600 ms delay before service
+            discovery works around Android racing a fresh bond. The rest are
+            the SDK's own timeouts and back-offs, not device requirements.
+        troubleshooting:
+          - symptom: "The glasses disconnect about one second after the BLE link comes up (Android status 19, peer terminated)."
+            causes:
+              - "Another phone with the vendor app still holds the glasses. They accept one central at a time. Disconnect them in the MYVU app or turn that phone's Bluetooth off."
+          - symptom: "The BLE link drops partway through the handshake with no error."
+            causes:
+              - "No heartbeat. The glasses' watchdog drops a quiet link within a few seconds; write 00 00 09 10 00 to 0x2022 every 3 s from the moment the link is subscribed."
+          - symptom: "A Classic bond or RFCOMM connect attempt times out after about 13 s with no ACL link."
+            causes:
+              - "BLE was not brought up first. The Classic radio does not page-scan until BLE has woken the glasses."
+          - symptom: "The glasses' DeviceInfo decrypts to garbage during the bond."
+            causes:
+              - "The wrong AES mode. Use the mode from the reply's 'e' field (1 CBC, 2 CTR, anything else GCM), not a fixed one."
+              - "The public key was sent in a form other than 91-byte X.509 SubjectPublicKeyInfo DER, or the shared secret went through a KDF (it must be the raw X coordinate)."
+          - symptom: "The lens stays on its 'open the MYVU app' prompt; data is ACKed but nothing happens."
+            causes:
+              - "AUTH_SUCCESS (StreamReq type 12) was not sent after the ability reply."
+              - "The init burst was not sent, so the relay dispatcher never fully woke."
+          - symptom: "Actions are sent and nothing happens, with no ACK."
+            causes:
+              - "The msgId sequence has a gap or does not start at 1 on this link, for example after a reconnect that reused the old counter. The glasses buffer out-of-order ids and never deliver them."
+              - "The ability reply was answered twice (the glasses send it more than once). Two AUTH_SUCCESS messages start two interleaved init bursts on one counter."
+          - symptom: "RFCOMM connects and answers the ability handshake, but no app message is ever ACKed."
+            causes:
+              - "The socket went to the fixed RFCOMM channel 13 seen in early captures. That channel was whatever SDP assigned in one session. Connect by the per-session UUID from cmd 70 instead."
+          - symptom: "The glasses do not show 'phone connected' even though everything works."
+            causes:
+              - "The HFP and A2DP profiles are not connected. The glasses light their indicator only for the ordinary headset profiles, which a normal Android app cannot force (they need a privileged permission). Send DeviceInfo again with the real btStatus once they connect."
+    factory_reset:
+      applicable: true
+      confidence: "low"
+      effect: >
+        The vendor app can factory-reset the glasses over the relay (the
+        action upstream names do_recovery). What it clears is not
+        documented, and its wire form is deliberately not given here.
+      description: >
+        Upstream lists do_recovery (factory reset) among the actions it left
+        out on purpose as dangerous, and this spec follows that scope. The
+        user manual documents no reset button sequence. Its 8-second power
+        button hold is a hard reboot, which nothing says clears pairing or
+        data. To reset, use the vendor app's own option, whose menu path is
+        not recorded here.
+      procedures:
+        - name: "Factory reset from the vendor app"
+          verified: false
+          basis: >
+            The public SDK's action table names a factory-reset operation but
+            deliberately leaves out its wire form. The user manual documents
+            no hardware reset sequence. Not tried by this project.
+          steps:
+            - action: "Use the vendor app's factory-reset option. Its menu path was not recorded; the 8-second power-button hold is only a reboot."
+              actor: "user"
+              expect: "The glasses reset. Which pairing and user data this clears is not documented."
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        The glasses hold no network credentials a client must replace. To
+        move them to a new phone or client, release them from the old one:
+        disconnect them in the vendor app and turn off or forget them in
+        that phone's Bluetooth settings. Then connect from the new client.
+        The ECDH keys are per session, so nothing on the app layer needs
+        clearing. Whether the glasses keep more than one BR/EDR bond is not
+        established.
+      steps:
+        - action: "On the old phone, disconnect the glasses in the MYVU app and turn Bluetooth off (or forget the glasses in its Bluetooth settings)."
+          actor: "user"
+        - action: "Run the setup route from the new client."
+          actor: "client"
+    credentials:
+      wifi_passphrase_protection: "unknown"
+      stored_on_device:
+        - "The BR/EDR link key for each bonded phone (SSP)"
+      issued_to_client:
+        - "The BR/EDR link key, held by the host Bluetooth stack"
+      notes: >
+        The app-layer AES key is derived fresh from ECDH on every connection
+        and is never stored. The glasses have their own Wi-Fi radio. How the
+        vendor app hands them a Wi-Fi passphrase is not documented upstream,
+        hence `unknown`. No cloud token or vendor secret appears anywhere in
+        the local protocol.
+  pairing:
+    required: true
+    confidence: "medium"
+    security_mode: "app_layer"
+    bonding: "none"
+    exclusivity:
+      single_connection: true
+      single_bond: "unknown"
+      recovery: >
+        Close the MYVU app on any other phone, or turn that phone's Bluetooth
+        off, before connecting. The glasses drop a second central about a
+        second after it connects. If the glasses stay unresponsive, hold the
+        power button for 8 s for a hard reboot (per the manual).
+      notes: >
+        Upstream: "the glasses accept one central at a time", and a
+        peer-initiated disconnect about one second in means they are still
+        held by their own phone. The upstream desktop client README says the
+        same about a second paired phone or a second machine running a
+        client.
+    enter_pairing_mode:
+      required: false
+      notes: >
+        No button sequence is documented. The glasses advertise whenever no
+        central holds them, and they accept the app-layer bond from any
+        client that speaks it.
+    unpair:
+      supported: "unknown"
+      notes: >
+        The BLE link stores nothing and the app-layer keys are per session,
+        so there is nothing to unpair on the LE side. The BR/EDR bond can be
+        forgotten on the host. Whether the glasses keep a per-phone record
+        that needs clearing, and how the vendor app's "disconnect" works on
+        the wire, are not documented.
+    notes: >
+      The LE link itself is not paired: the SDK connects with the LE
+      transport and never asks the stack to bond. What the glasses require
+      before they answer is the app-layer bond on characteristic 0x2020
+      (version negotiation, then an ECDH P-256 exchange, then encrypted
+      DeviceInfo in both directions), run again on every connection. There
+      is no certificate, signature or shared secret, so any client is
+      accepted. The Classic relay needs a BR/EDR bond as well; that is the
+      second radio's story, in protocol_details.classic_relay.pairing.
+  host_compatibility:
+    - stack: "android"
+      status: "compatible"
+      verification: "reported"
+      basis: >
+        The upstream Android SDK and client drive both links with the stock
+        Android stack. The client README says it was tested on API 31 against
+        one pair of glasses. Not run here.
+      notes: >
+        Connect GATT with the LE transport explicitly. Forcing the HFP and
+        A2DP profiles (for the glasses' "phone connected" indicator) needs
+        the privileged Bluetooth permission, so a normal app can only
+        request it best-effort.
+    - stack: "windows"
+      status: "compatible"
+      verification: "reported"
+      basis: >
+        Upstream's first client (Panny777/Meizu-Myvu-Client, python/)
+        drives BLE and Classic RFCOMM through WinRT on Windows. Its README
+        calls that client rough and not stable, and says the pair was
+        already BR/EDR-bonded to the PC. Not run here.
+    - stack: "corebluetooth"
+      link: "br_edr"
+      status: "incompatible"
+      symptom: "no_transport"
+      cause:
+        missing_api: "rfcomm"
+      workaround: "none_known"
+      verification: "reported"
+      basis: >
+        The app relay is an RFCOMM socket, and CoreBluetooth exposes no
+        RFCOMM. The vendor's iOS app, if there is one, has not been examined,
+        so how (or whether) it reaches the relay is unknown.
+    - stack: "corebluetooth"
+      link: "ble"
+      status: "unknown"
+      verification: "hypothesis"
+      basis: >
+        The BLE half uses only write-without-response, notifications and an
+        MTU exchange, all of which CoreBluetooth offers. Nobody has tried
+        it, and how much works without the relay is not established.
+  variants:
+    - model: "XGA010C (Air family)"
+      notes: >
+        The glasses this spec documents. The link service 0x0bd1 carries the
+        characteristics 0x2020 (internal), 0x2021 (external), 0x2022
+        (urgent) and 0x2023 (glass write).
+    - model: "V2 units (0x2010-0x2012)"
+      notes: >
+        Upstream says other device generations expose 0x2010, 0x2011 and
+        0x2012 instead of the Air set, but it does not say which models
+        those are or map roles to them. The SDK looks for the Air pair first
+        and falls back to 0x2010/0x2011/0x2012 in internal, external, urgent
+        order. That order is the SDK's guess by analogy: no V2 capture is
+        cited, and nothing else in this spec is known to apply to V2 units.
+        Tell the two apart after service discovery by which characteristics
+        exist; no advertisement difference is known.
+
+initialization:
+  - characteristic: "00002020-0000-1000-8000-00805f9b34fb"
+    description: >
+      Request ATT MTU 517 straight after the LE connection comes up. The
+      data fragment unit (DMTU) is MTU - 5, so 512 bytes at MTU 517 and 18 at
+      the default 23. Wait about 600 ms after the exchange before service
+      discovery (the SDK's Android workaround). The glasses can renegotiate
+      the MTU later without being asked; apply a new DMTU only between
+      messages, never in the middle of a fragmented one.
+    notes: "Documentation step. The host stack performs the MTU exchange; a step has to name a characteristic."
+  - characteristic: "00002020-0000-1000-8000-00805f9b34fb"
+    subscribe: true
+    description: "Enable notifications on the internal (link/pairing) characteristic: write 01 00 to its CCCD 00002902-0000-1000-8000-00805f9b34fb."
+  - characteristic: "00002021-0000-1000-8000-00805f9b34fb"
+    subscribe: true
+    description: "Enable notifications on the external (app data) characteristic the same way. The SDK does not subscribe to 0x2022 or 0x2023."
+  - characteristic: "00002022-0000-1000-8000-00805f9b34fb"
+    write: [0x00, 0x00, 0x09, 0x10, 0x00]
+    delay_ms: 1500
+    description: >
+      Start the heartbeat on the urgent characteristic and repeat this exact
+      write every 3 s for the life of the link (write without response).
+      Without it the glasses' watchdog drops the link after a few seconds.
+      The bytes read as a BLE control packet: sn 0, type 9 (SINGLE_NO_ACK),
+      package type 0x10, one payload byte 00.
+    notes: >
+      The SDK sends the first beat 3 s after the subscriptions complete and
+      waits 1.5 s after subscribing before starting the bond, to catch the
+      glasses dropping an unwanted central. Sending the first beat at once is
+      at least as safe.
+  - characteristic: "00002020-0000-1000-8000-00805f9b34fb"
+    description: >
+      Version negotiation. Write a FAST_CTR control packet
+      [00 00 06 11 <frame count, u16 LE>] and then, with no wait, the
+      version JSON as data fragments numbered from 1
+      (payload_formats.VersionNegotiation). With the SDK identity and
+      MTU >= 64 that is one fragment: 00 00 06 11 01 00, then 01 00 + JSON.
+      The glasses answer on 0x2020 with their own JSON (seen as a
+      SINGLE_NO_ACK packet, package type 17). Its "e" field picks the AES
+      mode for the rest of the bond: 1 = AES/CBC/PKCS5, 2 = AES/CTR (no
+      padding), any other value = AES/GCM with a 128-bit tag.
+    notes: "Not executable as data: the JSON carries this client's own identity."
+  - characteristic: "00002020-0000-1000-8000-00805f9b34fb"
+    description: >
+      Key exchange. Generate an EC P-256 key pair. Send LinkProtocol
+      {1: device_id, 2: 11 (WRITE_SWITCH_KEY), 3: WriteSwitchKey{1: own
+      public key as 91-byte X.509 SubjectPublicKeyInfo DER, 2: own 6-byte
+      identity}} as a SINGLE packet (type 2) with package type 16, and wait
+      for SINGLE_ACK status 0. The glasses answer with a LinkProtocol
+      message, cmd 11, whose WriteSwitchKey field 1 is their SPKI public key
+      followed by a 16-byte IV, and whose field 2 is their DeviceInfo,
+      AES-encrypted. The AES-256 key is the raw 32-byte X coordinate of the
+      ECDH shared point, with no KDF. Decrypt their DeviceInfo with it and
+      the IV (payload_formats.DeviceInfo); a clean decode proves the whole
+      stack. Acknowledge every SINGLE packet the glasses send with
+      00 00 03 00.
+    notes: "Per-session randomness; see payload_formats.WriteSwitchKey for a worked vector with fixed keys."
+  - characteristic: "00002020-0000-1000-8000-00805f9b34fb"
+    description: >
+      Send own DeviceInfo, double-encrypted. inner = AES(DeviceInfo);
+      outer = AES(WriteSwitchInfo{2: inner}); send LinkProtocol {1:
+      device_id, 2: 13 (WRITE_SWITCH_INFO), 3: outer} as a SINGLE packet
+      with package type 16, using the negotiated mode, the shared key and
+      the glasses' IV for both passes. SINGLE_ACK status 0 means the bond is
+      up. Send it again later with an updated btStatus when the host's HFP
+      or A2DP connection changes (payload_formats.DeviceInfo).
+  - characteristic: "00002021-0000-1000-8000-00805f9b34fb"
+    description: >
+      RunAsOne ability handshake, in plaintext on the external
+      characteristic. Send StreamReq type 0 (AUTH): byte 0x02, then a
+      protobuf body (payload_formats.StreamReq). The glasses reply with
+      their own StreamReq, which also starts with 0x02, and they repeat
+      it; act on the first copy only. Then send StreamReq type 12
+      (AUTH_SUCCESS). Both phases are required. Without AUTH_SUCCESS the
+      glasses ACK data but never engage the app layer. BLE payloads go out
+      as SINGLE_NO_ACK packets (type 9, package type 0) when they fit one
+      DMTU, and as MIX_CTR (type 8) plus data fragments otherwise.
+  - characteristic: "00002021-0000-1000-8000-00805f9b34fb"
+    description: >
+      Init burst. About 500 ms after AUTH_SUCCESS, send the opening run of
+      app messages as relay frames (msgType 3 SEND), with msgIds 1..N and
+      200 ms between them. Only after the last one does the session count
+      as ready. The message list is not specified message by message
+      anywhere: the SDK replays about thirty messages captured from the
+      official app, renumbered, with the stale clock (SyncOffSetTime) and
+      settings snapshot (sync_clone_data) frames removed. See
+      protocol_details.init_burst. Required on every transport.
+  - characteristic: "00002020-0000-1000-8000-00805f9b34fb"
+    description: >
+      Relay bring-up. Once the BLE session is ready, the glasses send
+      LinkProtocol cmd 70 (SPP_SERVER_UUID_SYNC) with a 4-byte
+      little-endian value. Open the RFCOMM relay to the UUID it names and
+      run the ability handshake, AUTH_SUCCESS and init burst again on that
+      socket, with a fresh msgId counter, in the RFCOMM frame. From then on,
+      prefer the relay for app traffic and keep BLE (heartbeat included) up
+      alongside it. cmd 71 means the glasses want the relay (re)opened, cmd
+      72 means their server is open, and cmd 73 means it has closed. Ignore
+      73 while a new socket is still being set up, because they arrive in
+      bursts that refer to sockets already gone. See
+      protocol_details.classic_relay.
+
+services:
+  - uuid: "00000bd1-0000-1000-8000-00805f9b34fb"
+    name: "MYVU link service (upstream: StarryNet)"
+    notes: >
+      The glasses' only documented GATT service, 16-bit 0x0bd1 on the
+      Bluetooth base (not a SIG assignment). The Air-family characteristics
+      below all support write-without-response and notify. Every write and
+      notification on 0x2020 and 0x2021 is a BLE packet in the
+      little-endian sn/control format (payload_formats.BlePacket). A message
+      that does not fit one DMTU (MTU - 5) is split into fragments. The SDK
+      writes one packet at a time, waiting for each write callback, which is
+      what keeps the fragments in order.
+    characteristics:
+      - uuid: "00002020-0000-1000-8000-00805f9b34fb"
+        name: "internal (link / pairing)"
+        properties: ["write_without_response", "notify"]
+        framing:
+          length_prefix: false
+          max_chunk_size: 512
+        notes: >
+          Carries version negotiation (package type 17), then LinkProtocol
+          records (package type 16): the ECDH bond (cmds 11, 13) and the relay
+          lifecycle (cmds 70-73). The phone sends LinkProtocol as SINGLE
+          packets (type 2) and waits up to 6 s for SINGLE_ACK. It sends a
+          longer message with CTR (type 0): wait for ACK status 1 (READY),
+          stream the fragments, then wait for ACK status 0 (SUCCESS). The
+          bond payloads are AES-256 under the ECDH key (mode negotiated; see
+          `initialization`). The schema's `encryption` block only lists
+          AES-128 modes, so it is not used here. max_chunk_size is the DMTU
+          at MTU 517.
+        commands:
+          ack_single_success:
+            description: >
+              SINGLE_ACK with status 0 (SUCCESS). Send it for every SINGLE
+              packet (type 2) the glasses send on this characteristic.
+            verification: "reported"
+            value: [0x00, 0x00, 0x03, 0x00]
+          ack_ready:
+            description: >
+              ACK with status 1 (READY): the answer to an inbound CTR control
+              packet (type 0), after which the glasses stream their
+              fragments. The SDK does not send a closing ACK(SUCCESS) when
+              the fragments are complete.
+            verification: "reported"
+            value: [0x00, 0x00, 0x01, 0x01]
+          send_link_message:
+            description: >
+              One LinkProtocol message that fits a single DMTU, sent as a
+              SINGLE packet with package type 16. The glasses answer with
+              SINGLE_ACK. Used for WRITE_SWITCH_KEY (cmd 11) and
+              WRITE_SWITCH_INFO (cmd 13); payload_formats.LinkProtocol and
+              .WriteSwitchKey give the body and a worked vector.
+            verification: "reported"
+            template: [0x00, 0x00, 0x02, 0x10, "{link_protocol}"]
+            parameters:
+              link_protocol:
+                type: "bytes"
+                min_length: 1
+                max_length: 508
+                description: "The serialized LinkProtocol protobuf. At most DMTU - 4 bytes (508 at MTU 517); longer messages use a CTR transfer instead."
+          version_negotiation_header:
+            description: >
+              FAST_CTR control packet that opens version negotiation (package
+              type 17). Follow it at once, with no wait, by the version JSON
+              as data fragments 1..frame_count. See `initialization`.
+            verification: "reported"
+            template: [0x00, 0x00, 0x06, 0x11, "{frame_count}"]
+            parameters:
+              frame_count:
+                type: "uint16"
+                endianness: "little"
+                min: 1
+                max: 65535
+                default: 1
+                description: "Number of data fragments that follow: ceil(json_length / DMTU). One at MTU 517."
+      - uuid: "00002021-0000-1000-8000-00805f9b34fb"
+        name: "external (application data / relay)"
+        properties: ["write_without_response", "notify"]
+        role: "command"
+        framing:
+          length_prefix: false
+          max_chunk_size: 512
+        notes: >
+          The BLE copy of the app channel, in plaintext: the StreamReq
+          ability handshake, then relay frames (payload_formats.RelayFrame)
+          with package type 0. The phone sends a frame that fits one DMTU as
+          SINGLE_NO_ACK (type 9) and a longer one as MIX_CTR (type 8). A
+          MIX_CTR packet carries its first DMTU - 4 bytes inline after a
+          6-byte header [00 00 08 00 <remaining fragment count, u16 LE>],
+          and the rest follows as data fragments 1..n. Nothing on this
+          characteristic is ACKed at the packet layer. Reliability is the
+          relay layer's job: the glasses answer each SEND that asks for a
+          callback with a SEND_SUCCESS (msgType 4) frame carrying the same
+          msgId, and a client must do the same for theirs, or they resend
+          it indefinitely. Once the RFCOMM relay is up, the SDK moves app
+          traffic there. The same relay frames then travel unfragmented in
+          the RFCOMM frame.
+
+
+          THE JSON COMMANDS BELOW are the action JSON only. On the wire each
+          one is (1) wrapped in an StMessage envelope {2: source package, 3:
+          target package, 4: this JSON, 6: app msgId}, (2) put in a relay
+          frame as msgType 3 (SEND) with the next relay msgId, category 3,
+          needCallback 1 and appUniteCode 1, and (3) sent as BLE packets here
+          or as an RFCOMM frame on the relay. Source and target are
+          "com.upuphone.star.launcher" unless the command says otherwise.
+          payload_formats.StMessage has a byte-exact vector. The key names
+          are load-bearing, because the glasses bind them with Gson to fixed
+          model classes. That includes the misspelled "crateTime", and it
+          means an unknown value must be left out rather than sent as null.
+          Booleans go on the wire as JSON true/false; they are declared
+          uint8 0/1 below because the parameter vocabulary has no boolean.
+          Replies to queries arrive later as ordinary inbound relay frames
+          with JSON inside; their shapes are not documented.
+        commands:
+          send_app_frame:
+            description: >
+              One relay frame (or StreamReq) that fits a single DMTU, as a
+              SINGLE_NO_ACK packet with package type 0. The frame bytes come
+              from payload_formats.RelayFrame / .StreamReq.
+            verification: "reported"
+            template: [0x00, 0x00, 0x09, 0x00, "{frame}"]
+            parameters:
+              frame:
+                type: "bytes"
+                min_length: 1
+                max_length: 512
+                description: "A complete relay frame (starts 0x01) or StreamReq (starts 0x02), at most one DMTU (512 bytes at MTU 517)."
+          set_volume:
+            description: >
+              Set the speaker volume. JSON:
+              {"action":"system","data":{"action":"set_volume","value":"<0-15>","streamType":3,"needReply":false}}.
+              The value is a decimal STRING, not a number. streamType 3
+              matches the telemetry upstream captured.
+            verification: "reported"
+            encoding: "json"
+            payload:
+              key: "data.value"
+              value_type: "string"
+            parameters:
+              volume:
+                type: "uint8"
+                min: 0
+                max: 15
+                description: "Volume step 0-15, written as a decimal string in data.value."
+          set_brightness:
+            description: >
+              Set display brightness. JSON:
+              {"action":"system","data":{"action":"set_brightness","value":"<0-10>"}}.
+              The value is a decimal STRING. Upstream observed a range of
+              roughly 0-10.
+            verification: "reported"
+            encoding: "json"
+            payload:
+              key: "data.value"
+              value_type: "string"
+            parameters:
+              brightness:
+                type: "uint8"
+                min: 0
+                max: 10
+                description: "Brightness step, roughly 0-10 (observed, not a documented limit), written as a decimal string."
+          toggle_wifi:
+            description: >
+              Turn the glasses' own Wi-Fi radio on or off. JSON:
+              {"action":"system","data":{"action":"toggle_wifi","value":<true|false>}}.
+              A flat boolean, not nested.
+            verification: "reported"
+            encoding: "json"
+            payload:
+              key: "data.value"
+              value_type: "bool"
+            parameters:
+              enabled:
+                type: "uint8"
+                min: 0
+                max: 1
+                labels: ["false (Wi-Fi off)", "true (Wi-Fi on)"]
+                description: "Sent as a JSON boolean."
+          set_zen_mode:
+            description: >
+              Do-not-disturb. The nested form:
+              {"action":"system","data":{"action":"set_zen_mode","value":{"zen_mode":<true|false>}}}.
+              Sending the flat form for a nested setting (or the other way
+              round) is silently ignored.
+            verification: "reported"
+            encoding: "json"
+            payload:
+              key: "data.value.zen_mode"
+              value_type: "bool"
+            parameters:
+              enabled:
+                type: "uint8"
+                min: 0
+                max: 1
+                labels: ["false (off)", "true (do not disturb)"]
+                description: "Sent as a JSON boolean."
+          set_wear_detection:
+            description: >
+              Turn the display on and off automatically when the glasses are
+              worn or taken off. Nested:
+              {"action":"system","data":{"action":"set_wear_detection_mode","value":{"wear_detection_mode":<true|false>}}}.
+            verification: "reported"
+            encoding: "json"
+            payload:
+              key: "data.value.wear_detection_mode"
+              value_type: "bool"
+            parameters:
+              enabled:
+                type: "uint8"
+                min: 0
+                max: 1
+                labels: ["false (off)", "true (on)"]
+                description: "Sent as a JSON boolean."
+          set_air_mode:
+            description: >
+              The glasses' stripped-back low-power HUD mode. This is not
+              airplane mode. The official app warns that turning it on closes
+              all apps. Nested:
+              {"action":"system","data":{"action":"set_air_mode","value":{"air_mode":<true|false>}}}.
+            verification: "reported"
+            encoding: "json"
+            payload:
+              key: "data.value.air_mode"
+              value_type: "bool"
+            parameters:
+              enabled:
+                type: "uint8"
+                min: 0
+                max: 1
+                labels: ["false (off)", "true (low-power HUD; closes all apps)"]
+                description: "Sent as a JSON boolean."
+          set_music_touchpad_control:
+            description: >
+              Let the temple touchpad control music playback. Nested:
+              {"action":"system","data":{"action":"set_music_tp_control_mode","value":{"music_tp_control_mode":<true|false>}}}.
+            verification: "reported"
+            encoding: "json"
+            payload:
+              key: "data.value.music_tp_control_mode"
+              value_type: "bool"
+            parameters:
+              enabled:
+                type: "uint8"
+                min: 0
+                max: 1
+                labels: ["false (off)", "true (on)"]
+                description: "Sent as a JSON boolean."
+          set_screen_off_time:
+            description: >
+              How long the display stays on before turning off. Nested:
+              {"action":"system","data":{"action":"set_screen_off_time","value":{"screen_off_time":<seconds>}}}.
+              The SDK applies 10 s after every connect. The accepted range is
+              not documented.
+            verification: "reported"
+            encoding: "json"
+            payload:
+              key: "data.value.screen_off_time"
+              value_type: "int"
+            parameters:
+              seconds:
+                type: "uint16"
+                unit: "s"
+                default: 10
+                description: "Display timeout in seconds, sent as a JSON integer. Valid range unknown."
+          set_standby_position:
+            description: >
+              Where in the field of view the idle standby widgets sit. Nested:
+              {"action":"system","data":{"action":"set_standby_position","value":{"standby_position":<0-3>}}}.
+              Which number is which position is not documented.
+            verification: "reported"
+            encoding: "json"
+            payload:
+              key: "data.value.standby_position"
+              value_type: "int"
+            parameters:
+              position:
+                type: "uint8"
+                min: 0
+                max: 3
+                description: "Position index 0-3 (upstream says the range is confirmed; the meaning of each value is not)."
+          set_device_name:
+            description: >
+              Rename the glasses. Nested:
+              {"action":"system","data":{"action":"set_device_name","value":{"device_name":"<name>"}}}.
+              Whether this also changes the advertised BLE name is not
+              established.
+            verification: "reported"
+            encoding: "json"
+            payload:
+              key: "data.value.device_name"
+              value_type: "string"
+            parameters:
+              name:
+                type: "string"
+                description: "New display name. Length limit unknown."
+          set_language:
+            description: >
+              Set the glasses' UI language. Nested object with two keys:
+              {"action":"system","data":{"action":"set_language","value":{"language":"<ll>","country":"<CC>"}}},
+              for example en / US.
+            verification: "reported"
+            encoding: "json"
+            payload:
+              key: "data.value.language"
+              value_type: "string"
+            parameters:
+              language:
+                type: "string"
+                description: "ISO 639-1 language code, e.g. en."
+              country:
+                type: "string"
+                description: "ISO 3166-1 alpha-2 country code, e.g. US. Which pairs the glasses support is not documented."
+          system_query:
+            description: >
+              Any no-argument launcher query:
+              {"action":"system","data":{"action":"<query>"}}. The reply
+              comes back later as an inbound relay frame, not as a response
+              to this write. Replies are JSON whose shapes are not
+              documented.
+            verification: "reported"
+            encoding: "json"
+            payload:
+              key: "data.action"
+              value_type: "string"
+            parameters:
+              query:
+                type: "string"
+                description: >
+                  Names upstream uses: get_device_info, get_language,
+                  get_brightness, get_zen_mode, get_air_mode,
+                  get_volume_stream_type, wifi_enable_state,
+                  request_wifi_list, request_phone_battery.
+          sync_time:
+            description: >
+              Set the glasses' clock:
+              {"action":"SyncOffSetTime","data":{"syncTimeData":"<epoch ms>","timeZoneOffSet":<ms>}}.
+              syncTimeData is a STRING of Unix epoch milliseconds, and
+              timeZoneOffSet is an integer offset from UTC in milliseconds,
+              DST included. The glasses also ASK for the time by sending
+              SyncOffSetTime with no syncTimeData; answer that with this
+              command. Never answer a SyncOffSetTime that already carries
+              syncTimeData, or the two sides loop.
+            verification: "reported"
+            encoding: "json"
+            payload:
+              key: "data.syncTimeData"
+              value_type: "string"
+            parameters:
+              epoch_ms:
+                type: "string"
+                unit: "ms"
+                description: "Current time as Unix epoch milliseconds, as a decimal string."
+              utc_offset_ms:
+                type: "int32"
+                unit: "ms"
+                description: "Local offset from UTC in milliseconds (e.g. 3600000 for UTC+1), sent as a JSON integer."
+          show_notification:
+            description: >
+              Show one or more notification cards.
+              {"action":"notification","data":{"notificationAction":"SHOW_NOTIFICATION","data":[<entry>...]}},
+              where each entry is {"appName","title","content","canReply":false,
+              "type":"MSG_TYPE_NORMAL","id":"phone-<packageName>-<numericId>",
+              "packageName","crateTime":<epoch ms>,"extra":"{}"}. The id MUST be
+              in the phone-<package>-<number> form. Upstream saw the glasses
+              REBOOT on every notification whose id was Android's
+              pipe-delimited notification key. "crateTime" is the glasses'
+              own spelling. The SDK caps title at 100 and content at 500
+              characters and replaces control characters and newlines with
+              spaces, because the renderer has proved fragile.
+            verification: "reported"
+            encoding: "json"
+            payload:
+              key: "data.data"
+              value_type: "array"
+            parameters:
+              title:
+                type: "string"
+                description: "Card title (the SDK caps it at 100 characters)."
+              content:
+                type: "string"
+                description: "Card body (the SDK caps it at 500 characters; newlines become spaces)."
+              app_name:
+                type: "string"
+                description: "Source app label shown on the card."
+              id:
+                type: "string"
+                description: "phone-<packageName>-<numericId>, e.g. phone-com.example.mail-42. Any other shape risks a reboot."
+              post_time_ms:
+                type: "string"
+                unit: "ms"
+                description: "crateTime: Unix epoch milliseconds, sent as a JSON integer."
+          dismiss_notification:
+            description: >
+              Remove previously shown cards by id:
+              {"action":"notification","data":{"notificationAction":"DISMISS_NOTIFICATION","data":{"type":0,"ids":["phone-<package>-<n>", ...]}}}.
+            verification: "reported"
+            encoding: "json"
+            payload:
+              key: "data.data.ids"
+              value_type: "array"
+            parameters:
+              id:
+                type: "string"
+                description: "An id previously sent in show_notification."
+          trackpad:
+            description: >
+              Use the phone as a remote touchpad for the glasses' launcher:
+              {"action":"phonepad","data":{"action":"<gesture>","time":<epoch ms>}}.
+              Send start when the pad opens and stop when it closes.
+            verification: "reported"
+            encoding: "json"
+            payload:
+              key: "data.action"
+              value_type: "string"
+            parameters:
+              gesture:
+                type: "string"
+                description: "One of start, stop, click, doubleClick, longPress."
+              time_ms:
+                type: "string"
+                unit: "ms"
+                description: "Unix epoch milliseconds, sent as a JSON integer."
+          trackpad_swipe:
+            description: >
+              A swipe on the phone trackpad:
+              {"action":"phonepad","data":{"action":"gestureMode","actionType":<19-22>,
+              "startX","startY","endX","endY","speedX","speedY","time":<epoch ms>}}.
+              actionType is an Android key code for the direction.
+              Coordinates and speeds are JSON floats in the phone's touch
+              space; the glasses' expected units are not documented.
+            verification: "reported"
+            encoding: "json"
+            payload:
+              key: "data.actionType"
+              value_type: "int"
+            parameters:
+              direction:
+                type: "uint8"
+                min: 19
+                max: 22
+                labels: ["up", "down", "left", "right"]
+                description: "Android KEYCODE_DPAD_UP/DOWN/LEFT/RIGHT."
+          push_weather:
+            description: >
+              Fill the glasses' weather panel:
+              {"action":"weather","data":{<weather model>}} to the launcher.
+              data IS the model; there is no nested data.action. The fields
+              are in payload_formats.WeatherModel. The glasses ask for a
+              refresh by sending {"action":"syncWeather"}. The official app
+              parses that request and then drops it, pushing only on its own
+              30-minute timer. A client should answer it.
+            verification: "reported"
+            encoding: "json"
+            payload:
+              key: "data"
+              value_type: "object"
+            parameters:
+              temp_c:
+                type: "int16"
+                unit: "C"
+                description: "Current temperature, integer degrees Celsius (the official app hardcodes metric; there is no unit flag)."
+              icon_code:
+                type: "string"
+                description: "Condition icon code as a string; see payload_formats.WeatherModel. Always sent; \"0\" when unknown."
+      - uuid: "00002022-0000-1000-8000-00805f9b34fb"
+        name: "urgent (heartbeat)"
+        properties: ["write_without_response", "notify"]
+        notes: >
+          High-priority channel. The only documented use is the heartbeat.
+          Upstream treats it as optional when scanning for a channel set, but
+          a link without the heartbeat is dropped by the watchdog. The SDK
+          does not subscribe to it.
+        commands:
+          heartbeat:
+            description: >
+              Keep-alive, every 3 s for as long as the link is up (bytes and
+              interval from the official app). A control packet: sn 0, type 9
+              (SINGLE_NO_ACK), package type 0x10, payload 00. The glasses
+              send no reply.
+            verification: "reported"
+            value: [0x00, 0x00, 0x09, 0x10, 0x00]
+      - uuid: "00002023-0000-1000-8000-00805f9b34fb"
+        name: "glass write"
+        properties: ["write_without_response", "notify"]
+        notes: >
+          Named in the official app's constants and listed by upstream as
+          write-without-response plus notify. Neither the SDK nor
+          PROTOCOL.md uses it, and its role is unknown.
+
+payload_formats:
+  BlePacket:
+    description: >
+      Every write and notification on 0x2020 and 0x2021 (and the heartbeat on
+      0x2022). All multi-byte fields are LITTLE-endian.
+    fields:
+      - index: 0
+        name: "sn"
+        description: "Bytes 0-1, u16 LE. 0 = control packet; >= 1 = data fragment number sn, payload from byte 2 to the end."
+      - index: 2
+        name: "type"
+        description: >
+          Control packets only. 0 CTR, 1 ACK, 2 SINGLE, 3 SINGLE_ACK, 4 MNG,
+          5 MNG_ACK, 6 FAST_CTR, 7 FAST_ACK, 8 MIX_CTR, 9 SINGLE_NO_ACK.
+      - index: 3
+        name: "pkg_type_or_status"
+        description: >
+          Control packets only. For CTR/FAST_CTR/MIX_CTR/SINGLE/SINGLE_NO_ACK
+          it is the package type: 0 COMMON_DATA (app), 16 STARRY_DATA
+          (pairing), 17 STARRY_DATA_INIT (version negotiation). For
+          ACK/FAST_ACK/SINGLE_ACK it is the status: 0 SUCCESS, 1 READY, 2
+          BUSY, 3 TIMEOUT, 4 CANCEL, 5 SYNC.
+      - index: 4
+        name: "frame_count_or_payload"
+        description: >
+          CTR, FAST_CTR, MIX_CTR: bytes 4-5 are the number of data fragments
+          that follow (u16 LE). MIX_CTR then carries the message's first
+          bytes inline from byte 6. SINGLE, SINGLE_NO_ACK: the whole message
+          from byte 4. ACK: optional u16 LE lost-fragment numbers from byte 4.
+    parse_rules:
+      - "Read sn = u16 LE of bytes 0-1. If sn != 0, it is data fragment number sn (1-based); its payload is bytes 2..end."
+      - "If sn == 0, read type = byte 2 and pkg/status = byte 3."
+      - "SINGLE (2): deliver bytes 4..end and reply SINGLE_ACK 00 00 03 00. SINGLE_NO_ACK (9): deliver bytes 4..end."
+      - "CTR (0): start reassembly for frame_count fragments and reply ACK READY 00 00 01 01. FAST_CTR (6): start reassembly, no reply."
+      - "MIX_CTR (8): the inline bytes from byte 6 come first. If frame_count is 0, the message is complete; otherwise append fragments 1..frame_count."
+      - "Reassemble fragments by their number, not in arrival order; the message is complete once frame_count distinct fragments are in."
+      - "When sending, split a message into DMTU = MTU - 5 byte fragments (at least 18). A MIX_CTR carries min(len, DMTU - 4) bytes inline."
+      - "Fragment writes must go out in order: queue them and wait for each write callback."
+    example: "00 00 06 11 01 00   (FAST_CTR, package type 17, 1 fragment follows)"
+  VersionNegotiation:
+    description: >
+      The first message on 0x2020: JSON in UTF-8, sent with FAST_CTR,
+      package type 17. Keys: i = own identity as 12 lowercase hex digits
+      (the 6-byte value also used for device_id), v = connect version 3,
+      e = supported-encryption bitmask 5, m = 512, b = BLE version 2, c =
+      category id (the SDK sends "9999"). All values are the ones in
+      upstream's capture of the phone. The glasses reply with the same keys
+      (i as 12 uppercase hex digits of their own identifier, v 4, no c). The
+      reply's e selects the AES mode: 1 CBC/PKCS5, 2 CTR/no padding, else
+      GCM (128-bit tag appended). Upstream's live session negotiated 1
+      (CBC).
+    fields:
+      - name: "i"
+        description: "Own identity, 12 hex digits."
+      - name: "v"
+        description: "Connect version: 3 from the phone, 4 seen from the glasses."
+      - name: "e"
+        description: "Phone: supported modes bitmask (5). Glasses: the chosen mode (1 CBC, 2 CTR, else GCM)."
+        values:
+          "1": "AES-256/CBC/PKCS5"
+          "2": "AES-256/CTR/no padding"
+      - name: "m"
+        description: "512 in both directions; meaning not documented (plausibly an MTU hint)."
+      - name: "b"
+        description: "BLE protocol version, 2 in both directions."
+      - name: "c"
+        description: "Category id string; the SDK sends \"9999\"."
+    example: '{"i":"00005e005301","v":3,"e":5,"m":512,"b":2,"c":"9999"}   -> fragment 1: 01 00 7b 22 69 22 3a 22 30 30 30 30 35 65 30 30 35 33 30 31 22 2c ...'
+  LinkProtocol:
+    description: >
+      Protobuf message on 0x2020 after negotiation. Fields: 1 device_id
+      (bytes), 2 cmd (varint), 3 data (bytes, omitted when empty).
+      device_id = the 6 bytes of the SENDER's identity, reversed, each byte
+      bitwise-NOTed. The phone uses its own 6-byte identity here. The SDK
+      substitutes AA:BB:CC:DD:EE:FF when Android hides the adapter address,
+      and upstream reports that the glasses accept it: they use the identity
+      only to key the session.
+    fields:
+      - name: "device_id"
+        description: "Field 1, 6 bytes: reverse(identity) with every byte XOR 0xff."
+      - name: "cmd"
+        description: "Field 2, varint."
+        values:
+          "0": "INIT"
+          "1": "ENSURE"
+          "2": "UN_BONDED"
+          "10": "READ_SWITCH_KEY"
+          "11": "WRITE_SWITCH_KEY (public key exchange)"
+          "12": "READ_SWITCH_INFO"
+          "13": "WRITE_SWITCH_INFO (encrypted DeviceInfo)"
+          "14": "BOND_MSG_CHANGE"
+          "18": "AUTH_STATUE"
+          "19": "AUTH_MESSAGE"
+          "70": "SPP_SERVER_UUID_SYNC (glasses -> phone: per-session relay UUID)"
+          "71": "SPP_SERVER_REQUEST_CONNECT (glasses want the relay opened)"
+          "72": "SPP_SERVER_REQUEST_STATE_OPEN"
+          "73": "SPP_SERVER_REQUEST_STATE_CLOSE"
+      - name: "data"
+        description: "Field 3: the command's payload (WriteSwitchKey, encrypted WriteSwitchInfo, or the cmd 70 UUID)."
+    parse_rules:
+      - "Only cmds 0, 11, 13 and 70-73 are used by the SDK; the others are names from upstream's enum with no documented use."
+      - "device_id for identity 00:00:5e:00:53:01 is fe ac ff a1 ff ff."
+    example: "0a 06 fe ac ff a1 ff ff 10 0b 1a 65 <WriteSwitchKey, 101 bytes>"
+  WriteSwitchKey:
+    description: >
+      Field 3 of a cmd 11 LinkProtocol. Phone to glasses: {1: own public
+      key, 91-byte X.509 SubjectPublicKeyInfo DER for P-256; 2: own 6-byte
+      identity, NOT transformed}. Glasses to phone: {1: their SPKI public
+      key followed by a 16-byte IV; 2: their DeviceInfo, AES-encrypted}.
+      Split field 1 at length - 16. The AES-256 key is the ECDH shared
+      secret's raw 32-byte X coordinate, with no KDF. (In Java that is
+      KeyAgreement.generateSecret() with no algorithm argument.) The phone
+      side's IV, when it makes one, is the first 16 characters of a
+      dash-free random UUID taken as ASCII, so only hex digits. Worked vector
+      below, with fixed private keys and identity 00:00:5e:00:53:01. Phone
+      private scalar = 0x11 repeated 32 times; glasses private scalar = 0x22
+      repeated 32 times.
+    fields:
+      - name: "key"
+        description: "Field 1."
+      - name: "info"
+        description: "Field 2."
+    parse_rules:
+      - "phone SPKI (91 bytes) = 3059301306072a8648ce3d020106082a8648ce3d030107034200040217e617f0b6443928278f96999e69a23a4f2c152bdf6d6cdf66e5b80282d4ed194a7debcb97712d2dda3ca85aa8765a56f45fc758599652f2897c65306e5794"
+      - "glasses SPKI (91 bytes) = 3059301306072a8648ce3d020106082a8648ce3d03010703420004d65a93977caa3d1b081852ff57a79e465f1660577304baead505dd3a48589cf350185e895372df6221ea3a137557e473fddb6755f05bd507c3c533fce9c91285"
+      - "shared X = AES-256 key = ccfc261f58193c98ca4ad4a53bbac6f0ee29bc4d48438090446908622ca79af6"
+      - "Phone's WRITE_SWITCH_KEY BLE packet (117 bytes, SINGLE, package type 16) = 000002100a06feacffa1ffff100b1a650a5b + phone SPKI + 120600005e005301"
+    example: "000002100a06feacffa1ffff100b1a650a5b3059301306072a8648ce3d020106082a8648ce3d030107034200040217e617f0b6443928278f96999e69a23a4f2c152bdf6d6cdf66e5b80282d4ed194a7debcb97712d2dda3ca85aa8765a56f45fc758599652f2897c65306e5794120600005e005301"
+  DeviceInfo:
+    description: >
+      Protobuf exchanged AES-encrypted during the bond. Fields: 1 btMac
+      (string, uppercase colon form), 2 companyId (string), 3 categoryId
+      (string), 4 modelId (string), 5 name (string/bytes, UTF-8), 6 battery
+      (varint, %), 7 btStatus (varint). The SDK sends empty strings for 2 and
+      4, "9999" for 3, battery 100, and leaves out zero-valued 6 and 7. The
+      phone sends it inside WRITE_SWITCH_INFO, double-encrypted:
+      AES(WriteSwitchInfo{1: code (omitted when 0), 2: AES(DeviceInfo)}).
+      Both passes use the negotiated mode, the shared key and the glasses'
+      IV. What the glasses put in companyId, categoryId and modelId is not
+      documented.
+    fields:
+      - name: "btMac"
+        description: "Field 1, e.g. \"00:00:5E:00:53:01\"."
+      - name: "battery"
+        unit: "%"
+        description: "Field 6, 0-100. The glasses report their own charge here."
+      - name: "btStatus"
+        description: "Field 7: the phone's Bluetooth connection state towards the glasses. The SDK sends 4 after the LE link is up and resends with 5 or 6 when HFP or A2DP connects."
+        values:
+          "0": "DEFAULT"
+          "1": "BOND"
+          "2": "BONDING"
+          "3": "NOBOND"
+          "4": "CONNECTED_ACL"
+          "5": "CONNECTED_HFP"
+          "6": "CONNECTED_A2DP"
+          "7": "DISCONNECTED"
+          "8": "NO_CONNECTED_BT"
+          "9": "EXIST_CONNECTED_BT"
+          "10": "CONNECT_FAIL"
+          "11": "BOND_CANCEL_OR_TIMEOUT"
+    parse_rules:
+      - "Vector (mode 1 CBC, key from WriteSwitchKey, IV = ASCII '0123456789abcdef'): DeviceInfo{1:'00:00:5E:00:53:01',2:'',3:'9999',4:'',5:'MyClient',6:100,7:4} = 0a1130303a30303a35453a30303a35333a303112001a043939393922002a084d79436c69656e7430643804"
+      - "inner = AES-256-CBC-PKCS5 = 0c1c460b45ed25127a606289a4478ced490281007bef382729e5b3946c60f0f7f39d15e8ee723fc8791ec6108cb8f033"
+      - "outer = AES(12 30 + inner) = 6e4cd81ddaae7d04968cefe6eeb8bf11423d98706cc53e41445723d1e6ec8bfb647f38561453a751a99031ae5f72f1f0fae71f85ba82eedc70d2a7c1f2938195"
+      - "WRITE_SWITCH_INFO BLE packet (80 bytes) = 000002100a06feacffa1ffff100d1a40 + outer"
+    example: "0a1130303a30303a35453a30303a35333a303112001a043939393922002a084d79436c69656e7430643804"
+  SppUuidSync:
+    description: >
+      Field 3 of a cmd 70 LinkProtocol from the glasses: 4 bytes, a
+      LITTLE-endian integer below 65535 (the glasses pick it at random each
+      session). The relay's RFCOMM service UUID is that value as a 16-bit
+      UUID on the Bluetooth base. Upstream checked the byte order on a
+      capture: only the little-endian reading falls in range.
+    fields:
+      - index: 0
+        name: "short_uuid"
+        description: "u32 LE; format as 0000%04x-0000-1000-8000-00805f9b34fb."
+    example: "34 12 00 00 -> 00001234-0000-1000-8000-00805f9b34fb"
+  StreamReq:
+    description: >
+      The RunAsOne ability handshake message, sent in plaintext on 0x2021
+      and on the RFCOMM relay. Byte 0 is the class byte 0x02 (a relay frame
+      starts 0x01 instead, which is how a receiver tells them apart). A
+      protobuf body follows: 1 streamType (varint; 0 AUTH is omitted, 12
+      AUTH_SUCCESS), 3 deviceId (ASCII lowercase hex of own 6-byte
+      identity, NOT transformed), 4 the ability JSON (UTF-8), 7 the ASCII
+      string "1.2", 9 ASCII "timestamp-<epoch ms>", and on AUTH_SUCCESS
+      only, 12 epoch ms (varint). The glasses' reply is the same shape;
+      its field 3 is their id and field 4 their ability JSON.
+    fields:
+      - name: "streamType"
+        description: "Field 1."
+        values:
+          "0": "AUTH (ability offer)"
+          "12": "AUTH_SUCCESS (required confirmation)"
+      - name: "ability_json"
+        description: >
+          Field 4. A JSON object with: ability = the four strings
+          abilityRelay, abilityRelayBypass, abilityAir, abilityShare;
+          abilityAttributes = {abilityAttributes: {abilityRelay: <string of
+          JSON>, abilityAir: <string of JSON>}}, where abilityRelay's inner
+          JSON is agreementType 0, supportTlv true and an empty mapping, and
+          abilityAir's is agreementType 0, supportTlv true and an airMapping
+          whose "1" is com.upuphone.star.launcher; agreementType 0;
+          deviceId = field 3's hex; deviceName = a display name for this
+          client; session = the last two identity bytes as a big-endian
+          decimal string (21249 for ...:53:01); supportTlv true;
+          supportVirtual false; version "2.40.51"; weight 233333. The exact
+          serialization, including a second airMapping entry for a vendor
+          test package, is Session.buildAuthBean in the SDK. Which keys the
+          glasses actually check is not established.
+    parse_rules:
+      - "Inbound payload starting 0x02: a StreamReq (the ability reply). Starting 0x01: a relay frame. Anything else: unknown, ignore."
+      - "Answer only the first ability reply per link with AUTH_SUCCESS; the glasses send it more than once."
+  RelayFrame:
+    description: >
+      RunAsOne relay (SuperMessage) frame, on 0x2021 and the RFCOMM relay.
+      Byte 0 = 0x01, then an outer TlvBox {112 CATEGORY = 3 (1 byte), 113
+      PAYLOAD = inner TlvBox}. Inner TlvBox: 100 MSG_TYPE (1 byte), 101
+      MSG_ID (4 bytes, u32 BIG-endian), 103 NEED_CALLBACK (1 byte), 109
+      APP_UNITE_CODE (1 byte), 105 MSG_BODY (bytes, omitted when empty). A
+      TlvBox is a run of [tag: 1 byte][length: 2 bytes BIG-endian][value].
+      Order is not significant: the SDK writes 100, 101, 103, 109, 105, and
+      the official app's captured frames put 105 before 109. Other tags
+      named upstream: 102 ERROR_CODE, 104 OPEN_TYPE, 106 HOST, 107
+      VERSION, 108 DEST_ID, 110 LISTENER_ID, 111 SELF_ID.
+    fields:
+      - name: "msgType"
+        description: "Tag 100."
+        values:
+          "1": "OPEN"
+          "2": "CLOSE"
+          "3": "SEND (data)"
+          "4": "SEND_SUCCESS (ack)"
+          "5": "SEND_FAIL"
+          "6": "OPEN_SUCCESS"
+          "7": "OPEN_FAIL"
+          "8": "OPEN_PAGE"
+      - name: "msgId"
+        description: "Tag 101, u32 BE. Starts at 1 on every new link and session, +1 per SEND, no gaps. An ack echoes the id it acknowledges."
+      - name: "needCallback"
+        description: "Tag 103. 1 = the receiver must answer with SEND_SUCCESS. The glasses resend until acknowledged."
+      - name: "appUniteCode"
+        description: "Tag 109. The SDK sends 1."
+      - name: "msgBody"
+        description: "Tag 105: an StMessage envelope (payload_formats.StMessage)."
+    parse_rules:
+      - "Ack frame for inbound msgId N (no body, no 103/109): 01 70 00 01 <category> 71 00 0b 64 00 01 04 65 00 04 <N u32 BE>. For N = 7: 01 70 00 01 03 71 00 0b 64 00 01 04 65 00 04 00 00 00 07."
+      - "Track the last inbound msgId; ack every inbound SEND whose needCallback != 0, including microphone frames."
+      - "A new link (BLE or RFCOMM) gets its own counter starting at 1. Never continue an old counter across a reconnect."
+    example: "01 70 00 01 03 71 00 95 64 00 01 03 65 00 04 00 00 00 01 67 00 01 01 6d 00 01 01 69 00 7f <127-byte StMessage>"
+  StMessage:
+    description: >
+      Protobuf envelope in a relay frame's MSG_BODY: 2 sourcePkg (string), 3
+      targetPkg (string), 4 action JSON (string), 6 app msgId (varint; a
+      per-link counter whose first value is 5001), 5 binary data (inbound
+      microphone audio only). Launcher actions use
+      "com.upuphone.star.launcher" as both source and target. The AI
+      assistant, teleprompter, navigation and launch-app acknowledgement
+      use other on-glasses packages, listed in the SDK's AppLayer.java;
+      this spec does not repeat them.
+    parse_rules:
+      - "Inbound bodies are scanned for balanced {...} runs rather than decoded exactly (the SDK's approach); code:109 audio frames are detected by the ASCII bytes \"code\":109 and never decoded as text."
+      - "Vector: action {\"action\":\"system\",\"data\":{\"action\":\"set_brightness\",\"value\":\"5\"}}, app msgId 5001 -> StMessage (127 bytes) = 121a636f6d2e75707570686f6e652e737461722e6c61756e636865721a1a636f6d2e75707570686f6e652e737461722e6c61756e6368657222427b22616374696f6e223a2273797374656d222c2264617461223a7b22616374696f6e223a227365745f6272696768746e657373222c2276616c7565223a2235227d7d308927"
+      - "Relay frame for it with msgId 1, category 3, needCallback 1, appUniteCode 1 (157 bytes) = 01700001037100956400010365000400000001670001016d000101 69007f + StMessage"
+      - "Over BLE (one fragment at MTU 517): 00 00 09 00 + relay frame (161 bytes)."
+      - "Over RFCOMM: ea ca 93 53 00 00 00 9f 00 02 + relay frame (167 bytes)."
+  RfcommFrame:
+    description: >
+      Framing on the Classic relay socket, in both directions (upstream:
+      confirmed byte for byte). 4-byte magic ea ca 93 53, a 4-byte BIG-endian
+      length counting the 2-byte prefix plus the payload, the constant 00 02,
+      then one unfragmented StreamReq or relay frame.
+    fields:
+      - index: 0
+        name: "magic"
+        description: "ea ca 93 53"
+      - index: 4
+        name: "length"
+        description: "u32 BE = 2 + payload length."
+      - index: 8
+        name: "prefix"
+        description: "00 02"
+      - index: 10
+        name: "payload"
+        description: "StreamReq (0x02...) or relay frame (0x01...)."
+    parse_rules:
+      - "Buffer the stream, scan for the magic, and read the length. Reject a length < 2 or > 65536 as noise and resync past that magic (the SDK's bound)."
+      - "Wait for 8 + length bytes, strip the 00 02 prefix, and hand the rest to the StreamReq/relay parser."
+    example: "ea ca 93 53 00 00 00 9f 00 02 01 70 00 01 03 71 00 95 ..."
+  WeatherModel:
+    description: >
+      The data object of the weather action. Keys are the official app's
+      model field names verbatim. A field whose value is unknown is LEFT
+      OUT, never sent as null. iconCode, aqi, quality and futureDay are
+      always sent: iconCode "0" and quality "" when unknown, aqi 0,
+      futureDay may be []. Temperatures are integer degrees Celsius.
+      Timestamps are "yyyy-MM-dd HH:mm:ss" (local time); futureDay dates
+      are "yyyy-MM-dd".
+    fields:
+      - name: "temp"
+        unit: "C"
+        description: "Current temperature, integer."
+      - name: "weather"
+        description: "Condition text shown beside the icon."
+      - name: "dayTempMax"
+        unit: "C"
+        description: "Today's high, integer."
+      - name: "dayTempMin"
+        unit: "C"
+        description: "Today's low, integer."
+      - name: "areaName"
+        description: "Place name."
+      - name: "iconCode"
+        description: >
+          String. Three codes are attested by the official app's own mock
+          payload: 1 cloudy, 2 overcast, 7 light rain. They sit where the
+          standard Chinese (CMA) weather-icon numbering puts them, so
+          upstream fills the rest from that table as a guess: 0 sunny, 3
+          shower, 4 thundershower, 5 thunder with hail, 8 moderate rain, 9
+          heavy rain, 10 storm, 13 snow flurry, 14 light snow, 15 moderate
+          snow, 16 heavy snow, 18 fog, 19 freezing rain.
+        values:
+          "0": "sunny (guess)"
+          "1": "cloudy (attested)"
+          "2": "overcast (attested)"
+          "3": "shower (guess)"
+          "4": "thundershower (guess)"
+          "5": "thunder with hail (guess)"
+          "7": "light rain (attested)"
+          "8": "moderate rain (guess)"
+          "9": "heavy rain (guess)"
+          "10": "storm (guess)"
+          "13": "snow flurry (guess)"
+          "14": "light snow (guess)"
+          "15": "moderate snow (guess)"
+          "16": "heavy snow (guess)"
+          "18": "fog (guess)"
+          "19": "freezing rain (guess)"
+      - name: "lastUpdate"
+        description: "yyyy-MM-dd HH:mm:ss"
+      - name: "sunriseTime"
+        description: "yyyy-MM-dd HH:mm:ss"
+      - name: "sunsetTime"
+        description: "yyyy-MM-dd HH:mm:ss"
+      - name: "aqi"
+        description: "Air-quality index, integer; always present, 0 when unknown."
+      - name: "quality"
+        description: "Air-quality label string; always present, \"\" when unknown."
+      - name: "futureDay"
+        description: "Array of {date, dayTempMax, dayTempMin, weather, iconCode}, all optional; the SDK sends up to 7 days."
+    example: '{"action":"weather","data":{"temp":21,"weather":"Cloudy","dayTempMax":24,"dayTempMin":15,"areaName":"Example City","iconCode":"1","lastUpdate":"2026-09-28 10:00:00","aqi":0,"quality":"","futureDay":[]}}'
+  MicAudio:
+    description: >
+      The glasses stream their microphone to the phone while listening, as
+      AI-assistant code 109 messages. The audio is in StMessage field 5
+      (binary), not in the JSON. Field 5 holds one or more Opus frames,
+      each prefixed by a 2-byte BIG-endian length. Opus at 16 kHz, mono,
+      with 20 ms frames. Upstream saw frame sizes of 40, 83, 120 and 240
+      bytes. Feeding the length prefixes to a decoder produces
+      speech-shaped noise.
+    parse_rules:
+      - "Take StMessage field 5; loop: len = u16 BE; frame = next len bytes; stop when fewer than 2 bytes remain or len overruns."
+      - "Ack each audio frame's relay SEND like any other."
+
+protocol_details:
+  classic_relay:
+    description: >
+      The mandatory second link. It is kept here rather than in a top-level
+      `bluetooth_classic` block because its service UUID is random per
+      session and announced over BLE, and that block's control profile
+      must name a fixed UUID, channel or PSM. The keys below use that
+      block's vocabulary so the facts can move there once the schema can
+      say "announced at runtime".
+    dual_mode: true
+    ble_role: "primary_control"
+    address_shared_with_ble: true
+    address_shared_with_ble_basis: "reported: the SDK opens RFCOMM to the same address it connected GATT to."
+    wake_required: true
+    wake_notes: "BLE wakes the Classic radio; a cold page times out after about 13 s with no ACL link."
+    profiles:
+      - profile: "vendor"
+        role: "control"
+        uuid_source: >
+          LinkProtocol cmd 70 over BLE: a 4-byte little-endian value n,
+          giving the service UUID 0000nnnn-0000-1000-8000-00805f9b34fb. It is
+          regenerated every session. Resolve the RFCOMM channel through SDP
+          by that UUID; the SDK's socket calls do this.
+        secure: "unknown"
+        secure_notes: >
+          The SDK opens a secure (authenticated, encrypted) socket first and
+          falls back to an insecure one if the secure connect fails. It does
+          not fall back when the local stack reports its RFCOMM multiplexer
+          stuck ("already at opened state"), which only a Bluetooth restart
+          clears. Which flag the official app uses is not stated upstream.
+        verification: "reported"
+      - profile: "hfp"
+        role: "telephony"
+        notes: >
+          Connected by the official app, and best-effort by the SDK. The
+          glasses light their "phone connected" indicator only when HFP or
+          A2DP is connected. The relay alone never does it.
+      - profile: "a2dp"
+        role: "audio"
+        notes: "As HFP. Report the state to the glasses in DeviceInfo.btStatus (5 HFP, 6 A2DP)."
+    serial:
+      encoding: "binary"
+      framing:
+        length_prefix: true
+        length_offset: 4
+        length_size: 4
+        length_endianness: "big"
+        length_adjust: 8
+        tx_start_bytes: "ea ca 93 53"
+        rx_start_bytes: ["ea ca 93 53"]
+        checksum: "none"
+        resync: "scan_to_start_bytes"
+        max_frame_bytes: 65544
+        notes: "payload_formats.RfcommFrame. The length counts the 00 02 prefix plus the payload; total frame = length + 8."
+      correlation: "none"
+      notes: >
+        The relay carries the same StreamReq and relay frames as the
+        external characteristic, unfragmented, and needs its own ability
+        handshake, AUTH_SUCCESS and init burst with its own msgId counter
+        starting at 1. There is no app-layer crypto on this link; BR/EDR
+        link encryption covers it. Correlation is by relay msgId, not by
+        stream position.
+    channel_13_trap: >
+      Early captures showed the relay on RFCOMM channel 13. That was only
+      whatever channel SDP assigned in that session. A socket to a fixed
+      channel 13 answers the ability handshake but never ACKs an app
+      message. Always connect by the per-session UUID.
+    lifecycle: >
+      The glasses own the relay. They drop it when idle and ask for it back
+      with cmd 71. cmd 72 reports their server open and cmd 73 closed; 73
+      arrives in bursts (three within 200 ms observed) that may refer to
+      sockets already gone. The SDK reconnects on cmd 71/72, on a cmd 70
+      with a new UUID (the old socket is then dead), and on a 3 s poll,
+      with at most 6 attempts at least 3 s apart per wake. It gives the
+      whole connect, handshake and init burst 15 s before retrying, and
+      starts every relay session from a fresh msgId counter and a fresh
+      init burst.
+    pairing:
+      required: true
+      confidence: "low"
+      security_mode: "unknown"
+      bonding: "required"
+      notes: >
+        A BR/EDR bond is needed for the relay. The SDK reports that it
+        forms on its own after the BLE session is up (the device then shows
+        as bonded on both transports), and that the official phone app
+        silently confirms the SSP request. The SDK does the same when the
+        host raises one. Which SSP association model the glasses use (Just
+        Works or numeric comparison auto-confirmed by the phone) is not
+        recorded. Upstream's desktop client README lists an existing BR/EDR
+        bond to the PC as a prerequisite. A cold createBond before any BLE
+        contact never completes.
+  init_burst:
+    description: >
+      Even after the bond and the ability handshake, the glasses' relay
+      dispatcher silently drops app messages until it has seen a clean
+      opening sequence of app messages on that link. No source specifies
+      that sequence message by message. The SDK replays about thirty relay
+      bodies captured from the official app (an MIT-licensed asset in the
+      SDK, captured_init.txt), keeping only SEND frames. It renumbers them
+      1..N, sends them 200 ms apart, and drops the captured ACK plus the
+      stale-state frames: SyncOffSetTime (an old wall clock) and
+      sync_clone_data (an old settings snapshot). Judged by their action
+      names, the replayed bodies are mostly launcher status queries:
+      device info, Wi-Fi state, air and zen mode, language, brightness,
+      volume stream, battery, a feature list, dock items, notification
+      state, and OTA and activation-state queries. The SDK then pushes live
+      clock and default settings itself: sync_time, wear detection on, zen
+      off, screen-off 10 s. This spec does not reproduce the captured bytes.
+      A client should take the asset from the SDK under its licence, or
+      find the minimal subset the dispatcher needs; see remaining_unknowns.
+    source: "https://github.com/Panny777/Meizu-Myvu-SDK/blob/81a2d3243e2c6edfbddfd22932706ebdf2a9d02a/myvu-core/src/main/assets/myvu/captured_init.txt"
+    spacing_ms: 200
+    start_after_auth_success_ms: 500
+    required_on: ["ble_external", "rfcomm_relay"]
+  glasses_requests:
+    description: >
+      Messages the glasses send that a client must answer, found in inbound
+      relay bodies by scanning for JSON objects.
+    requests:
+      - match: '{"action":"SyncOffSetTime"} with no data.syncTimeData'
+        answer: "sync_time to the launcher."
+      - match: '{"action":"syncWeather"}'
+        answer: "push_weather to the launcher. The official app ignores it (the handler is never wired); the SDK answers."
+      - match: '{"type":11,"data":{"appId":...,"menuId":...,"requestId":...}}'
+        answer: >
+          The glasses ask the phone to launch a companion service when an
+          on-glasses app (navigation, for example) opens. Reply
+          {"type":12,"data":{"appId":<same>,"code":200,"menuId":<same or
+          "">,"requestId":<same or "">,"success":true}}, addressed from and to the
+          glasses' interconnect package (see the SDK's AppLayer.java and
+          InboundRouter.java). Without it the glasses re-ask forever and the
+          app never proceeds.
+      - match: '{"code":3,...} or {"code":7,...} (AI assistant package)'
+        answer: "Start the AI turn; see ai_assistant."
+  ai_assistant:
+    description: >
+      The voice assistant. Every message is JSON {"code":N,"payload":...},
+      sourced from and addressed to the glasses' AI-assistant package (the
+      SDK's AppLayer.PKG_AI, not repeated here), in an StMessage over the
+      relay. Recognition and answering happen on the phone. The glasses
+      run their own state machine with real timers, and upstream says the
+      ordering below is load-bearing: break it and the session dies
+      mid-answer or shows a service error. Payload key lists are given for
+      what the phone sends; the exact values are in the SDK's
+      AiProtocol.java.
+    codes:
+      - code: 2
+        direction: "phone -> glasses"
+        name: "assistant config"
+        payload: >
+          Capability flags: hasWakeupVoicePrint false,
+          isAsrResultScreenEnable true, isChatGptCardDisplayEnable true,
+          isChatGptTTSPlayEnable true, isContinuousDialogueEnable true,
+          isLowPowerWakeupEnable true, isLowPowerWakeupScreenOffEnable true,
+          isNetworkAvailable true, isWakeupVoiceRecording false,
+          ttsTimbreValue 0. Send it before the first frame of a
+          conversation. Without the card-display and continuous-dialogue
+          flags the answer card scene is never configured, and a second
+          answer crashes it.
+      - code: 3
+        direction: "glasses -> phone"
+        name: "AI button"
+        payload: "control 1 = pressed; control 0 = released or page closed (end at the next turn boundary, never mid-turn). The manual: hold the power button 1 s."
+      - code: 7
+        direction: "glasses -> phone"
+        name: "wake word"
+        payload: "Spoken wake word detected; same handling as code 3."
+      - code: 4
+        direction: "phone -> glasses"
+        name: "session ack"
+        payload: >
+          {hasNetwork true, message <a short Chinese 'wake-up succeeded'
+          string the official app sends>, sessionId <fresh UUID per turn>,
+          success true}. Send IMMEDIATELY on code 3 or 7, before any slow
+          work. It arms the glasses' 8 s listening timeout; without it they
+          show a service error.
+      - code: 104
+        direction: "phone -> glasses"
+        name: "VAD event"
+        payload: "{type 1 = speech start, 2 = speech end, sessionId}. type 1 is the only thing that clears the 8 s timeout, so send it at speech onset."
+      - code: 109
+        direction: "glasses -> phone"
+        name: "microphone audio"
+        payload: "Opus frames in StMessage field 5 (payload_formats.MicAudio), streamed continuously while listening."
+      - code: 101
+        direction: "phone -> glasses"
+        name: "caption"
+        payload: "{id sessionId, isOfflineResult false, text, type 0 partial / 1 final}. Partials must grow; sending the whole sentence as one partial makes it flash and vanish."
+      - code: 106
+        direction: "phone -> glasses"
+        name: "VR state"
+        payload: "A BARE integer, not an object. Send 7 (PROCESSING) only AFTER the final caption. Other values: 0 close, 1 multi-wakeup, 3/4 TTS start/end, 8 listening timeout; upstream says sending 3/4 around playback, or 1 at a turn boundary, wedges the glasses."
+      - code: 102
+        direction: "phone -> glasses"
+        name: "open answer card"
+        payload: "LLM card scene for this question: header {name default, namespace llm, specialCmdInChatGptScene false}, metadata {msgId \"\"}, payload {isSoundOpened true, query <question>, isNextRecorded false, utterance {speech, screen, id all \"\"}}, source 0, utterance {id, screen, speech all \"\"}, sessionId. Sent fresh every turn."
+      - code: 122
+        direction: "phone -> glasses"
+        name: "answer text"
+        payload: "{answer, base_status, isCmd false, sessionId, version_code \"\"}. Send twice: base_status 1, then 2."
+      - code: 6
+        direction: "phone -> glasses"
+        name: "TTS play state"
+        payload: "{id \"\" (empty, not the session id), isContinuous false, isMulti false, isWakeup false, playState 1 start / 2 end}, around the phone's own speech output."
+      - code: 107
+        direction: "phone -> glasses"
+        name: "end of turn"
+        payload: "{control 4, isOffline false}."
+      - code: 5
+        direction: "phone -> glasses"
+        name: "answer card (legacy)"
+        payload: "Superseded by 102/122. Upstream's capture shows the official app never sends it for answers."
+    turn_order: [2, 4, 104, 101, 101, 106, 102, 122, 122, 6, 6, 107]
+    notes: >
+      Multi-turn is capped by the protocol. The official app does not decide
+      when to keep listening: its cloud NLU sets an isNextRecorded flag in
+      each answer. A client using its own language model never gets that
+      flag, and a follow-up turn the glasses were not told to expect wedges
+      the session (upstream: turns 1-2 work, turn 3 hangs). The captured
+      official app itself runs only one or two turns per conversation.
+  not_covered:
+    description: >
+      Left out on purpose, following upstream: do_recovery (factory reset),
+      system_account (account), system_glass_active / req_active_state
+      (activation), user_feedback. Also left out here: OTA (the init burst
+      shows an air_ota info query, and nothing else is known), navigation
+      and teleprompter (both documented in the SDK, but they address other
+      on-glasses packages), and translator, telephone notifications and
+      sport, which appear only as action names in the captured burst.
+
+features:
+  - type: "firmware_update"
+    dfu:
+      mechanisms: ["unknown"]
+      image:
+        signing: "unknown"
+        source: "unknown"
+        notes: >
+          The manual says system software updates come through the MYVU app
+          and need a stable internet connection. The glasses have Wi-Fi of
+          their own, so they may download images themselves; that is not
+          established.
+      enter:
+        how: "unknown"
+        notes: >
+          Out of scope. The only protocol trace is an OTA-info query
+          (action family air_ota) in the captured init burst. No update
+          bytes are documented, and this spec adds none: a half-understood
+          update path is how glasses get bricked.
+      dfu_mode:
+        notes: "Not established."
+      recovery:
+        interrupted: "unknown"
+      verification: "reported"
+
+entities:
+  - platform: "number"
+    name: "Volume"
+    min: 0
+    max: 15
+    step: 1
+    command_characteristic: "00002021-0000-1000-8000-00805f9b34fb"
+    commands:
+      set_value: "set_volume"
+    notes: "Write-only here: get_volume replies arrive asynchronously in an undocumented shape. Wrapped as described on characteristic 0x2021."
+  - platform: "number"
+    name: "Brightness"
+    min: 0
+    max: 10
+    step: 1
+    command_characteristic: "00002021-0000-1000-8000-00805f9b34fb"
+    commands:
+      set_value: "set_brightness"
+    notes: "Observed range 0-10. Query with system_query get_brightness; the reply shape is undocumented."
+  - platform: "switch"
+    name: "Do Not Disturb"
+    command_characteristic: "00002021-0000-1000-8000-00805f9b34fb"
+    commands:
+      turn_on:
+        command: "set_zen_mode"
+        values: {enabled: 1}
+      turn_off:
+        command: "set_zen_mode"
+        values: {enabled: 0}
+  - platform: "switch"
+    name: "Wear Detection"
+    command_characteristic: "00002021-0000-1000-8000-00805f9b34fb"
+    commands:
+      turn_on:
+        command: "set_wear_detection"
+        values: {enabled: 1}
+      turn_off:
+        command: "set_wear_detection"
+        values: {enabled: 0}
+  - platform: "switch"
+    name: "Glasses Wi-Fi"
+    command_characteristic: "00002021-0000-1000-8000-00805f9b34fb"
+    commands:
+      turn_on:
+        command: "toggle_wifi"
+        values: {enabled: 1}
+      turn_off:
+        command: "toggle_wifi"
+        values: {enabled: 0}
+  - platform: "number"
+    name: "Standby Widget Position"
+    min: 0
+    max: 3
+    step: 1
+    command_characteristic: "00002021-0000-1000-8000-00805f9b34fb"
+    commands:
+      set_value: "set_standby_position"
+    notes: "Which index is which position is not documented."
+
+evidence:
+  documentation_review: >
+    Read in full: Panny777/Meizu-Myvu-SDK PROTOCOL.md, and the SDK source at
+    commit 81a2d3243e2c6edfbddfd22932706ebdf2a9d02a (v0.3.0, 2026-07-22):
+    the BLE packet codec, message channel and reassembler, heartbeat, GATT
+    UUID table, scanner, pairing state machine, LinkProtocol, DeviceInfo
+    and device-id helpers, EC and AES helpers, TlvBox and relay codecs,
+    session (ability) builder, init-burst loader, RFCOMM framing,
+    reassembler and transport, relay supervisor, bonding and audio-profile
+    helpers, the app-layer action builders (system settings, clock,
+    notifications, trackpad, weather, weather codes) and the AI protocol
+    builder and microphone stream. Also read: the README of
+    Panny777/Meizu-Myvu-Client. The captured init-burst asset was inspected
+    only to count its messages and list their action names; none of its
+    bytes are reproduced.
+  manual_review: >
+    The vendor's English user manual (XGA010C-Manual-Overseas-V1.0, issued
+    2024-08-28, image-only, OCR'd): controls (touchpad tap, double-tap,
+    hold, swipe; power button press = screen on/off, hold 1 s = AI
+    assistant, 3/5 s = power on/off, 8 s = hard reboot), Bluetooth 5.1,
+    IP54, 183 mAh battery, and a note that the regulatory e-label is in the
+    app. It says nothing about pairing or reset beyond the hard reboot.
+  test_vectors: >
+    The vectors in payload_formats (device_id, version fragment, SPKI and
+    shared secret for fixed private scalars, WRITE_SWITCH_KEY and
+    WRITE_SWITCH_INFO packets, StMessage, relay frame, BLE and RFCOMM
+    wrappings, ack frame) were computed for this spec from its own
+    transcription with the Python standard library and the cryptography
+    package, using identity 00:00:5e:00:53:01 (IANA documentation range).
+    They check an implementation against this document, not against the
+    glasses.
+  open_questions: >
+    Whether glasses never activated through the vendor app accept a
+    third-party client. Which init-burst messages the relay dispatcher
+    actually needs. The V2 characteristic roles and models. The role of
+    0x2023. Which SSP association model the Classic bond uses, and whether
+    the official app opens the relay socket secure or insecure. The reply
+    shapes of the system queries. Every icon code except 1, 2 and 7.
+  artifacts:
+    - type: "source_code"
+      artifact: "Panny777/Meizu-Myvu-SDK, commit 81a2d3243e2c6edfbddfd22932706ebdf2a9d02a (tag v0.3.0), MIT"
+      obtained_via: "git clone from GitHub, 2026-09-28"
+      description: "The only protocol source. Built by its author from captures of one pair of XGA010C glasses and from the official app."
+    - type: "documentation"
+      artifact: "Meizu MYVU AR Glasses XGA010C user manual, English, XGA010C-Manual-Overseas-V1.0 (2024-08-28)"
+      obtained_via: "fms.res.meizu.com (vendor-hosted PDF), 2026-09-28"
+      description: "Controls, radio and battery specifications. No protocol content."
+
+remaining_unknowns:
+  - "Whether glasses that were never activated (and signed in) through the vendor app accept a third-party client at all. Upstream tested on glasses already set up with the official app, and deliberately left activation out."
+  - "Which of the roughly thirty init-burst messages the glasses' relay dispatcher actually requires. The SDK replays the whole captured run; a clean-room client needs either that asset or a minimal set someone has worked out on hardware."
+  - "The V2 characteristics 0x2010-0x2012: which models carry them and what each one does. The SDK only guesses internal/external/urgent by analogy with the Air set."
+  - "What characteristic 0x2023 (glass write) is for. Nothing uses it."
+  - "The advertised name format beyond 'MYVU' plus a suffix, whether the suffix comes from the address, whether the LE address is public, and any manufacturer data."
+  - "The Classic bond: the SSP association model, whether the glasses start the bond or the phone does, whether the official app opens the relay socket secure or insecure, and whether more than one phone can stay bonded."
+  - "The shapes of the replies to system queries (get_device_info, get_brightness and the rest). They arrive as inbound relay JSON, and upstream only surfaces them raw."
+  - "The accepted ranges of screen_off_time and brightness (observed 0-10), the meaning of standby positions 0-3, and the length limit of set_device_name."
+  - "Every weather icon code except 1 (cloudy), 2 (overcast) and 7 (light rain). The rest follow the CMA table by upstream's guess."
+  - "What the LinkProtocol commands 1, 2, 10, 12, 14, 18 and 19 do. Upstream names them but does not use them."
+  - "Firmware update: the mechanism, the transport (the glasses have Wi-Fi) and signing. OTA is out of scope."
+  - "Whether other MYVU/StarV products share this protocol. A third-party Android app (github.com/thiagohy/MeizuMyvuApp) claims StarV Air2 support; it has not been reviewed for this spec."
+
+helpful_urls:
+  - title: "Meizu MYVU AR Glasses (XGA010C) user manual, English (PDF)"
+    url: "https://fms.res.meizu.com/dms/2025/02/17/7355710f-cfac-46ca-9f6c-857703cac963.pdf"
+    kind: "manual"
+    description: >
+      Vendor-hosted manual for model XGA010C (MYVU / MYVU Air), manual ID
+      XGA010C-Manual-Overseas-V1.0. It covers the touchpad and power-button
+      controls (including the 1 s AI-assistant hold and the 8 s hard
+      reboot) and the radio and battery specifications. Image-only PDF.
+  - title: "Meizu-Myvu-SDK: PROTOCOL.md"
+    url: "https://github.com/Panny777/Meizu-Myvu-SDK/blob/main/PROTOCOL.md"
+    kind: "protocol_writeup"
+    description: "The upstream protocol write-up this spec is built on: two-link order, GATT, BLE packets, ECDH bond, RunAsOne session, relay frames, RFCOMM frame, weather and AI code map."
+  - title: "Meizu-Myvu-SDK (unofficial Android SDK, MIT)"
+    url: "https://github.com/Panny777/Meizu-Myvu-SDK"
+    kind: "implementation"
+    description: "Working open implementation of both links. Its byte-level unit tests are the closest thing to ground truth outside the glasses."
+  - title: "Meizu-Myvu-SDK: captured init burst (asset)"
+    url: "https://github.com/Panny777/Meizu-Myvu-SDK/blob/81a2d3243e2c6edfbddfd22932706ebdf2a9d02a/myvu-core/src/main/assets/myvu/captured_init.txt"
+    kind: "implementation"
+    description: "The opening app messages the SDK replays to wake the glasses' relay dispatcher. It is not reproduced in this spec; see protocol_details.init_burst."
+  - title: "Meizu-Myvu-SDK: BLE packet codec (BlePackets.java)"
+    url: "https://github.com/Panny777/Meizu-Myvu-SDK/blob/81a2d3243e2c6edfbddfd22932706ebdf2a9d02a/myvu-core/src/main/java/dev/myvu/sdk/transport/ble/BlePackets.java"
+    kind: "implementation"
+    description: "The little-endian control and data packet layer described in payload_formats.BlePacket."
+  - title: "Meizu-Myvu-Client (Android app and Windows Python reference client, MIT)"
+    url: "https://github.com/Panny777/Meizu-Myvu-Client"
+    kind: "implementation"
+    description: "The same author's earlier clients. The Python one ran on Windows over WinRT and is the source of the Windows compatibility verdict."
+  - title: "FCC ID 2BHGZ-XGA010C (fcc.report)"
+    url: "https://fcc.report/FCC-ID/2BHGZ-XGA010C/"
+    kind: "other"
+    description: "Grant listing for the XGA010C AR Glasses (Hubei Xingji Meizu Group, brand MYVU, BT 2402-2480 MHz). The site answers scripts with 403; open it in a browser."
+  - title: "MYVU Air product page (Meizu global)"
+    url: "https://www.meizu.com/global/product/starv-air"
+    kind: "vendor_support"
+    description: "Meizu's global product page for the glasses (URL slug starv-air)."

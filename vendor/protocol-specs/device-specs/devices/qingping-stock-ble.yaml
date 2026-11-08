@@ -21,6 +21,7 @@ device:
       with this spec check the documented decoding, not physical compatibility.
   protocol: "ble"
   category: "sensor"
+  category_hierarchy: ["measurement", "environmental"]
   type: "environmental-sensor-family"
   notes: >
     A receive-only decoder for the stock Qingping/ClearGrass service-data

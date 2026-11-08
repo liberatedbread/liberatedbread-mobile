@@ -10,6 +10,7 @@ device:
     status: untested
   protocol: "ble"
   category: "display"
+  category_hierarchy: ["display", "led_matrix"]
   notes: >
     OEM full-color LED matrix panels driven by the SPOTLED app (Android package
     com.led.spotled; iOS bundleId com.sunday.led, App Store id 1564039607),

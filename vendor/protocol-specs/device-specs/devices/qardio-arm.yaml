@@ -39,6 +39,7 @@ device:
   protocol: "ble"
   transport: "ble-gatt"
   category: "health"
+  category_hierarchy: ["measurement", "health", "blood_pressure"]
   type: "blood-pressure-monitor"
   notes: >
     An upper-arm oscillometric blood-pressure cuff that folds around its own

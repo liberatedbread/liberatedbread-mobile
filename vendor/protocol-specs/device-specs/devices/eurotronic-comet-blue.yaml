@@ -1,0 +1,1613 @@
+# Eurotronic Comet Blue BLE radiator thermostat (and its Sygonix / Xavax /
+# Silvercrest rebadges) — Device Specification
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Sources (clean-room — derived facts only; nothing from the vendor apps is
+# committed):
+#   - Static analysis of the two vendor Android apps, 2026-09-27: EUROprog 2
+#     (native Java, the app that drives Comet Blue, Progmatic Blue and
+#     Progtime Blue) and its Flutter successor ET Blue (Comet Blue and
+#     Genius BLE100). Byte layouts are what the apps write and parse.
+#   - im-0/cometblue (GPL-3.0, Python/gattlib) — an independent GATT map run
+#     by its author on hardware: which reads need the PIN, the 0x80 "leave
+#     this field unchanged" filler, the Device Information strings.
+#   - rikroe/eurotronic-cometblue + rikroe/cometblue-custom-component (MIT,
+#     bleak; the Home Assistant integration) — the advertised service UUID,
+#     the manual-mode flag bit, the holiday-in-progress marker.
+#   - Eurotronic's English user manual (2015/06) — default PIN "000 000",
+#     the menu reset, factory temperatures and schedule.
+#
+# SAFETY: the valve controls a radiator. Every temperature write here is
+# bounded to what the vendor app offers (OFF, 8.0-28.0 °C in 0.5 °C steps,
+# ON). The firmware-update channel (ee40) is unsigned; it is described at
+# role level only, with no image bytes and no upload recipe.
+
+device:
+  name: "Eurotronic Comet Blue Bluetooth Radiator Thermostat (and Sygonix / Xavax / Silvercrest rebadges)"
+  manufacturer: "Eurotronic Technology GmbH"
+  manufacturer_status: "active"
+  testing:
+    status: untested
+    notes: >-
+      Not driven against hardware by this project, and the research store
+      holds no capture of this device. Every byte layout here comes from
+      static analysis of the vendor apps (EUROprog 2 and ET Blue, 2026-09-27),
+      cross-checked against im-0/cometblue and rikroe's library, whose authors
+      ran them on hardware (a Comet Blue and a Sygonix HT100 BT). Per-fact
+      verification is therefore `reported` throughout.
+  openness:
+    status: "undocumented"
+    reverse_engineered: true
+    source_code: "https://github.com/im-0/cometblue"
+    license: "GPL-3.0"
+    notes: >-
+      Eurotronic has never published the GATT protocol. im-0/cometblue (2016)
+      and rikroe's library (2020-2026, now behind Home Assistant's core
+      eurotronic_cometblue integration) recovered it independently; the
+      vendor app agrees with both field for field.
+  protocol: "ble"
+  category: "climate"
+  type: "radiator-thermostat"
+  pictogram: "thermostat"
+  notes: >
+    Battery-powered radiator thermostat (TRV) head sold in Europe by
+    Eurotronic Technology GmbH and rebadged by Sygonix (HT100 BT), Xavax
+    (Hama) and Lidl Silvercrest (RT2000BT). It drives the valve itself from
+    an on-device weekly schedule; the phone only reads and writes settings.
+    Transport is BLE GATT only, phone-direct: no bonding, no hub, no cloud.
+    EUROprog 2's only HTTP traffic downloads firmware images, and ET Blue's
+    only URLs are the vendor's help pages. If the vendor disappeared
+    tomorrow, nothing a client needs would go with it.
+
+    ACCESS CONTROL is an app-layer PIN, not Bluetooth pairing: after
+    connecting, a client writes the PIN (0-999999) to 47e9ee30-47e9-11e4-8939-164230d1df67 as a uint32
+    little-endian. Every other write is refused until that write succeeds,
+    and im-0's client reads none of the valve's own settings before it
+    either. The
+    manual's factory PIN "000 000" is the integer 0 on the wire
+    (00 00 00 00). ET Blue makes the owner set a per-room PIN and refuses 0,
+    so a unit set up with ET Blue no longer answers to 0. There is no
+    framing, checksum or encryption anywhere, and the PIN travels in
+    cleartext over an unencrypted link: anyone who sniffs one session learns
+    it.
+
+    GATT: one vendor service, 47e9ee00-47e9-11e4-8939-164230d1df67, every
+    setting a fixed-length value on its own characteristic under the vendor
+    base 47e9xxxx-47e9-11e4-8939-164230d1df67 — clock (ee01), seven day
+    schedules (ee10-ee16), eight holiday slots (ee20-ee27), flags (ee2a),
+    the temperature block (ee2b), battery (ee2c), two little-understood
+    values (ee2d, ee2e), the PIN (ee30) and the firmware-update channel
+    (ee40); plus the standard Device Information strings. Temperatures are
+    one byte of °C × 2 everywhere. In the temperature block and holiday
+    slots, 0x80 means "leave this field as it is", so one field can be
+    written without reading the others first.
+
+    SAME BASE, OTHER PRODUCTS: the same app family drives two unrelated
+    siblings on the same UUID base — Progmatic Blue (a programming stick,
+    47e9ef01-47e9ef41) and Progtime Blue (a socket timer, 47e9ef51-47e9ef62,
+    PIN at ef62). They are out of scope and listed in
+    protocol_details.sibling_devices only so a client can tell them apart.
+    ET Blue also drives a "Genius BLE100" with the same 47e9ee UUIDs, which
+    probably shares this table (unverified). The Comet ZERO Blue is not in
+    either app's device list and must not be assumed compatible.
+
+    DISCOVERY: EUROprog 2 matches the advertised name "Comet Blue" exactly
+    and nothing else. Home Assistant and rikroe's library match the
+    advertised service UUID 47e9ee00-47e9-11e4-8939-164230d1df67 instead, which is the better filter:
+    the rebadges' advertised names have not been recorded, and a
+    name-only scanner may miss them.
+
+  identification:
+    local_names:
+      - "Comet Blue"
+    service_uuids:
+      - "47e9ee00-47e9-11e4-8939-164230d1df67"
+    notes: >-
+      The name is EUROprog 2's exact-match filter (it applies no UUID or
+      manufacturer-data filter). The advertised service UUID is what rikroe's
+      library and Home Assistant's integration scan for, reported working on
+      a Comet Blue and a Sygonix HT100 BT; it is the only signal likely to
+      catch every rebadge. No manufacturer data is documented. Genius BLE100
+      probably advertises the same UUID; whether Progmatic Blue or Progtime
+      Blue do is not recorded, so after connecting, confirm by the ee01-ee40
+      characteristics rather than the ef range (protocol_details.sibling_devices).
+
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          service_uuids:
+            - "47e9ee00-47e9-11e4-8939-164230d1df67"
+        notes: >-
+          Home Assistant / rikroe filter: the vendor service UUID in the
+          advertisement (active scanning enabled). Preferred, because it does
+          not depend on the name a rebadge advertises.
+      - type: "ble_scan"
+        ble:
+          local_name:
+            match: "exact"
+            value: "Comet Blue"
+        notes: >-
+          EUROprog 2's filter, exactly as the vendor app applies it. A unit
+          whose advertised name differs (a rebadge, if it does) is invisible
+          to it.
+    identity:
+      stable_keys: ["address"]
+      display: "local_name"
+    static_ip_required: false
+
+  setup:
+    required: false
+    confidence: "high"
+    notes: >
+      Nothing is provisioned: the valve joins no network and holds no bond.
+      A client scans, connects, writes the PIN (see `initialization`) and
+      then reads and writes settings. Confidence is high because two working
+      open implementations (im-0/cometblue, rikroe's library behind Home
+      Assistant's core integration) do exactly this; this project has not
+      replayed it.
+
+      Before any of that, the valve itself must be commissioned on its own
+      buttons: after the first battery insertion it asks for the date and
+      time on its display, drives the motor to its install position, and
+      after mounting runs an adaptation to learn the valve stroke (manual,
+      "Adaptation"). A unit that has not finished adapting still talks BLE
+      but does not regulate.
+    methods:
+      - type: "ble_direct"
+        verified: false
+        description: >
+          Scan for the vendor service UUID (or the name "Comet Blue"),
+          connect, write the PIN to 47e9ee30-47e9-11e4-8939-164230d1df67 as uint32 little-endian with a
+          write-with-response, then read and write the setting
+          characteristics. This is the vendor app's sequence, recovered by
+          static analysis.
+        ble:
+          pairing_required: false
+          pin_source: >-
+            App-layer PIN, not a link-layer passkey: factory default 0
+            (manual "000 000"); owners change it in EUROprog 2 or ET Blue.
+        steps:
+          - action: >-
+              Insert the batteries, set the date and time on the valve's own
+              wheel when it asks, mount it at the INST prompt and let the
+              adaptation run finish (manual, "Setting date and time" and
+              "Adaptation").
+            actor: user
+            expect: "The display returns to normal mode after adapting."
+          - action: >-
+              Scan for advertised service 47e9ee00-47e9-11e4-8939-164230d1df67,
+              or for the exact local name "Comet Blue".
+            actor: client
+          - action: "Connect and discover services. No bonding is requested or needed."
+            actor: client
+          - action: >-
+              Optionally read the Device Information strings (firmware
+              revision 00002a26-0000-1000-8000-00805f9b34fb, software revision 00002a28-0000-1000-8000-00805f9b34fb); they are
+              readable before the PIN.
+            actor: client
+          - action: >-
+              Write the PIN to 47e9ee30-47e9-11e4-8939-164230d1df67 as a
+              uint32 little-endian, with a write request (not a write
+              command), before anything else.
+            actor: client
+            expect: >-
+              Write status 0 = accepted. Any other status is a wrong PIN
+              (whether the valve answers with an ATT error or drops the link
+              is not established).
+          - action: >-
+              Write the current local date and time to
+              47e9ee01-47e9-11e4-8939-164230d1df67, then read battery
+              (47e9ee2c-47e9-11e4-8939-164230d1df67) and the temperature block (47e9ee2b-47e9-11e4-8939-164230d1df67).
+            actor: client
+            expect: >-
+              Battery reads 0xFF until the valve has measured it; the vendor
+              app re-reads after 1 s.
+          - action: >-
+              Disconnect when finished. rikroe's library documents that the
+              valve applies written settings when the connection closes, not
+              at the moment of the write.
+            actor: client
+            expect: >-
+              A fresh connection reads back the new values.
+        timing:
+          pin_write_delay_ms: 1000
+          battery_reread_ms: 1000
+          notes: >-
+            The vendor app compares the firmware revision string
+            (00002a26-0000-1000-8000-00805f9b34fb)
+            against a fixed reference revision and, when the unit's sorts
+            lower, waits 1 s after reading it before writing the PIN; on
+            newer firmware it writes at once. A client that always waits 1 s
+            covers both. The app serialises GATT operations: one outstanding
+            read or write per device at a time.
+        troubleshooting:
+          - symptom: "Every write fails straight after connecting."
+            causes:
+              - "No PIN written yet in this connection — the valve refuses all writes until one succeeds."
+              - "Wrong PIN. A unit configured with ET Blue has a per-room PIN and no longer accepts 0; a second-hand unit carries its previous owner's PIN."
+              - "On older firmware the PIN went out too soon after connecting; wait 1 s and retry."
+          - symptom: "Found by Home Assistant but not by a name-filtered scanner."
+            causes:
+              - "The scanner matches only the exact name \"Comet Blue\" (EUROprog 2 does); a rebadge may advertise another name. Filter on service 47e9ee00-47e9-11e4-8939-164230d1df67 instead."
+          - symptom: "The valve goes to OFF after a third-party client changed only comfort or eco."
+            causes:
+              - "The client put 0x00 rather than 0x80 in the manual-setpoint byte (ee2b byte 1). rikroe's library does this when that field is not supplied, and its own climate entity works around it by always resending the setpoint. Send 0x80 in every field you are not changing."
+          - symptom: "A value written over BLE reads back unchanged in the same connection."
+            causes:
+              - "rikroe's library documents that the valve applies writes when the link closes. Disconnect, reconnect and read again before concluding the write failed."
+          - symptom: "A setpoint written over BLE does not stick."
+            causes:
+              - "In AUTO the valve returns to its schedule at the next switch point — by design (manual; Home Assistant documentation)."
+              - "A holiday slot is in progress: the valve holds the holiday temperature. Home Assistant's documentation says to end it from the valve's MENU button."
+    factory_reset:
+      applicable: true
+      confidence: medium
+      effect: >
+        Per the manual, returns the valve to factory settings "ready for
+        configuration as described for initial operation": schedules back to
+        the default (one heating period, 07:00-22:00), comfort 21 °C, eco
+        16 °C. Whether it also restores PIN 0 is not stated in the manual
+        and has not been established — which matters, because the menu reset
+        is the only recovery for a forgotten PIN if it does.
+      description: >
+        The menu reset is the manual's "All reset". Pulling the batteries for
+        a few seconds is a different thing — the manual's remedy for an error
+        code, a restart that keeps the schedule — and is not a factory reset.
+      procedures:
+        - name: "All reset from the valve's own menu"
+          verified: false
+          basis: >-
+            Eurotronic's English user manual (2015/06), section "All reset".
+            Not performed by this project.
+          power_state: "on"
+          glyph: "generic/on-screen-menu.svg"
+          steps:
+            - action: "Press MENU."
+              actor: "user"
+            - action: "Turn the selector wheel to the reset menu item and press OK."
+              actor: "user"
+            - action: "When OK flashes, press OK again to confirm."
+              actor: "user"
+              expect: "The valve restarts in factory settings and begins the initial-operation flow (date and time prompt)."
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >-
+        There is no network membership and no bond. A new phone or controller
+        needs only the current PIN. If nobody knows the PIN (a used unit, or
+        one set up in ET Blue), the menu reset is the only recourse, and
+        whether it clears the PIN is unknown.
+    credentials:
+      wifi_passphrase_protection: not_applicable
+      stored_on_device:
+        - "The access PIN, 0-999999 (factory default 0)"
+        - "Weekly schedule, holiday slots, comfort/eco setpoints, offset, window-open settings, child lock"
+      issued_to_client: []
+      notes: >-
+        The PIN is not issued to a client; the owner supplies it, and a
+        client must store it and present it on every connection. It crosses
+        the air in cleartext. There is no Wi-Fi.
+
+  pairing:
+    required: true
+    confidence: "medium"
+    security_mode: "app_layer"
+    bonding: "none"
+    pin:
+      source: "fixed_default"
+      value: "000000"
+      length: 6
+      notes: >-
+        The factory value, the same on every unit: the manual prints it as
+        "000 000", Home Assistant as "000000", and on the wire it is the
+        integer 0, written as 00 00 00 00. It is an application-layer PIN
+        written to 47e9ee30-47e9-11e4-8939-164230d1df67, never a Bluetooth passkey — no OS pairing
+        dialog appears. Owners change it (0-999999, at most six digits) in
+        EUROprog 2; ET Blue insists on a per-room PIN and rejects 0.
+    exclusivity:
+      single_connection: "unknown"
+      single_bond: false
+      recovery: >-
+        Close EUROprog 2, ET Blue or any other controller holding a
+        connection before connecting. Nothing needs clearing afterwards: no
+        bond is stored on either side.
+    enter_pairing_mode:
+      required: false
+      notes: >-
+        The valve accepts a connection and a PIN write whenever it is
+        powered; there is no pairing button or window.
+    notes: >-
+      Link layer: nothing pairs and nothing bonds. The access control is the
+      PIN write in `initialization`, which every connection must repeat.
+      Nothing binds a client, so revoking one means changing the PIN
+      (change_pin) — which every other client then has to be told.
+
+  host_compatibility:
+    - stack: "bluez"
+      status: "compatible"
+      verification: "reported"
+      basis: >-
+        Home Assistant's core integration and rikroe's bleak library run on
+        BlueZ, their author reports it working on a Sygonix HT100 BT, and
+        im-0/cometblue drove a Comet Blue through gattlib on Linux. Not run
+        by this project.
+    - stack: "android"
+      status: "compatible"
+      verification: "reported"
+      basis: >-
+        The vendor's EUROprog 2 and ET Blue apps use the platform GATT client
+        with no special handling (static analysis). Not run by this project.
+
+  variants:
+    - model: "Eurotronic Comet Blue"
+      notes: >-
+        The original. Advertises the exact name "Comet Blue" (EUROprog 2's
+        filter). Device Information reads manufacturer "eurotronic gmbh" and
+        model "comet blue" when lower-cased, the pair im-0 identifies it by.
+    - model: "Sygonix HT100 BT"
+      notes: >-
+        Rebadge; rikroe's library is developed on one and Home Assistant
+        lists it. Its advertised name has not been recorded. im-0's README
+        shows a unit whose software revision carries a Sygonix suffix and
+        whose GAP device name is "Comet Blue", which suggests at least some
+        advertise the same name.
+    - model: "Xavax (Hama)"
+      notes: >-
+        Rebadge listed by Home Assistant and rikroe (untested there).
+        Advertised name and exact model number not recorded.
+    - model: "Silvercrest RT2000BT"
+      notes: >-
+        Lidl rebadge listed by Home Assistant and rikroe (untested there).
+        Advertised name not recorded.
+
+services:
+  - uuid: "47e9ee00-47e9-11e4-8939-164230d1df67"
+    name: "Comet Blue thermostat service"
+    notes: >
+      Every setting is a fixed-length value on its own characteristic; there
+      is no command channel, framing or checksum. Read and write with plain
+      GATT reads and write requests. All writes, and (per im-0) the reads of
+      everything below except ee30, need a successful PIN write earlier in
+      the same connection. The handle layout has never been dumped; clients
+      should match characteristics by UUID (im-0 and the vendor app both do).
+      Characteristic properties below are inferred from what the vendor app
+      and the open implementations do with each value, not read from a
+      GATT dump. rikroe's library documents that the valve applies written
+      values when the connection closes rather than on each write, so a
+      client should disconnect after writing and not trust a read-back
+      taken in the same connection.
+    initialization:
+      - characteristic: "47e9ee30-47e9-11e4-8939-164230d1df67"
+        when: "connect"
+        description: >
+          Write the owner's PIN to 47e9ee30-47e9-11e4-8939-164230d1df67 as a uint32 little-endian — the
+          characteristic's `authenticate` command, whose `pin` parameter is the
+          stored credential — using a write request, before any other read or
+          write on this service. Write status 0 means accepted; any other
+          status means a wrong PIN. The factory PIN 0 is the four bytes
+          00 00 00 00. Documented rather than executable because the value is
+          per unit.
+        notes: >-
+          On firmware whose revision string sorts below the vendor app's
+          reference revision the app waits 1 s before this write; waiting 1 s
+          on every connect is harmless. The vendor app then writes the
+          current date and time (ee01) once per session.
+    characteristics:
+      - uuid: "47e9ee01-47e9-11e4-8939-164230d1df67"
+        name: "Date and time"
+        properties: ["read", "write"]
+        notes: >-
+          Five bytes, local wall-clock time, no seconds and no weekday (the
+          valve derives the weekday, and switches summer/winter time itself
+          per the manual). The vendor app writes the phone's local time after
+          every successful PIN write; the schedule runs off this clock.
+        format:
+          - offset: 0
+            length: 1
+            name: "minute"
+            type: "uint8"
+            unit: "min"
+            notes: "0-59."
+          - offset: 1
+            length: 1
+            name: "hour"
+            type: "uint8"
+            unit: "h"
+            notes: "0-23."
+          - offset: 2
+            length: 1
+            name: "day"
+            type: "uint8"
+            notes: "Day of month, 1-31."
+          - offset: 3
+            length: 1
+            name: "month"
+            type: "uint8"
+            notes: "1-12."
+          - offset: 4
+            length: 1
+            name: "year"
+            type: "uint8"
+            value_offset: 2000
+            notes: "Two-digit year: raw 26 = 2026."
+        commands:
+          set_datetime:
+            description: >-
+              Set the valve's clock: [minute, hour, day, month, year - 2000].
+              Example: 2026-09-28 14:05 -> 05 0e 1c 09 1a.
+            verification: "reported"
+            template: ["{minute}", "{hour}", "{day}", "{month}", "{year}"]
+            parameters:
+              minute:
+                type: "uint8"
+                min: 0
+                max: 59
+                unit: "min"
+              hour:
+                type: "uint8"
+                min: 0
+                max: 23
+                unit: "h"
+              day:
+                type: "uint8"
+                min: 1
+                max: 31
+              month:
+                type: "uint8"
+                min: 1
+                max: 12
+              year:
+                type: "uint8"
+                min: 0
+                max: 99
+                value_offset: 2000
+                description: "Full year minus 2000 (2026 -> 26)."
+
+      # --- Weekly schedule: one characteristic per day, Monday ee10 .. Sunday ee16.
+      # Each is four (start, end) pairs of COMFORT periods; the valve runs the
+      # eco setpoint outside them. Times are minutes since midnight / 10.
+      - uuid: "47e9ee10-47e9-11e4-8939-164230d1df67"
+        name: "Schedule: Monday"
+        properties: ["read", "write"]
+        notes: &day_notes >-
+          Eight bytes: four (start, end) pairs of comfort periods, each byte
+          minutes-since-midnight / 10 (0-144, where 144 = 24:00). 0xFF marks
+          an unused pair. Outside the listed periods the valve holds the eco
+          setpoint (AUTO mode). The vendor app writes 0xFF into pairs 3-4
+          when its "2 periods a day" option is chosen and 0x00 when "4
+          periods" is chosen but they are empty, and it treats only 1-143 as
+          a real time; rikroe writes 0x00 for unused pairs and im-0 0xFF, and
+          both treat start == end as empty. im-0 reads a pair as unused only
+          when its END byte is above 143; a 0xFF START with a valid end it
+          reads as "from 00:00", and it encodes a 00:00 start as 0xFF.
+          Factory default (manual): one period, 07:00-22:00 = 2a 84 ff ff ff
+          ff ff ff. The app's "Mon-Fri / Sat-Sun" block option just writes
+          the same eight bytes to several days.
+        format: &day_format
+          - offset: 0
+            length: 1
+            name: "period_1_start"
+            type: "uint8"
+            scale: 10
+            unit: "min"
+            notes: "Minutes since midnight. 0xFF = pair unused (do not scale it)."
+          - offset: 1
+            length: 1
+            name: "period_1_end"
+            type: "uint8"
+            scale: 10
+            unit: "min"
+          - offset: 2
+            length: 1
+            name: "period_2_start"
+            type: "uint8"
+            scale: 10
+            unit: "min"
+          - offset: 3
+            length: 1
+            name: "period_2_end"
+            type: "uint8"
+            scale: 10
+            unit: "min"
+          - offset: 4
+            length: 1
+            name: "period_3_start"
+            type: "uint8"
+            scale: 10
+            unit: "min"
+          - offset: 5
+            length: 1
+            name: "period_3_end"
+            type: "uint8"
+            scale: 10
+            unit: "min"
+          - offset: 6
+            length: 1
+            name: "period_4_start"
+            type: "uint8"
+            scale: 10
+            unit: "min"
+          - offset: 7
+            length: 1
+            name: "period_4_end"
+            type: "uint8"
+            scale: 10
+            unit: "min"
+        commands:
+          set_schedule_monday:
+            description: &day_command_description >-
+              Replace this day's schedule with up to four comfort periods.
+              Each byte is minutes since midnight / 10 (07:30 -> 45); send
+              0xFF in both bytes of an unused pair. Pairs should be in
+              ascending time order and not overlap.
+            verification: "reported"
+            template: &day_template ["{start_1}", "{end_1}", "{start_2}", "{end_2}", "{start_3}", "{end_3}", "{start_4}", "{end_4}"]
+            parameters: &day_parameters
+              start_1: &day_time
+                type: "uint8"
+                min: 0
+                max: 255
+                scale: 10
+                unit: "min"
+                description: "0-144 = minutes since midnight / 10 (144 = 24:00); 255 (0xFF) = pair unused. 145-254 are invalid."
+              end_1: *day_time
+              start_2: *day_time
+              end_2: *day_time
+              start_3: *day_time
+              end_3: *day_time
+              start_4: *day_time
+              end_4: *day_time
+      - uuid: "47e9ee11-47e9-11e4-8939-164230d1df67"
+        name: "Schedule: Tuesday"
+        properties: ["read", "write"]
+        notes: *day_notes
+        format: *day_format
+        commands:
+          set_schedule_tuesday:
+            description: *day_command_description
+            verification: "reported"
+            template: *day_template
+            parameters: *day_parameters
+      - uuid: "47e9ee12-47e9-11e4-8939-164230d1df67"
+        name: "Schedule: Wednesday"
+        properties: ["read", "write"]
+        notes: *day_notes
+        format: *day_format
+        commands:
+          set_schedule_wednesday:
+            description: *day_command_description
+            verification: "reported"
+            template: *day_template
+            parameters: *day_parameters
+      - uuid: "47e9ee13-47e9-11e4-8939-164230d1df67"
+        name: "Schedule: Thursday"
+        properties: ["read", "write"]
+        notes: *day_notes
+        format: *day_format
+        commands:
+          set_schedule_thursday:
+            description: *day_command_description
+            verification: "reported"
+            template: *day_template
+            parameters: *day_parameters
+      - uuid: "47e9ee14-47e9-11e4-8939-164230d1df67"
+        name: "Schedule: Friday"
+        properties: ["read", "write"]
+        notes: *day_notes
+        format: *day_format
+        commands:
+          set_schedule_friday:
+            description: *day_command_description
+            verification: "reported"
+            template: *day_template
+            parameters: *day_parameters
+      - uuid: "47e9ee15-47e9-11e4-8939-164230d1df67"
+        name: "Schedule: Saturday"
+        properties: ["read", "write"]
+        notes: *day_notes
+        format: *day_format
+        commands:
+          set_schedule_saturday:
+            description: *day_command_description
+            verification: "reported"
+            template: *day_template
+            parameters: *day_parameters
+      - uuid: "47e9ee16-47e9-11e4-8939-164230d1df67"
+        name: "Schedule: Sunday"
+        properties: ["read", "write"]
+        notes: *day_notes
+        format: *day_format
+        commands:
+          set_schedule_sunday:
+            description: *day_command_description
+            verification: "reported"
+            template: *day_template
+            parameters: *day_parameters
+
+      # --- Holiday slots 1-8, ee20 .. ee27.
+      - uuid: "47e9ee20-47e9-11e4-8939-164230d1df67"
+        name: "Holiday slot 1"
+        properties: ["read", "write"]
+        notes: &holiday_notes >-
+          Nine bytes: start (hour, day, month, year - 2000), end (hour, day,
+          month, year - 2000), then the holiday temperature as °C × 2 (15 =
+          OFF, 57 = ON, as in the temperature block). Whole hours only. Hour
+          128 (0x80) marks "no time": the vendor app treats it as unset, and
+          rikroe reports that once a holiday is under way the valve reads
+          back 128 in the START hour while keeping the end, and 128 or more
+          in the end hour once the slot has expired. The vendor app's empty
+          slot is 80 01 01 ff 80 01 01 ff 0f; im-0 clears a slot with 0x80
+          in every byte. The manual speaks of six vacation profiles, but the
+          valve exposes eight slots and both apps and im-0 address all eight.
+        format: &holiday_format
+          - offset: 0
+            length: 1
+            name: "start_hour"
+            type: "uint8"
+            unit: "h"
+            notes: "0-23; 128 = unset, or (rikroe) holiday already in progress."
+          - offset: 1
+            length: 1
+            name: "start_day"
+            type: "uint8"
+          - offset: 2
+            length: 1
+            name: "start_month"
+            type: "uint8"
+          - offset: 3
+            length: 1
+            name: "start_year"
+            type: "uint8"
+            value_offset: 2000
+          - offset: 4
+            length: 1
+            name: "end_hour"
+            type: "uint8"
+            unit: "h"
+            notes: "0-23; 128 or above = slot empty or expired."
+          - offset: 5
+            length: 1
+            name: "end_day"
+            type: "uint8"
+          - offset: 6
+            length: 1
+            name: "end_month"
+            type: "uint8"
+          - offset: 7
+            length: 1
+            name: "end_year"
+            type: "uint8"
+            value_offset: 2000
+          - offset: 8
+            length: 1
+            name: "holiday_temp"
+            type: "uint8"
+            scale: 0.5
+            unit: "C"
+            device_class: "temperature"
+            notes: "15 = OFF, 16-56 = 8.0-28.0 °C, 57 = ON; 0x80 = unset."
+        commands:
+          set_holiday_1:
+            description: &holiday_command_description >-
+              Program this holiday slot: from start (hour, day, month, year)
+              to end, holding `temperature` for the whole period. Example:
+              2026-12-24 18:00 to 2027-01-02 12:00 at 16.5 °C ->
+              12 18 0c 1a 0c 02 01 1b 21.
+            verification: "reported"
+            template: &holiday_template ["{start_hour}", "{start_day}", "{start_month}", "{start_year}", "{end_hour}", "{end_day}", "{end_month}", "{end_year}", "{temperature}"]
+            parameters: &holiday_parameters
+              start_hour: &holiday_hour
+                type: "uint8"
+                min: 0
+                max: 23
+                unit: "h"
+              start_day: &holiday_day
+                type: "uint8"
+                min: 1
+                max: 31
+              start_month: &holiday_month
+                type: "uint8"
+                min: 1
+                max: 12
+              start_year: &holiday_year
+                type: "uint8"
+                min: 0
+                max: 99
+                value_offset: 2000
+                description: "Full year minus 2000."
+              end_hour: *holiday_hour
+              end_day: *holiday_day
+              end_month: *holiday_month
+              end_year: *holiday_year
+              temperature: &setpoint_param
+                type: "uint8"
+                min: 15
+                max: 57
+                scale: 0.5
+                unit: "C"
+                description: >-
+                  °C × 2. 15 (the 7.5 °C code) = OFF, 16-56 = 8.0-28.0 °C in
+                  0.5 °C steps, 57 (the 28.5 °C code) = ON. This is exactly
+                  the vendor app's picker; nothing outside it is documented.
+          clear_holiday_1:
+            description: &holiday_clear_description >-
+              Empty this holiday slot: 0x80 in every byte, as im-0 does. The
+              vendor app's own empty pattern (80 01 01 ff 80 01 01 ff 0f)
+              also works on its evidence; both rely on hour 128.
+            verification: "reported"
+            value: &holiday_clear [0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80]
+      - uuid: "47e9ee21-47e9-11e4-8939-164230d1df67"
+        name: "Holiday slot 2"
+        properties: ["read", "write"]
+        notes: *holiday_notes
+        format: *holiday_format
+        commands:
+          set_holiday_2:
+            description: *holiday_command_description
+            verification: "reported"
+            template: *holiday_template
+            parameters: *holiday_parameters
+          clear_holiday_2:
+            description: *holiday_clear_description
+            verification: "reported"
+            value: *holiday_clear
+      - uuid: "47e9ee22-47e9-11e4-8939-164230d1df67"
+        name: "Holiday slot 3"
+        properties: ["read", "write"]
+        notes: *holiday_notes
+        format: *holiday_format
+        commands:
+          set_holiday_3:
+            description: *holiday_command_description
+            verification: "reported"
+            template: *holiday_template
+            parameters: *holiday_parameters
+          clear_holiday_3:
+            description: *holiday_clear_description
+            verification: "reported"
+            value: *holiday_clear
+      - uuid: "47e9ee23-47e9-11e4-8939-164230d1df67"
+        name: "Holiday slot 4"
+        properties: ["read", "write"]
+        notes: *holiday_notes
+        format: *holiday_format
+        commands:
+          set_holiday_4:
+            description: *holiday_command_description
+            verification: "reported"
+            template: *holiday_template
+            parameters: *holiday_parameters
+          clear_holiday_4:
+            description: *holiday_clear_description
+            verification: "reported"
+            value: *holiday_clear
+      - uuid: "47e9ee24-47e9-11e4-8939-164230d1df67"
+        name: "Holiday slot 5"
+        properties: ["read", "write"]
+        notes: *holiday_notes
+        format: *holiday_format
+        commands:
+          set_holiday_5:
+            description: *holiday_command_description
+            verification: "reported"
+            template: *holiday_template
+            parameters: *holiday_parameters
+          clear_holiday_5:
+            description: *holiday_clear_description
+            verification: "reported"
+            value: *holiday_clear
+      - uuid: "47e9ee25-47e9-11e4-8939-164230d1df67"
+        name: "Holiday slot 6"
+        properties: ["read", "write"]
+        notes: *holiday_notes
+        format: *holiday_format
+        commands:
+          set_holiday_6:
+            description: *holiday_command_description
+            verification: "reported"
+            template: *holiday_template
+            parameters: *holiday_parameters
+          clear_holiday_6:
+            description: *holiday_clear_description
+            verification: "reported"
+            value: *holiday_clear
+      - uuid: "47e9ee26-47e9-11e4-8939-164230d1df67"
+        name: "Holiday slot 7"
+        properties: ["read", "write"]
+        notes: *holiday_notes
+        format: *holiday_format
+        commands:
+          set_holiday_7:
+            description: *holiday_command_description
+            verification: "reported"
+            template: *holiday_template
+            parameters: *holiday_parameters
+          clear_holiday_7:
+            description: *holiday_clear_description
+            verification: "reported"
+            value: *holiday_clear
+      - uuid: "47e9ee27-47e9-11e4-8939-164230d1df67"
+        name: "Holiday slot 8"
+        properties: ["read", "write"]
+        notes: *holiday_notes
+        format: *holiday_format
+        commands:
+          set_holiday_8:
+            description: *holiday_command_description
+            verification: "reported"
+            template: *holiday_template
+            parameters: *holiday_parameters
+          clear_holiday_8:
+            description: *holiday_clear_description
+            verification: "reported"
+            value: *holiday_clear
+
+      - uuid: "47e9ee2a-47e9-11e4-8939-164230d1df67"
+        name: "Flags"
+        properties: ["read", "write"]
+        notes: >-
+          Three bytes of flags. Byte 0 bit 7 (0x80) is the child lock — the
+          only bit the vendor app writes: it reads the three bytes, sets or
+          clears bit 7 and writes all three back unchanged otherwise. rikroe
+          reads byte 0 bit 0 (0x01) as manual (MANU) mode and switches modes
+          by writing byte 0 = 0x01 or 0x00 with 0x80 in bytes 1-2 — which
+          also clears the child lock and any other bit, so read first. What
+          the remaining bits of byte 0 and bytes 1-2 mean is not known; im-0
+          only prints them in binary. Unlike the temperature block, 0x80 is
+          NOT a safe "unchanged" filler for byte 0: it is the child-lock bit.
+        format:
+          - offset: 0
+            length: 1
+            name: "manual_mode"
+            type: "uint8"
+            mask: 0x01
+            values:
+              0: "auto"
+              1: "manual"
+            notes: "rikroe's reading (hardware-tested on a Sygonix HT100 BT); the vendor app never touches it."
+          - offset: 0
+            length: 1
+            name: "child_lock"
+            type: "uint8"
+            mask: 0x80
+            values:
+              0: "unlocked"
+              1: "locked"
+            notes: "The vendor app's child-lock switch. The same lock the valve sets when OK and the timer key are held for about 2 s (manual)."
+          - offset: 0
+            length: 1
+            name: "flags_0"
+            type: "uint8"
+            notes: "The whole first byte, for read-modify-write."
+          - offset: 1
+            length: 1
+            name: "flags_1"
+            type: "uint8"
+            notes: "Meaning unknown; write back what was read."
+          - offset: 2
+            length: 1
+            name: "flags_2"
+            type: "uint8"
+            notes: "Meaning unknown; write back what was read."
+        commands:
+          write_flags:
+            description: >-
+              Write all three flag bytes. Read ee2a first and change only the
+              bit you mean: child lock = byte 0 | 0x80 (on) or & 0x7F (off);
+              manual mode = byte 0 | 0x01, auto = byte 0 & 0xFE. Bytes 1 and 2
+              go back exactly as read.
+            verification: "reported"
+            advanced: true
+            advanced_reason: >-
+              Writes the whole flags block, including bits whose meaning
+              nobody has established; a write built from anything but a
+              fresh read can change them silently (rikroe's mode switch
+              clears the child lock this way). Recover by writing back the
+              three bytes you read before the change.
+            template: ["{flags_0}", "{flags_1}", "{flags_2}"]
+            parameters:
+              flags_0:
+                type: "uint8"
+                min: 0
+                max: 255
+                description: "Byte 0 as read, with bit 7 (child lock) and/or bit 0 (manual mode) changed."
+              flags_1:
+                type: "uint8"
+                min: 0
+                max: 255
+                description: "Byte 1 exactly as read."
+              flags_2:
+                type: "uint8"
+                min: 0
+                max: 255
+                description: "Byte 2 exactly as read."
+
+      - uuid: "47e9ee2b-47e9-11e4-8939-164230d1df67"
+        name: "Temperatures"
+        properties: ["read", "write"]
+        notes: >-
+          Seven bytes, temperatures as °C × 2. In every byte a client is not
+          changing, send 0x80: im-0 and rikroe both use it as "leave this
+          field as it is", and it is also the vendor app's value for an unset
+          field. The vendor app instead reads the block, edits its own fields
+          and writes all seven back — including a stale copy of the measured
+          temperature in byte 0, which the valve evidently ignores. Setpoint
+          codes: 15 (7.5 °C) = OFF, which closes the valve (frost protection
+          stays active per the manual); 57 (28.5 °C) = ON, valve fully open;
+          16-56 = 8.0-28.0 °C. The vendor app offers exactly OFF, 8.0-28.0
+          and ON for comfort and eco, -5.0..+5.0 °C for the offset, low /
+          medium / high window sensitivity and 10-60 minutes.
+        format:
+          - offset: 0
+            length: 1
+            name: "current_temp"
+            type: "int8"
+            scale: 0.5
+            unit: "C"
+            device_class: "temperature"
+            notes: "Measured at the valve head. im-0 reads it signed; the vendor app unsigned (identical for 0-63.5 °C). Always write 0x80 here."
+          - offset: 1
+            length: 1
+            name: "manual_temp"
+            type: "uint8"
+            scale: 0.5
+            unit: "C"
+            device_class: "temperature"
+            notes: >-
+              The setpoint the valve is regulating to right now (rikroe's and
+              Home Assistant's reading): in AUTO it follows comfort/eco per the
+              schedule, and a write overrides it until the next switch point,
+              like turning the wheel. 15 = OFF, 57 = ON. im-0 names it the
+              manual-mode temperature.
+          - offset: 2
+            length: 1
+            name: "eco_temp"
+            type: "uint8"
+            scale: 0.5
+            unit: "C"
+            device_class: "temperature"
+            notes: "Eco (energy-saving) setpoint, used outside schedule periods. im-0's target_temp_l. Factory 16 °C (32)."
+          - offset: 3
+            length: 1
+            name: "comfort_temp"
+            type: "uint8"
+            scale: 0.5
+            unit: "C"
+            device_class: "temperature"
+            notes: "Comfort setpoint, used inside schedule periods. im-0's target_temp_h. Factory 21 °C (42)."
+          - offset: 4
+            length: 1
+            name: "temp_offset"
+            type: "int8"
+            scale: 0.5
+            unit: "C"
+            notes: "Calibration offset, signed, -10..10 = -5.0..+5.0 °C. 0x80 (-128) = unset."
+          - offset: 5
+            length: 1
+            name: "window_open_sensitivity"
+            type: "uint8"
+            values:
+              4: "high"
+              8: "medium"
+              12: "low"
+            notes: >-
+              The codes the vendor app writes. The manual gives medium as the
+              factory setting, yet im-0's example unit reads 4; rikroe treats
+              0xF0 here as "window open", which may be a state flag. Only 4, 8
+              and 12 are documented as writable.
+          - offset: 6
+            length: 1
+            name: "window_open_minutes"
+            type: "uint8"
+            unit: "min"
+            notes: "How long the valve stays closed after detecting an open window: 10-60 in steps of 10 in the vendor app. Factory 10."
+        commands:
+          set_manual_temperature:
+            description: >-
+              Set the active setpoint (the same as turning the wheel):
+              80 <setpoint> 80 80 80 80 80. In AUTO the valve returns to the
+              schedule at the next switch point. OFF (15) closes the valve,
+              ON (57) opens it fully. EUROprog 2 never changes this byte (it
+              writes back what it read); this is how im-0 and Home Assistant
+              set the target. The range is the one the valve's own wheel and
+              the vendor app's comfort/eco pickers allow, nothing wider.
+            verification: "reported"
+            template: [0x80, "{setpoint}", 0x80, 0x80, 0x80, 0x80, 0x80]
+            parameters:
+              setpoint: *setpoint_param
+          set_comfort_temperature:
+            description: >-
+              Set the comfort setpoint: 80 80 80 <comfort> 80 80 80. Example:
+              21.0 °C -> 80 80 80 2a 80 80 80.
+            verification: "reported"
+            template: [0x80, 0x80, 0x80, "{comfort}", 0x80, 0x80, 0x80]
+            parameters:
+              comfort: *setpoint_param
+          set_eco_temperature:
+            description: "Set the eco setpoint: 80 80 <eco> 80 80 80 80."
+            verification: "reported"
+            template: [0x80, 0x80, "{eco}", 0x80, 0x80, 0x80, 0x80]
+            parameters:
+              eco: *setpoint_param
+          set_temperature_offset:
+            description: >-
+              Set the sensor calibration offset: 80 80 80 80 <offset> 80 80,
+              offset as signed °C × 2. Example: -1.5 °C -> raw -3 -> fd.
+            verification: "reported"
+            template: [0x80, 0x80, 0x80, 0x80, "{offset}", 0x80, 0x80]
+            parameters:
+              offset:
+                type: "int8"
+                min: -10
+                max: 10
+                scale: 0.5
+                unit: "C"
+                description: "-5.0..+5.0 °C in 0.5 °C steps, the vendor app's range."
+          set_window_open_sensitivity:
+            description: "Set open-window detection sensitivity: 80 80 80 80 80 <code> 80."
+            verification: "reported"
+            template: [0x80, 0x80, 0x80, 0x80, 0x80, "{sensitivity}", 0x80]
+            parameters:
+              sensitivity:
+                type: "uint8"
+                allowed: [4, 8, 12]
+                labels: ["high", "medium", "low"]
+          set_window_open_minutes:
+            description: "Set how long the valve stays closed after an open window: 80 80 80 80 80 80 <minutes>."
+            verification: "reported"
+            template: [0x80, 0x80, 0x80, 0x80, 0x80, 0x80, "{minutes}"]
+            parameters:
+              minutes:
+                type: "uint8"
+                allowed: [10, 20, 30, 40, 50, 60]
+                labels: ["10 min", "20 min", "30 min", "40 min", "50 min", "60 min"]
+                unit: "min"
+
+      - uuid: "47e9ee2c-47e9-11e4-8939-164230d1df67"
+        name: "Battery"
+        properties: ["read"]
+        notes: >-
+          One byte, percent. 0xFF (-1 signed) = not measured yet; the vendor
+          app re-reads after 1 s while it sees that. Home Assistant's
+          documentation warns the reading "may not be very accurate". The
+          vendor app's parser accepts only -1..99, so it silently ignores a
+          reading of exactly 100 and keeps showing the previous value.
+        format:
+          - offset: 0
+            length: 1
+            name: "battery"
+            type: "uint8"
+            unit: "%"
+            device_class: "battery"
+            notes: "0-100; 255 = unknown."
+
+      - uuid: "47e9ee2d-47e9-11e4-8939-164230d1df67"
+        name: "Second revision string"
+        properties: ["read"]
+        notes: >-
+          A string im-0 labels "firmware revision #2" (PIN required to read);
+          rikroe lists it as unknown. The vendor apps never touch it.
+
+      - uuid: "47e9ee2e-47e9-11e4-8939-164230d1df67"
+        name: "LCD timer (per im-0)"
+        properties: ["read", "write"]
+        notes: >-
+          Two bytes the vendor app reads and ignores. im-0 decodes them as an
+          LCD timer (preload, current) and writes [preload, 0x00]; what the
+          preload value controls, and its unit, are not established, so no
+          command is declared.
+        format:
+          - offset: 0
+            length: 1
+            name: "lcd_timer_preload"
+            type: "uint8"
+          - offset: 1
+            length: 1
+            name: "lcd_timer_current"
+            type: "uint8"
+
+      - uuid: "47e9ee30-47e9-11e4-8939-164230d1df67"
+        name: "PIN"
+        properties: ["write"]
+        notes: >-
+          The access gate. The first successful write in a connection
+          authenticates it; a further write while authenticated sets a new
+          PIN (the vendor app's "change PIN" and im-0's `set pin` both work
+          this way). Use write requests: the write status is the verdict.
+          Whether a wrong PIN produces an ATT error, a disconnect or both is
+          not established.
+        commands:
+          authenticate:
+            description: >-
+              Present the PIN, uint32 little-endian. Must be the first write
+              of every connection. PIN 0 -> 00 00 00 00; PIN 123456 ->
+              40 e2 01 00 (rikroe's test vectors).
+            verification: "reported"
+            template: ["{pin}"]
+            parameters:
+              pin:
+                type: "uint32"
+                endianness: "little"
+                min: 0
+                max: 999999
+                source: "credential:pin"
+                description: >-
+                  The valve's access PIN, 0-999999. Factory default 0 (the
+                  manual's "000 000"). If the owner changed it in EUROprog 2,
+                  or set a room PIN in ET Blue (which never uses 0), it is the
+                  number they chose there; it is not printed on the unit.
+          change_pin:
+            description: >-
+              Set a new PIN, uint32 little-endian, in a connection already
+              authenticated with the current one. Every other client must
+              then be given the new value.
+            verification: "reported"
+            advanced: true
+            advanced_reason: >-
+              Replaces the secret every later connection must present. A
+              mistyped or forgotten PIN locks every client out; the only
+              recourse is the valve's menu reset, and whether that restores
+              PIN 0 is not established. Write the new value down before
+              sending it.
+            template: ["{new_pin}"]
+            parameters:
+              new_pin:
+                type: "uint32"
+                endianness: "little"
+                min: 0
+                max: 999999
+                description: "The new PIN, at most six decimal digits (the vendor app's limit)."
+
+      - uuid: "47e9ee40-47e9-11e4-8939-164230d1df67"
+        name: "Firmware update channel"
+        properties: ["write", "notify"]
+        role: "bulk"
+        notes: >-
+          The vendor app's firmware-update channel (features[firmware_update];
+          protocol_details.firmware_update). Twenty-byte writes carry an
+          image; twenty-byte-or-shorter notifications carry the valve's flow
+          control. Described at role level only. A generic client must never
+          write here: the image is unsigned and an interrupted or malformed
+          transfer may leave the valve unusable.
+
+  - uuid: "0000180a-0000-1000-8000-00805f9b34fb"
+    name: "Device Information"
+    notes: >-
+      Standard Device Information strings, readable without the PIN (the
+      vendor app exempts the firmware and software revision strings from
+      its PIN gate, and im-0 reads all
+      four before authenticating). The parent service is assumed to be the
+      standard Device Information service
+      (0000180a-0000-1000-8000-00805f9b34fb); both the vendor app and im-0 find these
+      characteristics by UUID alone. The GAP device name
+      (00002a00-0000-1000-8000-00805f9b34fb) reads "Comet Blue" on im-0's
+      example unit.
+    characteristics:
+      - uuid: "00002a24-0000-1000-8000-00805f9b34fb"
+        name: "Model Number String"
+        properties: ["read"]
+        notes: "\"Comet Blue\" (im-0 matches it case-insensitively)."
+      - uuid: "00002a26-0000-1000-8000-00805f9b34fb"
+        name: "Firmware Revision String"
+        properties: ["read"]
+        notes: >-
+          Controller firmware revision: four letters and four digits on
+          im-0's example unit. The vendor app compares it as a string
+          against a reference revision to decide whether to delay the PIN
+          write, and against the downloadable image to decide whether to
+          offer an update.
+      - uuid: "00002a28-0000-1000-8000-00805f9b34fb"
+        name: "Software Revision String"
+        properties: ["read"]
+        notes: >-
+          Radio-module software revision. On im-0's example unit it is a
+          dotted version with a Sygonix suffix, so it may be the easiest
+          way to tell a rebadge apart after connecting (unconfirmed).
+      - uuid: "00002a29-0000-1000-8000-00805f9b34fb"
+        name: "Manufacturer Name String"
+        properties: ["read"]
+        notes: "\"eurotronic gmbh\" when lower-cased (im-0's discovery check)."
+
+features:
+  - type: "firmware_update"
+    dfu:
+      mechanisms: ["vendor_ble"]
+      transport: "ble"
+      image:
+        signing: "unsigned"
+        algorithm: "crc_only"
+        source: "vendor_cloud"
+        notes: >-
+          Two images, one for the radio module and one for the valve
+          controller, which EUROprog 2 downloads from the vendor's website
+          with a plain unauthenticated GET. Both URLs answered 404 on
+          2026-09-27 and no archived copy exists, so no image has been
+          examined. The only integrity check the app applies is a CRC per
+          block; the header carries no signature. The app's name for the radio
+          image points to Dialog's SUOTA lineage and so, by inference only, a
+          Dialog DA1458x radio; the protocol on ee40 is Eurotronic's own, not
+          Dialog's SUOTA GATT service.
+      enter:
+        how: "in_place"
+        notes: >-
+          From the client's side there is no separate entry command: the app
+          opens notifications on ee40 over the normal, PIN-authenticated
+          connection and starts the transfer there. Whether the valve reboots
+          into a loader at some point is not known.
+      dfu_mode:
+        notes: >-
+          No update-mode name, address or service is recorded.
+      recovery:
+        interrupted: "unknown"
+        notes: >-
+          The valve's notification codes include "restart" (the app starts
+          over from the header), which suggests an interrupted transfer can
+          be retried, but nothing is known about what an interrupted flash
+          leaves behind.
+      verification: "reported"
+      notes: >-
+        App-derived only (EUROprog 2's update screen). The app offers an
+        update only on units whose software revision is at or above a
+        minimum, and updates the radio image before the controller image.
+        ET Blue carries no update path. See protocol_details.firmware_update
+        for the role-level flow; it is flagged advanced there.
+
+entities:
+  - platform: "climate"
+    name: "Radiator Thermostat"
+    state_characteristic: "47e9ee2b-47e9-11e4-8939-164230d1df67"
+    command_characteristic: "47e9ee2b-47e9-11e4-8939-164230d1df67"
+    state_mapping:
+      current_temperature: "current_temp"
+      target_temperature: "manual_temp"
+    commands:
+      set_value: "set_manual_temperature"
+    min_temp: 8
+    max_temp: 28
+    temp_step: 0.5
+    precision: 0.5
+    notes: >-
+      Target is the live setpoint (ee2b byte 1). In AUTO a new target lasts
+      until the next schedule switch point. A target of 7.5 or 28.5 read back
+      is the OFF / ON code, not a temperature — see the Valve Off and Valve
+      Fully Open buttons. Requires the PIN write first.
+  - platform: "button"
+    name: "Valve Off"
+    commands:
+      press:
+        command: "set_manual_temperature"
+        values:
+          setpoint: 15
+    notes: "Setpoint OFF (code 15): closes the valve; the valve's own frost protection stays active (manual)."
+  - platform: "button"
+    name: "Valve Fully Open"
+    commands:
+      press:
+        command: "set_manual_temperature"
+        values:
+          setpoint: 57
+    notes: "Setpoint ON (code 57): valve fully open until the next schedule switch point in AUTO."
+  - platform: "number"
+    name: "Comfort Temperature"
+    device_class: "temperature"
+    unit: "C"
+    min: 8
+    max: 28
+    step: 0.5
+    state_characteristic: "47e9ee2b-47e9-11e4-8939-164230d1df67"
+    state_mapping:
+      value: "comfort_temp"
+    commands:
+      set_value: "set_comfort_temperature"
+    notes: "The OFF (15) and ON (57) codes are valid here too but are left off this slider; send them through the command directly."
+  - platform: "number"
+    name: "Eco Temperature"
+    device_class: "temperature"
+    unit: "C"
+    min: 8
+    max: 28
+    step: 0.5
+    state_characteristic: "47e9ee2b-47e9-11e4-8939-164230d1df67"
+    state_mapping:
+      value: "eco_temp"
+    commands:
+      set_value: "set_eco_temperature"
+  - platform: "number"
+    name: "Temperature Offset"
+    unit: "C"
+    min: -5
+    max: 5
+    step: 0.5
+    state_characteristic: "47e9ee2b-47e9-11e4-8939-164230d1df67"
+    state_mapping:
+      value: "temp_offset"
+    commands:
+      set_value: "set_temperature_offset"
+  - platform: "select"
+    name: "Open-Window Sensitivity"
+    state_characteristic: "47e9ee2b-47e9-11e4-8939-164230d1df67"
+    state_mapping:
+      value: "window_open_sensitivity"
+      options:
+        "4": "high"
+        "8": "medium"
+        "12": "low"
+    commands:
+      select_option: "set_window_open_sensitivity"
+  - platform: "number"
+    name: "Open-Window Close Time"
+    unit: "min"
+    min: 10
+    max: 60
+    step: 10
+    state_characteristic: "47e9ee2b-47e9-11e4-8939-164230d1df67"
+    state_mapping:
+      value: "window_open_minutes"
+    commands:
+      set_value: "set_window_open_minutes"
+  - platform: "sensor"
+    name: "Battery"
+    device_class: "battery"
+    unit: "%"
+    state_characteristic: "47e9ee2c-47e9-11e4-8939-164230d1df67"
+    state_mapping:
+      value: "battery"
+    notes: "255 = not measured yet; re-read after a second."
+  - platform: "binary_sensor"
+    name: "Child Lock"
+    state_characteristic: "47e9ee2a-47e9-11e4-8939-164230d1df67"
+    state_mapping:
+      value: "child_lock"
+      on_when: "nonzero"
+    notes: >-
+      Read-only here: changing it is a read-modify-write of ee2a (the
+      advanced write_flags command), which no single-role control can
+      express safely.
+  - platform: "binary_sensor"
+    name: "Manual Mode"
+    state_characteristic: "47e9ee2a-47e9-11e4-8939-164230d1df67"
+    state_mapping:
+      value: "manual_mode"
+      on_when: "nonzero"
+    notes: "On = MANU (no schedule), off = AUTO. rikroe's reading of ee2a byte 0 bit 0; switching it is write_flags."
+
+protocol_details:
+  uuid_base:
+    base: "47e9xxxx-47e9-11e4-8939-164230d1df67"
+    notes: >-
+      Every vendor UUID in this product family differs only in the four hex
+      digits after "47e9". The vendor app sorts a characteristic into a
+      product by those digits: below ee50 is Comet Blue, ee50-ef4f Progmatic
+      Blue, ef50 and above Progtime Blue.
+  sibling_devices:
+    notes: >-
+      Out of scope; listed only so a client that connects to the wrong
+      product can tell. They share the UUID base and the EUROprog 2 app, and
+      nothing else here applies to them.
+    progmatic_blue:
+      what: "Programming stick that loads schedules into Eurotronic valves through a wired port."
+      advertised_name: "Progmatic Blue"
+      characteristics: "47e9ef01-47e9-11e4-8939-164230d1df67 through 47e9ef41-47e9-11e4-8939-164230d1df67"
+    progtime_blue:
+      what: "Plug-in socket timer."
+      advertised_name: "Progtime Blue"
+      characteristics: "47e9ef51-47e9-11e4-8939-164230d1df67 through 47e9ef62-47e9-11e4-8939-164230d1df67"
+      notes: "ef52-ef58 are 16-byte day programs, ef59 a flags byte, and ef62 its PIN (the counterpart of ee30)."
+    genius_ble100:
+      what: "A second product ET Blue drives alongside Comet Blue; by its name another Eurotronic valve head, not examined."
+      notes: >-
+        ET Blue carries the same 47e9ee00 service and 47e9ee.. characteristic
+        UUIDs for both products, so it probably shares this table. Not
+        verified: ET Blue's Dart code was not decompiled, only its strings read.
+    comet_zero_blue:
+      notes: >-
+        Not in EUROprog 2's or ET Blue's device lists. Do not assume it speaks
+        this protocol.
+  encoding_conventions:
+    temperature: "One byte, °C × 2 (21.0 °C = 42 = 0x2a). Setpoints: 15 = OFF, 16-56 = 8.0-28.0 °C, 57 = ON."
+    unchanged_filler: "0x80 in a temperature-block or holiday byte leaves that field as it is (im-0, rikroe). Not valid for the flags byte, where 0x80 is the child lock."
+    schedule_time: "One byte, minutes since midnight / 10 (0-144); 0xFF = unused pair."
+    multi_byte: "Only the PIN is wider than one byte: uint32 little-endian."
+  pin_gate:
+    characteristic: "47e9ee30-47e9-11e4-8939-164230d1df67"
+    encoding: "uint32 little-endian, 0-999999"
+    factory_default: 0
+    exempt_from_gate: >-
+      The vendor app sends writes to ee30 (and Progtime Blue's ef62) and
+      reads of the firmware and software revision strings
+      (00002a26-0000-1000-8000-00805f9b34fb, 00002a28-0000-1000-8000-00805f9b34fb)
+      before authenticating; it queues everything
+      else until the PIN write reports success. im-0 marks every vendor
+      characteristic except ee30 as needing the PIN for reads too.
+    wrong_pin: >-
+      The vendor app treats any non-zero write status on ee30 as a wrong PIN
+      and prompts again. ET Blue has a dedicated "unknown PIN" state for a
+      valve that refuses 0 and a separate refusal of 0 as a room PIN.
+  firmware_update:
+    advanced: true
+    advanced_reason: >-
+      Writes a new firmware image into the valve over ee40. The image is
+      unsigned and checked only by a per-block CRC, the vendor's image
+      downloads are gone, and nothing is known about recovery from an
+      interrupted or malformed transfer: the likely outcome is a valve that
+      no longer regulates and cannot be reflashed without the vendor. There
+      is no recovery path to offer, so this spec deliberately stops at role
+      level.
+    channel: "47e9ee40-47e9-11e4-8939-164230d1df67 (write + notify)"
+    flow: >-
+      Role level only. The transfer runs over ee40 on the normal,
+      PIN-authenticated connection, with notifications open. It opens with
+      one 20-byte header that names the image type and its length. The
+      image follows in 20-byte blocks, each carrying a 16-bit block number,
+      16 image bytes and a CRC-16 over the block's first 18 bytes. The
+      valve paces the transfer with notifications that carry a block
+      number and a status code (status_codes). The vendor app sends the
+      radio image before the controller image.
+    status_codes:
+      "0xaa": "Header accepted: send the first block."
+      "0x01": "Block received: send the next one."
+      "0xbb": "Busy: the vendor app waits 3 s and resends."
+      "0x02": "Restart: the vendor app begins again with the header."
+    notes: >-
+      Recorded so that an owner seeing these notifications knows what they
+      are, and so a replacement client knows to leave ee40 alone. The header
+      bytes, the image names and the upload sequence in full are
+      deliberately not documented here.
+  test_vectors:
+    notes: >-
+      Constructed from the layouts above, not captured. The temperature
+      read reproduces the decoded values im-0's README prints for its unit.
+    pin_0: "00 00 00 00"
+    pin_123456: "40 e2 01 00"
+    set_datetime_2026_09_28_14_05: "05 0e 1c 09 1a"
+    schedule_factory_default_07_00_to_22_00: "2a 84 ff ff ff ff ff ff"
+    set_comfort_21_0: "80 80 80 2a 80 80 80"
+    set_manual_off: "80 0f 80 80 80 80 80"
+    set_offset_minus_1_5: "80 80 80 80 fd 80 80"
+    temperatures_read: "2e 20 20 2a 00 04 0a  (current 23.0 °C, setpoint 16.0, eco 16.0, comfort 21.0, offset 0.0, sensitivity 4 = high, 10 min)"
+    holiday_2026_12_24_18h_to_2027_01_02_12h_at_16_5: "12 18 0c 1a 0c 02 01 1b 21"
+
+evidence:
+  app_static_analysis: >-
+    EUROprog 2 (2026-09-27): the scanner's exact-name filter; the per-UUID
+    write encoders and read parsers for ee01-ee40 and the two Device
+    Information revision strings; the PIN
+    gate that holds every other operation until ee30's write succeeds; the
+    PIN entry limits (at most six digits, 0-999999); the pickers that bound
+    every temperature, offset and window value; the child-lock bit; the
+    battery parser's -1..99 window; the post-PIN connect sequence; and the
+    firmware-update screen (header, block and status handling, download
+    URLs). ET Blue (Flutter): only its string table was read — the two
+    product names, the 47e9ee UUIDs, and the PIN rules (per-room PIN, 0
+    refused).
+  open_source_cross_check: >-
+    im-0/cometblue and rikroe's library agree with the app on every layout
+    both cover, and add what the apps never do: the 0x80 unchanged filler,
+    PIN-gated reads, ee2d/ee2e, the manual-setpoint write, the manual-mode
+    bit, holiday-in-progress markers, advertised-service-UUID discovery,
+    and (rikroe) that writes take effect when the link closes.
+  documentation_review: >-
+    Eurotronic's English manual (2015/06): factory PIN "000 000", menu
+    reset, factory temperatures and schedule, open-window options (10-60
+    min, three sensitivities), the child-lock button chord, and the
+    six-profile vacation claim that the eight GATT slots contradict. The
+    2018 German manual's vendor URL is dead. No FCC filing exists; the
+    product is EU-only.
+  open_questions: >-
+    Everything under remaining_unknowns. The first things to settle on
+    hardware are the real GATT table and properties (an nRF Connect dump)
+    and what a wrong PIN looks like on the air.
+  artifacts:
+    - type: "static_analysis"
+      artifact: "EUROprog 2, com.delan.app.germanybluetooth 11.09.2026 (versionCode 20)"
+      obtained_via: "third-party APK mirror, 2026-09"
+      description: >-
+        Native Java, R8-obfuscated; decompiled. Source of the byte layouts,
+        PIN gate, connect sequence and update flow. No cloud backend; its
+        only HTTP use is the (now dead) firmware download.
+    - type: "static_analysis"
+      artifact: "ET Blue, org.eurotronic.etblue 1.0.2 (versionCode 3)"
+      obtained_via: "third-party APK mirror, 2026-09"
+      description: >-
+        Flutter; strings only (no Dart decompile). Established the Comet
+        Blue / Genius BLE100 pairing, the shared 47e9ee UUIDs and the PIN
+        rules. Negative finding: no firmware-update path and no network
+        backend beyond help pages.
+    - type: "public_implementation"
+      artifact: "im-0/cometblue (commit 4d9d65c, 2016-03-28)"
+      url: "https://github.com/im-0/cometblue"
+    - type: "public_implementation"
+      artifact: "rikroe/eurotronic-cometblue (commit e30509f) and rikroe/cometblue-custom-component (commit 79d99be)"
+      url: "https://github.com/rikroe/eurotronic-cometblue"
+    - type: "vendor_documentation"
+      artifact: "Comet Blue user manual and guarantee, English, Stand 2015/06"
+      obtained_via: "Internet Archive copy of the vendor download"
+
+remaining_unknowns:
+  - >-
+    The real GATT table: handles, characteristic properties (those here are
+    inferred from use), whether the Device Information characteristics sit
+    in a standard Device Information service
+    (0000180a-0000-1000-8000-00805f9b34fb), and whether ee40 needs the PIN for its
+    notifications as well as its writes.
+  - >-
+    What a wrong PIN looks like: an ATT error on the write, a disconnect,
+    or both — and whether repeated wrong PINs lock the valve out.
+  - >-
+    Whether the menu "All reset" restores PIN 0. It decides whether a
+    second-hand unit with an unknown PIN is recoverable at all.
+  - >-
+    The flags block (ee2a) beyond byte 0 bit 7 (child lock, vendor app) and
+    bit 0 (manual mode, rikroe only).
+  - >-
+    What the valve does with a temperature-block byte outside 15-57 that is
+    not 0x80 — 0x00 for one, which rikroe's library writes into the setpoint
+    byte by mistake and which a code comment in rikroe's Home Assistant
+    component says turns the valve OFF.
+  - >-
+    The advertised names of the Sygonix HT100 BT, Xavax and Silvercrest
+    RT2000BT rebadges (and whether every unit advertises the 47e9ee00
+    service UUID, or only some firmware).
+  - >-
+    Whether Genius BLE100 shares this table (likely: ET Blue uses the same
+    47e9ee UUIDs for it). The Comet Zero Blue is in neither app and must not
+    be assumed compatible.
+  - >-
+    The meaning and unit of ee2e (im-0's "LCD timer") and the content of
+    ee2d, and why im-0's example unit reports open-window sensitivity 4
+    when the manual calls medium (8 in the app's coding) the default.
+  - >-
+    Whether written values really take effect only when the link closes
+    (rikroe's README says so) or at once, and whether that holds for every
+    characteristic or only the temperature block.
+  - >-
+    Whether one central at a time is enforced (the vendor apps hold one
+    connection per valve and serialise their operations).
+  - >-
+    Everything about the firmware images: none could be obtained, so the
+    update path's behaviour on the valve side, including recovery, is
+    unknown.
+
+helpful_urls:
+  - title: "Eurotronic Comet Blue user manual (English, 2015/06), archived"
+    url: "https://web.archive.org/web/20160221215014/http://www.eurotronic.org/fileadmin/user_upload/eurotronic.org/Download-BAL-WB/Comet_Blue/Comet-Blue-BAL-en-A4.pdf"
+    kind: "manual"
+    description: >-
+      Internet Archive copy of the vendor's English manual for the Comet
+      Blue itself: installation and adaptation, the factory PIN "000 000",
+      the menu "All reset", the child-lock chord and the open-window
+      options this spec relies on.
+  - title: "Eurotronic Comet Blue product flyer (English), archived"
+    url: "https://web.archive.org/web/20150329082331/http://www.eurotronic.org/fileadmin/user_upload/eurotronic.org/Download-BAL-WB/Comet_Blue/CometBlue-WB-en.pdf"
+    kind: "other"
+    description: "The Comet Blue's one-page product sheet (Bluetooth 4.0, eight switch points a day, open-window detection)."
+  - title: "Eurotronic downloads"
+    url: "https://eurotronic.org/downloads/"
+    kind: "vendor_support"
+    description: "The vendor's current download page for manuals and declarations across its valve range, including the Comet Blue."
+  - title: "im-0/cometblue"
+    url: "https://github.com/im-0/cometblue"
+    kind: "implementation"
+    description: "Python library and CLI (GPL-3.0). The first public map of this GATT table, the source of the 0x80 filler and the PIN-gated reads."
+  - title: "rikroe/eurotronic-cometblue"
+    url: "https://github.com/rikroe/eurotronic-cometblue"
+    kind: "implementation"
+    description: "bleak-based library (MIT) behind Home Assistant's integration; the rebadge list, the manual-mode bit and the holiday markers."
+  - title: "rikroe/cometblue-custom-component"
+    url: "https://github.com/rikroe/cometblue-custom-component"
+    kind: "implementation"
+    description: "The Home Assistant custom component that became the core integration; its manifest matches the advertised 47e9ee00 service UUID."
+  - title: "Home Assistant: Eurotronic Comet Blue integration"
+    url: "https://www.home-assistant.io/integrations/eurotronic_cometblue/"
+    kind: "implementation"
+    description: "Supported models, the 000000 default PIN, and the known limitations (schedule resumes at the next switch point, holiday mode ends only on the valve)."
+  - title: "EUROprog 2 on Google Play"
+    url: "https://play.google.com/store/apps/details?id=com.delan.app.germanybluetooth"
+    kind: "other"
+    description: "The vendor app for Comet Blue (and Progmatic / Progtime Blue) that this spec's static analysis read."
+  - title: "ET Blue on Google Play"
+    url: "https://play.google.com/store/apps/details?id=org.eurotronic.etblue"
+    kind: "other"
+    description: "The vendor's newer app for Comet Blue and Genius BLE100; it sets per-room PINs and refuses PIN 0."

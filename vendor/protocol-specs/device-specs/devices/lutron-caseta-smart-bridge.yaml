@@ -208,9 +208,54 @@ device:
       means holding the button again; there is no way to re-download it.
 # Vendor-specific protocol detail this schema does not model. Namespaced so the
 # top level can stay closed; nothing here is a declared contract.
+scheduling:
+  supported: true
+  mechanism: "on_device_rules"
+  confidence: "medium"
+  runs_without_a_client: true
+  summary: >
+    LEAP timeclocks and their events are stored on the bridge and execute
+    without the phone. Read /timeclock and /timeclock/{id}/timeclockevent;
+    create, update and delete events with the corresponding CommuniqueTypes.
+    Enable/disable through the event's status resource rather than deleting
+    it, and test through the event's commandprocessor with
+    TestThisTimeclockEvent.
+  device_clock_dependency: >
+    The controller evaluates its own schedule and timezone. Local operation
+    continues when the Internet is lost, but WAN-off firing and DST behavior
+    still need validation for each controller.
+  storage:
+    event_model:
+      Parent: "Timeclock href"
+      ProgrammingModel: "Programmed action href"
+      ScheduleType: "DayOfWeek, ByDate, Daily or None in the current enum"
+      BeginDate: "Start date for a dated rule"
+      EndDate: "Optional end date"
+      TimeOfDay: "Hour and Minute"
+      weekdays: "Sunday-through-Saturday booleans for weekly rules"
+      AstronomicEventType: "Optional solar event and signed offset"
+      exceptions: "Recurring/nonrecurring execution and exception date lists"
+    astronomic_offset: "Normally ±4 hours; ±12 only with TwelveHourMaxAstronomicOffset"
+    notes: "Use ByDate for a specific date. Do not assume every recovered schedule route exists on every processor."
+  transfer:
+    steps:
+      - action: "Read the controller's existing timeclocks and an app-created event before writing."
+        actor: "client"
+      - action: "Create an event with CreateRequest /timeclock/{id}/timeclockevent and read back its assigned href."
+        actor: "client"
+      - action: "Update only that event; enable it and the containing timeclock separately, then test it with TestThisTimeclockEvent."
+        actor: "client"
+  limitations:
+    - "LEAP and LIP integration IDs need not match; this Caseta non-Pro spec has no LIP fallback."
+    - "Scene, cover and button capabilities vary by controller. Do not invent a position for OpenCloseStop zones."
+    - "The vendor app's current enum uses GoToDimmedLevel/GoToSwitchedLevel; third-party GoToLevel is a compatibility command, not proof of a generic SetLevel API."
+  open_questions:
+    - "Read-back of a newly created third-party event, WAN-off execution and DST/solar-offset behavior on this bridge."
+  verification: "reported"
+
 protocol_details:
   leap_protocol:
-    transport: "TLS JSON/WebSocket"
+    transport: "Direct TLS socket with newline-delimited JSON; not ordinary HTTP or a required WebSocket handshake"
     port: 8081
     deprecated_services:
       lap:

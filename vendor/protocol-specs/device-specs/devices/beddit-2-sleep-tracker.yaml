@@ -1,0 +1,1013 @@
+# Beddit Sleep Tracker, Bluetooth Classic generation — Device Specification
+# Status: Spec Available. Everything below comes from static analysis of the
+#         last Android app (2.3.12) plus public product history. There is no
+#         capture, no FCC filing and no manual behind it, and nobody on this
+#         project has driven a sensor from it. Every protocol fact is
+#         verification: reported. Byte layouts, the CRC variant and the test
+#         vectors were re-checked against the decompile on 2026-09-28.
+# Scope: the Bluetooth Classic (BR/EDR, SPP) sensor the app calls hardware
+#         type "BT2". The file name says "Beddit 2"; the evidence points at
+#         the first-generation Beddit (2013, later sold as "Beddit Classic")
+#         instead, see device.notes. The BLE generations (app types "BTLE"
+#         and "BTLEv3", most likely Beddit Smart 2.0 and Beddit 3 / 3.5) are
+#         the separate beddit-sleep-monitor spec. The dead vendor cloud is
+#         recorded only as a dependency.
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+
+device:
+  name: "Beddit Sleep Tracker (Bluetooth Classic generation)"
+  manufacturer: "Beddit (Apple)"
+  manufacturer_status: "shutdown"
+  openness:
+    status: "undocumented"
+    reverse_engineered: true
+  testing:
+    status: untested
+    notes: >
+      No hardware and no capture. Every fact comes from a static read of the
+      vendor's Android app, so nothing here has been checked against a
+      sensor.
+  protocol: "bluetooth_classic"
+  transport: "rfcomm"
+  type: "sleep-sensor"
+  category: "health"
+  category_hierarchy: ["measurement", "health", "sleep"]
+  notes: >
+    Beddit made thin under-mattress ballistocardiography (BCG) strips. The
+    strip picks up the tiny mechanical forces that the heartbeat, breathing
+    and body movement put into the bed. Beddit was founded in Finland; Apple
+    bought it in May 2017, shut Beddit Cloud down on 2018-11-15, stopped
+    selling the hardware in 2022 and pulled the apps in 2024. This spec covers
+    the generation the vendor app reaches over Bluetooth Classic. The app
+    opens an insecure RFCOMM socket to the Serial Port Profile, runs a short
+    ASCII line handshake (OK, INFO), sends START 5 and then reads a stream of
+    CRC-32-checked binary frames of raw 16-bit force samples. While the
+    stream runs it sends CONT about every ten frames, and it ends a
+    recording with STOP.
+
+    WHICH PRODUCT THIS IS. The app never names a product generation. It
+    labels this sensor with the hardware type "BT2" and sends that string to
+    the vendor's replacement service. The research this spec started from
+    read "BT2" as "Beddit 2 (Smart)", and the file name keeps that label.
+    Public sources point elsewhere. Beddit Smart, which retail listings
+    titled "Beddit 2.0 Smart Sleep Tracker" (2015), connected over Bluetooth
+    Smart, which is BLE (Sleep Review, 2015-05). Beddit's own 2015 Android
+    announcement names two supported products, Beddit Smart and Beddit
+    Classic. In October 2015 a commenter who said he worked for Beddit in
+    the US described the two as "Classic (the original) and Smart", with
+    Bluetooth Smart and automatic tracking only on the Smart; the Classic
+    needed the app opened and a recording started by hand (9to5Mac, reader
+    comment). The app has exactly two pre-Beddit-3 hardware types: "BT2",
+    reached over Classic SPP, and "BTLE", the GATT service
+    f82fd8a8-329d-4c44-a178-e82f91ec9fe6 in the beddit-sleep-monitor spec.
+    Beddit 3's layout is "BTLEv3". Read side by side, the three labels name
+    radios, not products: "BT2" most likely means Bluetooth 2.x, not
+    "Beddit 2". So the most likely owner of this protocol is the
+    first-generation Beddit (2013, later sold as "Beddit Classic"), which
+    Wolfram's device catalogue lists as Bluetooth 2.0. Beddit Smart 2.0 is
+    then the app's "BTLE" type. Two
+    more facts fit that reading: the app's server-side replacement check
+    covers "BT2" and "BTLE" and exempts only Beddit 3, and in April 2017
+    Beddit told owners of every pre-Beddit-3 sensor that it would stop
+    working with the app and offered a free Beddit 3 in exchange (Wareable).
+    One fact strains the reading: the first generation shipped with an iPhone app in 2013, and
+    the same comment says the Classic still worked with the 2015 iOS app,
+    yet an SPP-only sensor reaches an iPhone only through Apple's MFi
+    accessory channel (see host_compatibility). The mapping is a hypothesis,
+    and a live inquiry of a labelled unit would settle it. See
+    `evidence.open_questions`.
+
+    WHAT THE SENSOR SENDS. Only the raw waveform. INFO names the channels,
+    and the app keeps only the one called "normal", which it renames "force".
+    It hands that channel, as unsigned 16-bit samples, to a native
+    signal-processing library bundled in the app. That library computes sleep
+    stages, heart rate, respiration and the sleep score on the phone. The app
+    has no command to download a stored night or derived metrics from the
+    sensor: it streams live for the whole night. So a client built from this spec
+    gets a raw BCG force signal, and heart rate or sleep staging needs that
+    analysis reimplemented. Not a medical device: treat anything derived from
+    the signal as wellness data.
+
+    Evidence base: static analysis of the vendor Android app
+    com.beddit.beddit 2.3.12 (versionCode 149), 2026-08/09. Covered: the
+    scanner, the Classic session state machine, the socket wrapper, and the
+    sensor-replacement check that runs after each connection. Byte layouts
+    were checked against the disassembled bytecode where the decompiler's
+    output was ambiguous (the payload-length field). All reported, none
+    confirmed.
+  safety_advisory:
+    severity: "warning"
+    summary: >
+      Raw sleep-sensor data and any metrics derived from it are wellness
+      information, not a diagnosis or a basis for treatment.
+    detail: >
+      This unverified spec exposes a raw ballistocardiography force waveform,
+      not clinically validated heart-rate, respiration or sleep-stage
+      measurements. Do not use it to detect or rule out a medical condition
+      or to change medication or treatment. Keep the sensor and its cable
+      positioned according to the manufacturer's instructions, and do not
+      start or stop a recording while someone is adjusting the bed.
+    acknowledge_required: true
+
+  identification:
+    mac_prefixes:
+      - prefix: "00:07:80"
+        confidence: "low"
+        notes: >
+          Bluegiga Technologies, a Bluetooth module vendor, so the block
+          covers every product built on a Bluegiga module, not just Beddit.
+          The app uses the prefix only as a tie-breaker. When Android cannot
+          say whether a found device is Classic or LE, an address in this
+          block is treated as a Classic Beddit and anything else as a BLE
+          one. That rule tells us the Classic sensor carries a Bluegiga module
+          and a Bluegiga public address. It does not tell us which module.
+    notes: >
+      No name prefix here, on purpose. This block is what a BLE scan matcher
+      reads, and the BLE Beddit strips (the beddit-sleep-monitor spec)
+      advertise names with the same "beddit" prefix, so a prefix here would
+      offer this Classic spec for every BLE Beddit in range. The inquiry name
+      matcher lives in discovery.methods (bt_classic_inquiry), where only a
+      Classic inquiry reads it. The app accepts any device whose name starts
+      with "beddit" in any case. Nobody has recorded the real inquiry name. The app's
+      setup tip says a household with several Beddits should read the
+      "device number" on the back of each strip to tell them apart, which
+      suggests the name carries a per-unit number after the brand. That is
+      unconfirmed. The BLE generations share the same prefix, and the
+      radio, not the name, is what tells them apart: this sensor answers a
+      Classic inquiry and never appears in a BLE scan.
+  discovery:
+    methods:
+      - type: "bt_classic_inquiry"
+        bt_classic:
+          name:
+            match: "regex"
+            value: "(?i)^beddit"
+          requires_discoverable_mode: false
+        verification: "reported"
+        notes: >
+          The app's scanner runs a BR/EDR inquiry (on Android 4.3 and later
+          it first runs a 4 s BLE scan) and keeps every result whose name
+          starts with "beddit", compared case-insensitively. A device with
+          no name is dropped. The SPP UUID is deliberately not listed as a
+          matcher, because matchers are OR-combined and SPP alone matches
+          every serial module. The discoverable-mode answer comes from the
+          app's setup text: it asks the user only to plug the adapter in
+          and keep the phone nearby, with no button and no pairing window,
+          which suggests the strip is discoverable whenever it has power.
+          Unconfirmed. After setup the app never scans again: it saves the
+          address and reconnects to it directly.
+    identity:
+      stable_keys: ["address"]
+      display: "local_name"
+      notes: >
+        The app uses the Bluetooth address as the sensor's identity. The
+        replacement service receives it as the sensor id, with colons
+        removed. A public Bluegiga address does not rotate.
+
+  setup:
+    required: false
+    confidence: "low"
+    notes: >
+      Nothing is provisioned. The sensor has no Wi-Fi, no account binding
+      held on the device, and no bond the app creates. In the vendor app,
+      setup is just a first connection: find the strip, open the socket, run
+      OK and INFO to read its channels, sample rate and version, save the
+      address, and close. Placement and power come from the app's own
+      instructions, which say to put the strip on the bed under the sheet
+      and plug its power adapter into the wall.
+    methods:
+      - type: "none"
+        name: "Lay the strip, power it, connect (no pairing)"
+        role: "primary"
+        verified: false
+        description: >
+          Classic device reached over an insecure RFCOMM socket: no PIN, no
+          OS pairing, nothing to provision. This mirrors the vendor app's
+          first-run connection, which ends after INFO without streaming.
+        steps:
+          - action: "Lay the sensor strip on the bed under the bottom sheet and plug its power adapter into a wall socket."
+            actor: "user"
+            notes: >
+              This paraphrases the app's setup text, which is shared by
+              every generation the app drives and says nothing specific to
+              this one. Where on the mattress the strip should sit is not
+              stated in the app and is not recorded here.
+          - action: "Run a Bluetooth Classic inquiry and pick the device whose name starts with 'beddit' in any case."
+            actor: "client"
+            expect: "One result per powered strip. The name probably carries the number printed on the back of the strip (unconfirmed)."
+          - action: "Open an insecure RFCOMM socket to SPP 00001101-0000-1000-8000-00805f9b34fb. If that fails, wait about 2 s and open an insecure socket straight to RFCOMM channel 1."
+            actor: "client"
+            notes: "No OS pairing first. Open the socket insecure, as the vendor app does."
+          - action: "Send the OK handshake line and wait for the same line back."
+            actor: "client"
+            request:
+              protocol: "rfcomm"
+              command: "handshake_ok"
+            expect: "The line OK within 5 s."
+          - action: "Send INFO, then save the address, the channel list, the sample rate and the version."
+            actor: "client"
+            request:
+              protocol: "rfcomm"
+              command: "query_info"
+            expect: "One line starting with INFO that carries CHANNELS and SAMPLERATE."
+          - action: "Close the socket, or go straight on to start_streaming."
+            actor: "client"
+            notes: >
+              The vendor app closes here during setup without sending STOP,
+              because streaming never started.
+    factory_reset:
+      applicable: "unknown"
+      confidence: "low"
+      effect: >
+        No reset is known, and no state is known that one would clear.
+      description: >
+        The app has no reset command. It writes nothing to the sensor except
+        the five session lines, and it never bonds, so the sensor holds
+        nothing the app gave it. Whether the strip has a button at all is not
+        recorded. For a wedged sensor, the only recovery the app's messages
+        imply is to unplug the power adapter and plug it back in. That is a
+        power cycle, not a reset.
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        A new phone or client just connects. Nothing is bound to the old one,
+        because the app neither pairs nor sends any credential. The only
+        obstacle is a client that still holds the socket (see
+        `pairing.exclusivity`).
+    credentials:
+      wifi_passphrase_protection: "not_applicable"
+      stored_on_device: []
+      issued_to_client: []
+      notes: >
+        No credential exists on the link. Anyone within Bluetooth range of a
+        powered strip can open the socket and read the raw signal, and that
+        signal carries the sleeper's heartbeat and breathing.
+
+  pairing:
+    required: false
+    confidence: "low"
+    security_mode: "none"
+    bonding: "none"
+    exclusivity:
+      single_connection: "unknown"
+      recovery: >
+        Close the vendor app, which holds the socket for the whole night
+        while recording. If the strip still refuses, unplug its power adapter
+        for a few seconds.
+      notes: >
+        Serial-port modules usually carry one SPP link at a time, so a second
+        client while the app is recording will most likely fail. Nobody has
+        tested it.
+    enter_pairing_mode:
+      required: false
+      notes: >
+        The app's setup names no button and no pairing window. It asks only
+        for power and proximity (reported, from the app's setup text).
+    notes: >
+      The app opens the socket insecure and has no code path that bonds,
+      sets a PIN, or reacts to a pairing request. It never tells the user to
+      pair in the OS settings either. A strip whose module demanded
+      authentication would make Android show a PIN dialog that the app's
+      instructions never mention, so the firmware almost certainly accepts an
+      unauthenticated link. That is the basis for `required: false` and
+      `security_mode: none`. `bonding: none` follows the catalogue's rule for
+      a device whose only profile is opened insecure: the app never creates
+      a bond, and on a Bluetooth 2.0 module (the generation Wolfram lists) an
+      insecure link stores nothing. The one doubt: if the module is 2.1 or
+      later with Secure Simple Pairing, the phone's stack may run Just Works
+      on its own and keep a key. That would not change what a client does.
+      Whether the module needs a fixed legacy PIN is unconfirmed; a capture or
+      one connection attempt from Linux would answer it.
+  host_compatibility:
+    - stack: "corebluetooth"
+      link: "br_edr"
+      status: "incompatible"
+      symptom: "no_transport"
+      cause:
+        missing_api: "rfcomm"
+      workaround: "none_known"
+      verification: "reported"
+      basis: >
+        Static analysis of the vendor Android app: it reaches this sensor only
+        through an RFCOMM socket to SPP and never looks for a BLE service on
+        it, and CoreBluetooth has no RFCOMM API. One thing weakens it: the
+        first-generation Beddit shipped with an iPhone app in 2013 (Cult of
+        Mac, 2013-08-12), and a Beddit employee wrote in 2015 that the
+        Classic still worked with the iOS app of the day (9to5Mac, reader
+        comment). If that generation is this sensor, the iPhone reached it
+        some other way. Nobody has analysed that app.
+      notes: >
+        The strip never shows up to an iPhone or iPad app built on
+        CoreBluetooth, and no socket to it can be opened. The only Classic
+        data route iOS gives third parties is Apple's MFi accessory channel
+        (iAP over the ExternalAccessory framework). It needs an
+        authentication chip in the accessory and an app Apple has approved
+        for that accessory's protocol. If the 2013 iPhone app used it,
+        `workaround` would be `vendor_mfi`, but no iAP profile is recorded
+        for this sensor and that app is long gone from the App Store. macOS
+        is a different case: IOBluetooth exposes RFCOMM. That has not been
+        tried.
+    - stack: "android"
+      status: "compatible"
+      verification: "reported"
+      basis: >
+        The vendor's own Android app, which supported phones back to Android
+        4.0 on this path: an insecure RFCOMM socket by the SPP UUID, then
+        channel 1 as a fallback.
+      notes: >
+        Android's own device-type flag decides which path the app takes.
+        Classic and dual-mode reports go to the SPP session. An unknown type
+        goes to SPP only when the address is in the Bluegiga block 00:07:80.
+        See protocol_details.app_behaviour.
+    - stack: "bluez"
+      status: "compatible"
+      verification: "hypothesis"
+      basis: >
+        Inferred, not run. Nothing in the vendor app's path is specific to
+        Android: an RFCOMM socket opened insecure, with no bond and no PIN,
+        which is what a BlueZ RFCOMM socket does at its default low security
+        level.
+      notes: >
+        `rfcomm connect 0 aa:bb:cc:dd:ee:ff 1`, or an AF_BLUETOOTH /
+        BTPROTO_RFCOMM socket from Python (a sketch is on the docs page). If
+        the module turns out to demand a legacy PIN, BlueZ needs a pairing
+        agent first, and this verdict becomes `degraded` with
+        `workaround: host_config`.
+
+bluetooth_classic:
+  dual_mode: false
+  ble_role: "none"
+  profiles:
+    - profile: "spp"
+      uuid: "00001101-0000-1000-8000-00805f9b34fb"
+      channel: 1
+      role: "control"
+      secure: false
+      verification: "reported"
+      notes: >
+        The app first opens an insecure socket by the SPP UUID, letting SDP
+        resolve the channel. If that fails it waits 2000 ms and opens an
+        insecure socket straight to RFCOMM channel 1. The fallback is why
+        channel 1 is stated here: the app's authors expected SPP to sit
+        there. That is also the stock default for Bluegiga serial firmware.
+        SDP has not been browsed. On Linux: `rfcomm connect 0
+        aa:bb:cc:dd:ee:ff 1`, or open an RFCOMM socket from Python.
+  serial:
+    profile_uuid: "00001101-0000-1000-8000-00805f9b34fb"
+    encoding: "binary"
+    framing:
+      length_prefix: true
+      length_offset: 4
+      length_size: 2
+      length_endianness: "little"
+      length_adjust: 10
+      checksum: "crc32"
+      resync: "reconnect"
+      max_frame_bytes: 65010
+      notes: >
+        Resync: there is none in the app. It treats any bad frame as fatal and
+        ends the session: a counter that is not exactly the previous one
+        plus 1, a length over 65000 bytes, or a CRC mismatch. A client
+        should do the same: close the socket, reconnect and run the
+        handshake again. The frame counter starts at 0 again after the new
+        START.
+        Two phases on one socket. First comes an ASCII handshake: each line
+        is ASCII ending in a single LF (0x0a), and the host writes a line and
+        reads one line back (see `commands`). After START 5, the sensor
+        sends only binary frames, with no ASCII acknowledgement in between.
+        Each frame is a uint32 LE counter, a uint16 LE payload length L, L
+        payload bytes of interleaved 16-bit little-endian samples, then a
+        uint32 LE CRC-32 over the 6 header bytes plus the payload. The CRC is
+        the standard zlib / IEEE 802.3 one (CRC-32/ISO-HDLC: reflected
+        polynomial 0xedb88320, init 0xffffffff, final XOR 0xffffffff). The
+        app checks it with the platform's standard CRC-32, so any frame it
+        accepted used exactly that variant. max_frame_bytes is the app's own
+        bound (6 + 65000 + 4). Because of an app bug, the effective limit in
+        the vendor app is a 32767-byte payload; see
+        protocol_details.app_defects. Field-by-field layout and test vectors
+        are in protocol_details.stream_frame.
+    response_timeout_ms: 5000
+    correlation: "in_order"
+    max_in_flight: 1
+    unsolicited:
+      - name: "sample_frame"
+        prefix: "?? ?? ?? ??"
+        format:
+          - offset: 0
+            length: 4
+            name: "counter"
+            type: "uint32"
+            endianness: "little"
+            notes: "0 for the first frame after START, then up by exactly 1 per frame."
+          - offset: 4
+            length: 2
+            name: "payload_length"
+            type: "uint16"
+            endianness: "little"
+            unit: "bytes"
+            notes: "Payload bytes L. The CRC-32 follows at offset 6 + L; the whole frame is L + 10 bytes."
+        notes: >
+          Only after start_streaming, and then continuously until STOP or a
+          disconnect. The frame length comes from the length field (see
+          `framing`), not from the prefix: the prefix is the counter, so it
+          matches anything. Payload interleaving, sample decoding, CRC
+          parameters and test vectors are in protocol_details.stream_frame.
+        verification: "reported"
+    verification: "reported"
+    notes: >
+      Every read in the app has a 5000 ms timeout: a handshake reply line,
+      and each of a frame's three reads (header, payload, CRC). On a timeout
+      the app closes the socket. So while streaming, the sensor has to
+      deliver each frame within 5 s of the previous one. The app sends
+      nothing while waiting between INFO and START, which can be as long as
+      the user takes to press the start button. How long the sensor
+      tolerates an idle socket is unknown.
+  wake_required: false
+  verification: "reported"
+  notes: >
+    Classic-only. The public record puts this generation on Bluetooth 2.0,
+    and the app reaches it only over SPP. `dual_mode: false` rests on that,
+    and on the app never looking for a BLE service on a sensor of this type.
+
+initialization:
+  - command: "handshake_ok"
+    expect_response: true
+    notes: >
+      First write on a fresh socket. If the reply is not exactly OK, give up
+      and reconnect.
+  - command: "query_info"
+    expect_response: true
+    notes: >
+      Required before streaming: the reply gives the channel order
+      (CHANNELS), which is needed to de-interleave frames, and the sample
+      rate (SAMPLERATE). start_streaming is then sent when a recording
+      begins, which may be much later.
+
+commands:
+  handshake_ok:
+    description: >
+      Opens the session. The host writes the ASCII line "OK", and the sensor
+      has to answer with the same line. This is the first thing written after
+      the socket opens.
+    transport: "rfcomm"
+    value: [0x4f, 0x4b, 0x0a]
+    response:
+      prefix: "4f 4b 0a"
+      length: 3
+      timeout_ms: 5000
+      notes: >
+        The reply must be exactly the two characters OK and then LF. The app
+        compares the text before the LF with "OK" exactly, so a CR before the
+        LF fails the handshake. It also gives up unless the LF is among the
+        first 10 bytes and arrives within 5 s.
+      verification: "reported"
+    verification: "reported"
+  query_info:
+    description: >
+      Asks the sensor to describe itself. The reply is one line: "INFO"
+      followed by semicolon-separated KEY:VALUE pairs. CHANNELS and
+      SAMPLERATE are required and VERSION is optional.
+    transport: "rfcomm"
+    value: [0x49, 0x4e, 0x46, 0x4f, 0x0a]
+    response:
+      prefix: "49 4e 46 4f"
+      timeout_ms: 5000
+      notes: >
+        The reply is variable length and ends at the first LF. It must fit in
+        999 bytes before the LF or the app rejects it. The grammar, the three
+        keys and the app's parsing quirks are in protocol_details.info_reply.
+        CHANNELS is a comma-separated list of channel names. SAMPLERATE is a
+        decimal number in Hz, per channel (the app parses it as a float).
+        VERSION is a free-form firmware version string.
+      verification: "reported"
+    verification: "reported"
+  start_streaming:
+    description: >
+      Starts the raw sample stream. The app always sends the literal line
+      "START 5", and what the argument 5 means is not visible in the app.
+      From here on the sensor sends binary frames only.
+    transport: "rfcomm"
+    value: [0x53, 0x54, 0x41, 0x52, 0x54, 0x20, 0x35, 0x0a]
+    response:
+      prefix: "00 00 00 00"
+      timeout_ms: 5000
+      notes: >
+        No text acknowledgement. The next bytes on the stream are the header
+        of the first frame, whose uint32 LE counter is 0 (hence the prefix).
+        Each frame is 6 header bytes, a payload whose length is in bytes 4-5,
+        and 4 CRC bytes. The layout, validation rules and test vectors are in
+        protocol_details.stream_frame.
+      verification: "reported"
+    verification: "reported"
+  keep_streaming:
+    description: >
+      Keep-alive or flow credit while streaming. The app writes "CONT" once
+      10 frames have arrived since START (just before reading the 11th), and
+      then again before every 11th frame after that. Nothing comes back.
+    transport: "rfcomm"
+    value: [0x43, 0x4f, 0x4e, 0x54, 0x0a]
+    response:
+      expected: false
+      notes: >
+        The app goes straight back to reading frame headers after CONT, so
+        any text reply would break its frame parse. The sensor therefore
+        answers nothing.
+      verification: "reported"
+    notes: >
+      What the sensor does if CONT never arrives is unknown. It might stop
+      streaming, or it might not care. Copy the app's cadence exactly until a
+      capture says otherwise.
+    verification: "reported"
+  stop_streaming:
+    description: >
+      Ends a recording. The app writes "STOP" only when a streaming session
+      closes normally, and reads nothing afterwards.
+    transport: "rfcomm"
+    value: [0x53, 0x54, 0x4f, 0x50, 0x0a]
+    response:
+      expected: "unknown"
+      notes: >
+        The app closes the socket right after writing STOP and reads
+        nothing. Whether the sensor acknowledges it, or sends one more
+        partial frame first, is unknown. A client should stop parsing at
+        STOP and discard whatever arrives.
+      verification: "reported"
+    notes: >
+      The app sends no STOP when a session ends on an error (bad CRC,
+      timeout, lost link), or when it closes a session that never reached
+      START (as during setup). It just closes the socket. Whether the sensor
+      needs STOP, or treats a dropped link the same way, is unknown.
+    verification: "reported"
+
+entities:
+  - platform: "button"
+    name: "Start streaming"
+    commands:
+      press: "start_streaming"
+    notes: >
+      What the app's start-sleeping action sends. It needs the
+      initialization handshake on the same socket first. After it, a client
+      has to read frames continuously (each part within 5 s) and send
+      keep_streaming on the app's cadence. The samples are a raw BCG
+      waveform, too fast to show as a sensor entity, so none is declared.
+  - platform: "button"
+    name: "Stop streaming"
+    commands:
+      press: "stop_streaming"
+    notes: "Orderly end of a recording. Close the socket right after it, as the app does."
+
+cloud:
+  required: false
+  vendor_service: "Beddit Cloud (account and sleep-history sync) and Beddit's sensor-replacement service"
+  hosts:
+    - "https://cloudapi.beddit.com"
+    - "https://replacements.beddit.com"
+  auth:
+    type: "other"
+    notes: >
+      The replacement service accepted an optional Authorization header
+      carrying the Beddit Cloud user token, with the scheme word "UserToken".
+      No token value is recorded here.
+    verification: "reported"
+  endpoints:
+    - path: "/blocking_status/{sensor_id}"
+      method: "GET"
+      name: "Sensor blocking status (replacement service)"
+      returns: >
+        JSON with an integer blocking_status, a boolean silent flag, an
+        optional action and action_label (the replacement offer), and a
+        message.
+      notes: >
+        Called after every connection to a sensor of hardware type BT2 or
+        BTLE. Beddit 3 ("BTLEv3") sensors are exempt. sensor_id is the
+        sensor's Bluetooth address with the colons removed. The query string
+        carries hardware_type=BT2 and the account email when known. A
+        blocking_status of 1 sends the user into a replacement-offer flow.
+        Any non-zero status with silent set makes the connection fail with no
+        explanation.
+      verification: "reported"
+    - path: "/{action}/{device_serial}"
+      method: "POST"
+      name: "Request a replacement sensor"
+      returns: "A confirmation JSON document."
+      notes: >
+        Form fields hardware_type and email. Recorded only as evidence of the
+        program: the service is gone.
+      verification: "reported"
+  failure_mode: >
+    The sensor itself needs no cloud. The raw stream is local, and the
+    analysis ran on the phone. The last Android app does not work with this
+    sensor any more, though. After connecting to a BT2 (or BTLE) sensor, in
+    the setup wizard and again at the start of every recording, it asks the
+    replacement service for the sensor's blocking status. It treats a
+    network failure as fatal: it shows an error dialog saying the server
+    could not be reached, then abandons setup or cancels the recording. On
+    2026-09-28 both hosts returned NXDOMAIN from public DNS. The beddit.com
+    zone is still served by Apple's name servers, with no record for either
+    name. So the vendor app can no longer finish setup or record a night
+    with this sensor. A client built from this spec needs neither host.
+  data_leaves_device:
+    - "The sensor's Bluetooth address and hardware type, with the account email when known, sent by the app to the replacement service after each connection"
+    - "Sleep sessions derived on the phone, and account data, sent by the app to Beddit Cloud while it ran"
+  notes: >
+    Account sign-in and history sync went through cloudapi.beddit.com until
+    Apple shut Beddit Cloud down on 2018-11-15. The replacement check
+    belongs to a program that offered newer sensors in exchange for older
+    ones, so the app skips it for Beddit 3. On 2017-04-28 Wareable reported
+    that Beddit was contacting owners of pre-Beddit-3 sensors, in batches,
+    by email and in-app message, to say their sensor would soon stop working
+    with the app and to offer a free Beddit 3. The check has that shape: a
+    per-sensor block flag, a replacement request carrying the account
+    email, and a Beddit 3 exemption. That it is the app side of that
+    program is an inference from the match, not something the app states.
+    Neither host is part of the sensor protocol.
+
+protocol_details:
+  session:
+    summary: >
+      One RFCOMM connection per session. The app's classic session state
+      machine goes through four phases: the OK exchange, the INFO query, an
+      idle wait, and streaming. The idle wait is silent and has no timeout;
+      it lasts until the user starts a recording. The streaming phase sends
+      START 5 and reads frames until the user stops. A normal stop writes
+      STOP and closes the socket. Any error closes the socket without STOP.
+    sequence:
+      - step: 1
+        direction: "host -> sensor"
+        bytes: "4f 4b 0a"
+        text: "OK\\n"
+        expect: "the line OK (4f 4b 0a) within 5 s"
+      - step: 2
+        direction: "host -> sensor"
+        bytes: "49 4e 46 4f 0a"
+        text: "INFO\\n"
+        expect: "one line starting INFO, at most 999 bytes before the LF, within 5 s"
+      - step: 3
+        direction: "none"
+        note: "The app idles until a recording starts. During setup it closes here instead."
+      - step: 4
+        direction: "host -> sensor"
+        bytes: "53 54 41 52 54 20 35 0a"
+        text: "START 5\\n"
+        expect: "binary frames, the first with counter 0; each part of each frame within 5 s"
+      - step: 5
+        direction: "host -> sensor"
+        bytes: "43 4f 4e 54 0a"
+        text: "CONT\\n"
+        cadence: "Once 10 frames have arrived since START, then before every 11th frame after that"
+      - step: 6
+        direction: "host -> sensor"
+        bytes: "53 54 4f 50 0a"
+        text: "STOP\\n"
+        note: "Only on an orderly stop; followed by closing the socket."
+    text_encoding: "US-ASCII, lines ended by a single LF (0x0a). No CR."
+  info_reply:
+    grammar: >
+      "INFO", then zero or more characters, then pairs separated by ";".
+      Everything after the literal INFO is split on ";". Each piece is split
+      at its first ":", and a piece with no ":" is ignored. The key is
+      trimmed and upper-cased, so keys are case-insensitive. The value is
+      trimmed. A value that contains a "," is split on "," into a trimmed
+      list. Keys other than the three below are ignored.
+    shape_example: "INFO CHANNELS:<name1>,<name2>;SAMPLERATE:<hz>;VERSION:<firmware>"
+    shape_example_notes: >
+      Placeholders, not observed values. Nobody has recorded a real INFO line.
+    keys:
+      CHANNELS:
+        required: true
+        type: "comma-separated list of channel names, in the order their samples are interleaved in each frame"
+        notes: >
+          The app renames a channel called "normal" to "force". It keeps only
+          the "force" channel and drops the others. It declares that channel
+          to its analysis as unsigned 16-bit samples at SAMPLERATE Hz. The
+          other channel names, and whether any other channel exists besides
+          "normal", are unknown. Because of an app defect (see app_defects),
+          the list must contain a comma for the app to accept it, so the
+          sensor almost certainly reports at least two channels.
+      SAMPLERATE:
+        required: true
+        type: "decimal number"
+        unit: "Hz"
+        notes: >
+          Samples per second per channel. The app parses it as a float, so a
+          fractional value is allowed. The real value is not recorded.
+      VERSION:
+        required: false
+        type: "string"
+        notes: >
+          The firmware version. The app records "undefined" when it is
+          absent. If the value contains a comma it becomes a list and breaks
+          the app's parser.
+  stream_frame:
+    layout:
+      - offset: 0
+        length: 4
+        name: "counter"
+        type: "uint32"
+        endianness: "little"
+        notes: >
+          Frame sequence number. It is 0 for the first frame after START and
+          goes up by exactly 1 per frame. Any other value is fatal to the app.
+      - offset: 4
+        length: 2
+        name: "payload_length"
+        type: "uint16"
+        endianness: "little"
+        unit: "bytes"
+        notes: >
+          L, the number of payload bytes. The app rejects anything over
+          65000. Read it unsigned (see app_defects).
+      - offset: 6
+        length: "L"
+        name: "payload"
+        type: "bytes"
+        notes: >
+          Interleaved samples: ch0[0], ch1[0], ..., chN-1[0], ch0[1], ... in
+          CHANNELS order. Each sample is 2 bytes, little-endian. With N
+          channels there are L / (2 x N) samples per channel, and the app
+          ignores any remainder.
+      - offset: "6 + L"
+        length: 4
+        name: "crc32"
+        type: "uint32"
+        endianness: "little"
+        notes: "CRC-32/ISO-HDLC (zlib) over bytes 0 .. 6+L-1, the header and payload together."
+    sample:
+      type: "uint16"
+      endianness: "little"
+      scale: "none: raw sensor counts, dimensionless; no calibration to newtons is recorded"
+      notes: >
+        The app's frame parser reads each sample as a signed 16-bit value
+        (int16, which is how the first write-up of this research described
+        them) but copies the bits through untouched. It declares the force channel
+        to its analysis library as "uint16", the same sample type the BLE
+        generations announce. So decode as unsigned 16-bit, little-endian.
+        This is raw ballistocardiographic force: heart rate, respiration and
+        sleep stages are not in it and have to be derived. A sample's index
+        counts per channel from the first sample after START, so sample n
+        was taken n / SAMPLERATE seconds after sample 0. The app carries
+        this index along with each frame.
+    crc:
+      algorithm: "CRC-32/ISO-HDLC (the zlib / IEEE 802.3 CRC-32)"
+      polynomial: "0x04c11db7 (reflected 0xedb88320)"
+      init: "0xffffffff"
+      reflect_in: true
+      reflect_out: true
+      xor_out: "0xffffffff"
+      check: "0xcbf43926 for the ASCII string 123456789"
+      covers: "the 6 header bytes, then the payload"
+      stored: "uint32, little-endian, straight after the payload"
+      basis: >
+        The app checks the frame with the platform's standard CRC-32, which
+        is fixed to this variant. This is what the app accepted, not
+        something a capture has shown: no real frame has been seen.
+    test_vectors:
+      - description: >
+          Synthetic frame, invented values: counter 0, two channels, two
+          samples each. Samples: ch0 = 0x0102 then 0x0506, ch1 = 0x0304 then
+          0x0708.
+        frame: "00 00 00 00 08 00 02 01 04 03 06 05 08 07 a0 8f 12 8f"
+        crc32: "0x8f128fa0"
+        decoded:
+          counter: 0
+          payload_length: 8
+          ch0: [258, 1286]
+          ch1: [772, 1800]
+      - description: >
+          Synthetic frame, invented values: counter 1, two channels, one
+          sample each, at the uint16 extremes that trip up a signed decode
+          (ch0 = 0x8000, ch1 = 0x7fff).
+        frame: "01 00 00 00 04 00 00 80 ff 7f 01 cb 72 25"
+        crc32: "0x2572cb01"
+        decoded:
+          counter: 1
+          payload_length: 4
+          ch0: [32768]
+          ch1: [32767]
+  app_behaviour:
+    radio_choice: >
+      The app decides at scan time whether a found "beddit..." device is BLE
+      or Classic, and saves the answer with the address. If Android reports
+      the device type as LE, it is BLE. If Android reports Classic or
+      dual-mode, it is Classic, so this SPP path. If Android reports an
+      unknown type, an address starting 00:07:80 is Classic and anything
+      else is BLE. On Android older than 4.3 every sensor goes down the
+      Classic path.
+    connect: >
+      First an insecure RFCOMM socket by the SPP UUID. On failure, a 2000 ms
+      pause, then an insecure socket to channel 1. No bonding call anywhere.
+    reads: >
+      Handshake lines are read one byte at a time up to the LF, with a cap
+      of 10 bytes for the OK reply and 1000 bytes for INFO, the LF included.
+      Frames are read as three exact-length reads: 6 bytes, then L bytes,
+      then 4 bytes. Each read has its own 5000 ms timeout, and a timeout
+      closes the socket.
+    replacement_check: >
+      After the handshake the app sends the sensor's address and hardware
+      type ("BT2") to the vendor's replacement service, and does this again
+      at the start of every recording. With the service unreachable, setup
+      and recording both fail. See `cloud.failure_mode`.
+  app_defects:
+    - defect: "Payload length is read sign-extended."
+      effect: >
+        The app never masks the uint16 length to 16 bits. So a length from
+        0x8000 to 0xffff reads as negative, gets past the 65000 check, and
+        then ends the session when the payload read refuses a negative
+        length. In the app the real limit is 32767 bytes. A client should
+        read the field unsigned and apply the 65000 bound.
+      basis: "Checked against the disassembled bytecode: the mask applied is -1, which is a no-op."
+    - defect: "A one-channel INFO breaks the parser."
+      effect: >
+        When the CHANNELS value has no comma, the parser keeps it as a plain
+        string, and the step that expects a list fails. That ends the
+        session. VERSION has the same problem the other way round: a value
+        with a comma becomes a list where a string is expected. Real
+        firmware presumably always reported two or more channels.
+    - defect: "No resynchronisation."
+      effect: >
+        A counter gap, a CRC failure or an oversize length ends the whole
+        session. There is no attempt to skip to the next good frame.
+    - defect: "STOP only on the happy path."
+      effect: >
+        After an error or a lost link the app closes the socket without
+        STOP. A client that reconnects straight away might find the sensor
+        still in streaming mode (unconfirmed). If the OK reply is not
+        exactly OK, close the socket, wait, and try again.
+    - defect: "Hard dependency on a dead server."
+      effect: "See cloud.failure_mode: the replacement check makes the vendor app unusable with this sensor today."
+  not_in_the_app:
+    - "No firmware update: the app has no OTA or DFU code and ships no firmware image for any generation."
+    - "No command for on-sensor storage or a night download: every sample is streamed live and analysed on the phone. Whether the sensor can buffer anything is unknown."
+    - "No settings, name, LED or button commands: the five session lines are the whole host-to-sensor vocabulary."
+
+evidence:
+  artifacts:
+    - type: "static_analysis"
+      artifact: "com.beddit.beddit (Beddit for Android) 2.3.12, versionCode 149"
+      obtained_via: "third-party APK mirror, 2026-08"
+      description: >
+        The last Android release, and the only artifact this spec's protocol
+        facts rest on. Read in full: the scanner (name filter, radio choice,
+        Bluegiga prefix rule), the Classic socket wrapper (insecure socket,
+        channel-1 fallback, 5 s read timeouts), the classic session state
+        machine (OK, INFO, START 5, CONT, STOP, the frame reader and its CRC
+        check) and the replacement check. The payload-length masking was
+        checked against the disassembled bytecode. What the app does NOT
+        have: no OTA code, no firmware images, no bonding or PIN handling,
+        and no product-generation names.
+    - type: "vendor_documentation"
+      url: "https://www.prweb.com/releases/beddit_launches_new_android_app_making_it_easier_to_understand_and_improve_sleep/prweb13101182.htm"
+      description: >
+        Beddit press release, 2015-11-25. The Android app supports "Beddit
+        Smart and Beddit Classic", two pre-Beddit-3 products, which matches
+        the app's two pre-v3 hardware types.
+    - type: "public_research"
+      url: "https://sleepreviewmag.com/curated/beddit-smart-is-first-ambient-sleep-monitor/"
+      description: >
+        Sleep Review, 2015-05: Beddit Smart connects over Bluetooth Low
+        Energy. This is why Beddit Smart ("Beddit 2.0") is taken to be the
+        app's BLE type, not this Classic one.
+    - type: "public_research"
+      url: "https://devices.wolfram.com/devices/beddit-sleep-tracker.html"
+      description: >
+        Wolfram Connected Devices entry for the original Beddit Sleep
+        Tracker (catalogued 2014). It lists the communication protocol as
+        Bluetooth 2.0. A weak source: the same entry says the sensor sits
+        under the pillow and runs on a rechargeable battery, and both
+        conflict with the app's setup text.
+    - type: "public_research"
+      url: "https://www.cultofmac.com/news/beddit-a-permanent-sleep-tracker-that-stays-in-bed"
+      description: >
+        Cult of Mac, 2013-08-12, on the first-generation Beddit: its data went
+        over Bluetooth to a companion iPhone app. It bears on two questions.
+        An SPP-only sensor reaches an iPhone only through MFi, so either the
+        first generation carried an MFi channel beside SPP, or it is not the
+        sensor this spec describes.
+    - type: "public_research"
+      url: "https://9to5mac.com/2015/10/06/beddit-apple-watch-retail-stores/"
+      description: >
+        9to5Mac, 2015-10-06, on Beddit Smart reaching Apple Stores. In the
+        reader comments, a commenter who said he worked for Beddit in the US
+        describes two models, "Classic (the original) and Smart": both
+        worked with the iOS and watchOS app of the day, only the Smart had
+        Bluetooth Smart and automatic tracking, and the Classic needed the
+        app opened and a recording started by hand. A reader comment, so a
+        weak source, but it is the only one found that sets the two
+        generations side by side.
+    - type: "public_research"
+      url: "https://web.archive.org/web/20200928092349/https://www.wareable.com/health-and-wellbeing/beddit-3-upgrade-phase-out-3893"
+      description: >
+        Wareable, 2017-04-28 (Internet Archive copy): Beddit was phasing out
+        every pre-Beddit-3 sensor, contacting owners by email and in-app
+        message, and offering a free upgrade to Beddit 3. This matches the
+        shape of the app's replacement check (see cloud).
+    - type: "not_examined"
+      description: >
+        No capture, no hardware, no firmware image, no FCC filing (none was
+        found for a Beddit Classic-generation sensor), no manual, and not
+        the iOS app.
+  open_questions:
+    - >
+      Which product is this? A live inquiry of a labelled unit (first
+      generation / Beddit Classic versus Beddit Smart 2.0) settles it. The
+      file name says "Beddit 2", and the evidence (press release, a Beddit
+      employee's 2015 comment, the app's two pre-v3 types) points to the
+      first generation.
+    - "The real inquiry name, and whether it carries the device number printed on the back."
+    - "What the 5 in START 5 means, and what the sensor does when CONT stops arriving."
+    - "The actual INFO line: channel names beyond 'normal', the SAMPLERATE value, the VERSION format."
+    - "Whether the Bluegiga module needs a legacy PIN, runs Just Works, or neither. The app's insecure socket implies neither."
+    - "Whether the sensor answers a second host while one is connected."
+    - >
+      How the 2013 iPhone app reached the first-generation sensor. An MFi
+      (iAP) channel beside SPP would make the CoreBluetooth verdict's
+      workaround vendor_mfi. That route is plausible on a Bluegiga Classic
+      module, whose serial firmware could offer iAP when Apple's
+      authentication chip was fitted, but nothing in the Android app shows
+      it (hypothesis). No such channel would cast doubt on the
+      first-generation mapping.
+    - "Class of Device and the SDP record: channel 1 is the app's fallback, not an observation."
+    - "Whether the strip has a button or LED at all, and whether the power adapter is the only power source."
+    - >
+      Cheapest next step: an Android HCI snoop log of the old app's setup
+      wizard. The wizard runs OK and INFO before its dead-server check fails,
+      so even a failed setup captures the real inquiry name, the SDP channel
+      and a real INFO line. Streaming needs the recording flow, whose own
+      server check runs as the sensor connects.
+
+remaining_unknowns:
+  - "Product identity: the app's 'BT2' type is most likely the first-generation Beddit (Beddit Classic), not Beddit Smart 2.0. Unconfirmed."
+  - "Inquiry name, Class of Device and SDP record (RFCOMM channel 1 is inferred from the app's fallback)."
+  - "Meaning of the START argument 5, and whether any other value is accepted."
+  - "What CONT does (keep-alive or flow credit) and what happens without it."
+  - "Real CHANNELS names beyond 'normal', the SAMPLERATE value, and the VERSION format."
+  - "Samples per frame and frame rate. Only the 5 s per-frame ceiling is known."
+  - "Whether STOP is needed, and how the sensor behaves on a dropped link or a reconnect mid-stream."
+  - "Pairing: whether the module ever requests a PIN or runs Secure Simple Pairing, and whether it stores a bond."
+  - "How many simultaneous SPP connections the module allows."
+  - "Physical controls (button, LED), power source details, and any factory reset."
+  - "Physical meaning and calibration of the sample value. It is raw BCG force with no unit recorded."
+  - "Firmware update: no path exists in the app. Whether the module can be updated any other way is unknown."
+  - "Whether the vendor's iOS app reached this generation through MFi/iAP."
+
+helpful_urls:
+  - title: "Beddit launches new Android app (press release, 2015-11-25)"
+    url: "https://www.prweb.com/releases/beddit_launches_new_android_app_making_it_easier_to_understand_and_improve_sleep/prweb13101182.htm"
+    kind: "other"
+    description: >
+      Beddit's own announcement that the Android app supports Beddit Smart
+      and Beddit Classic. It is the clearest vendor statement that two
+      pre-Beddit-3 generations shared this app.
+  - title: "Beddit Smart is the 'first ambient' sleep monitor (Sleep Review, 2015)"
+    url: "https://sleepreviewmag.com/curated/beddit-smart-is-first-ambient-sleep-monitor/"
+    kind: "other"
+    description: >
+      Launch coverage of Beddit Smart. It states that Smart connects over
+      Bluetooth Low Energy, which is the reason this Classic-SPP protocol is
+      not attributed to it.
+  - title: "Beddit Sleep Tracker (Wolfram Connected Devices Project)"
+    url: "https://devices.wolfram.com/devices/beddit-sleep-tracker.html"
+    kind: "other"
+    description: >
+      Third-party catalogue entry for the original Beddit, listing Bluetooth
+      2.0. Some of its other details are wrong: it places the strip under
+      the pillow and gives a battery as the power source.
+  - title: "Beddit is phasing out its old devices (Wareable, 2017, archived)"
+    url: "https://web.archive.org/web/20200928092349/https://www.wareable.com/health-and-wellbeing/beddit-3-upgrade-phase-out-3893"
+    kind: "other"
+    description: >
+      The April 2017 phase-out of every pre-Beddit-3 sensor, with a free
+      Beddit 3 offered in exchange. It explains the replacement check that
+      now stops the old Android app from working with this sensor. The live
+      page refuses automated requests, so this is the Internet Archive copy.
+  - title: "Beddit launches Apple Watch app as Smart Sleep Tracker comes to Apple Stores (9to5Mac, 2015)"
+    url: "https://9to5mac.com/2015/10/06/beddit-apple-watch-retail-stores/"
+    kind: "other"
+    description: >
+      Read the reader comments: a commenter who said he worked for Beddit
+      sets out the difference between the Classic (the original) and the
+      Smart (Bluetooth Smart, automatic tracking). This is the main clue to
+      which product the app's "BT2" type is.
+  - title: "Beddit (Wikipedia)"
+    url: "https://en.wikipedia.org/wiki/Beddit"
+    kind: "other"
+    description: >
+      Company history: the 2013 Indiegogo launch of the first sensor, the
+      April 2017 announcement that older trackers would be phased out, the
+      Apple acquisition (2017-05-08), Beddit 3 and 3.5, and the Beddit Cloud
+      shutdown on 2018-11-15.
+  - title: "Beddit, a permanent sleep tracker that stays in bed (Cult of Mac, 2013)"
+    url: "https://www.cultofmac.com/news/beddit-a-permanent-sleep-tracker-that-stays-in-bed"
+    kind: "other"
+    description: >
+      Launch coverage of the first-generation Beddit, the sensor this spec
+      most likely describes. It says the strip sent its data over Bluetooth
+      to an iPhone app.
+  - title: "Beddit for Android, archived Google Play listing (2017-04-13)"
+    url: "https://web.archive.org/web/20170413023340/https://play.google.com/store/apps/details?id=com.beddit.beddit"
+    kind: "other"
+    description: >
+      The last archived store listing of the vendor Android app. The app has
+      since been delisted and survives only in APK mirrors.

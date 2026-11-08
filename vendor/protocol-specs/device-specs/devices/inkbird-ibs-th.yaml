@@ -10,6 +10,7 @@ device:
     status: untested
   protocol: "ble"
   category: "sensor"
+  category_hierarchy: ["measurement", "temperature"]
   notes: >
     Battery-powered BLE temperature/humidity sensors (IBS-TH1, IBS-TH2,
     and the IBS-P01B pool thermometer variant) that broadcast readings in
@@ -124,8 +125,6 @@ device:
 
   identification:
     local_name_prefixes: ["sps", "tps"]
-    service_uuids:
-      - "0000fff0-0000-1000-8000-00805f9b34fb"
     manufacturer_data:
       description: >
         Deliberately NO company_id filter: the temperature occupies the
@@ -140,8 +139,6 @@ device:
           local_name:
             match: "exact"
             values: ["sps", "tps"]
-          service_uuids:
-            - "0000fff0-0000-1000-8000-00805f9b34fb"
     identity:
       stable_keys: ["address"]
       display: "local_name"
@@ -329,8 +326,6 @@ advertising:
   local_name:
     match: "exact"
     values: ["sps", "tps"]
-  service_uuids:
-    - "0000fff0-0000-1000-8000-00805f9b34fb"
 
 features:
   - type: "firmware_update"

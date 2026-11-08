@@ -1,0 +1,1357 @@
+# Marshall / Zound Industries Bluetooth headphones, earbuds and speakers -- BLE control channel
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Scope: the BLE GATT control surface the Marshall Bluetooth app
+# (com.zoundindustries.marshallbt) drives on Zound-built dual-mode products.
+# Audio rides Classic Bluetooth (A2DP/AVRCP) and is out of scope beyond the
+# `bluetooth_classic` block that says so. Out of scope as well: the Wi-Fi /
+# multi-room Marshall speakers (Uxbridge Voice, the Multi-Room Acton / Stanmore /
+# Woburn), which use a different app and a LAN stack, and every firmware-transfer
+# byte (the three OTA families are named, nothing more).
+#
+# Evidence base: a third-party write-up from static analysis of the Android app
+# v3.7.1 plus its author's BlueZ pairing notes; a cross-check of the modern /
+# legacy UUID pairs, the ANC byte and the EQ writes against our own static read
+# of the successor "Marshall" app; the vendor manuals for the button procedures.
+# Nothing here has been run against hardware by this project, so every fact is
+# `reported` (or `hypothesis`, where marked) and device.testing is untested.
+
+device:
+  name: "Marshall Bluetooth Headphones, Earbuds and Speakers (Zound BLE control)"
+  manufacturer: "Zound Industries (Marshall)"
+  manufacturer_status: "active"
+  openness:
+    status: "undocumented"
+    reverse_engineered: true
+    notes: >
+      Zound (renamed Marshall Group AB in 2023) publishes no BLE protocol
+      documentation. Everything here was recovered from the vendor apps by
+      third parties and by this project.
+  testing:
+    status: untested
+  protocol: "ble"
+  type: "bluetooth-headphones-earbuds-speakers"
+  category: "earbuds"
+  notes: >
+    Marshall-branded headphones, true-wireless earbuds and portable / home
+    Bluetooth speakers built by Zound Industries (now Marshall Group AB). They
+    are dual-mode: music and calls go over Classic Bluetooth (A2DP, AVRCP), and
+    every setting the Marshall Bluetooth app changes (noise control, EQ,
+    volume, auto-off, touch lock, rename, ...) goes over a separate BLE GATT
+    link. The BLE side advertises under its own random address, which changes
+    between sessions, with the product name followed by " [LE]" (for example
+    "MOTIF II A.N.C. [LE]"). The Monitor III A.N.C. manual itself tells owners
+    to remove both "MONITOR III A.N.C." and "MONITOR III A.N.C. [LE]" from the
+    phone's Bluetooth list before a reset, which is the vendor's own
+    confirmation of the naming convention.
+
+    CONTROL SURFACE. Proprietary characteristics sit under primary service
+    fa302d24-d775-4343-b9ed-8cc68ace3284 and follow the pattern
+    0000{code}-1337-1dea-feed-c0ffee70c0de. Older firmware exposes the same
+    functions as legacy 16-bit codes on the Bluetooth base
+    (0000aaXX-0000-1000-8000-00805f9b34fb). A client resolves every function
+    modern UUID first, then the legacy one (both apps keep the pair as an
+    ordered two-entry list and take the first the device has). The full
+    code table, with each legacy alias, is in protocol_details.uuid_schemes.
+    Standard services carry Device Information (0x2a24-0x2a29), Battery
+    Level (0x2a19) and Battery Level Status (0x2bed). Earbud and charging-case
+    battery levels come from a separate UUID base,
+    7a573e5d-9330-4d9b-8660-63c33fc5XXXX.
+
+    WHAT IS DOCUMENTED TO THE BYTE: only two things. Noise control (code
+    0x0013) is one byte, 0x00 off / 0x01 ANC / 0x02 transparency. EQ settings
+    (code 0x0017) take two writes: [0x01, step, preset] assigns one of twelve
+    presets to one of three step slots, then [0x00, step] makes that slot
+    active. Every other characteristic is listed by UUID and role only; its
+    payload is unknown, and nothing here guesses at it.
+
+    AUTH. The proprietary characteristics need a BLE bond. Just Works
+    (NoInputNoOutput) is accepted. The vendor app starts that bond itself when
+    the Classic side is already bonded and the LE side is not, except on
+    models where the bond is derived across transports automatically; the
+    upstream author reports that a direct LE Just Works bond with no Classic
+    bond at all also works. On BlueZ the Classic device object never exposes
+    GATT, even after ServicesResolved: control is only reachable on the
+    separate LE device object.
+
+    CHIPSETS AND UPDATES. Three update families, split by chipset: Qualcomm
+    GAIA on Major IV and Monitor III A.N.C., Airoha OTA on the Motif II A.N.C.
+    (Airoha AB1565), and Tymphany ("Joplin") OTA on speakers such as Willen,
+    Stanmore and Woburn. They are named in `features` and nothing more.
+
+    FAMILY CAUTION -- THE TYMPHANY-BUILT SPEAKERS. Two open-source clients for
+    the Stanmore II and Acton II (rabbit-aaron/marshall-stanmore-2 and
+    elrobertocarlos/marshall_bluetooth_speaker) drive those speakers through a
+    completely different GATT set: advertised service 0000fe8f, 128-bit
+    per-function characteristics (volume 44fa50b2-..., playback control
+    4446cf5f-..., EQ 31fbb033-..., and so on), not the 1337 codes. The
+    successor Marshall app keeps that table in its Tymphany speaker path, and
+    there it uses fa302d24-d775-4343-b9ed-8cc68ace3284 as a firmware-update
+    CHARACTERISTIC, not as the control service. So the surface in this spec is
+    established for the Zound-protocol headphones and earbuds (the upstream
+    write-up's worked example is the Motif II A.N.C.); on the speakers,
+    which of the two surfaces a given model and firmware speaks is not
+    established. Probe the GATT table before assuming either.
+
+    Evidence base: the upstream write-up (c0ffee-audio/marshall-protocol),
+    derived from static analysis of com.zoundindustries.marshallbt v3.7.1 and
+    its author's BlueZ pairing session on a Motif II A.N.C.; this project's
+    static read of the successor app com.marshallgroup.marshall v1.3.2, used
+    only to cross-check; the vendor manuals for the button procedures. No
+    capture exists in either source. Everything is `reported`; nothing has
+    been run against hardware here.
+
+  identification:
+    local_name_prefixes: ["MOTIF II A.N.C.", "MONITOR III A.N.C."]
+    manufacturer_data:
+      company_id: 1626
+      company_id_hex: "0x065A"
+      description: >
+        Marshall Group AB's own Bluetooth SIG company identifier (1626). The
+        successor Marshall app looks for manufacturer data under this id when
+        it scans (and also under the byte-swapped value 23046 = 0x5A06, a
+        tolerance for a firmware that writes the id big-endian; 0x5A06 is not
+        a Marshall allocation and is deliberately not listed). Whether the
+        Zound-era models the Marshall Bluetooth app covers (Major IV 2020,
+        Motif II A.N.C. 2023) carry it is not established. Hypothesis-level
+        signal: rank on it, confirm by service discovery.
+    notes: >
+      The strongest signal is only visible after connecting: primary service
+      fa302d24-d775-4343-b9ed-8cc68ace3284 with 1337-suffixed characteristics.
+      Whether that service UUID is also in the advertisement is not recorded,
+      so it is deliberately not listed as an advertised UUID here. The name
+      prefixes are the two defaults the sources show ("MOTIF II A.N.C. [LE]"
+      from the upstream author's unit, "MONITOR III A.N.C. [LE]" from the
+      vendor manual); the device-name characteristic lets an owner rename a
+      unit, after which only the " [LE]" suffix matcher in discovery and the
+      company id remain. Do NOT match on service 0000fe8f: that is the
+      Tymphany speaker protocol (see device.notes), not this surface. MAC
+      prefixes are useless on the LE side, whose address is random and
+      rotates.
+
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          local_name:
+            match: "regex"
+            value: '^.* \[LE\]$'
+      - type: "ble_scan"
+        ble:
+          manufacturer_data:
+            company_id: 1626
+            description: >
+              Marshall Group AB manufacturer data. From the successor app's
+              scanner; not established on the Zound-era models. See
+              protocol_details.advertisement for the payload layout that app
+              parses.
+    identity:
+      stable_keys: ["identity_address", "serial_number"]
+      display: "local_name"
+      notes: >
+        The LE advertising address is random and changes between sessions, so
+        it is a connection locator, never an identity. Once bonded, the host
+        stack resolves the rotating address to the device's identity address
+        with the bond's IRK and presents the device under it; that is the
+        first key. Before a bond exists, read Serial Number String
+        (00002a25-0000-1000-8000-00805f9b34fb) after connecting (whether it is
+        readable without encryption is not established). The Classic address
+        is public and fixed but is not visible in an LE scan; the successor
+        app reads a six-byte address out of the manufacturer data (see
+        protocol_details.advertisement), which may be that Classic address --
+        hypothesis.
+    static_ip_required: false
+
+  setup:
+    required: false
+    confidence: "medium"
+    notes: >
+      Nothing is provisioned: there is no Wi-Fi, no account and no cloud step
+      between a client and the control surface. A client does need a BLE bond
+      before the proprietary characteristics answer (see device.pairing), so
+      the methods below are the two ways to get one. Confidence medium: the
+      route is a third party's observation on one Motif II A.N.C. under BlueZ
+      plus static analysis; not run here.
+    methods:
+      - type: "ble_direct"
+        name: "Direct LE bond, Just Works, no Classic pairing needed"
+        role: "primary"
+        verified: false
+        description: >
+          Scan for the product's " [LE]" advertisement, connect to that random
+          address and bond with Just Works (IO capability NoInputNoOutput).
+          The upstream author reports this works on a Motif II A.N.C. with no
+          prior Classic bond. On BlueZ, register a NoInputNoOutput agent
+          before calling Pair() on the LE device object, or the pairing
+          request has nobody to answer it.
+        ble:
+          advertised_name: " [LE]"
+          pairing_required: true
+          service_uuid: "fa302d24-d775-4343-b9ed-8cc68ace3284"
+        steps:
+          - action: "Power the product on (earbuds: in the case with the lid open; headphones and speakers: switched on)."
+            actor: "user"
+          - action: "Scan for an LE advertisement whose local name ends in \" [LE]\" (or carries company id 0x065A); note its current random address."
+            actor: "client"
+            request:
+              protocol: "ble_gatt"
+            expect: "A random-address advertiser named, for example, \"MOTIF II A.N.C. [LE]\". The Classic entry (no suffix, public address) is a different device object on most host stacks."
+          - action: "Connect and bond using Just Works (NoInputNoOutput). On BlueZ: RegisterAgent(path, \"NoInputNoOutput\"), RequestDefaultAgent(path), then Device1.Pair() on the LE object."
+            actor: "client"
+            request:
+              protocol: "ble_gatt"
+            expect: "Bond completes with no prompt on the product."
+          - action: "Discover services and find fa302d24-d775-4343-b9ed-8cc68ace3284. For each function, look up the modern 1337 characteristic first and fall back to its legacy aaXX alias."
+            actor: "client"
+            request:
+              protocol: "ble_gatt"
+            expect: "The proprietary characteristics read and write; before the bond they are refused."
+        troubleshooting:
+          - symptom: "GATT services never appear although the headphones show as connected and ServicesResolved is true."
+            causes:
+              - "The client is looking at the Classic (public-address) device object. BlueZ does not expose GATT there; connect to the separate \" [LE]\" object instead."
+          - symptom: "Pair() fails or hangs on Linux."
+            causes:
+              - "No pairing agent is registered. Register a NoInputNoOutput agent and make it the default before pairing."
+          - symptom: "A known LE address no longer answers."
+            causes:
+              - "The LE address rotates between sessions. Re-scan and match by name or bond identity, not by the old address."
+      - type: "ble_direct"
+        name: "Pair audio first, then let the LE bond follow the Classic one"
+        role: "alternative"
+        verified: false
+        description: >
+          The vendor app's own route. The owner pairs the product for audio
+          from the phone's Bluetooth settings (Classic pairing mode, see
+          bluetooth_classic.pairing), then the app connects over LE. On
+          models where keys are derived across transports automatically, the
+          LE link is already bonded; on the others, including the Motif II
+          A.N.C., the app starts an LE bond itself when it finds the Classic
+          side bonded and the LE side not. Useful when a host stack derives
+          LE keys from a Classic bond; otherwise the primary route is simpler.
+        ble:
+          advertised_name: " [LE]"
+          pairing_required: true
+          service_uuid: "fa302d24-d775-4343-b9ed-8cc68ace3284"
+        steps:
+          - action: "Put the product in Classic pairing mode (model-specific button, see bluetooth_classic.pairing.enter_pairing_mode) and pair it from the host's Bluetooth settings."
+            actor: "user"
+            expect: "The product appears as its plain name (no \" [LE]\") and connects for audio."
+          - action: "Connect to the \" [LE]\" advertiser. If the LE link is not already bonded, start a bond (Just Works)."
+            actor: "client"
+            request:
+              protocol: "ble_gatt"
+          - action: "Discover services and resolve characteristics modern-first, legacy-second."
+            actor: "client"
+            request:
+              protocol: "ble_gatt"
+    factory_reset:
+      applicable: true
+      confidence: "medium"
+      effect: >
+        Deletes all user settings and every remembered pairing; the product
+        must be set up again. Firmware updates survive (the Willen manual
+        says so explicitly). Afterwards, remove both the plain entry and the
+        " [LE]" entry from each host's Bluetooth list before pairing again.
+      description: >
+        Procedures below are transcribed from the vendor manuals and have not
+        been performed here. The manuals also describe non-destructive
+        restarts, which are worth trying first: Motif II A.N.C., put the
+        earbuds in the case and close the lid, or hold the touch surface on
+        both earbuds for 10 s; Monitor III A.N.C., hold the control knob for
+        10 s. No factory-reset procedure was found in the Major IV quick-start
+        guide, and the Stanmore and Woburn generations this family covers are
+        not pinned down, so neither is listed.
+      procedures:
+        - name: "Case button 10 s, earbuds in the open case"
+          verified: false
+          basis: "Marshall Motif II A.N.C. Full Online Manual R0.13, 'Resetting the earbuds'."
+          applies_to: ["Motif II A.N.C."]
+          hold_seconds: 10
+          power_state: "on"
+          indicator: "Case LED turns purple."
+          steps:
+            - action: "Place both earbuds in the charging case and keep the lid open."
+              actor: "user"
+            - action: "Press and hold the case button for 10 seconds, until the LED turns purple."
+              actor: "user"
+              expect: "LED purple; the earbuds return to factory settings."
+            - action: "Remove MOTIF II A.N.C. (and its [LE] entry) from each host's Bluetooth list before pairing again."
+              actor: "user"
+        - name: "M-button and ANC button together, 5 s"
+          verified: false
+          basis: "Marshall Monitor III A.N.C. Full Online Manual (English section), 'Resetting the headphones'."
+          applies_to: ["Monitor III A.N.C."]
+          hold_seconds: 5
+          power_state: "on"
+          indicator: "LED indicator turns purple."
+          steps:
+            - action: "Remove MONITOR III A.N.C. and MONITOR III A.N.C. [LE] from the host's Bluetooth list."
+              actor: "user"
+            - action: "With the headphones on, push and hold the M-button and the ANC button together for 5 seconds; release when the LED turns purple."
+              actor: "user"
+              expect: "LED purple; settings and pairings deleted."
+        - name: "Bluetooth button 7 s"
+          verified: false
+          basis: "Marshall Willen Full Online Manual (English section), 'Performing a factory reset'."
+          applies_to: ["Willen"]
+          hold_seconds: 7
+          power_state: "on"
+          indicator: "All indicators turn off and the speaker restarts."
+          steps:
+            - action: "With the speaker on, push and hold the Bluetooth button for 7 seconds."
+              actor: "user"
+              expect: "All indicators turn off and the speaker restarts."
+            - action: "Remove WILLEN from each host's Bluetooth list before pairing again."
+              actor: "user"
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        No network binds the product. A new client bonds the same way the
+        first one did. The Motif II A.N.C. and Monitor III A.N.C. manuals say
+        the product remembers up to 8 Classic hosts (Monitor III A.N.C.
+        connects to two at once); how many LE bonds it keeps, and whether a
+        new one evicts an old one, is not recorded.
+    credentials:
+      wifi_passphrase_protection: "not_applicable"
+      stored_on_device:
+        - "LE bond keys (LTK, and the client's IRK if distributed) for each bonded client"
+        - "Classic link keys for up to 8 remembered hosts (per the Motif II A.N.C. and Monitor III A.N.C. manuals)"
+      issued_to_client:
+        - "The LE bond (LTK and the product's IRK), held by the host Bluetooth stack; there is no application-layer token"
+      notes: >
+        No application-layer secret was found in either source: once the link
+        is encrypted, the characteristics are plain reads and writes.
+
+  pairing:
+    required: true
+    confidence: "medium"
+    security_mode: "just_works"
+    bonding: "required"
+    exclusivity:
+      single_connection: "unknown"
+      single_bond: "unknown"
+      recovery: >
+        If the vendor app on a phone is holding the LE link, close it (or turn
+        off that phone's Bluetooth) before connecting from another client.
+        Whether the product accepts a second LE central at the same time is
+        not recorded.
+      notes: >
+        The Classic side is multipoint on some models (Monitor III A.N.C.:
+        two hosts at once, eight remembered). Nothing says whether the LE
+        side is.
+    enter_pairing_mode:
+      required: "unknown"
+      notes: >
+        The upstream author bonded the LE side directly with Just Works; the
+        write-up does not say whether the product was in its Classic pairing
+        mode at the time, or whether the " [LE]" advertiser accepts a new
+        bond whenever it is advertising. If a bond is refused, try again with
+        the product in pairing mode (the button procedures are under
+        bluetooth_classic.pairing.enter_pairing_mode).
+    unpair:
+      supported: "unknown"
+      notes: >
+        A factory reset deletes every pairing (see setup.factory_reset). The
+        vendor app has a "forget device" function and a connection-control
+        characteristic (code 0x0034), but neither's payload is documented, so
+        no way to drop one LE bond short of a reset is established. On the
+        client side, remove both the plain and the " [LE]" entries.
+    notes: >
+      Proprietary characteristics require an encrypted, bonded LE link; the
+      product accepts Just Works (NoInputNoOutput), so no PIN or passkey is
+      involved. Two routes lead there: a direct LE bond (reported to work on a
+      Motif II A.N.C. with no Classic bond), or the vendor app's route, which
+      calls for an LE bond after connecting when the Classic side is bonded
+      and the LE side is not. On models whose firmware derives the LE keys
+      from the Classic bond automatically, the app skips that step; which
+      models those are is in the app's per-model table, which is not
+      reproduced here. The Motif II A.N.C. is reported as NOT one of them.
+      Standard Device Information and Battery reads may or may not need the
+      bond; not recorded.
+
+  host_compatibility:
+    - stack: "bluez"
+      link: "ble"
+      status: "degraded"
+      workaround: "host_config"
+      verification: "reported"
+      basis: "Upstream author's BlueZ pairing notes on a Motif II A.N.C. (c0ffee-audio/marshall-protocol README)."
+      notes: >
+        Works once a pairing agent is registered: RegisterAgent with
+        capability "NoInputNoOutput", RequestDefaultAgent, then Device1.Pair()
+        on the LE device object (random address, " [LE]" name). Without an
+        agent the Just Works bond is not completed. The Classic device object
+        (public address) reports ServicesResolved but never exposes GATT;
+        clients must use the LE object, which BlueZ lists separately.
+    - stack: "android"
+      link: "ble"
+      status: "compatible"
+      verification: "reported"
+      basis: "The vendor app is an Android app driving the platform GATT client, and bonds with the platform's own bond call."
+
+  variants:
+    - model: "Motif II A.N.C."
+      identification:
+        local_name_prefix: "MOTIF II A.N.C."
+      notes: >
+        True-wireless earbuds with charging case, Airoha AB1565 (per the
+        firmware revision string upstream read, which names Airoha's AB1565
+        SDK). The upstream write-up's worked example: ANC, EQ, earbud and case
+        battery. FCC ID 2AAGF-MOTIFII (granted 2023-07-23).
+    - model: "Major IV"
+      notes: >
+        On-ear headphones, Qualcomm (GAIA update path). FCC ID 2AAGF-MAJORIV
+        (granted 2020-09-21). Which characteristics it exposes is not
+        recorded; it has no ANC hardware. Its LE advertised name is not
+        recorded (the quick-start guide shows "Major IV" in the Classic list).
+    - model: "Monitor III A.N.C."
+      identification:
+        local_name_prefix: "MONITOR III A.N.C."
+      notes: >
+        Over-ear ANC headphones, Qualcomm (GAIA update path). Its manual names
+        the "MONITOR III A.N.C. [LE]" entry. Which characteristics it exposes
+        is not recorded.
+    - model: "Willen"
+      notes: >
+        Small portable speaker, Tymphany/Joplin update path per upstream
+        (which spells it "Willem"). FCC ID 2AAGF-WILLEN (granted 2022-02-23).
+        Whether it speaks the 1337 surface or the Tymphany speaker GATT set
+        is not established (see device.notes).
+    - model: "Stanmore"
+      notes: >
+        Home Bluetooth speaker, Tymphany/Joplin update path per upstream;
+        generation not stated. The Stanmore II is driven by open-source
+        clients through the Tymphany speaker GATT set (service 0000fe8f), not
+        the 1337 surface, so nothing in `entities` is scoped to it.
+    - model: "Woburn"
+      notes: >
+        Home Bluetooth speaker, Tymphany/Joplin update path per upstream;
+        generation not stated. Same caution as Stanmore.
+
+bluetooth_classic:
+  dual_mode: true
+  ble_role: "primary_control"
+  address_shared_with_ble: false
+  verification: "reported"
+  notes: >
+    Classic Bluetooth carries audio only, and this spec does not document it
+    beyond this block. The Classic address is public and fixed; the LE address
+    is random and rotates, so the two never match and a client cannot find
+    one from the other by address (the upstream author's Motif II A.N.C.; the
+    other models were not checked). That unit's Classic address carried OUI
+    00:25:D1, registered to Eastern Asia Technology Limited (an ODM); one
+    unit, so it is not offered as an identifier.
+  profiles:
+    - profile: "a2dp"
+      role: "audio"
+      verification: "reported"
+      notes: "Music. Named by the upstream write-up; not examined."
+    - profile: "avrcp"
+      role: "media_control"
+      verification: "reported"
+      notes: "Remote control of playback. Named by the upstream write-up; not examined. The headphones and earbuds also take calls, so HFP is very likely present; not recorded."
+  pairing:
+    required: true
+    confidence: "medium"
+    security_mode: "unknown"
+    bonding: "required"
+    enter_pairing_mode:
+      required: true
+      indicator: "Headphones and earbuds: LED pulses or blinks blue. Willen: slow red pulse."
+      procedures:
+        - name: "Case button 2 s, earbuds in the open case"
+          verified: false
+          basis: "Marshall Motif II A.N.C. Full Online Manual R0.13, device layout and 'Pairing a new device'."
+          applies_to: ["Motif II A.N.C."]
+          hold_seconds: 2
+          power_state: "on"
+          indicator: "Case LED turns to a slow blue pulse."
+          description: >
+            Place the earbuds in the case, keep the lid open, and press and
+            hold the case button until the LED pulses blue slowly, then pick
+            MOTIF II A.N.C. from the host's list.
+        - name: "Control knob held 4 s"
+          verified: false
+          basis: "Marshall Major IV quick-start guide (English page), control-knob table and 'Getting started'."
+          applies_to: ["Major IV"]
+          hold_seconds: 4
+          indicator: "LED blinks blue."
+          description: >
+            Push and hold the control knob until the LED indicator blinks
+            blue, then pick Major IV from the host's list.
+        - name: "Control knob: double press when on, 2 s hold when off"
+          verified: false
+          basis: "Marshall Monitor III A.N.C. Full Online Manual (English section), control-knob list and 'Pairing a new device'."
+          applies_to: ["Monitor III A.N.C."]
+          power_state: "any"
+          indicator: "LED turns to a slow blue pulse."
+          description: >
+            With the headphones on, double-press the control knob; with them
+            off, push and hold it for 2 seconds. Then pick MONITOR III A.N.C.
+            from the host's list.
+        - name: "Bluetooth button held until slow red pulse"
+          verified: false
+          basis: "Marshall Willen Full Online Manual (English section), 'Bluetooth pairing'."
+          applies_to: ["Willen"]
+          power_state: "on"
+          indicator: "LED turns to a slow red pulse."
+          description: >
+            Turn the speaker on (hold the control knob), then push and hold
+            the Bluetooth button until the LED pulses red slowly, and pick
+            WILLEN from the host's list.
+      notes: >
+        The pairing window's length is not stated in any manual read. Motif
+        II A.N.C. will not switch source while playing; pause first.
+    unpair:
+      supported: "unknown"
+      requires_factory_reset: false
+      notes: >
+        A host can forget the product at any time; the product itself keeps
+        its eight most recent hosts and drops the oldest (manual wording:
+        "remembers the last 8"). A factory reset clears them all.
+    notes: >
+      The Classic side's story, from the manuals: the owner pairs from the
+      host's Bluetooth settings with no PIN shown, which points at Secure
+      Simple Pairing; the association model is not established, hence
+      security_mode unknown. The LE control link's own pairing is
+      device.pairing.
+
+services:
+  - uuid: "fa302d24-d775-4343-b9ed-8cc68ace3284"
+    name: "Zound control service"
+    notes: >
+      Primary service of the proprietary control surface (upstream write-up).
+      Characteristic UUIDs are 0000{code}-1337-1dea-feed-c0ffee70c0de; each of
+      the codes up to 0x0025 also has a legacy alias on the Bluetooth base
+      (listed in the next entry and in protocol_details.uuid_schemes). Both
+      vendor apps look a characteristic up by UUID across every discovered
+      service rather than inside this one, so a client should do the same.
+      Properties are upstream's; write type (with or without response) is
+      not recorded, so every writable one says `write`. Only 0x0013 and
+      0x0017 have documented payloads. For every other characteristic here
+      the payload layout is UNKNOWN: nothing below guesses at it, and
+      nothing binds an entity to it. Caution: in the successor app's
+      Tymphany-speaker path this same UUID is a firmware-update
+      characteristic under a 16-bit service, not a service (see
+      device.notes).
+    characteristics:
+      - uuid: "00000001-1337-1dea-feed-c0ffee70c0de"
+        name: "Classic pairing mode"
+        properties: ["read", "write"]
+        notes: "Puts the product's Classic side into pairing mode / reports it. Payload unknown (the successor app reads one byte into a mode enum; values not recorded). Legacy alias 0000aa02-0000-1000-8000-00805f9b34fb."
+      - uuid: "00000003-1337-1dea-feed-c0ffee70c0de"
+        name: "Device name"
+        properties: ["read", "write"]
+        notes: "Rename. Payload unknown. Legacy alias 0000aa04-0000-1000-8000-00805f9b34fb."
+      - uuid: "00000004-1337-1dea-feed-c0ffee70c0de"
+        name: "Auto power-off"
+        properties: ["read", "write"]
+        notes: "Payload unknown. Legacy alias 0000aa05-0000-1000-8000-00805f9b34fb."
+      - uuid: "00000007-1337-1dea-feed-c0ffee70c0de"
+        name: "Volume"
+        properties: ["read", "write", "notify"]
+        notes: "Payload unknown (width, range and scaling not recorded). Legacy alias 0000aa08-0000-1000-8000-00805f9b34fb."
+      - uuid: "00000008-1337-1dea-feed-c0ffee70c0de"
+        name: "Volume limit"
+        properties: ["read", "write"]
+        notes: "Payload unknown. Legacy alias 0000aa09-0000-1000-8000-00805f9b34fb."
+      - uuid: "00000009-1337-1dea-feed-c0ffee70c0de"
+        name: "Playback control"
+        properties: ["write"]
+        notes: "Play / pause / skip style commands. Payload unknown. Legacy alias 0000aa10-0000-1000-8000-00805f9b34fb."
+      - uuid: "0000000a-1337-1dea-feed-c0ffee70c0de"
+        name: "Now playing"
+        properties: ["read", "notify"]
+        notes: "Track metadata. Payload unknown. Legacy alias 0000aa11-0000-1000-8000-00805f9b34fb."
+      - uuid: "0000000b-1337-1dea-feed-c0ffee70c0de"
+        name: "Interface sounds"
+        properties: ["read", "write"]
+        notes: "Prompt / button sounds on or off. Payload unknown. Legacy alias 0000aa12-0000-1000-8000-00805f9b34fb."
+      - uuid: "0000000c-1337-1dea-feed-c0ffee70c0de"
+        name: "Action button event"
+        properties: ["notify"]
+        notes: "Payload unknown. Legacy alias 0000aa13-0000-1000-8000-00805f9b34fb (upstream only; the successor app no longer references this code)."
+      - uuid: "0000000d-1337-1dea-feed-c0ffee70c0de"
+        name: "Action button assignment"
+        properties: ["read", "write"]
+        notes: "What the M-button / touch gesture does. Payload unknown. Legacy alias 0000aa14-0000-1000-8000-00805f9b34fb."
+      - uuid: "0000000f-1337-1dea-feed-c0ffee70c0de"
+        name: "Graphical equaliser"
+        properties: ["read", "write"]
+        notes: "Band levels. Payload unknown. Legacy alias 0000aa16-0000-1000-8000-00805f9b34fb."
+      - uuid: "00000013-1337-1dea-feed-c0ffee70c0de"
+        name: "Noise control mode"
+        properties: ["read", "write", "notify"]
+        role: "command"
+        notes: >
+          One byte, read, written and notified: 0x00 off (playback only),
+          0x01 active noise cancelling, 0x02 transparency / ambient. The
+          successor app reads byte 0 into the same three values and writes
+          the one byte back, which agrees with the upstream write-up. Legacy
+          alias 0000aa20-0000-1000-8000-00805f9b34fb, same payload. ANC-capable
+          models only.
+        format:
+          - offset: 0
+            length: 1
+            name: "mode"
+            type: "uint8"
+            values:
+              "0": "off"
+              "1": "noise_cancelling"
+              "2": "transparency"
+        commands:
+          set_noise_control:
+            description: "Select the noise-control mode. One byte; the same byte is what a read or notification reports."
+            verification: "reported"
+            template: ["{mode}"]
+            parameters:
+              mode:
+                type: "uint8"
+                min: 0
+                max: 2
+                labels: ["Off (playback only)", "Active noise cancelling", "Transparency"]
+                description: "0x00 off, 0x01 ANC, 0x02 transparency."
+      - uuid: "00000014-1337-1dea-feed-c0ffee70c0de"
+        name: "Touch lock"
+        properties: ["read", "write"]
+        notes: "Payload unknown. Legacy alias 0000aa21-0000-1000-8000-00805f9b34fb."
+      - uuid: "00000017-1337-1dea-feed-c0ffee70c0de"
+        name: "EQ step settings"
+        properties: ["read", "write"]
+        role: "command"
+        notes: >
+          The product holds three EQ "step" slots (0, 1, 2) that its own
+          button cycles through, each carrying one preset. Changing the
+          sound is two writes: assign_step_preset puts a preset in a slot,
+          then change_active_step makes that slot current. For a simple
+          preset change the upstream write-up uses slot 0 both times, e.g.
+          rock = [0x01, 0x00, 0x02] then [0x00, 0x00]. The read side has two
+          shapes (a three-byte short form and a 0xFF-prefixed long form) whose
+          field meanings come from the successor app only; they are in
+          protocol_details.eq_settings.read_forms and are not declared as a
+          `format` here. Legacy alias 0000aa25-0000-1000-8000-00805f9b34fb,
+          same payloads.
+        commands:
+          assign_step_preset:
+            description: "Assign a preset to one of the three EQ step slots (first of the two writes). Follow with change_active_step for the same slot."
+            verification: "reported"
+            template: [0x01, "{step}", "{preset}"]
+            parameters:
+              step:
+                type: "uint8"
+                min: 0
+                max: 2
+                labels: ["Slot 1", "Slot 2", "Slot 3"]
+                description: "Step slot index, 0-2."
+              preset:
+                type: "uint8"
+                min: 0
+                max: 11
+                labels: ["Flat", "Custom", "Rock", "Metal", "Pop", "Hip hop", "Electronic", "Jazz", "Bass boost", "Mid boost", "Treble boost", "Loud (workout)"]
+                description: "Preset id in the genre-style numbering the upstream write-up documents (scheme 0). 1 selects the custom curve held by characteristic 0x0018."
+          change_active_step:
+            description: "Make one EQ step slot the active one (second of the two writes)."
+            verification: "reported"
+            template: [0x00, "{step}"]
+            parameters:
+              step:
+                type: "uint8"
+                min: 0
+                max: 2
+                labels: ["Slot 1", "Slot 2", "Slot 3"]
+                description: "Step slot index, 0-2."
+      - uuid: "00000018-1337-1dea-feed-c0ffee70c0de"
+        name: "Custom EQ preset"
+        properties: ["read", "write"]
+        notes: "The user's custom curve behind preset id 1. Payload unknown. Legacy alias 0000aa26-0000-1000-8000-00805f9b34fb."
+      - uuid: "00000019-1337-1dea-feed-c0ffee70c0de"
+        name: "Transparency level"
+        properties: ["read", "write"]
+        notes: "Payload unknown. Legacy alias 0000aa27-0000-1000-8000-00805f9b34fb."
+      - uuid: "0000001a-1337-1dea-feed-c0ffee70c0de"
+        name: "Noise cancelling level"
+        properties: ["read", "write"]
+        notes: "Payload unknown. Legacy alias 0000aa28-0000-1000-8000-00805f9b34fb."
+      - uuid: "0000001b-1337-1dea-feed-c0ffee70c0de"
+        name: "Audio source"
+        properties: ["read", "write"]
+        notes: "Input selection on speakers. Payload unknown. Legacy alias 0000aa29-0000-1000-8000-00805f9b34fb."
+      - uuid: "0000001c-1337-1dea-feed-c0ffee70c0de"
+        name: "Party mode"
+        properties: ["read", "write"]
+        notes: "Speaker linking. Payload unknown. Legacy alias 0000aa2a-0000-1000-8000-00805f9b34fb."
+      - uuid: "0000001d-1337-1dea-feed-c0ffee70c0de"
+        name: "Eco charging"
+        properties: ["read", "write"]
+        notes: "Payload unknown. Legacy alias 0000aa2b-0000-1000-8000-00805f9b34fb."
+      - uuid: "0000001e-1337-1dea-feed-c0ffee70c0de"
+        name: "Room placement"
+        properties: ["read", "write"]
+        notes: "Payload unknown. Legacy alias 0000aa2c-0000-1000-8000-00805f9b34fb."
+      - uuid: "0000001f-1337-1dea-feed-c0ffee70c0de"
+        name: "Night mode"
+        properties: ["read", "write"]
+        notes: "Payload unknown. Legacy alias 0000aa2d-0000-1000-8000-00805f9b34fb."
+      - uuid: "00000025-1337-1dea-feed-c0ffee70c0de"
+        name: "Tone control"
+        properties: ["read", "write"]
+        notes: "Payload unknown. Legacy alias 0000aa33-0000-1000-8000-00805f9b34fb."
+      - uuid: "00000027-1337-1dea-feed-c0ffee70c0de"
+        name: "Wear sensor status"
+        properties: ["read", "notify"]
+        notes: "In-ear / on-head detection. Payload unknown. No legacy alias."
+      - uuid: "00000028-1337-1dea-feed-c0ffee70c0de"
+        name: "Wear sensor action"
+        properties: ["read", "write"]
+        notes: "What the product does when taken off (auto pause/play). Payload unknown. No legacy alias."
+      - uuid: "0000002f-1337-1dea-feed-c0ffee70c0de"
+        name: "Battery preservation"
+        properties: ["read", "write"]
+        notes: "Charge-limit level the manuals describe as 'battery preservation'. Payload unknown and deliberately not guessed. No legacy alias."
+      - uuid: "00000030-1337-1dea-feed-c0ffee70c0de"
+        name: "Dynamic audio"
+        properties: ["read", "write"]
+        notes: "Payload unknown. No legacy alias."
+      - uuid: "00000032-1337-1dea-feed-c0ffee70c0de"
+        name: "Auto-off timer"
+        properties: ["read", "write"]
+        notes: "Payload unknown. No legacy alias."
+      - uuid: "00000033-1337-1dea-feed-c0ffee70c0de"
+        name: "Soundstage"
+        properties: ["read", "write"]
+        notes: "Payload unknown. No legacy alias."
+      - uuid: "00000034-1337-1dea-feed-c0ffee70c0de"
+        name: "Connection control"
+        properties: ["read", "write"]
+        notes: "Management of the Classic connections (multipoint, forget). Payload unknown. No legacy alias."
+      - uuid: "0000003a-1337-1dea-feed-c0ffee70c0de"
+        name: "LED intensity"
+        properties: ["read", "write"]
+        notes: "Payload unknown. No legacy alias."
+      - uuid: "0000003d-1337-1dea-feed-c0ffee70c0de"
+        name: "LE Audio configuration"
+        properties: ["read", "write"]
+        notes: "Payload unknown. No legacy alias."
+      - uuid: "00000044-1337-1dea-feed-c0ffee70c0de"
+        name: "Audio feature configuration"
+        properties: ["read", "write"]
+        notes: "Payload unknown. No legacy alias."
+      - uuid: "00000045-1337-1dea-feed-c0ffee70c0de"
+        name: "Audio input feature configuration"
+        properties: ["read", "write"]
+        notes: "Payload unknown. No legacy alias."
+      - uuid: "00000048-1337-1dea-feed-c0ffee70c0de"
+        name: "USB configuration"
+        properties: ["read", "write"]
+        notes: "Payload unknown. No legacy alias."
+
+  # Grouping placeholder, on the hotwired-heated-gear precedent: the vendor apps
+  # look these up by characteristic UUID across ALL services, so their parent
+  # service is not recorded. The duplicated UUID is not an on-device claim.
+  - uuid: "fa302d24-d775-4343-b9ed-8cc68ace3284"
+    name: "Characteristics with no recorded parent service (legacy aliases, earbud battery)"
+    notes: >
+      Grouping placeholder, not a second service on the device. Holds (1) the
+      legacy 0000aaXX aliases older firmware exposes in place of the 1337
+      characteristics, and (2) the earbud / case battery characteristics on
+      the 7a573e5d-9330-4d9b-8660-63c33fc5XXXX base. Neither source records
+      which service contains them. Look each up by UUID across all
+      services. A legacy alias carries the same payload as its modern twin;
+      only the two with documented payloads (noise control, EQ) and the ones
+      a client is most likely to probe are named in full here, and the whole
+      mapping is in protocol_details.uuid_schemes.characteristic_codes.
+    characteristics:
+      - uuid: "0000aa20-0000-1000-8000-00805f9b34fb"
+        name: "Noise control mode (legacy alias of 0x0013)"
+        properties: ["read", "write", "notify"]
+        notes: "Same one-byte payload as 00000013-1337-1dea-feed-c0ffee70c0de: 0x00 off, 0x01 ANC, 0x02 transparency. Older firmware."
+        format:
+          - offset: 0
+            length: 1
+            name: "mode"
+            type: "uint8"
+            values:
+              "0": "off"
+              "1": "noise_cancelling"
+              "2": "transparency"
+      - uuid: "0000aa25-0000-1000-8000-00805f9b34fb"
+        name: "EQ step settings (legacy alias of 0x0017)"
+        properties: ["read", "write"]
+        notes: "Same two writes as 00000017-1337-1dea-feed-c0ffee70c0de: [0x01, step, preset] then [0x00, step]. Older firmware."
+      - uuid: "0000aa02-0000-1000-8000-00805f9b34fb"
+        name: "Classic pairing mode (legacy alias of 0x0001)"
+        properties: ["read", "write"]
+        notes: "Payload unknown."
+      - uuid: "0000aa04-0000-1000-8000-00805f9b34fb"
+        name: "Device name (legacy alias of 0x0003)"
+        properties: ["read", "write"]
+        notes: "Payload unknown."
+      - uuid: "0000aa08-0000-1000-8000-00805f9b34fb"
+        name: "Volume (legacy alias of 0x0007)"
+        properties: ["read", "write", "notify"]
+        notes: "Payload unknown."
+      - uuid: "7a573e5d-9330-4d9b-8660-63c33fc50001"
+        name: "Right earbud battery level"
+        properties: ["read", "notify"]
+        notes: "Tymphany UUID base. Payload not documented; presumably a percentage like 0x2a19, but that is not established, so no format is declared. Properties are an assumption from its role (upstream lists the UUID only)."
+      - uuid: "7a573e5d-9330-4d9b-8660-63c33fc50002"
+        name: "Left earbud battery level"
+        properties: ["read", "notify"]
+        notes: "As the right earbud: payload not documented, properties assumed."
+      - uuid: "7a573e5d-9330-4d9b-8660-63c33fc50003"
+        name: "Charging case battery level"
+        properties: ["read", "notify"]
+        notes: "As the right earbud: payload not documented, properties assumed."
+      - uuid: "7a573e5d-9330-4d9b-8660-63c33fc50101"
+        name: "Right earbud battery level status"
+        properties: ["read", "notify"]
+        notes: "Presumably mirrors Battery Level Status (0x2bed) for one earbud; not established. Properties assumed."
+      - uuid: "7a573e5d-9330-4d9b-8660-63c33fc50102"
+        name: "Left earbud battery level status"
+        properties: ["read", "notify"]
+        notes: "As the right earbud's status; not established."
+      - uuid: "7a573e5d-9330-4d9b-8660-63c33fc50103"
+        name: "Charging case battery level status"
+        properties: ["read", "notify"]
+        notes: "As the right earbud's status; not established."
+
+  - uuid: "0000180f-0000-1000-8000-00805f9b34fb"
+    name: "Battery Service"
+    notes: >
+      Bluetooth SIG service. The parent UUID is the standard owner of these
+      characteristics, not a value either source recorded. Present on the
+      battery-powered models per the upstream UUID list; which models expose
+      it is not recorded.
+    characteristics:
+      - uuid: "00002a19-0000-1000-8000-00805f9b34fb"
+        name: "Battery Level"
+        properties: ["read", "notify"]
+        format:
+          - offset: 0
+            length: 1
+            name: "battery_percent"
+            type: "uint8"
+            unit: "%"
+            device_class: "battery"
+      - uuid: "00002bed-0000-1000-8000-00805f9b34fb"
+        name: "Battery Level Status"
+        properties: ["read", "notify"]
+        notes: >
+          SIG-defined structure (Battery Service 1.1): a flags byte, a 16-bit
+          power-state bitfield, then optional identifier, level and
+          additional-status fields as the flags say. Only the fixed head is
+          declared; decode the rest per the SIG specification.
+        format:
+          - offset: 0
+            length: 1
+            name: "flags"
+            type: "uint8"
+          - offset: 1
+            length: 2
+            name: "power_state"
+            type: "uint16"
+            endianness: "little"
+
+  - uuid: "0000180a-0000-1000-8000-00805f9b34fb"
+    name: "Device Information"
+    notes: "Bluetooth SIG service; standard owner of these characteristics. Every value is a UTF-8 string read whole."
+    characteristics:
+      - uuid: "00002a29-0000-1000-8000-00805f9b34fb"
+        name: "Manufacturer Name String"
+        properties: ["read"]
+      - uuid: "00002a24-0000-1000-8000-00805f9b34fb"
+        name: "Model Number String"
+        properties: ["read"]
+      - uuid: "00002a25-0000-1000-8000-00805f9b34fb"
+        name: "Serial Number String"
+        properties: ["read"]
+        notes: "Per-unit serial. A stable identity key once read (see discovery.identity)."
+      - uuid: "00002a26-0000-1000-8000-00805f9b34fb"
+        name: "Firmware Revision String"
+        properties: ["read"]
+        notes: "On the upstream author's Motif II A.N.C. this named Airoha's AB1565 audio SDK, which is how the chipset is known."
+      - uuid: "00002a27-0000-1000-8000-00805f9b34fb"
+        name: "Hardware Revision String"
+        properties: ["read"]
+      - uuid: "00002a28-0000-1000-8000-00805f9b34fb"
+        name: "Software Revision String"
+        properties: ["read"]
+        notes: "Referenced by the successor app; not in the upstream list."
+
+initialization:
+  - description: >
+      Make sure the link is bonded and encrypted before touching any
+      proprietary characteristic; unbonded reads and writes are refused. A
+      client that connected to an already-bonded product gets encryption from
+      the stored keys; otherwise bond first (Just Works, see device.pairing).
+  - description: >
+      Resolve each function's characteristic by UUID across all discovered
+      services: the modern 0000{code}-1337-1dea-feed-c0ffee70c0de UUID
+      first, and only if it is absent the legacy 0000aaXX alias on the
+      Bluetooth base (table in protocol_details.uuid_schemes). A function
+      with neither is not supported by that model or firmware; hide its
+      control rather than showing it broken.
+
+features:
+  - type: "firmware_update"
+    variants: ["Major IV", "Monitor III A.N.C."]
+    dfu:
+      mechanisms: ["custom"]
+      transport: "ble"
+      image:
+        signing: "unknown"
+        source: "unknown"
+      enter:
+        how: "unknown"
+      recovery:
+        interrupted: "unknown"
+      verification: "reported"
+      notes: >
+        Qualcomm GAIA, on the headphones with a Qualcomm chip. Its GATT
+        attributes use the Qualcomm base 0000xxxx-d102-11e1-9b23-00025b00a5a5.
+        `custom` because the mechanism vocabulary has no GAIA member
+        (`csr_ota` names the older CSR OTA service 00001016 on that base, a
+        different protocol). Named only: no transfer or entry bytes are
+        documented, because a wrong or interrupted image can leave
+        headphones unusable. Whether the app also runs GAIA over Classic
+        RFCOMM is not recorded.
+  - type: "firmware_update"
+    variants: ["Motif II A.N.C."]
+    dfu:
+      mechanisms: ["custom"]
+      image:
+        signing: "unknown"
+        source: "unknown"
+      enter:
+        how: "unknown"
+      recovery:
+        interrupted: "unknown"
+      verification: "reported"
+      notes: >
+        Airoha OTA, on the Airoha AB1565 earbuds. Named only: no
+        transport details, transfer or entry bytes are documented here. An
+        interrupted earbud update may leave a bud unbootable.
+  - type: "firmware_update"
+    variants: ["Willen", "Stanmore", "Woburn"]
+    dfu:
+      mechanisms: ["custom"]
+      image:
+        signing: "unknown"
+        source: "unknown"
+      enter:
+        how: "unknown"
+      recovery:
+        interrupted: "unknown"
+      verification: "reported"
+      notes: >
+        Tymphany ("Joplin") OTA, on the Tymphany-built speakers. Named only.
+        One finding from the successor app is recorded because it collides
+        with the control service: in that app's Tymphany path,
+        fa302d24-d775-4343-b9ed-8cc68ace3284 is the update CHARACTERISTIC
+        (under a 16-bit service), so on these speakers the UUID may mark the
+        update path rather than the control surface. No bytes are documented.
+
+entities:
+  - platform: "select"
+    name: "Noise Control"
+    icon: "mdi:headphones"
+    variants: ["Motif II A.N.C.", "Monitor III A.N.C."]
+    state_characteristic: "00000013-1337-1dea-feed-c0ffee70c0de"
+    command_characteristic: "00000013-1337-1dea-feed-c0ffee70c0de"
+    fallback_characteristic: "0000aa20-0000-1000-8000-00805f9b34fb"
+    fallback_state_characteristic: "0000aa20-0000-1000-8000-00805f9b34fb"
+    commands:
+      select_option: "set_noise_control"
+    state_mapping:
+      value: "mode"
+      options:
+        0: "Off"
+        1: "Noise cancelling"
+        2: "Transparency"
+    notes: >
+      Scoped to the ANC models. The Motif II A.N.C. is the upstream worked
+      example; the Monitor III A.N.C. is included because it has ANC
+      hardware and its manual sends noise-control settings through the app,
+      not because anyone has read its GATT table. Notifications arrive when
+      the mode changes from the product's own button.
+
+  - platform: "select"
+    name: "EQ Preset (Slot 1)"
+    icon: "mdi:equalizer"
+    variants: ["Motif II A.N.C."]
+    state_characteristic: "00000017-1337-1dea-feed-c0ffee70c0de"
+    command_characteristic: "00000017-1337-1dea-feed-c0ffee70c0de"
+    fallback_characteristic: "0000aa25-0000-1000-8000-00805f9b34fb"
+    fallback_state_characteristic: "0000aa25-0000-1000-8000-00805f9b34fb"
+    commands:
+      select_option:
+        command: "assign_step_preset"
+        values:
+          step: 0
+    state_mapping:
+      options:
+        0: "Flat"
+        1: "Custom"
+        2: "Rock"
+        3: "Metal"
+        4: "Pop"
+        5: "Hip hop"
+        6: "Electronic"
+        7: "Jazz"
+        8: "Bass boost"
+        9: "Mid boost"
+        10: "Treble boost"
+        11: "Loud (workout)"
+    notes: >
+      Half of a two-write change. Picking a preset writes [0x01, 0x00,
+      preset] (assign it to slot 1); the sound changes only once slot 1 is
+      active, which is the Active EQ Slot control below ([0x00, 0x00]). The
+      schema has no way to bind a two-command sequence to one role, so the
+      two halves are two controls. No current-value decode is declared: the
+      read side's two shapes are not established well enough to bind (see
+      protocol_details.eq_settings.read_forms).
+
+  - platform: "select"
+    name: "Active EQ Slot"
+    icon: "mdi:equalizer"
+    variants: ["Motif II A.N.C."]
+    state_characteristic: "00000017-1337-1dea-feed-c0ffee70c0de"
+    command_characteristic: "00000017-1337-1dea-feed-c0ffee70c0de"
+    fallback_characteristic: "0000aa25-0000-1000-8000-00805f9b34fb"
+    fallback_state_characteristic: "0000aa25-0000-1000-8000-00805f9b34fb"
+    commands:
+      select_option: "change_active_step"
+    state_mapping:
+      options:
+        0: "Slot 1"
+        1: "Slot 2"
+        2: "Slot 3"
+    notes: >
+      Writes [0x00, slot]. Select Slot 1 after changing EQ Preset (Slot 1)
+      to hear the new preset. No current-value decode is declared (see the
+      preset control's note).
+
+  - platform: "sensor"
+    name: "Battery"
+    device_class: "battery"
+    unit: "%"
+    variants: ["Motif II A.N.C.", "Major IV", "Monitor III A.N.C.", "Willen"]
+    state_characteristic: "00002a19-0000-1000-8000-00805f9b34fb"
+    state_mapping:
+      value: "battery_percent"
+    notes: >
+      Standard Battery Level. Scoped to the battery-powered models; which of
+      them actually expose it is not recorded, and on the earbuds it is not
+      established whether it reports the buds, the case or one of them (the
+      per-bud and case levels are on the 7a573e5d-... characteristics, whose
+      payload is undocumented and so bound to nothing).
+
+protocol_details:
+  uuid_schemes:
+    description: >
+      Four UUID families. A client resolves every function modern-first,
+      legacy-second, by characteristic UUID across all services. Both vendor
+      apps keep each function as an ordered [modern, legacy] pair.
+    zound_modern:
+      template: "0000{code}-1337-1dea-feed-c0ffee70c0de"
+      service: "fa302d24-d775-4343-b9ed-8cc68ace3284"
+      use: "Every proprietary function on current firmware."
+    zound_legacy:
+      template: "0000{legacy_code}-0000-1000-8000-00805f9b34fb"
+      use: "The same functions on older firmware, for codes up to 0x0025. Codes from 0x0027 up have no legacy alias. The legacy code is NOT derivable from the modern one; use the table."
+    tymphany_battery:
+      template: "7a573e5d-9330-4d9b-8660-63c33fc5{code}"
+      codes:
+        "0001": "right earbud battery level"
+        "0002": "left earbud battery level"
+        "0003": "charging case battery level"
+        "0101": "right earbud battery level status"
+        "0102": "left earbud battery level status"
+        "0103": "charging case battery level status"
+      use: "Earbud and case batteries. Payloads undocumented."
+    qualcomm_gaia:
+      template: "0000{code}-d102-11e1-9b23-00025b00a5a5"
+      use: "Firmware update on the Qualcomm headphones only. Named, not documented."
+    verification: "reported"
+    characteristic_codes:
+      # code, legacy alias, role, upstream properties, payload status.
+      # Every modern/legacy pair up to 0x0025 except 0x000c is repeated
+      # identically in the successor app, which is the cross-check.
+      - {code: "0001", legacy_code: "aa02", role: "classic_pairing_mode", properties: [read, write], payload: "unknown"}
+      - {code: "0003", legacy_code: "aa04", role: "device_name", properties: [read, write], payload: "unknown"}
+      - {code: "0004", legacy_code: "aa05", role: "auto_power_off", properties: [read, write], payload: "unknown"}
+      - {code: "0007", legacy_code: "aa08", role: "volume", properties: [read, write, notify], payload: "unknown"}
+      - {code: "0008", legacy_code: "aa09", role: "volume_limit", properties: [read, write], payload: "unknown"}
+      - {code: "0009", legacy_code: "aa10", role: "playback_control", properties: [write], payload: "unknown"}
+      - {code: "000a", legacy_code: "aa11", role: "now_playing", properties: [read, notify], payload: "unknown"}
+      - {code: "000b", legacy_code: "aa12", role: "interface_sounds", properties: [read, write], payload: "unknown"}
+      - {code: "000c", legacy_code: "aa13", role: "action_button_event", properties: [notify], payload: "unknown", notes: "Upstream only; absent from the successor app."}
+      - {code: "000d", legacy_code: "aa14", role: "action_button_assignment", properties: [read, write], payload: "unknown"}
+      - {code: "000f", legacy_code: "aa16", role: "graphical_equaliser", properties: [read, write], payload: "unknown"}
+      - {code: "0013", legacy_code: "aa20", role: "noise_control_mode", properties: [read, write, notify], payload: "documented: one byte, 0 off / 1 ANC / 2 transparency"}
+      - {code: "0014", legacy_code: "aa21", role: "touch_lock", properties: [read, write], payload: "unknown"}
+      - {code: "0017", legacy_code: "aa25", role: "eq_step_settings", properties: [read, write], payload: "documented writes: [0x01, step, preset] then [0x00, step]"}
+      - {code: "0018", legacy_code: "aa26", role: "custom_eq_preset", properties: [read, write], payload: "unknown"}
+      - {code: "0019", legacy_code: "aa27", role: "transparency_level", properties: [read, write], payload: "unknown"}
+      - {code: "001a", legacy_code: "aa28", role: "noise_cancelling_level", properties: [read, write], payload: "unknown"}
+      - {code: "001b", legacy_code: "aa29", role: "audio_source", properties: [read, write], payload: "unknown"}
+      - {code: "001c", legacy_code: "aa2a", role: "party_mode", properties: [read, write], payload: "unknown"}
+      - {code: "001d", legacy_code: "aa2b", role: "eco_charging", properties: [read, write], payload: "unknown"}
+      - {code: "001e", legacy_code: "aa2c", role: "room_placement", properties: [read, write], payload: "unknown"}
+      - {code: "001f", legacy_code: "aa2d", role: "night_mode", properties: [read, write], payload: "unknown"}
+      - {code: "0025", legacy_code: "aa33", role: "tone_control", properties: [read, write], payload: "unknown"}
+      - {code: "0027", role: "wear_sensor_status", properties: [read, notify], payload: "unknown", notes: "Not found in the successor app."}
+      - {code: "0028", role: "wear_sensor_action", properties: [read, write], payload: "unknown"}
+      - {code: "002f", role: "battery_preservation", properties: [read, write], payload: "unknown"}
+      - {code: "0030", role: "dynamic_audio", properties: [read, write], payload: "unknown"}
+      - {code: "0032", role: "auto_off_timer", properties: [read, write], payload: "unknown"}
+      - {code: "0033", role: "soundstage", properties: [read, write], payload: "unknown"}
+      - {code: "0034", role: "connection_control", properties: [read, write], payload: "unknown"}
+      - {code: "003a", role: "led_intensity", properties: [read, write], payload: "unknown"}
+      - {code: "003d", role: "le_audio_configuration", properties: [read, write], payload: "unknown"}
+      - {code: "0044", role: "audio_feature_configuration", properties: [read, write], payload: "unknown", notes: "Not found in the successor app."}
+      - {code: "0045", role: "audio_input_feature_configuration", properties: [read, write], payload: "unknown", notes: "Not found in the successor app."}
+      - {code: "0048", role: "usb_configuration", properties: [read, write], payload: "unknown", notes: "Not found in the successor app."}
+    successor_app_only_codes:
+      verification: "reported"
+      codes: ["0029", "002a", "002b", "002c", "0035", "0036", "0037", "0038", "0039", "003e", "0043", "0046", "0049"]
+      notes: >
+        Further modern-only codes the successor Marshall app (1.3.2)
+        references on the same 1337 base, for newer products. Their roles and
+        properties were not established in this pass; listed so a GATT
+        explorer can at least recognise them as this family's.
+
+  eq_settings:
+    verification: "reported"
+    slots: 3
+    writes:
+      assign_step_preset: "[0x01, step (0-2), preset (0-11)]"
+      change_active_step: "[0x00, step (0-2)]"
+      example_rock_in_slot_1: ["01 00 02", "00 00"]
+    presets_scheme_0:
+      0: "Flat"
+      1: "Custom (the curve in 0x0018)"
+      2: "Rock"
+      3: "Metal"
+      4: "Pop"
+      5: "Hip hop"
+      6: "Electronic"
+      7: "Jazz"
+      8: "Bass boost"
+      9: "Mid boost"
+      10: "Treble boost"
+      11: "Loud (workout)"
+    read_forms:
+      verification: "hypothesis"
+      source: "Field names from the successor app's EQ parser only; the upstream write-up documents no read."
+      short_form:
+        when: "byte 0 is not 0xFF"
+        length: 3
+        fields:
+          - {offset: 0, name: "active_step", type: "uint8"}
+          - {offset: 1, name: "slot_2_preset", type: "uint8"}
+          - {offset: 2, name: "slot_3_preset", type: "uint8"}
+        notes: "Slot 1's preset is not in this form, which suggests slot 1 is fixed on the products that use it; that conflicts with upstream's 'use slot 0 both times' recipe unless those are different products. Unresolved."
+      long_form:
+        when: "byte 0 is 0xFF"
+        fields:
+          - {offset: 0, name: "marker", type: "uint8", value: 0xFF}
+          - {offset: 1, name: "slot_count", type: "uint8"}
+          - {offset: 2, name: "active_step", type: "uint8"}
+          - {offset: 3, name: "preset_type", type: "uint8", values: {0: "genre-style list (the 0-11 table)", 1: "a second, tone-style list"}}
+          - {offset: 4, name: "custom_eq_active", type: "bool"}
+          - {offset: 5, name: "slot_presets", type: "bytes", length: "slot_count", notes: "one preset id per slot"}
+        notes: >
+          The successor app also carries a six-entry tone-style preset table
+          (0 flat, 1 custom, 2 bass boost, 3 mid boost, 4 treble boost, 5 mid
+          reduction) that is probably what preset_type 1 selects. Hypothesis.
+
+  advertisement:
+    verification: "hypothesis"
+    source: "The successor Marshall app's scanner (1.3.2); not established on the Marshall Bluetooth app-era models."
+    local_name: "Product name plus the suffix \" [LE]\"; the successor app strips \"[LE]\" and a leading \"LE-\" to get the display name. \"LE-\" is not used as a matcher here because other audio brands use that prefix."
+    manufacturer_data:
+      company_id: 1626
+      also_accepted_by_app: 23046
+      fields:
+        - {offset: 0, name: "product_id", type: "uint8", notes: "Looked up in the app's per-model table."}
+        - {offset: 1, name: "colour_code", type: "uint8", notes: "Finish / colourway, 0-5 in the app's table."}
+        - {offset: 2, length: 6, name: "address", type: "bytes", notes: "Formatted by the app as a colon-separated MAC. Probably the Classic address; not established."}
+      notes: "Offsets are into the payload after the two company-id bytes."
+
+  ota_families:
+    - {family: "Qualcomm GAIA", chipset: "Qualcomm", models: ["Major IV", "Monitor III A.N.C."], uuid_base: "0000xxxx-d102-11e1-9b23-00025b00a5a5"}
+    - {family: "Airoha OTA", chipset: "Airoha AB1565", models: ["Motif II A.N.C."]}
+    - {family: "Tymphany / Joplin OTA", chipset: "Tymphany platform", models: ["Willen", "Stanmore", "Woburn"]}
+
+  tymphany_speaker_gatt:
+    status: "out of scope; recorded as a negative finding for this spec"
+    description: >
+      The Stanmore II and Acton II are driven by open-source clients through
+      a different GATT set: advertised 16-bit service 0000fe8f, secondary
+      service 8fe6819d-d5f9-49fa-90ba-4da05a7d2725, and one 128-bit
+      characteristic per function (volume 44fa50b2-d0a3-472e-a939-d80cf17638bb,
+      playback control 4446cf5f-12f2-4c1e-afe1-b15797535ba8, EQ
+      31fbb033-1013-bd3e-a249-d856f156a319, device name
+      3ba91c2e-8b08-4c27-9d4e-4936a793fcfb, LED brightness
+      35e3b090-1d43-35ae-af35-d254b153fc36, pairing
+      4a75c20f-13bd-44a1-b39d-a70f86f607a2, media info
+      95c09f26-95a4-4597-a798-b8e408f5ca66). None of it is the 1337 surface.
+      It deserves its own spec, sourced from those clients.
+    sources:
+      - "https://github.com/rabbit-aaron/marshall-stanmore-2"
+      - "https://github.com/elrobertocarlos/marshall_bluetooth_speaker"
+
+evidence:
+  upstream_static_analysis: >
+    c0ffee-audio/marshall-protocol (README): characteristic codes and legacy
+    aliases, properties, the service UUID, the ANC byte, the EQ two-write
+    sequence and preset ids, the Tymphany battery UUIDs, the OTA families,
+    and the auth rules, all from static analysis of the Android app
+    com.zoundindustries.marshallbt v3.7.1. Its per-model feature map comes
+    from an app enum and is not reproduced. The repository carries no
+    licence, so this spec restates its facts in its own words and tables.
+  upstream_hardware_notes: >
+    The same README's connection and pairing section reports a session on
+    its author's own Motif II A.N.C. under BlueZ: separate public (Classic)
+    and random (LE) addresses, the " [LE]" name, a Just Works bond after
+    registering a NoInputNoOutput agent, and no GATT on the Classic device
+    object. Third-party observation, not a capture; the author's addresses
+    are not reproduced.
+  successor_app_cross_check: >
+    This project's static read of the successor app com.marshallgroup.marshall
+    v1.3.2 (Google Play, 2026-08), used only to check the upstream facts. It
+    repeats every modern/legacy pair from 0x0001 to 0x0025 except 0x000c,
+    reads and writes noise control as the same single byte 0/1/2, builds the
+    EQ writes exactly as [0x01, step, preset] and [0x00, step], and scans for
+    manufacturer data under company id 1626. It also uses fa302d24-... as a
+    firmware-update characteristic in its Tymphany speaker path, and carries
+    the Tymphany speaker GATT table. The Tymphany battery UUIDs are not in
+    it.
+  documentation_review: >
+    Vendor manuals for the Motif II A.N.C., Major IV (quick start), Monitor
+    III A.N.C. and Willen: pairing and factory-reset button procedures, the
+    eight-host memory, and the Monitor III A.N.C. manual's mention of the
+    " [LE]" Bluetooth-list entry. FCC grant pages for 2AAGF-MOTIFII,
+    2AAGF-MAJORIV and 2AAGF-WILLEN (Zound Industries International AB).
+  open_questions: >
+    Every payload beyond noise control and the EQ writes. The exact LE name
+    per model. Which characteristics each model exposes. Which firmware
+    versions moved from the legacy to the modern scheme. Whether the
+    Tymphany speakers speak this surface at all. Whether fa302d24 is
+    advertised. The EQ read forms. See remaining_unknowns.
+  artifacts:
+    - type: "public_research"
+      artifact: "c0ffee-audio/marshall-protocol README (static analysis of com.zoundindustries.marshallbt 3.7.1)"
+      url: "https://github.com/c0ffee-audio/marshall-protocol"
+      description: "Primary source for the UUID tables, the two documented encodings, the OTA families and the pairing behaviour."
+    - type: "static_analysis"
+      artifact: "com.marshallgroup.marshall 1.3.2 (Google Play listing dated 2026-08-31)"
+      obtained_via: "third-party APK mirror, 2026-09"
+      description: "Cross-check only: confirmed the modern/legacy pairs, the ANC byte, the EQ write shapes and the company id; found fa302d24 used as a Tymphany update characteristic; did not contain the Tymphany battery UUIDs."
+    - type: "community_repo"
+      artifact: "rabbit-aaron/marshall-stanmore-2 (marshallstanmore2/ble.py)"
+      url: "https://github.com/rabbit-aaron/marshall-stanmore-2"
+      description: "Negative finding for this spec: the Stanmore II speaks a different, Tymphany GATT set."
+    - type: "community_repo"
+      artifact: "elrobertocarlos/marshall_bluetooth_speaker (Home Assistant integration)"
+      url: "https://github.com/elrobertocarlos/marshall_bluetooth_speaker"
+      description: "Same negative finding for the Acton II and Stanmore II; discovers them by service 0000fe8f."
+    - type: "vendor_documentation"
+      artifact: "Marshall user manuals: Motif II A.N.C. R0.13, Major IV quick start, Monitor III A.N.C., Willen"
+      description: "Button procedures for pairing and factory reset; the [LE] entry named in the Monitor III A.N.C. manual."
+    - type: "fcc_filing"
+      artifact: "FCC IDs 2AAGF-MOTIFII, 2AAGF-MAJORIV, 2AAGF-WILLEN"
+      description: "Grantee Zound Industries International AB; 2.4 GHz grants. Not otherwise used."
+
+remaining_unknowns:
+  - "Payload layouts of every characteristic except noise control (0x0013) and the EQ writes (0x0017): volume, volume limit, rename, auto power-off, tone control, touch lock, audio source, the ANC levels, wear sensor, battery preservation and the rest. The successor app's per-characteristic encoders are the obvious next place to read them."
+  - "The exact LE advertised name of each model, and whether a renamed unit keeps the \" [LE]\" suffix."
+  - "Which characteristics each model exposes. Upstream's per-model feature map is an app enum, not a GATT dump; no model's GATT table has been dumped."
+  - "Which firmware versions expose the modern 1337 UUIDs, the legacy aaXX aliases, or both."
+  - "Whether fa302d24-d775-4343-b9ed-8cc68ace3284 is advertised, and whether it is the control service on the Tymphany speakers (the successor app uses it there as an update characteristic)."
+  - "Whether the Willen, Stanmore and Woburn generations the Marshall Bluetooth app supports speak this surface or the separate Tymphany speaker GATT set that the Stanmore II and Acton II use."
+  - "The EQ read forms: which products send the three-byte short form and which the 0xFF long form, and whether slot 1 accepts an assigned preset on the short-form products."
+  - "Payload formats of the Tymphany earbud and case battery characteristics, and their parent service."
+  - "Whether the LE side must be in pairing mode to accept a new bond, how many LE bonds it keeps, and whether it accepts more than one LE central."
+  - "Whether Device Information and Battery Level are readable before the bond."
+  - "Whether manufacturer data under company id 1626 is present on the Zound-era models, and what the six-byte address field in it is."
+  - "The Major IV's factory-reset procedure (not in the quick-start guide read)."
+
+helpful_urls:
+  - title: "Marshall Motif II A.N.C. Full Online Manual (PDF)"
+    url: "https://www.marshall.com/on/demandware.static/-/Library-Sites-SharedLibrary-Marshall/default/dwe0dadd06/images/cms-pages/user/Marshall_Motif_II_ANC_R0_13_en.pdf"
+    kind: "manual"
+    description: >
+      Vendor manual R0.13 for the Motif II A.N.C. earbuds (English): pairing
+      from the case button, noise control, and the 10-second case-button
+      factory reset used in this spec.
+  - title: "Marshall Monitor III A.N.C. Full Online Manual, all languages (PDF, 82 MB)"
+    url: "https://downloads.ctfassets.net/javen7msabdh/Y4lwjaW2ma8v33Kx2ZXCz/d55009139a27c6786e45675a034af6e2/Marshall-Monitor-III-ANC-All-Languages.pdf"
+    kind: "manual"
+    description: >
+      Vendor manual for the Monitor III A.N.C. headphones; English is the
+      first section. Pairing, the M-button plus ANC-button factory reset, and
+      the "MONITOR III A.N.C. [LE]" Bluetooth-list entry.
+  - title: "Marshall Major IV quick-start guide, all languages (PDF)"
+    url: "https://assets.ctfassets.net/javen7msabdh/vzQ3XbFS8MEIRU6gF5j7T/b8664637be2ff28ff88ae319dd3651ae/Marshall-Major-IV-User-Manual.pdf"
+    kind: "manual"
+    description: >
+      Vendor quick-start guide for the Major IV headphones (English on page
+      3): control knob, 4-second hold for Bluetooth pairing, LED colours.
+  - title: "Marshall Willen Full Online Manual, all languages (PDF)"
+    url: "https://assets.ctfassets.net/javen7msabdh/1m805BGMfjJjFGpJelki0v/c00e7d3c50426305e7ff4b82d391b0ed/Marshall-Willen-User-Manual.pdf"
+    kind: "manual"
+    description: >
+      Vendor manual for the first-generation Willen portable speaker
+      (English pages 3-9): pairing (slow red pulse) and the 7-second
+      Bluetooth-button factory reset.
+  - title: "c0ffee-audio/marshall-protocol"
+    url: "https://github.com/c0ffee-audio/marshall-protocol"
+    kind: "protocol_writeup"
+    description: >
+      The reverse-engineered write-up this spec rests on: UUID schemes,
+      characteristic codes, the ANC and EQ encodings, OTA families and the
+      BlueZ pairing notes, from static analysis of the Marshall Bluetooth app
+      3.7.1. No licence, so facts are restated here rather than copied.
+  - title: "rabbit-aaron/marshall-stanmore-2"
+    url: "https://github.com/rabbit-aaron/marshall-stanmore-2"
+    kind: "implementation"
+    description: >
+      Python client for the Stanmore II over BLE. Speaks the separate
+      Tymphany speaker GATT set, not the 1337 surface; linked as the evidence
+      for that split.
+  - title: "elrobertocarlos/marshall_bluetooth_speaker"
+    url: "https://github.com/elrobertocarlos/marshall_bluetooth_speaker"
+    kind: "implementation"
+    description: >
+      Home Assistant integration for the Acton II and Stanmore II, built on
+      the Stanmore II client's research; same Tymphany GATT set.
+  - title: "Marshall Bluetooth app on Google Play"
+    url: "https://play.google.com/store/apps/details?id=com.zoundindustries.marshallbt"
+    kind: "vendor_support"
+    description: >
+      Listing of the vendor app (com.zoundindustries.marshallbt) whose
+      static analysis the upstream write-up is based on; covers the
+      Bluetooth headphones, earbuds and speakers in this family.
+  - title: "Marshall app on Google Play"
+    url: "https://play.google.com/store/apps/details?id=com.marshallgroup.marshall"
+    kind: "vendor_support"
+    description: >
+      Listing of the successor app (com.marshallgroup.marshall) used for this
+      spec's cross-check; covers the newer Marshall Bluetooth products.
+  - title: "FCC ID 2AAGF-MOTIFII (Motif II true-wireless headphones)"
+    url: "https://fccid.co/fcc/2AAGF-MOTIFII"
+    kind: "other"
+    description: "Zound Industries International AB grant, 2023-07-23, with internal and external photos."
+  - title: "FCC ID 2AAGF-MAJORIV (Major IV headphones)"
+    url: "https://fccid.co/fcc/2AAGF-MAJORIV"
+    kind: "other"
+    description: "Zound Industries International AB grant, 2020-09-21, with internal and external photos."
+  - title: "FCC ID 2AAGF-WILLEN (Willen portable loudspeaker)"
+    url: "https://fccid.co/fcc/2AAGF-WILLEN"
+    kind: "other"
+    description: "Zound Industries International AB grant, 2022-02-23, with internal and external photos."

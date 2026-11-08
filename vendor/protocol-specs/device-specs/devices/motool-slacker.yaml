@@ -23,6 +23,7 @@ device:
     status: untested
   protocol: "ble"
   category: "sensor"
+  category_hierarchy: ["measurement", "other"]
   notes: >
     Motorcycle digital suspension sag measurement tool (V4/V5).
     Vendor is active: live Shopify store at getslacker.com, V5 user guide dated

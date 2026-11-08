@@ -10,6 +10,7 @@ device:
     status: untested
   protocol: "ble"
   category: "light"
+  category_hierarchy: ["light", "led"]
   notes: >
     BLE-controlled RGB light-up shoes driven by the "Aurora LED Shoes" app
     (com.jtkj.auroraled, v1.0.1 analyzed). The entire protocol is a handful of
@@ -64,8 +65,6 @@ device:
     cheap BLE-UART-bridge profile); no firmware/OTA capability exists.
   identification:
     local_name_prefix: "FS"
-    service_uuids:
-      - "0000fff0-0000-1000-8000-00805f9b34fb"
   discovery:
     methods:
       - type: "ble_scan"
@@ -73,8 +72,6 @@ device:
           local_name:
             match: "prefix"
             value: "FS"
-          service_uuids:
-            - "0000fff0-0000-1000-8000-00805f9b34fb"
     identity:
       stable_keys: ["address"]
       display: "local_name"

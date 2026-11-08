@@ -10,6 +10,7 @@ device:
     status: untested
   protocol: "ble"
   category: "display"
+  category_hierarchy: ["display", "led_matrix"]
   notes: >
     Multi-size RGB LED pixel-matrix display (text, images, GIF, effects, timers,
     schedules). No pairing required.

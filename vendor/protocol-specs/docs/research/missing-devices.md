@@ -416,14 +416,20 @@ says a spec author must not get wrong. Read it before starting.
 A few rules cut across the tables. The verification pass raised each of them
 on more than one device.
 
-- **Bluetooth Classic has no home in the schema yet.** `device.protocol` is
-  `ble`, `wifi`, `lan`, `zigbee`, `zwave`, `obd2`, `uart` or `can`, so an
-  RFCOMM/SPP device has nowhere to go. That blocks the Bose QuietComfort, Sony
-  and Galaxy Buds control protocols, Apple's AAP, and the Parrot Zik, Jambox
-  and Nuraphone research notes. Propose the value in
-  [spec evolution](../contributing/spec-evolution.md) before writing those
-  specs. The mobile app would also need the transport, and iOS cannot open SPP
-  at all.
+- **Bluetooth Classic has a home in the schema since 2026-09-27.** When this
+  survey was written `device.protocol` was `ble`, `wifi`, `lan`, `zigbee`,
+  `zwave`, `obd2`, `uart` or `can`, so an RFCOMM/SPP device had nowhere to go,
+  and that blocked the Bose QuietComfort, Sony and Galaxy Buds control
+  protocols, Apple's AAP, and the Parrot Zik, Jambox and Nuraphone research
+  notes. `bluetooth_classic` landed as
+  [spec evolution P17](../contributing/spec-evolution.md#p17) together with the
+  `bluetooth_classic` block, `bt_classic_inquiry` discovery, `rfcomm` commands
+  and a required `corebluetooth` host-compatibility verdict; the Quin pill box
+  is the first spec written against it and the patterns are in
+  [Common Bluetooth Classic Patterns](../protocols/bluetooth-classic-common.md).
+  The rows below are unblocked on the spec side. The mobile app still needs an
+  RFCOMM transport, and iOS cannot open SPP at all — say so per spec in
+  `host_compatibility`.
 - **One-time key exports.** VanMoof, Fossil Hybrid HR, Oura, GE Cync and
   EcoFlow need a per-device key or account identifier that only the vendor
   cloud ever issued. Tapo/KLAP needs the cloud account's credentials, which
@@ -454,7 +460,7 @@ Held back entirely:
 |---|---|---|
 | **Continuous glucose monitors (Libre, Dexcom G7, others)**<br>Abbott, Dexcom, Roche, i-SENS, Sibionics and Microtech all active; no shutdowns sourced (unverified). | Large, motivated user base with protocols living only inside two big GPL apps, but those mature apps already serve users: link, don't spec.<br>*Caveat:* Medical device driving insulin dosing: at most a pointer page with a not-for-treatment disclaimer; no handshake or key details. | [Juggluco direct sensor client](https://github.com/j-kaltes/Juggluco) · [xDrip+ CGM app](https://github.com/NightscoutFoundation/xDrip) |
 
-Waiting on a Bluetooth Classic value in `device.protocol` (see the first bullet above):
+Bluetooth Classic control protocols — unblocked since `bluetooth_classic` landed (see the first bullet above); each needs a `bluetooth_classic` block, `rfcomm` commands and an `incompatible` verdict for `corebluetooth`:
 
 | Device | Risk | Local path | Why a spec, and the catch | Public work |
 |---|---|---|---|---|
@@ -563,10 +569,10 @@ internals. Paraphrase those before anything moves into
 | `research-notes/hydrao-smart-shower.md` | HYDRAO smart shower heads (First, Aloe) | A | near-spec | medium | Vendor in liquidation since 2026-06-02. Self-powered, no cloud needed. Missing: the temperature-characteristic discrepancy, threshold writes, history record format. |
 | `research-notes/meross-msg100.md` | Meross appliance protocol (MSG100 garage opener as exemplar; same envelope across Meross plugs and switches) | C | near-spec | medium | Best graduated as a Meross platform spec (like tuya-generic-device), with the garage opener as the worked example. Missing: the namespace catalogue and local key provisioning. Also in the switches and hubs table. |
 | `research-notes/neurio-w1-hem.md` | Neurio W1-HEM / Generac PWRview home energy monitor | A | near-spec | medium | Generac ended support on 2025-03-10. The local endpoint is vendor-documented, but on a dead product's domain, so graduating preserves it. Small, fast spec. Missing: local Wi-Fi reconfiguration. |
-| `research-notes/parrot-zik.md` | Parrot Zik 1 / 2.0 / 3 headphones | A | near-spec | medium | Parrot left consumer audio. The API lives in one client. **Blocked:** no Bluetooth Classic protocol value in the schema, and iOS cannot open SPP. **Scrub first:** vendor-app internal names in the note. |
+| `research-notes/parrot-zik.md` | Parrot Zik 1 / 2.0 / 3 headphones | A | near-spec | medium | Parrot left consumer audio. The API lives in one client. **Was blocked** on a Bluetooth Classic protocol value; `bluetooth_classic` landed 2026-09-27, and iOS still cannot open SPP. **Scrub first:** vendor-app internal names in the note. |
 | `research-notes/bowflex-selecttech-560.md` | BowFlex SelectTech 560 smart dumbbells | A | substantial | medium | BowFlex went through Chapter 11 in 2024 and the app is gone. The GATT table is recovered. Missing: notification formats, the challenge handshake. **Scrub first:** characteristics are labelled with vendor codenames. |
-| `research-notes/jawbone-jambox.md` | Jawbone Jambox / Big Jambox / Mini Jambox | A | substantial | medium | Jawbone was liquidated in 2017 and there is no public client. **Blocked:** no Bluetooth Classic protocol value in the schema. **Scrub first:** the note quotes vendor-app internals. |
-| `research-notes/nuraphone.md` | Nura Nuraphone / NuraLoop / NuraTrue | A | substantial | medium | Discontinued after the 2023 acquisition. The key-provisioning backend is the single point of failure. **Blocked:** no Bluetooth Classic protocol value in the schema. **Scrub first:** internal names in the note. |
+| `research-notes/jawbone-jambox.md` | Jawbone Jambox / Big Jambox / Mini Jambox | A | substantial | medium | Jawbone was liquidated in 2017 and there is no public client. **Was blocked** on a Bluetooth Classic protocol value; `bluetooth_classic` landed 2026-09-27. **Scrub first:** the note quotes vendor-app internals. |
+| `research-notes/nuraphone.md` | Nura Nuraphone / NuraLoop / NuraTrue | A | substantial | medium | Discontinued after the 2023 acquisition. The key-provisioning backend is the single point of failure. **Was blocked** on a Bluetooth Classic protocol value; `bluetooth_classic` landed 2026-09-27. **Scrub first:** internal names in the note. |
 | `research-notes/pentair-screenlogic.md` | Pentair ScreenLogic / ScreenLogic2 protocol adapter (IntelliTouch / EasyTouch / SunTouch) | C | substantial | medium | Costly pool automation. The protocol lives only in node-screenlogic / screenlogicpy. Missing: header layout, message codes, login hash, status decoding. Healthy vendor, so local-first value. |
 | `research-notes/wink-hub.md` | Wink Hub v1 / Wink Hub 2 | A | substantial | medium | Subscription-extortion archetype. The stock local API needs a cloud token, and the durable path is rooting. Graduate it as a documented dud plus a migration guide for the attached Z-Wave/Zigbee devices. |
 

@@ -10,6 +10,7 @@ device:
     status: untested
   protocol: "ble"
   category: "display"
+  category_hierarchy: ["display", "led_matrix"]
   notes: >
     BLE-only variant of the LOY SPACE protocol (identical to AUTOBABA LED Backpack).
     Vendor-confirmed white-label reskin of the LOY SPACE platform with BLE-only

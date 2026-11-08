@@ -1,0 +1,1491 @@
+# Weber iGrill Bluetooth thermometers (iGrill mini / mini v2 / 2 / 2 v2.2 / 3,
+# Kitchen Thermometer / Kitchen Thermometer Mini, Pulse 1000 / 2000 probes)
+# device spec
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Sources (clean-room; derived facts only, written in our own words):
+#   - Static analysis of the vendor Android app, Weber iGrill 5.8.1
+#     (com.weber.igrill). Only roles, UUIDs and byte layouts are carried over.
+#     No vendor class, method or resource names, no keys, and no firmware
+#     file names, hashes or bytes appear here.
+#   - Community clients, cited by file: kvantetore/igrill (the original keyed
+#     Python client), kins-dev/igrill-smoker and bendikwa/igrill (the key-free
+#     handshake), bendikwa/esphome-igrill (model detection by service UUID,
+#     alarm-threshold read/write), 1mckenna/esp32_iGrill (advertised service
+#     matching, unit write, propane).
+#   - Vendor manuals for the iGrill mini, iGrill 2, iGrill 3 and Pulse
+#     1000/2000 (Weber-hosted), the iDevices Kitchen Thermometer and
+#     Kitchen Thermometer mini manuals (Internet Archive), and Weber's 2024 UK
+#     PSTI statement for iGrill products.
+#   - No over-the-air capture exists in our research store. Every byte-level
+#     fact below is `reported`.
+
+device:
+  name: "Weber iGrill Bluetooth Thermometers (iGrill mini, mini v2, iGrill 2, iGrill 3, Kitchen Thermometer, Pulse 1000/2000 probes)"
+  manufacturer: "Weber-Stephen Products (formerly iDevices)"
+  manufacturer_status: "unsupported"
+  type: "bluetooth-grill-thermometer"
+  category: "sensor"
+  category_hierarchy: ["measurement", "temperature"]
+  protocol: "ble"
+  openness:
+    status: "undocumented"
+    reverse_engineered: true
+    notes: >-
+      Weber never published this protocol. Everything here comes from the
+      vendor app's static analysis, from community clients that have run
+      against the hardware, and from the owner's manuals.
+  testing:
+    status: untested
+    notes: >-
+      Nobody on this project has driven one of these thermometers from this
+      document, and our research store holds no capture of one. The byte
+      layouts come from static analysis of the vendor app (Weber iGrill 5.8.1)
+      and are cross-checked against community clients. Those clients report
+      hardware success: bendikwa/esphome-igrill lists the iGrill mini, iGrill 2,
+      iGrill 2 v2.02, iGrill 3, Pulse 1000, Pulse 2000 and iDevices Kitchen
+      Thermometer as confirmed working, and 1mckenna/esp32_iGrill credits
+      testers for the mini, mini v2, v2.02 and iGrill 3. That is `reported`
+      evidence for us, not `confirmed`.
+  notes: >
+    A family of BLE cooking thermometers that iDevices designed and Weber
+    sold after buying iDevices' grilling line. One Android/iOS app, Weber
+    iGrill (package com.weber.igrill), drives all of them. The app's model
+    table gives the probe counts: iGrill mini (1), iGrill mini v2 (1),
+    iGrill 2 and its v2.2 revision (4), iGrill 3 (4, mounted on a Genesis II
+    gas grill, with a propane tank gauge), Kitchen Thermometer (2), Kitchen
+    Thermometer Mini (1), and the thermometer built into the Pulse 1000 (2)
+    and Pulse 2000 (4) electric grills.
+
+    VENDOR STATUS. The sources disagree. Our research notes call the line
+    discontinued, and Weber's own 2024 UK PSTI statement lists the end of
+    security updates for the iGrill Mini and iGrill 2 as 1 Jan 2021 and for
+    the iGrill 3, Pulse 1000 and Pulse 2000 as 2021 too. But the app was still
+    being updated (Play listing: version 5.8.1, updated 2025-10-16), and the
+    original iGrill Classic has already been dropped from it. Hence
+    `unsupported`: the hardware is out of vendor support and depends on an
+    app that is still published.
+
+    TRANSPORT. BLE GATT, fully local. The phone bonds with the thermometer
+    (Just Works, no passkey), then runs an application-layer
+    challenge-response on service 64ac0000-4a4b-4b58-9f37-94d3c52ffdf7
+    (see `initialization` and protocol_details.authentication). After that it
+    reads and subscribes to the probe characteristics. The vendor's Firebase
+    account cloud only syncs accounts, recipes and session history. Nothing
+    on the thermometer path goes through it.
+
+    CHARACTERISTICS, NOT SERVICES. The temperature surface is one set of
+    characteristics on the base 06efxxxx-2e06-4b79-9e33-fce2c42805ec
+    (config 0001, probe temperatures 0002/0004/0006/0008, per-probe alarms
+    0003/0005/0007/0009, ambient 000a, ambient alarm 000b). Each model serves
+    that same set under its own model-specific primary service UUID (see
+    `variants` and `services`). The vendor app finds every characteristic by
+    its characteristic UUID alone and never names a service, so a client can
+    do the same. The model service is still the best way to tell models
+    apart.
+
+    TEMPERATURES. A probe value is a signed int16, little-endian, in WHOLE
+    degrees. The unit is flagged in the same notification (byte 2, bit 7:
+    0 = F, 1 = C) and follows the unit set in the config characteristic.
+    Any value below -500 means no probe is plugged in, and the device sends
+    -2000 (raw 30 f8) for that. Alarm thresholds are int16 LE pairs (low,
+    then high) in whole degrees of the configured unit, and -2000 disables
+    either side. The thresholds live on the device: the manuals describe the
+    unit's own LED and tone reacting to the target, and the app writes them
+    to the device.
+
+    CORRECTIONS TO EARLIER NOTES. Our screenshot summary claimed "no
+    encryption" and "0.1 degree units". Both are wrong: the app runs an AES
+    handshake and parses whole degrees. The names shown on the vendor
+    screenshots (iGrill2-XXXX, iGrill Mini-XXXX, iGrill²-XXXX) are the app's
+    DISPLAY names, built from the model's display name plus the last two
+    octets of the MAC address. They are not advertised names. See
+    protocol_details.model_identification for what the device advertises.
+
+    OUT OF SCOPE. The Pulse grills' heater and controller service
+    (6c910000-58dc-41c7-943f-518b278ceaaa). It heats, so it is
+    safety-sensitive, and nothing here documents controlling it. Also out of
+    scope: OTA payloads and flashing byte sequences (the update mechanism is
+    described by role only, in features and protocol_details.firmware_update),
+    the original iGrill Classic (dropped from the app), the Wi-Fi Weber
+    Connect / SmokeFire products, and the Firebase account cloud.
+
+    KEYS. The handshake's keyed form uses a per-model-family 16-byte AES key
+    held in the vendor app. Those keys are deliberately NOT published here.
+    A client does not need one, because the key-free form of the handshake
+    that every current community client uses works without it (see
+    protocol_details.authentication).
+
+  identification:
+    local_name_prefixes: ["iGrill_"]
+    service_uuids:
+      - "63c70000-4a82-4261-95ff-92cf32477861"
+      - "9d610c43-ae1d-41a9-9b09-3c7ecd5c6035"
+      - "a5c50000-f186-4bd6-97f2-7ebacba0d708"
+      - "ada7590f-2e6d-469e-8f7b-1822b386a5e9"
+      - "6e910000-58dc-41c7-943f-518b278cea88"
+      - "19450000-9b05-40bb-80d8-7c85840aec34"
+      - "38e70000-43bf-4afa-8170-e45548b5205b"
+      - "7e920000-68dc-41c7-943f-518b278cea87"
+      - "7e920000-68dc-41c7-943f-518b278cea88"
+    mac_prefixes:
+      - prefix: "70:91:8F"
+        confidence: "medium"
+        notes: >-
+          IEEE assigns this block to Weber-Stephen Products LLC, and
+          bendikwa/esphome-igrill's discovery helper finds iGrill units by
+          exactly this prefix. It covers everything Weber ships with a radio,
+          though, including the Wi-Fi Weber Connect products, so treat it as
+          supporting evidence beside a name or service match. Units built in
+          the iDevices era may carry iDevices' own block (D4:81:CA), but no
+          source shows one, so that prefix is not listed.
+    notes: >-
+      The vendor app identifies a model from the advertised local name
+      alone. It lowercases the name and matches a model prefix (see
+      protocol_details.model_identification). Community clients match the
+      per-model service UUID instead: 1mckenna/esp32_iGrill matches it in the
+      advertisement for the mini, mini v2, iGrill 2, iGrill 2 v2.02 and iGrill
+      3, and bendikwa/esphome-igrill after connecting. Whether the Kitchen
+      Thermometers and Pulse grills advertise their service UUID is not
+      established. The only advertised name recorded verbatim in a source is
+      "iGrill_mini" (esphome-igrill's discovery log). The "iGrill_" prefix
+      here is that spelling generalised, and a name that does not match it may
+      still be one of these devices. The Kitchen Thermometers match the very
+      short app prefix "kt", which is too generic to use as a matcher, so they
+      are found by service UUID only.
+
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          local_name:
+            match: "regex"
+            value: "^([iI][gG][rR][iI][lL][lL]_|[pP][uU][lL][sS][eE] [12]000)"
+          service_uuids:
+            - "63c70000-4a82-4261-95ff-92cf32477861"
+            - "9d610c43-ae1d-41a9-9b09-3c7ecd5c6035"
+            - "a5c50000-f186-4bd6-97f2-7ebacba0d708"
+            - "ada7590f-2e6d-469e-8f7b-1822b386a5e9"
+            - "6e910000-58dc-41c7-943f-518b278cea88"
+            - "19450000-9b05-40bb-80d8-7c85840aec34"
+            - "38e70000-43bf-4afa-8170-e45548b5205b"
+            - "7e920000-68dc-41c7-943f-518b278cea87"
+            - "7e920000-68dc-41c7-943f-518b278cea88"
+        notes: >-
+          Name OR service UUID. The regex is the app's own case-insensitive
+          prefix test (it lowercases the name first), spelled with character
+          classes so it compiles the same everywhere. It covers the iGrill
+          models ("igrill_...") and the Pulse grills ("pulse 1000" / "pulse
+          2000"). The Kitchen Thermometers are left to their service UUIDs.
+          A unit that is already connected to a phone usually stops
+          advertising (see device.pairing.exclusivity).
+    identity:
+      stable_keys: ["address"]
+      display: "local_name"
+      notes: >-
+        Community clients configure units by a fixed MAC address inside
+        Weber's IEEE block (70:91:8F), so the address is public and stable.
+        The vendor app shows the model display name plus the address's last
+        four hex digits (for example iGrill2-XXXX). A client wanting the same
+        label can build it that way.
+    static_ip_required: false
+
+  setup:
+    required: false
+    confidence: "medium"
+    notes: >-
+      Nothing is provisioned: there is no Wi-Fi, no account and no credential
+      to hand over. Every connection needs two things, a Just Works bond at
+      the link layer (device.pairing) and the challenge handshake on 64ac0002
+      .. 64ac0004 (top-level initialization). The vendor app does both
+      automatically, and the manuals only tell the user to accept the phone's
+      pairing request. Confidence is medium. Two working open implementations
+      (esphome-igrill, esp32_iGrill) run exactly this flow on hardware across
+      most of the family, but this project has not replayed it.
+    methods:
+      - type: "ble_direct"
+        name: "Bond, then run the key-free challenge handshake"
+        role: "primary"
+        verified: false
+        description: >-
+          Power the thermometer on, connect, encrypt the link with a Just Works
+          bond, write 16 zero bytes to 64ac0002, read 16 bytes from 64ac0003,
+          and write those same 16 bytes back to 64ac0004. Then read the unit
+          from 06ef0001 and subscribe to the probe characteristics.
+        ble:
+          service_uuid: "64ac0000-4a4b-4b58-9f37-94d3c52ffdf7"
+          write_characteristic: "64ac0002-4a4b-4b58-9f37-94d3c52ffdf7"
+          read_characteristic: "64ac0003-4a4b-4b58-9f37-94d3c52ffdf7"
+          pairing_required: true
+          pin_source: "none (Just Works bond, no passkey)"
+        steps:
+          - action: "Power the thermometer on (a short press of the power button on the mini, iGrill 2 and Kitchen Thermometers; the iGrill 3 and Pulse controller power on with their grill). Close the vendor app, and turn Bluetooth off on any phone that last used it."
+            actor: user
+            expect: "The Bluetooth LED (the Smart LED ring on the mini models) blinks blue: discoverable and waiting to pair. A solid blue light on a Pulse means it is already paired and connected to another phone."
+          - action: "Scan for a per-model service UUID or a matching name (device.discovery), then connect."
+            actor: client
+            request:
+              protocol: "ble_gatt"
+          - action: "Raise link security to encrypted and bond (Just Works, no MITM, no passkey). On a phone the OS shows a pairing request."
+            actor: client
+            timeout_seconds: 30
+          - action: "Accept the operating system's Bluetooth pairing request, if the host shows one."
+            actor: user
+          - action: "Run the handshake in top-level `initialization`: write 16 x 0x00 to 64ac0002-4a4b-4b58-9f37-94d3c52ffdf7, read 16 bytes from 64ac0003-4a4b-4b58-9f37-94d3c52ffdf7, and write those bytes unchanged to 64ac0004-4a4b-4b58-9f37-94d3c52ffdf7."
+            actor: client
+            request:
+              protocol: "ble_gatt"
+            timeout_seconds: 30
+          - action: "Read 06ef0001-2e06-4b79-9e33-fce2c42805ec. Byte 0 is the temperature unit every reading and threshold is in (0 = F, 1 = C)."
+            actor: client
+          - action: "Subscribe to probe 1 (06ef0002-2e06-4b79-9e33-fce2c42805ec) and, on models that have them, probes 2-4 (06ef0004, 06ef0006, 06ef0008 on the same base) and ambient (06ef000a). Also subscribe to battery 00002a19-0000-1000-8000-00805f9b34fb and, on the iGrill 3, propane f5d40001-3548-4c22-9947-f3673fce3cd9."
+            actor: client
+            expect: "Notifications carrying int16 LE whole degrees with the unit in byte 2 bit 7. -2000 means no probe."
+        timing:
+          handshake_timeout_s: 30
+          handshake_timeout_basis: "The vendor app abandons the 64ac0002 write, 64ac0003 read and 64ac0004 write sequence after 30 s."
+          bond_timeout_s: 30
+          bond_poll_ms: 500
+          bond_basis: "The vendor app starts an OS bond before connecting, polls the bond state every 500 ms, and gives up after 30 s."
+          inter_step_delay_basis: "esp32_iGrill leaves 500 ms to 1 s between the handshake steps. The vendor app does not wait. Both are reported to work."
+        troubleshooting:
+          - symptom: "The handshake completes but reads of the probe characteristics fail, or never return."
+            causes:
+              - "The link is not encrypted. The community clients all force encryption or bonding before reading (esp32_iGrill: without bonding you cannot read the probes). Bond first, then run the handshake."
+              - "The handshake was not run on this connection. It is per connection, not per bond."
+          - symptom: "The device is not found, or connecting times out."
+            causes:
+              - "Another phone or the vendor app holds the one connection. esphome-igrill's README says the units cannot keep more than one connection. Close the vendor app and turn Bluetooth off on the other phone (the Pulse manual gives the same advice)."
+              - "The unit has powered itself off. Unpaired, the mini, iGrill 2 and iGrill 3 turn off after 5 minutes with no probe and after 8 hours with a probe fitted (vendor manuals)."
+          - symptom: "Pairing keeps failing on Android, or the phone lists the device as paired but the app cannot use it."
+            causes:
+              - "A stale bond on one side. The manuals' fix: unpair the device in the phone's Bluetooth settings, restart Bluetooth, then press the device's reset (setup.factory_reset) and pair again."
+              - "The vendor app itself removes the bond and bonds again when the handshake fails, and treats GATT status 129 (0x81) as retryable. A replacement client should do the same rather than give up on the first error."
+              - "The vendor app carries phone-specific bonding workarounds (older LG, Motorola and Nexus handsets, and Samsung devices), and store reviews report Samsung phones that never pair. See device.host_compatibility."
+          - symptom: "After leaving Bluetooth range, the vendor app never reconnects until the unit is reset and paired again (repeated store reviews, 2020-2024)."
+            causes:
+              - "A vendor-app defect, not a device requirement as far as anyone has shown. A replacement client should reconnect with the existing bond and rerun the handshake. Only if the device refuses should it clear the bond on both sides."
+          - symptom: "Temperatures look wrong by the Fahrenheit/Celsius ratio, or thresholds fire at the wrong point."
+            causes:
+              - "The unit was assumed rather than read. Every reading and threshold is in the unit set in 06ef0001 byte 0, and each probe notification repeats it in byte 2 bit 7. The vendor app converts and rewrites every probe's thresholds when the unit changes, and the device does not do this itself."
+          - symptom: "A probe reads 63536, or -2000."
+            causes:
+              - "No probe is plugged in. The value is the int16 -2000 (raw 30 f8), and 63536 is that same value read as unsigned. bendikwa/igrill reads the field as unsigned, so negative temperatures also come out wrong there."
+    factory_reset:
+      applicable: true
+      confidence: "medium"
+      effect: >-
+        Clears the thermometer's stored Bluetooth pairing so a phone can pair
+        again. The manuals present it only as the fix for a failed pairing.
+        Whether it also clears the temperature unit and the stored alarm
+        thresholds is not documented.
+      description: >-
+        Every procedure below comes from the vendor manuals' pairing
+        troubleshooting sections, which always pair it with "forget or unpair
+        the device in the phone's Bluetooth settings first". No reset is
+        documented for the Pulse grills. Their manual only says to turn off
+        Bluetooth on the phone that holds the connection.
+      procedures:
+        - name: "Reset pin under the battery door, 5 s (mini-format units)"
+          verified: false
+          basis: "Weber iGrill Mini user manual (2016) and iDevices Kitchen Thermometer mini user manual, pairing troubleshooting sections."
+          applies_to: ["iGrill mini", "iGrill mini v2", "Kitchen Thermometer Mini"]
+          hold_seconds: 5
+          power_state: "on"
+          indicator: "The Smart LED light ring turns solid white (the manuals' 'powering off or reset complete')."
+          steps:
+            - action: "Forget or unpair the thermometer in the phone's Bluetooth settings, and turn the phone's Bluetooth off."
+              actor: user
+            - action: "Lift the thermometer off its magnetic base. With it still powered on, remove the battery door."
+              actor: user
+            - action: "Press the recessed reset button with a pin for about 5 seconds, until the light ring turns white, then refit the battery door."
+              actor: user
+              expect: "Light ring solid white."
+        - name: "Reset pin under the battery door, 5 s (display units)"
+          verified: false
+          basis: "Weber iGrill 2 user manual (2016) and iDevices Kitchen Thermometer user manual, pairing troubleshooting sections."
+          applies_to: ["iGrill 2", "iGrill 2 v2.2", "Kitchen Thermometer"]
+          hold_seconds: 5
+          power_state: "on"
+          indicator: "The display's power-on animation runs (the manuals: it animates during power-on and during reset)."
+          steps:
+            - action: "Forget or unpair the thermometer in the phone's Bluetooth settings, and turn the phone's Bluetooth off."
+              actor: user
+            - action: "With the unit powered on, remove the battery door and press the reset button with a pin (or a probe tip) for five seconds, then refit the door."
+              actor: user
+        - name: "Hold the power button 15 s (iGrill 3)"
+          verified: false
+          basis: "Weber iGrill 3 user manual (2016), pairing troubleshooting section."
+          applies_to: ["iGrill 3"]
+          hold_seconds: 15
+          power_state: "on"
+          steps:
+            - action: "Forget or unpair the iGrill 3 in the phone's Bluetooth settings, and turn the phone's Bluetooth off."
+              actor: user
+            - action: "With the iGrill 3 powered on, press and hold the power button on its faceplate for 15 seconds."
+              actor: user
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >-
+        There is no network to rejoin. To move a unit to a new phone or
+        client, disconnect the old one (close its app, turn its Bluetooth
+        off) and pair from the new one. The Pulse manual says that is
+        enough. If the unit then refuses the new bond, forget it on the old
+        phone and run the reset in factory_reset.
+    credentials:
+      wifi_passphrase_protection: "not_applicable"
+      stored_on_device:
+        - "BLE bonding keys for each phone that paired (Just Works)."
+      issued_to_client:
+        - "The BLE bond on the client side. No application-layer credential is issued; the handshake key is a per-model constant, and the key-free form of the handshake needs none."
+      notes: >-
+        No Wi-Fi and no account on the device path. The handshake's AES key
+        is a per-model-family constant held in the vendor app, not a
+        per-unit secret, and it is not published here (see
+        protocol_details.authentication).
+
+  pairing:
+    required: true
+    confidence: "medium"
+    security_mode: "just_works"
+    bonding: "required"
+    exclusivity:
+      single_connection: true
+      single_bond: "unknown"
+      recovery: >-
+        Close the vendor app and turn Bluetooth off on any other phone that
+        used the thermometer, then connect. If pairing still fails, forget the
+        device in the phone's Bluetooth settings and press the device's reset
+        (device.setup.factory_reset).
+      notes: >-
+        single_connection comes from esphome-igrill's README (units cannot
+        keep multiple connections, and the app cannot be open at the same
+        time) and from the Pulse manual (a solid Bluetooth light means it is
+        already paired to a phone). The manuals cover pairing several iGrills
+        to one phone, never one iGrill to several phones, so whether a unit
+        keeps more than one bond is unknown.
+    enter_pairing_mode:
+      required: false
+      indicator: "The Bluetooth LED, or the Smart LED ring on the mini models, blinks blue while the unit is discoverable and awaiting pairing, and turns solid blue once paired (vendor manuals)."
+    unpair:
+      supported: "unknown"
+      notes: >-
+        No bond-only clear is documented. The manuals' route is to forget the
+        device on the phone and press the device's reset
+        (device.setup.factory_reset). Nobody has established whether that
+        reset clears anything besides the bond.
+    notes: >-
+      Link layer: an unauthenticated (Just Works) bond with encryption. The
+      manuals show the phone's own pairing request, and the vendor app bonds
+      through the OS before it connects. The community clients all turn on
+      link encryption without MITM protection before reading anything
+      (esp32_iGrill bonds with IO capability "none", esphome-igrill requests
+      encryption, and bendikwa/igrill uses bluepy's "medium" security level).
+      1mckenna/esp32_iGrill's comment is that without bonding you cannot read
+      the probe temperatures, and bendikwa/igrill tells users to bond with
+      bluetoothctl first. The real authorisation sits above the link, in the
+      AES challenge-response in top-level `initialization`, which runs on
+      every connection whether or not a bond exists. Confidence is medium
+      because the bond requirement comes from open implementations and
+      manuals, not from our own hardware.
+
+  host_compatibility:
+    - stack: android
+      status: degraded
+      symptom: pairing_failure
+      workaround: host_config
+      verification: reported
+      basis: >-
+        The vendor app's own connection code carries handset-specific bonding
+        workarounds (older LG, Motorola, Nexus and Samsung devices), removes
+        and remakes the bond when the handshake fails, and retries on GATT
+        status 129. Store reviews from 2019-2024 report Samsung phones that
+        never pair. The vendor manuals give an Android-only fix: unpair in
+        Bluetooth settings, restart Bluetooth from the app, reset the device.
+      notes: >-
+        The vendor app is an Android client, so the stack can drive the
+        device, but only after its bond handling is coaxed along. The
+        workaround is host-side: clear the OS bond (and, per the manuals,
+        reset the device) and pair again.
+    - stack: corebluetooth
+      status: compatible
+      verification: reported
+      basis: >-
+        The Weber iGrill app ships for iPhone and iPad, and the vendor
+        manuals give iOS pairing instructions (accept the pairing request;
+        forget the device under the blue (i) to recover).
+    - stack: bluez
+      status: unknown
+      verification: hypothesis
+      basis: >-
+        The Linux community clients (bendikwa/igrill, kins-dev/igrill-smoker)
+        use bluepy, which opens the ATT channel itself instead of going
+        through bluetoothd's GATT client. They tell users to create the bond
+        with bluetoothctl first and document a "stuck on Authenticating"
+        failure fixed by Bluetooth adapter settings. Nobody reports driving
+        the device through bluetoothd's own GATT client.
+
+  variants:
+    - model: "iGrill mini"
+      identification:
+        service_uuids: ["63c70000-4a82-4261-95ff-92cf32477861"]
+      notes: >-
+        One probe, CR2032 coin cell, Smart LED ring. esphome-igrill and
+        esp32_iGrill both detect it by this service (esphome-igrill lists it
+        as confirmed). The app's name prefix is "igrill_mini". Reset: the pin
+        under the battery door (setup.factory_reset).
+    - model: "iGrill mini v2"
+      identification:
+        service_uuids: ["9d610c43-ae1d-41a9-9b09-3c7ecd5c6035"]
+      notes: >-
+        One probe. esp32_iGrill calls this the newer mini model and credits a
+        hardware tester for it. The vendor app matches it by the name prefix
+        "igrill_mini02" (checked before "igrill_mini") or "igrill_mini_2".
+        The app's model table attaches this service UUID to its plain "iGrill
+        mini" entry instead (see protocol_details.model_identification).
+    - model: "iGrill 2"
+      identification:
+        service_uuids: ["a5c50000-f186-4bd6-97f2-7ebacba0d708"]
+      notes: >-
+        Four probes, 2x AA, display with probe toggle buttons. Confirmed
+        working in esphome-igrill. App name prefix "igrill_v2". The vendor
+        app carries no constant for this service UUID.
+    - model: "iGrill 2 v2.2"
+      identification:
+        service_uuids: ["ada7590f-2e6d-469e-8f7b-1822b386a5e9"]
+      notes: >-
+        Four probes. The community calls it iGrill v202 (esphome-igrill lists
+        it as confirmed, and esp32_iGrill calls it the newer iGrill 2 model).
+        The vendor app has a separate "iGrill 2 v2.2" model (name prefix
+        "igrill_v2_2") but attaches this service UUID to its plain "iGrill 2"
+        entry. Which advertised name this revision carries is not recorded.
+    - model: "iGrill 3"
+      identification:
+        service_uuids: ["6e910000-58dc-41c7-943f-518b278cea88"]
+      notes: >-
+        Four probes. Mounted on Genesis II / LX gas grills, 3x AA battery
+        pack. Adds the propane tank gauge (service
+        f5d40000-3548-4c22-9947-f3673fce3cd9) and, wired to a Genesis II LX,
+        the grill's lit control knobs (protocol_details.knob_lights). App name
+        prefix "igrill_v3". Reset: hold the power button 15 s.
+    - model: "Kitchen Thermometer"
+      identification:
+        service_uuids: ["19450000-9b05-40bb-80d8-7c85840aec34"]
+      notes: >-
+        Two probes, 2x AA. Originally the iDevices Kitchen Thermometer
+        (iDevices Connected app). esphome-igrill lists it as confirmed by this
+        service. App name prefix "kt".
+    - model: "Kitchen Thermometer Mini"
+      identification:
+        service_uuids: ["38e70000-43bf-4afa-8170-e45548b5205b"]
+      notes: >-
+        One probe, coin cell. The service UUID comes only from the vendor
+        app's model table, and no community client has seen it on hardware.
+        App name prefix "kt_mini".
+    - model: "Pulse 1000"
+      identification:
+        service_uuids: ["7e920000-68dc-41c7-943f-518b278cea87"]
+      notes: >-
+        Electric grill with a built-in iGrill: two probes plus the grill's
+        own controller. Only the thermometer surface is covered here.
+        esphome-igrill lists the thermometer service as confirmed. App name
+        prefix "pulse 1000". Mains powered, so no battery characteristic is
+        expected. When the unit changes, the app also writes the controller's
+        own one-byte unit setting, with the opposite encoding
+        (protocol_details.pulse_controller_service).
+    - model: "Pulse 2000"
+      identification:
+        service_uuids: ["7e920000-68dc-41c7-943f-518b278cea88"]
+      notes: >-
+        Electric grill with a built-in iGrill and four probes; otherwise as
+        the Pulse 1000. esphome-igrill lists it as confirmed. App name prefix
+        "pulse 2000".
+
+initialization:
+  - characteristic: "64ac0002-4a4b-4b58-9f37-94d3c52ffdf7"
+    write: [0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+    notes: >-
+      App challenge, key-free form: 16 zero bytes (kins-dev/igrill-smoker,
+      bendikwa/igrill, esphome-igrill, esp32_iGrill). The vendor app writes 8
+      random bytes followed by 8 zero bytes instead, and then needs the
+      model's AES key (protocol_details.authentication). Run this only on an
+      encrypted (bonded) link. Write with response.
+  - characteristic: "64ac0003-4a4b-4b58-9f37-94d3c52ffdf7"
+    read: true
+    notes: >-
+      The device's challenge: 16 bytes, AES-128-ECB-encrypted under the
+      model key. With the zero challenge above, its plaintext begins with
+      eight zero bytes, which is what makes the next step key-free.
+  - characteristic: "64ac0004-4a4b-4b58-9f37-94d3c52ffdf7"
+    description: >-
+      Write the 16 bytes just read from 64ac0003-4a4b-4b58-9f37-94d3c52ffdf7
+      back to this characteristic, unchanged, with response. No fixed bytes
+      can be stated because the value is fresh on every connection, so a
+      client implements this step itself.
+    notes: >-
+      With the vendor app's random challenge the response is instead
+      AES-128-ECB-encrypt(key, 00 x 8 || bytes 8-15 of
+      AES-128-ECB-decrypt(key, challenge)). See
+      protocol_details.authentication.test_vectors. The vendor app gives
+      the three steps 30 s in total.
+  - characteristic: "06ef0001-2e06-4b79-9e33-fce2c42805ec"
+    read: true
+    notes: >-
+      The 5-byte configuration block. Byte 0 is the temperature unit that
+      every probe reading and alarm threshold is in (0 = F, 1 = C). The
+      vendor app then writes the block back with byte 2 (the alarm
+      acknowledgement) set to 0. That write is not known to be required, so
+      it is described in protocol_details.configuration rather than run here.
+  - characteristic: "06ef0002-2e06-4b79-9e33-fce2c42805ec"
+    subscribe: true
+    notes: >-
+      Probe 1, which every model has. Subscribe to probes 2-4 (06ef0004,
+      06ef0006, 06ef0008), ambient (06ef000a), battery
+      (00002a19-0000-1000-8000-00805f9b34fb) and propane
+      (f5d40001-3548-4c22-9947-f3673fce3cd9) only where the model serves
+      them. The vendor app attempts all of them and skips any characteristic
+      it cannot find.
+
+services:
+  - uuid: "64ac0000-4a4b-4b58-9f37-94d3c52ffdf7"
+    name: "Authentication and firmware-update service"
+    verification: "reported"
+    notes: >-
+      Common to every model. The service UUID comes from the community
+      clients (esphome-igrill, esp32_iGrill). The vendor app addresses its
+      five characteristics by characteristic UUID only. It also carries the
+      firmware-update control point (64ac0005), which a generic client must
+      never write.
+    characteristics:
+      - uuid: "64ac0001-4a4b-4b58-9f37-94d3c52ffdf7"
+        name: "firmware_version"
+        properties: ["read"]
+        notes: >-
+          UTF-8 firmware version string. The app trims whitespace and logs
+          it, and esp32_iGrill reads it after the handshake.
+      - uuid: "64ac0002-4a4b-4b58-9f37-94d3c52ffdf7"
+        name: "app_challenge"
+        properties: ["write"]
+        notes: >-
+          16 bytes, written with response. Key-free clients write 16 zero
+          bytes. The vendor app writes 8 random bytes plus 8 zero bytes. See
+          initialization.
+      - uuid: "64ac0003-4a4b-4b58-9f37-94d3c52ffdf7"
+        name: "device_challenge"
+        properties: ["read"]
+        notes: >-
+          16 bytes: AES-128-ECB(model key, first 8 bytes of the app challenge
+          || 8-byte device nonce). kvantetore/igrill checks the decrypted
+          first half against its own challenge. The vendor app does not check
+          it.
+      - uuid: "64ac0004-4a4b-4b58-9f37-94d3c52ffdf7"
+        name: "device_response"
+        properties: ["write"]
+        notes: >-
+          16 bytes, written with response: AES-128-ECB(model key, 8 zero
+          bytes || device nonce). This equals the 64ac0003 value whenever the
+          app challenge was all zeros.
+      - uuid: "64ac0005-4a4b-4b58-9f37-94d3c52ffdf7"
+        name: "ota_control"
+        properties: ["write"]
+        role: "command"
+        notes: >-
+          Firmware-update control point (features[firmware_update]). The
+          vendor app writes an update-begin command here, and one of its
+          update paths also streams image records here. This spec
+          deliberately gives no bytes for either. A generic client must list
+          it read-only and never write it: a wrong write risks leaving the
+          thermometer unusable.
+
+  # One thermometer characteristic set, served under each model's own primary
+  # service (see device.notes, CHARACTERISTICS, NOT SERVICES). Each
+  # characteristic is defined once, on the iGrill 2 service, and every other
+  # model service lists by YAML alias the ones its probe count uses. A 1- or
+  # 2-probe model is not known to LACK the higher probe characteristics; the
+  # app simply never uses them there.
+  - uuid: "a5c50000-f186-4bd6-97f2-7ebacba0d708"
+    name: "iGrill 2 thermometer service"
+    verification: "reported"
+    notes: >-
+      Model service of the iGrill 2. esphome-igrill and esp32_iGrill look up
+      the 06ef characteristics under it, and esp32_iGrill matches it in the
+      advertisement.
+    characteristics: &igrill_thermometer_characteristics
+      - &igrill_char_config
+        uuid: "06ef0001-2e06-4b79-9e33-fce2c42805ec"
+        name: "configuration"
+        properties: ["read", "write"]
+        verification: "reported"
+        notes: "5 bytes. Change it by rewriting the whole block as read, with one byte changed (protocol_details.configuration). Not subscribed by the app."
+        format:
+          - offset: 0
+            length: 1
+            name: "temperature_unit"
+            type: "uint8"
+            values:
+              0: "Fahrenheit"
+              1: "Celsius"
+            notes: "The unit of every probe reading and alarm threshold."
+          - offset: 1
+            length: 1
+            name: "unknown_1"
+            type: "uint8"
+            notes: "Unknown. Write back what was read."
+          - offset: 2
+            length: 1
+            name: "alarm_acknowledged"
+            type: "uint8"
+            values:
+              0: "not acknowledged"
+              1: "acknowledged"
+            notes: "The app sets 1 when an alarm is dismissed and 0 after reading the block on connect."
+          - offset: 3
+            length: 2
+            name: "unknown_3_4"
+            type: "bytes"
+            notes: "Unknown. Write back what was read."
+        commands:
+          set_temperature_unit:
+            description: "Set the device's unit with a single byte, as esp32_iGrill does. The vendor app rewrites the whole block instead. Afterwards, convert and rewrite every alarm pair (protocol_details.configuration)."
+            verification: "reported"
+            template: ["{unit}"]
+            parameters:
+              unit:
+                type: "uint8"
+                min: 0
+                max: 1
+                labels: ["Fahrenheit", "Celsius"]
+      - &igrill_char_probe_1
+        uuid: "06ef0002-2e06-4b79-9e33-fce2c42805ec"
+        name: "probe_1_temperature"
+        properties: ["read", "notify"]
+        verification: "reported"
+        notes: "Probe 1 (every model). At least 3 bytes."
+        format: &igrill_probe_format_fields
+          - offset: 0
+            length: 2
+            name: "temperature"
+            type: "int16"
+            endianness: "little"
+            scale: 1
+            device_class: "temperature"
+            unit_source: "device_setting"
+            unit_reference: "06ef0001-2e06-4b79-9e33-fce2c42805ec.temperature_unit"
+            unit_values:
+              0: "F"
+              1: "C"
+            notes: "Whole degrees. Below -500 = no probe (the device sends -2000, raw 30 f8). unit_flag in byte 2 repeats the unit."
+          - offset: 2
+            length: 1
+            name: "unit_flag"
+            type: "uint8"
+            mask: 0x80
+            values:
+              0: "F"
+              1: "C"
+            notes: "Bit 7 of byte 2: this sample's unit. The vendor app decodes with it."
+      - &igrill_char_alarm_1
+        uuid: "06ef0003-2e06-4b79-9e33-fce2c42805ec"
+        name: "probe_1_alarm"
+        properties: ["read", "write"]
+        verification: "reported"
+        notes: "Low then high alarm, int16 LE whole degrees, -2000 = off. Kept and enforced by the device (protocol_details.alarm_semantics)."
+        format: &igrill_alarm_format_fields
+          - offset: 0
+            length: 2
+            name: "low_alarm"
+            type: "int16"
+            endianness: "little"
+            scale: 1
+            device_class: "temperature"
+            unit_source: "device_setting"
+            unit_reference: "06ef0001-2e06-4b79-9e33-fce2c42805ec.temperature_unit"
+            unit_values:
+              0: "F"
+              1: "C"
+            notes: "-2000 = off."
+          - offset: 2
+            length: 2
+            name: "high_alarm"
+            type: "int16"
+            endianness: "little"
+            scale: 1
+            device_class: "temperature"
+            unit_source: "device_setting"
+            unit_reference: "06ef0001-2e06-4b79-9e33-fce2c42805ec.temperature_unit"
+            unit_values:
+              0: "F"
+              1: "C"
+            notes: "The peak target. -2000 = off or never set."
+        commands:
+          set_probe_1_alarm: &igrill_set_alarm_command
+            description: "Write the alarm pair. Give only high_alarm for the app's peak alarm (low stays off), or both for a range alarm."
+            verification: "reported"
+            template: ["{low_alarm}", "{high_alarm}"]
+            parameters:
+              low_alarm:
+                type: "int16"
+                endianness: "little"
+                min: -2000
+                max: 572
+                default: -2000
+                unit_source: "device_setting"
+                unit_reference: "06ef0001-2e06-4b79-9e33-fce2c42805ec.temperature_unit"
+                unit_values:
+                  0: "F"
+                  1: "C"
+                description: "Whole degrees, or -2000 (the default) for off."
+              high_alarm:
+                type: "int16"
+                endianness: "little"
+                min: -30
+                max: 572
+                unit_source: "device_setting"
+                unit_reference: "06ef0001-2e06-4b79-9e33-fce2c42805ec.temperature_unit"
+                unit_values:
+                  0: "F"
+                  1: "C"
+                description: "Whole degrees. Manual display range: -22 to 572 F, -30 to 300 C."
+          clear_probe_1_alarm: &igrill_clear_alarm_command
+            description: "Turn both sides off (-2000, -2000), as the app does when a cook ends."
+            verification: "reported"
+            value: [0x30, 0xf8, 0x30, 0xf8]
+      - &igrill_char_probe_2
+        uuid: "06ef0004-2e06-4b79-9e33-fce2c42805ec"
+        name: "probe_2_temperature"
+        properties: ["read", "notify"]
+        verification: "reported"
+        notes: "Probe 2 (2- and 4-probe models). Layout as probe 1."
+        format: *igrill_probe_format_fields
+      - &igrill_char_alarm_2
+        uuid: "06ef0005-2e06-4b79-9e33-fce2c42805ec"
+        name: "probe_2_alarm"
+        properties: ["read", "write"]
+        verification: "reported"
+        notes: "Probe 2 alarm pair. Layout as probe 1."
+        format: *igrill_alarm_format_fields
+        commands:
+          set_probe_2_alarm: *igrill_set_alarm_command
+          clear_probe_2_alarm: *igrill_clear_alarm_command
+      - &igrill_char_probe_3
+        uuid: "06ef0006-2e06-4b79-9e33-fce2c42805ec"
+        name: "probe_3_temperature"
+        properties: ["read", "notify"]
+        verification: "reported"
+        notes: "Probe 3 (4-probe models). Layout as probe 1."
+        format: *igrill_probe_format_fields
+      - &igrill_char_alarm_3
+        uuid: "06ef0007-2e06-4b79-9e33-fce2c42805ec"
+        name: "probe_3_alarm"
+        properties: ["read", "write"]
+        verification: "reported"
+        notes: "Probe 3 alarm pair. Layout as probe 1."
+        format: *igrill_alarm_format_fields
+        commands:
+          set_probe_3_alarm: *igrill_set_alarm_command
+          clear_probe_3_alarm: *igrill_clear_alarm_command
+      - &igrill_char_probe_4
+        uuid: "06ef0008-2e06-4b79-9e33-fce2c42805ec"
+        name: "probe_4_temperature"
+        properties: ["read", "notify"]
+        verification: "reported"
+        notes: "Probe 4 (4-probe models). Layout as probe 1."
+        format: *igrill_probe_format_fields
+      - &igrill_char_alarm_4
+        uuid: "06ef0009-2e06-4b79-9e33-fce2c42805ec"
+        name: "probe_4_alarm"
+        properties: ["read", "write"]
+        verification: "reported"
+        notes: "Probe 4 alarm pair. Layout as probe 1."
+        format: *igrill_alarm_format_fields
+        commands:
+          set_probe_4_alarm: *igrill_set_alarm_command
+          clear_probe_4_alarm: *igrill_clear_alarm_command
+      - &igrill_char_ambient
+        uuid: "06ef000a-2e06-4b79-9e33-fce2c42805ec"
+        name: "ambient_temperature"
+        properties: ["read", "notify"]
+        verification: "reported"
+        notes: "The app's fifth, ambient sensor. Layout as probe 1. Which models serve it is unknown."
+        format: *igrill_probe_format_fields
+      - &igrill_char_ambient_alarm
+        uuid: "06ef000b-2e06-4b79-9e33-fce2c42805ec"
+        name: "ambient_alarm"
+        properties: ["read", "write"]
+        verification: "reported"
+        notes: "The ambient sensor's alarm pair. Layout as probe 1. Earlier notes called this role unknown."
+        format: *igrill_alarm_format_fields
+        commands:
+          set_ambient_alarm: *igrill_set_alarm_command
+          clear_ambient_alarm: *igrill_clear_alarm_command
+
+  - uuid: "63c70000-4a82-4261-95ff-92cf32477861"
+    name: "iGrill mini thermometer service"
+    verification: "reported"
+    notes: "Model service of the iGrill mini (esphome-igrill, esp32_iGrill). Lists the configuration, probe 1 and ambient characteristics defined on the iGrill 2 service."
+    characteristics: &igrill_one_probe_characteristics
+      - *igrill_char_config
+      - *igrill_char_probe_1
+      - *igrill_char_alarm_1
+      - *igrill_char_ambient
+      - *igrill_char_ambient_alarm
+  - uuid: "9d610c43-ae1d-41a9-9b09-3c7ecd5c6035"
+    name: "iGrill mini v2 thermometer service"
+    verification: "reported"
+    notes: "Model service of the iGrill mini v2 by the community's mapping (esp32_iGrill, esphome-igrill). The vendor app's model table attaches it to its plain iGrill mini entry. One probe."
+    characteristics: *igrill_one_probe_characteristics
+  - uuid: "ada7590f-2e6d-469e-8f7b-1822b386a5e9"
+    name: "iGrill 2 v2.2 thermometer service"
+    verification: "reported"
+    notes: "Model service of the iGrill 2 revision the community calls v202. The vendor app's model table attaches it to its plain iGrill 2 entry. Full four-probe set."
+    characteristics: *igrill_thermometer_characteristics
+  - uuid: "6e910000-58dc-41c7-943f-518b278cea88"
+    name: "iGrill 3 thermometer service"
+    verification: "reported"
+    notes: "Model service of the iGrill 3. The vendor app, esphome-igrill and esp32_iGrill all agree on it. Full four-probe set."
+    characteristics: *igrill_thermometer_characteristics
+  - uuid: "19450000-9b05-40bb-80d8-7c85840aec34"
+    name: "Kitchen Thermometer thermometer service"
+    verification: "reported"
+    notes: "Model service of the (iDevices / Weber) Kitchen Thermometer. The vendor app and esphome-igrill agree on it. Two probes."
+    characteristics: &igrill_two_probe_characteristics
+      - *igrill_char_config
+      - *igrill_char_probe_1
+      - *igrill_char_alarm_1
+      - *igrill_char_probe_2
+      - *igrill_char_alarm_2
+      - *igrill_char_ambient
+      - *igrill_char_ambient_alarm
+  - uuid: "38e70000-43bf-4afa-8170-e45548b5205b"
+    name: "Kitchen Thermometer Mini thermometer service"
+    verification: "reported"
+    notes: >-
+      The vendor app's model table attaches this UUID to the Kitchen
+      Thermometer Mini. No community client has seen it on hardware. That the
+      characteristic set sits under it follows the family pattern, but it is
+      not demonstrated.
+    characteristics: *igrill_one_probe_characteristics
+  - uuid: "7e920000-68dc-41c7-943f-518b278cea87"
+    name: "Pulse 1000 thermometer service"
+    verification: "reported"
+    notes: "The thermometer service of the Pulse 1000 grill (esphome-igrill, confirmed there). Two probes. The grill's controller is a separate, out-of-scope service (protocol_details.pulse_controller_service)."
+    characteristics: *igrill_two_probe_characteristics
+  - uuid: "7e920000-68dc-41c7-943f-518b278cea88"
+    name: "Pulse 2000 thermometer service"
+    verification: "reported"
+    notes: "The thermometer service of the Pulse 2000 grill (esphome-igrill, confirmed there). Full four-probe set. The controller service is out of scope."
+    characteristics: *igrill_thermometer_characteristics
+
+  - uuid: "f5d40000-3548-4c22-9947-f3673fce3cd9"
+    name: "Propane level service"
+    verification: "reported"
+    notes: >-
+      iGrill 3 only. It reads the magnetic fuel-level sensor on an LP tank,
+      and natural-gas grills have none (iGrill 3 manual). The vendor app
+      carries this service UUID with the iGrill 3 model, and esp32_iGrill
+      opens it only on the iGrill 3.
+    characteristics:
+      - uuid: "f5d40001-3548-4c22-9947-f3673fce3cd9"
+        name: "propane_level"
+        properties: ["read", "notify"]
+        verification: "reported"
+        notes: >-
+          At least 3 bytes. Bytes 0-1 are a uint16 LE step from 0 to 4,
+          which the app maps to 0, 25, 50, 75 and 100 %. Any other value, or
+          bit 0 of byte 2 set, is a sensor fault. The community clients read
+          byte 0 times 25 and ignore the fault bit. The app warns when the
+          tank drops below a quarter (manual).
+        format:
+          - offset: 0
+            length: 2
+            name: "propane_level"
+            type: "uint16"
+            endianness: "little"
+            scale: 25
+            unit: "%"
+            notes: "Raw 0-4 in quarter-tank steps. A raw value above 4 is a fault, not a reading."
+          - offset: 2
+            length: 1
+            name: "sensor_fault"
+            type: "uint8"
+            mask: 0x01
+            values:
+              0: "ok"
+              1: "fault"
+            notes: "When set, the app reports the level as a failure regardless of bytes 0-1."
+
+  - uuid: "0000180f-0000-1000-8000-00805f9b34fb"
+    name: "Battery Service"
+    notes: >-
+      Standard SIG battery service. The vendor app reads and subscribes to
+      the level on every model. The Pulse grills are mains powered, and
+      whether they serve it is not established.
+    characteristics:
+      - uuid: "00002a19-0000-1000-8000-00805f9b34fb"
+        name: "battery_level"
+        properties: ["read", "notify"]
+        format:
+          - offset: 0
+            length: 1
+            name: "battery_level"
+            type: "uint8"
+            unit: "%"
+            device_class: "battery"
+
+  - uuid: "0000180a-0000-1000-8000-00805f9b34fb"
+    name: "Device Information"
+    notes: >-
+      Standard SIG service. The vendor app reads model number, manufacturer
+      name, hardware revision and serial number on connect, as UTF-8
+      strings. The serial number is per unit: do not log or publish it.
+    characteristics:
+      - uuid: "00002a24-0000-1000-8000-00805f9b34fb"
+        name: "model_number"
+        properties: ["read"]
+      - uuid: "00002a29-0000-1000-8000-00805f9b34fb"
+        name: "manufacturer_name"
+        properties: ["read"]
+      - uuid: "00002a27-0000-1000-8000-00805f9b34fb"
+        name: "hardware_revision"
+        properties: ["read"]
+      - uuid: "00002a25-0000-1000-8000-00805f9b34fb"
+        name: "serial_number"
+        properties: ["read"]
+        notes: "Per-unit identifier. Never commit a real value."
+
+features:
+  - type: "firmware_update"
+    dfu:
+      mechanisms: ["vendor_ble"]
+      transport: "ble"
+      image:
+        signing: "unknown"
+        source: "vendor_cloud"
+        format: >-
+          Intel HEX for the BLE radio module (8051-core addressing,
+          consistent with a TI CC254x-class SoC). The Pulse grills'
+          controller takes raw ARM Cortex-M (STM32-class) binaries.
+        notes: >-
+          The app fetches images from a vendor object store. One Pulse
+          controller image also ships inside the app. No image, file name,
+          digest or byte is reproduced here, and whether the bootloader
+          checks a signature is unknown.
+      enter:
+        how: "unknown"
+        notes: >-
+          The vendor app writes an update-begin command to
+          64ac0005-4a4b-4b58-9f37-94d3c52ffdf7 and then streams on the same
+          connection. Whether the radio reboots into a loader in between is
+          not established. The command's bytes are deliberately withheld
+          (brick risk), so no entry command is declared.
+      dfu_mode:
+        notes: "How a unit advertises mid-update is not established."
+      services: ["64ac0000-4a4b-4b58-9f37-94d3c52ffdf7"]
+      recovery:
+        interrupted: "unknown"
+      verification: "reported"
+      notes: >-
+        Role-level only. The vendor app has three update paths. (1) A
+        block stream: the update-begin command on 64ac0005, then image blocks
+        written to 00060001-f8ce-11e4-abf4-0002a5d5c51b, whose notifications
+        pace the transfer. (2) An Intel-HEX record stream written to 64ac0005
+        itself, rebased by a per-model address offset. (3) On the Pulse
+        grills, fixed-size checksummed packets to the controller service's
+        update characteristic, with status notifications back. The service
+        that holds 00060001 is not recorded. See
+        protocol_details.firmware_update.
+
+entities:
+  - platform: "sensor"
+    name: "Probe 1 Temperature"
+    device_class: "temperature"
+    precision: 1
+    state_characteristic: "06ef0002-2e06-4b79-9e33-fce2c42805ec"
+    state_mapping:
+      value: "temperature"
+    notes: >-
+      Whole degrees in the unit the device is set to (unit_flag in the same
+      notification, or 06ef0001 byte 0). Show "no probe" for any value below
+      -500 rather than rendering -2000.
+  - platform: "sensor"
+    name: "Probe 2 Temperature"
+    device_class: "temperature"
+    precision: 1
+    variants: ["iGrill 2", "iGrill 2 v2.2", "iGrill 3", "Kitchen Thermometer", "Pulse 1000", "Pulse 2000"]
+    state_characteristic: "06ef0004-2e06-4b79-9e33-fce2c42805ec"
+    state_mapping:
+      value: "temperature"
+    notes: "As Probe 1."
+  - platform: "sensor"
+    name: "Probe 3 Temperature"
+    device_class: "temperature"
+    precision: 1
+    variants: ["iGrill 2", "iGrill 2 v2.2", "iGrill 3", "Pulse 2000"]
+    state_characteristic: "06ef0006-2e06-4b79-9e33-fce2c42805ec"
+    state_mapping:
+      value: "temperature"
+    notes: "As Probe 1."
+  - platform: "sensor"
+    name: "Probe 4 Temperature"
+    device_class: "temperature"
+    precision: 1
+    variants: ["iGrill 2", "iGrill 2 v2.2", "iGrill 3", "Pulse 2000"]
+    state_characteristic: "06ef0008-2e06-4b79-9e33-fce2c42805ec"
+    state_mapping:
+      value: "temperature"
+    notes: "As Probe 1."
+  - platform: "sensor"
+    name: "Ambient Temperature"
+    device_class: "temperature"
+    precision: 1
+    state_characteristic: "06ef000a-2e06-4b79-9e33-fce2c42805ec"
+    state_mapping:
+      value: "temperature"
+    notes: >-
+      Unscoped because nobody knows which models serve 06ef000a. Create it
+      only when the characteristic exists on the connected unit.
+  - platform: "number"
+    name: "Probe 1 Target"
+    device_class: "temperature"
+    min: -30
+    max: 572
+    step: 1
+    state_characteristic: "06ef0003-2e06-4b79-9e33-fce2c42805ec"
+    state_mapping:
+      value: "high_alarm"
+    commands:
+      set_value: "set_probe_1_alarm"
+    notes: >-
+      The high alarm, which is the app's "peak" target. Setting it writes low
+      = -2000 (disabled). -2000 read back means no target is set. It is in
+      the device's unit: -22 to 572 F or -30 to 300 C, per the manuals'
+      display range.
+  - platform: "number"
+    name: "Probe 2 Target"
+    device_class: "temperature"
+    min: -30
+    max: 572
+    step: 1
+    variants: ["iGrill 2", "iGrill 2 v2.2", "iGrill 3", "Kitchen Thermometer", "Pulse 1000", "Pulse 2000"]
+    state_characteristic: "06ef0005-2e06-4b79-9e33-fce2c42805ec"
+    state_mapping:
+      value: "high_alarm"
+    commands:
+      set_value: "set_probe_2_alarm"
+    notes: "As Probe 1 Target."
+  - platform: "number"
+    name: "Probe 3 Target"
+    device_class: "temperature"
+    min: -30
+    max: 572
+    step: 1
+    variants: ["iGrill 2", "iGrill 2 v2.2", "iGrill 3", "Pulse 2000"]
+    state_characteristic: "06ef0007-2e06-4b79-9e33-fce2c42805ec"
+    state_mapping:
+      value: "high_alarm"
+    commands:
+      set_value: "set_probe_3_alarm"
+    notes: "As Probe 1 Target."
+  - platform: "number"
+    name: "Probe 4 Target"
+    device_class: "temperature"
+    min: -30
+    max: 572
+    step: 1
+    variants: ["iGrill 2", "iGrill 2 v2.2", "iGrill 3", "Pulse 2000"]
+    state_characteristic: "06ef0009-2e06-4b79-9e33-fce2c42805ec"
+    state_mapping:
+      value: "high_alarm"
+    commands:
+      set_value: "set_probe_4_alarm"
+    notes: "As Probe 1 Target."
+  - platform: "select"
+    name: "Temperature Unit"
+    state_characteristic: "06ef0001-2e06-4b79-9e33-fce2c42805ec"
+    state_mapping:
+      value: "temperature_unit"
+      options:
+        0: "Fahrenheit"
+        1: "Celsius"
+    commands:
+      select_option: "set_temperature_unit"
+    notes: >-
+      After changing the unit, convert each probe's stored thresholds and
+      rewrite them, as the vendor app does. The device keeps the old numbers
+      otherwise. On a Pulse the app also sets the grill controller's own
+      display unit (protocol_details.pulse_controller_service).
+  - platform: "sensor"
+    name: "Battery"
+    device_class: "battery"
+    unit: "%"
+    variants: ["iGrill mini", "iGrill mini v2", "iGrill 2", "iGrill 2 v2.2", "iGrill 3", "Kitchen Thermometer", "Kitchen Thermometer Mini"]
+    state_characteristic: "00002a19-0000-1000-8000-00805f9b34fb"
+    state_mapping:
+      value: "battery_level"
+  - platform: "sensor"
+    name: "Propane Level"
+    unit: "%"
+    icon: "mdi:propane-tank"
+    variants: ["iGrill 3"]
+    state_characteristic: "f5d40001-3548-4c22-9947-f3673fce3cd9"
+    state_mapping:
+      value: "propane_level"
+    notes: "Quarter-tank steps. Treat sensor_fault, or a raw step above 4, as unavailable."
+
+protocol_details:
+  authentication:
+    summary: >-
+      A per-connection challenge-response on service
+      64ac0000-4a4b-4b58-9f37-94d3c52ffdf7, run after the link is encrypted.
+      AES-128 in ECB mode with no padding, over single 16-byte blocks. The
+      mode and padding are written into the vendor app's cipher setup, so
+      this is not a guess from the code's shape. It has still not been
+      captured on the air, so it stays `reported`.
+    keyed_algorithm:
+      - "1. app_challenge = 8 random bytes || 8 zero bytes. Write it to 64ac0002."
+      - "2. c = read 64ac0003 (16 bytes). The device computes it as AES-128-ECB-encrypt(K, app_challenge[0:8] || device_nonce[0:8]). The layout is from kvantetore/igrill, which checks the first half. The vendor app does not check it."
+      - "3. p = AES-128-ECB-decrypt(K, c)."
+      - "4. response = AES-128-ECB-encrypt(K, 8 zero bytes || p[8:16]). Write it to 64ac0004."
+      - "5. The vendor app allows 30 s for steps 1-4. On failure it removes the OS bond, reconnects and bonds again."
+    key_free_variant: >-
+      Write 16 zero bytes as the challenge. Then p[0:8] is already zero, so
+      step 4's plaintext equals step 3's and the response is c itself: read
+      64ac0003 and write the same 16 bytes to 64ac0004. No key is needed.
+      kins-dev/igrill-smoker worked this out, and bendikwa/igrill (release
+      2.0, which dropped its crypto dependency), esphome-igrill and
+      esp32_iGrill all use it on hardware across the family. The
+      missing-devices survey asks for the keyed handshake to be confirmed on
+      hardware as well, not only this shortcut. See remaining_unknowns.
+    key_handling: >-
+      K is a 16-byte constant per model family: the vendor app holds six
+      distinct keys for its nine models. They are not reproduced here, in
+      the docs or in any test. A replacement client does not need one. An
+      owner who wants the keyed form can find how the community's first
+      client obtained keys in kvantetore/igrill. The key is a shared
+      product secret, not a per-unit credential, and publishing it would
+      add nothing the key-free form does not already give.
+    test_vectors:
+      key_note: >-
+        ILLUSTRATIVE KEY ONLY: 000102030405060708090a0b0c0d0e0f is the
+        FIPS-197 example key, not a device key. These vectors check an
+        implementation of the arithmetic above, not interoperability with a
+        real unit.
+      key_hex: "000102030405060708090a0b0c0d0e0f"
+      vectors:
+        - name: "keyed form"
+          app_challenge_hex: "a1a2a3a4a5a6a7a80000000000000000"
+          device_plaintext_hex: "a1a2a3a4a5a6a7a8b1b2b3b4b5b6b7b8"
+          device_challenge_hex: "e5d0713e710ddab7e8ff5afcdc97a0b4"
+          response_hex: "39fac7fbed092b862656a0f692afb3a2"
+        - name: "key-free form (zero challenge, same device nonce)"
+          app_challenge_hex: "00000000000000000000000000000000"
+          device_plaintext_hex: "0000000000000000b1b2b3b4b5b6b7b8"
+          device_challenge_hex: "39fac7fbed092b862656a0f692afb3a2"
+          response_hex: "39fac7fbed092b862656a0f692afb3a2"
+      check: "openssl enc -aes-128-ecb -nopad -K 000102030405060708090a0b0c0d0e0f reproduces each device_challenge_hex from device_plaintext_hex. The response for a given nonce is the same in both vectors, and in the key-free vector it equals the challenge."
+  model_identification:
+    advertised_name_prefixes:
+      notes: >-
+        The vendor app lowercases the advertised local name and tests these
+        prefixes, longest first. The mini v2's "igrill_mini02" is special-
+        cased ahead of the list because "igrill_mini" would otherwise swallow
+        it. A name that matches none is not offered to the user. These are
+        the on-air name prefixes the app accepts. The exact casing and suffix
+        a unit sends is on record only for "iGrill_mini".
+      igrill_mini: "igrill_mini"
+      igrill_mini_v2: "igrill_mini02 (checked first) or igrill_mini_2"
+      igrill_2: "igrill_v2"
+      igrill_2_v2_2: "igrill_v2_2"
+      igrill_3: "igrill_v3"
+      kitchen_thermometer: "kt"
+      kitchen_thermometer_mini: "kt_mini"
+      pulse_1000: "pulse 1000"
+      pulse_2000: "pulse 2000"
+    service_uuid_mapping:
+      notes: >-
+        Two sources, and they disagree for the mini and the iGrill 2. The
+        community mapping comes from clients that detect the model by these
+        services on hardware. The app's model table carries UUID constants
+        its own code never reads (it identifies models by name), so where the
+        two disagree the community mapping is used in `variants`. One
+        reading that reconciles them: the app's "mini" and "iGrill 2" entries
+        describe the later hardware revisions (9d610c43..., ada7590f...),
+        and the original iDevices-era revisions (63c70000..., a5c50000...)
+        simply have no constant left in the app.
+      community:
+        "63c70000-4a82-4261-95ff-92cf32477861": "iGrill mini (esphome-igrill, esp32_iGrill)"
+        "9d610c43-ae1d-41a9-9b09-3c7ecd5c6035": "iGrill mini v2 (esphome-igrill, esp32_iGrill)"
+        "a5c50000-f186-4bd6-97f2-7ebacba0d708": "iGrill 2 (esphome-igrill, esp32_iGrill)"
+        "ada7590f-2e6d-469e-8f7b-1822b386a5e9": "iGrill 2 v202 (esphome-igrill, esp32_iGrill)"
+        "6e910000-58dc-41c7-943f-518b278cea88": "iGrill 3 (esphome-igrill, esp32_iGrill)"
+        "19450000-9b05-40bb-80d8-7c85840aec34": "iDevices Kitchen Thermometer (esphome-igrill)"
+        "7e920000-68dc-41c7-943f-518b278cea87": "Pulse 1000 (esphome-igrill)"
+        "7e920000-68dc-41c7-943f-518b278cea88": "Pulse 2000 (esphome-igrill)"
+      vendor_app_model_table:
+        "9d610c43-ae1d-41a9-9b09-3c7ecd5c6035": "iGrill mini"
+        "ada7590f-2e6d-469e-8f7b-1822b386a5e9": "iGrill 2"
+        "6e910000-58dc-41c7-943f-518b278cea88": "iGrill 3 (with the propane service f5d40000-3548-4c22-9947-f3673fce3cd9)"
+        "19450000-9b05-40bb-80d8-7c85840aec34": "Kitchen Thermometer"
+        "38e70000-43bf-4afa-8170-e45548b5205b": "Kitchen Thermometer Mini"
+        "6c910000-58dc-41c7-943f-518b278ceaaa": "Pulse 1000 and Pulse 2000 (the controller service, not the thermometer service)"
+        no_constant: "iGrill mini v2 and iGrill 2 v2.2 carry no service UUID in the app."
+    display_name: >-
+      The app labels a unit with the model's display name, a hyphen, and the
+      last two octets of its MAC without the colon: iGrill Mini-XXXX,
+      iGrill²-XXXX. The vendor screenshots show these labels, and they were
+      earlier mistaken for advertised names.
+  configuration:
+    layout: "06ef0001: byte 0 unit (0 = F, 1 = C); byte 1 unknown; byte 2 alarm acknowledged (0/1); bytes 3-4 unknown."
+    app_behaviour:
+      - "On connect: read the block, take the unit from byte 0, then write the block back with byte 2 = 0 (the app logs this as resetting the acknowledgement)."
+      - "When the user dismisses an alarm on the app's alarm screen, the app writes the stored block back with byte 2 = 1."
+      - "When the user changes the unit, the app writes the stored block back with byte 0 = the new unit. It then converts each probe's high and low thresholds (F = C x 9/5 + 32 and back, skipping -2000) and rewrites every alarm characteristic."
+    note: >-
+      Acknowledging an alarm is a read-modify-write of bytes the spec cannot
+      name (1, 3 and 4), so it is not declared as a command. A client that
+      wants it should read 06ef0001, set byte 2 to 1 and write all 5 bytes
+      back.
+  alarm_semantics:
+    peak: "High side set, low side -2000. The manuals: sounds when the probe reaches the target. On the mini models the LED goes green, then yellow at 15 F (9 C) away, orange at 5 F (3 C) away, blinking red at the target, and solid red once acknowledged."
+    range: "Both sides set. Sounds when the probe leaves the band. The app uses it for grill or ambient temperature."
+    disabled: "-2000 on a side (raw 30 f8)."
+    unit: "Whole degrees in the configured unit. The device does not convert stored thresholds when the unit changes."
+  knob_lights:
+    scope: "iGrill 3 wired to a Genesis II LX grill's control-knob lights (iGrill 3 manual: the app turns the knob lights on and off, as does the grill's own button)."
+    characteristics:
+      eaef0001-3909-454c-9d7e-e68cba24a9b8: >-
+        The app writes the single byte 0x01 when the user taps the light
+        switch in its device settings, which it shows only for the iGrill 3.
+        It is always 0x01, so it behaves like a button press or toggle. It is
+        not written on connect, although earlier notes said so.
+      eaef0002-3909-454c-9d7e-e68cba24a9b8: "Read on connect. One byte that the app logs as the LED knob light configuration. Values not established."
+    not_declared_because: "The containing service UUID is not recorded (the app addresses both characteristics by characteristic UUID alone), so no service entry, command or entity is declared for them."
+  pulse_controller_service:
+    status: "OUT OF SCOPE. It heats, so it is safety-sensitive, and no control of it is documented here."
+    service: "6c910000-58dc-41c7-943f-518b278ceaaa"
+    roles_only: >-
+      Per the vendor app: a notify characteristic whose value the app
+      divides by 100 and shows as a temperature. A one-byte controller
+      display-unit write, with the OPPOSITE encoding to 06ef0001 (0 = C,
+      1 = F), which the app sends alongside every unit change. A one-byte
+      controller firmware-version read. A buzzer-status notify. The
+      controller firmware-update packet write and its status notify.
+      esphome-igrill additionally reads 6c91000a-58dc-41c7-943f-518b278ceaaa
+      as ASCII three-digit fields for the two heating elements' actual and
+      set temperatures, read-only. No write to this service is described,
+      and none should be attempted from a client built on this spec.
+  firmware_update:
+    summary: >-
+      Role level only, by design. The app fetches images from a vendor
+      object store: Intel HEX for the BLE radio module, and raw Cortex-M
+      binaries for the Pulse controller. It then delivers them over BLE on
+      one of three paths (features[firmware_update].dfu.notes). No
+      update-begin payload, block or record layout, address offset, image
+      name or digest is published, because a wrong one can leave a
+      thermometer unusable and the vendor's images are not ours to
+      redistribute.
+  source_conflicts:
+    ui_summary_encryption_and_resolution: "The screenshot summary said 'no encryption' and '0.1 degree units'. The app's code shows an AES handshake and whole degrees, and every community client divides by nothing. The summary was wrong."
+    brief_advertised_names: "iGrill2-XXXX and similar are app display names built from the MAC, not advertised names (model_identification.display_name)."
+    eaef0001_on_connect: "Earlier notes said 0x01 is written to eaef0001 on connect. In the app it is a user action on the iGrill 3 only (knob_lights)."
+    ambient_alarm_role: "06ef000b was listed as role unknown. The app parses and writes it as the ambient sensor's alarm pair."
+    config_uuid_in_community_code: "bendikwa/igrill and kins-dev/igrill-smoker define a CONFIG constant equal to 06ef0002, probe 1's UUID. They never use it. The configuration characteristic is 06ef0001 (vendor app, esp32_iGrill, esphome-igrill)."
+    unsigned_reads: "bendikwa/igrill and esphome-igrill read the temperature as unsigned 16-bit, so the no-probe value shows as 63536 and a sub-zero reading wraps. The app and kins-dev/igrill-smoker read it signed."
+    vendor_status: "Research notes: discontinued. Play listing: updated 2025-10-16. Weber's PSTI statement: security support ended 2021. All three are recorded in device.notes."
+
+evidence:
+  app_static_analysis: >-
+    Weber iGrill 5.8.1 for Android, decompiled. The app is obfuscated, but
+    its BLE log strings name every characteristic role. It established: the
+    model table (nine models, probe counts, name prefixes, service UUID
+    constants), the bond-then-connect-then-authenticate flow and its 30 s
+    timeouts, the handshake's arithmetic and its AES/ECB/NoPadding cipher
+    setup, the probe parser (int16 LE, whole degrees, byte 2 bit 7 unit,
+    below -500 absent), the alarm pair layout and the -2000 sentinel, the
+    configuration block's unit and acknowledgement bytes and the app's
+    read-modify-write of it, the ambient alarm on 06ef000b, the propane
+    parser and fault bit, the knob-light characteristics, the Pulse
+    controller characteristics' roles, the three update paths (role only),
+    and the display-name rule. Nothing from it is reproduced beyond UUIDs
+    and byte layouts. The per-model keys it contains are deliberately left
+    out.
+  open_source_review: >-
+    kvantetore/igrill (the original keyed client; confirms the device
+    plaintext layout). kins-dev/igrill-smoker @ 5dc78b5f (the key-free
+    handshake, signed reads, threshold writes as two int16 LE). bendikwa/igrill
+    @ e42dba40 (key-free handshake, bonding advice). bendikwa/esphome-igrill @
+    b5edba3c (model detection by service UUID, encryption before
+    authentication, threshold read and write, propane, Pulse element read,
+    hardware-confirmed model list). 1mckenna/esp32_iGrill @ 45c5f1d3
+    (advertised-service matching, just-works bond parameters, single-byte
+    unit write, propane, credited hardware testers).
+  documentation_review: >-
+    Weber-hosted manuals: iGrill Mini (2016), iGrill 2 (2016), iGrill 3
+    (2016), Pulse 2000 (US 2022) and Pulse 1000/2000 (GB 2018). The iDevices
+    Kitchen Thermometer and Kitchen Thermometer mini manuals, via the
+    Internet Archive. Weber's 2024 UK PSTI statement for iGrill products.
+    They gave the pairing indicators, reset procedures, auto-shut-off
+    timings, peak and range alarm behaviour, fuel gauge and knob lights, and
+    the security support end dates. No manual prints an FCC ID.
+  capture_review: "None. Our research store holds no capture of any model in this family."
+  open_questions: >-
+    See remaining_unknowns. What to settle first with a unit in hand: the
+    exact advertised names per model, whether a 1-byte write to 06ef0001
+    keeps bytes 1-4, and one HCI capture of the vendor app's keyed handshake
+    and an alarm acknowledgement.
+  artifacts:
+    - type: "static_analysis"
+      artifact: "com.weber.igrill 5.8.1 (versionCode 508010000), XAPK"
+      obtained_via: "third-party APK mirror, 2026-09-01"
+      description: "The vendor app. Source of every byte layout marked reported here. Its embedded model keys are not reproduced."
+    - type: "public_implementation"
+      artifact: "bendikwa/esphome-igrill @ b5edba3c87d16ff96d4aa2ee90a20a1921fb80ce"
+      url: "https://github.com/bendikwa/esphome-igrill"
+      obtained_via: "git clone, 2026-09-28"
+      description: "ESPHome component: per-model service UUIDs, key-free handshake after forcing encryption, threshold read/write verified against an HCI capture on an iGrill 2, propane, Pulse element read, and the confirmed-model list."
+    - type: "public_implementation"
+      artifact: "1mckenna/esp32_iGrill @ 45c5f1d30e8b781f1c99640cf8088f95f5ed1719"
+      url: "https://github.com/1mckenna/esp32_iGrill"
+      obtained_via: "git clone, 2026-09-28"
+      description: "Arduino ESP32 client: advertised service matching, just-works bonding setup, key-free handshake, single-byte unit write, propane, and credits for hardware testers on the mini, mini v2, v202 and iGrill 3."
+    - type: "public_implementation"
+      artifact: "bendikwa/igrill @ e42dba408bc59a2f4ee36546ee92e9e7135ba8d6"
+      url: "https://github.com/bendikwa/igrill"
+      obtained_via: "git clone, 2026-09-28"
+      description: "Python/bluepy MQTT bridge, deprecated in favour of esphome-igrill. Key-free handshake since release 2.0, and bonding advice."
+    - type: "public_implementation"
+      artifact: "kins-dev/igrill-smoker @ 5dc78b5f2ce323c9aa2145e2b74d1e49c60d20c4"
+      url: "https://github.com/kins-dev/igrill-smoker"
+      obtained_via: "git clone, 2026-09-28"
+      description: "Where the key-free handshake is explained. Signed int16 reads and two-int16 threshold writes."
+    - type: "public_implementation"
+      artifact: "kvantetore/igrill (master, igrill.py read 2026-09-28)"
+      url: "https://github.com/kvantetore/igrill"
+      obtained_via: "raw file fetch, 2026-09-28"
+      description: "The original keyed client. It checks the decrypted first half of the device challenge against its own challenge, which is where the plaintext layout comes from."
+    - type: "vendor_documentation"
+      artifact: "Weber iGrill Mini, iGrill 2 and iGrill 3 user manuals (2016); Pulse 2000 owner's guide (US 2022); Pulse 1000/2000 owner's guide (GB 2018)"
+      url: "https://digital-assets.weber.com/documents/59365.pdf?fm=pdf"
+      obtained_via: "Weber digital-assets host, 2026-09-28"
+      description: "Pairing, reset, auto-off, alarm behaviour, fuel gauge and knob lights. The URL is the iGrill 2 manual. The others are listed in helpful_urls."
+    - type: "vendor_documentation"
+      artifact: "Weber UK PSTI Statement of Compliance, iGrill Wireless Thermometers (2024)"
+      url: "https://digital-assets.weber.com/documents/18492_8653986_042524.pdf?fm=pdf"
+      obtained_via: "Weber digital-assets host, 2026-09-28"
+      description: "Launch dates and security-update end dates (2021) for the iGrill Mini, 2 and 3 and the Pulse 1000 and 2000."
+    - type: "firmware_image"
+      artifact: "Vendor OTA images for the BLE radio module and the Pulse controller (not named here)"
+      obtained_via: "vendor object store, 2026-09-01"
+      description: "Examined only to identify the image formats (Intel HEX with 8051-core addressing; raw Cortex-M binaries). Nothing from them is reproduced."
+
+remaining_unknowns:
+  - "The exact advertised local name of every model (casing, separator, any suffix). Only 'iGrill_mini' is on record verbatim. The app matches lowercase prefixes (protocol_details.model_identification)."
+  - "Which service UUID each hardware revision really carries. The community and the app's dead constants disagree for the mini / mini v2 and the iGrill 2 / v2.2 (protocol_details.model_identification.service_uuid_mapping)."
+  - "Whether the Kitchen Thermometer Mini's 38e70000-43bf-4afa-8170-e45548b5205b holds the 06ef characteristic set. It comes from the app only."
+  - "Whether the Kitchen Thermometers and Pulse grills advertise their model service UUID, or show it only after connecting."
+  - "The keyed handshake has never been captured on the air, and neither has the key-free one. The cipher mode (AES-128-ECB, no padding) comes from the app's code, and the device's plaintext layout from kvantetore/igrill."
+  - "Whether the device rejects an unencrypted link with an ATT error or just stays silent, and whether it keeps more than one bond."
+  - "Whether a 1-byte write to 06ef0001 (esp32_iGrill's unit write) leaves config bytes 1-4 intact, and what bytes 1, 3 and 4 mean."
+  - "Whether the device enforces thresholds on its own with no phone connected. The manuals and esphome-igrill say the unit alarms itself, but the ambient alarm and the Pulse have not been seen doing so."
+  - "Which models serve the ambient pair 06ef000a/06ef000b, and what 'ambient' measures on each (grill air, or the Pulse cook-box sensor?)."
+  - "The service UUID holding the knob-light characteristics eaef0001/eaef0002, and the meaning of their values."
+  - "The service UUID holding the update data characteristic 00060001-f8ce-11e4-abf4-0002a5d5c51b, whether an update reboots the radio into a loader, how a unit advertises mid-update, and whether images are signed. Intentionally unpublished: the update-begin layout."
+  - "Whether the Pulse grills serve the battery service."
+  - "The original iGrill Classic (dropped from the app) is not covered, and may speak something else entirely. The research notes describe it as a Bluetooth Classic predecessor."
+  - "Whether resetting a unit also clears its unit setting and stored thresholds."
+  - "No FCC grant has been found for any model (fccid.co holds none under iDevices 2ABDJ or Weber-Stephen 2AHSR), and no manual prints an FCC ID."
+
+helpful_urls:
+  - title: "Weber iGrill Mini user manual (2016, PDF)"
+    url: "https://digital-assets.weber.com/documents/59338.pdf?fm=pdf"
+    kind: "manual"
+    description: >-
+      Weber's manual for the iGrill Mini (part 59338): Smart LED states,
+      auto-shut-off, peak and range alarms, and the 5-second reset pin under
+      the battery door. Also the best guide for the iGrill mini v2.
+  - title: "Weber iGrill 2 user manual (2016, PDF)"
+    url: "https://digital-assets.weber.com/documents/59365.pdf?fm=pdf"
+    kind: "manual"
+    description: >-
+      Weber's manual for the four-probe iGrill 2 (part 59365): Bluetooth LED,
+      pairing, pre-alarm, and the reset pin under the battery door.
+  - title: "Weber iGrill 2 online user guide (enGB, 2022, PDF)"
+    url: "https://digital-assets.weber.com/documents/19975_59953_iGrill2_OnlineUG_enGB_100722.pdf?fm=pdf"
+    kind: "manual"
+    description: "Weber's later (2022) revision of the iGrill 2 guide, part 59953."
+  - title: "Weber iGrill 3 user manual (2016, PDF)"
+    url: "https://digital-assets.weber.com/documents/59392.pdf?fm=pdf"
+    kind: "manual"
+    description: >-
+      Weber's manual for the grill-mounted iGrill 3 (part 59392): battery
+      pack, fuel gauge, lighted control knobs on the Genesis II LX, and the
+      15-second power-button reset.
+  - title: "Weber iGrill 3 online user guide (enGB, 2022, PDF)"
+    url: "https://digital-assets.weber.com/documents/19973_59984_iGrill3_OnlineUG_enGB_100722.pdf?fm=pdf"
+    kind: "manual"
+    description: "Weber's 2022 revision of the iGrill 3 guide (part 59984), including installation and battery-pack wiring."
+  - title: "Weber Pulse 2000 owner's guide (US, 2022, PDF)"
+    url: "https://digital-assets.weber.com/documents/54975_022522.pdf?fm=pdf"
+    kind: "manual"
+    description: >-
+      Owner's guide for the Pulse 2000 electric grill with built-in iGrill
+      (part 54975). Its Bluetooth troubleshooting says a steady light means
+      the grill is already paired to another phone.
+  - title: "Weber Pulse 1000 / 2000 owner's guide (GB, 2018, PDF)"
+    url: "https://digital-assets.weber.com/documents/59587_100118_web.pdf?fm=pdf"
+    kind: "manual"
+    description: "Full owner's guide covering the Pulse 1000 and Pulse 2000 (part 59587): the Bluetooth status light and iGrill app pairing."
+  - title: "iDevices Kitchen Thermometer user manual (Internet Archive, PDF)"
+    url: "https://archive.org/download/manualzilla-id-5673305/5673305.pdf"
+    kind: "manual"
+    description: "The iDevices-branded manual for the two-probe Kitchen Thermometer, which the Weber app lists as Kitchen Thermometer. Covers the Bluetooth LED, presets and the reset pin."
+  - title: "iDevices Kitchen Thermometer mini user manual (Internet Archive, PDF)"
+    url: "https://archive.org/download/manualzilla-id-5815436/5815436.pdf"
+    kind: "manual"
+    description: "The iDevices-branded manual for the one-probe Kitchen Thermometer mini: Smart LED states and the reset pin."
+  - title: "iDevices iGrill mini user manual, pre-Weber edition (Internet Archive, PDF)"
+    url: "https://archive.org/download/manualzz-id-1270646/1270646.pdf"
+    kind: "manual"
+    description: "The iDevices-era manual for the original iGrill mini, from before Weber rebranded it."
+  - title: "Weber UK PSTI statement: iGrill wireless thermometers (2024, PDF)"
+    url: "https://digital-assets.weber.com/documents/18492_8653986_042524.pdf?fm=pdf"
+    kind: "vendor_support"
+    description: "Weber's own security-support statement, giving 2021 end dates for the iGrill Mini, 2 and 3 and the Pulse 1000 and 2000."
+  - title: "bendikwa/esphome-igrill"
+    url: "https://github.com/bendikwa/esphome-igrill"
+    kind: "implementation"
+    description: "ESPHome component with the widest hardware-confirmed model list. It detects the model by service UUID and reads and writes alarm targets."
+  - title: "esphome-igrill: igrill.h (pinned)"
+    url: "https://github.com/bendikwa/esphome-igrill/blob/b5edba3c87d16ff96d4aa2ee90a20a1921fb80ce/components/igrill/igrill.h"
+    kind: "implementation"
+    description: "The per-model service UUID table and characteristic constants this spec cross-checked."
+  - title: "esphome-igrill: igrill.cpp (pinned)"
+    url: "https://github.com/bendikwa/esphome-igrill/blob/b5edba3c87d16ff96d4aa2ee90a20a1921fb80ce/components/igrill/igrill.cpp"
+    kind: "implementation"
+    description: "Encryption before the handshake, key-free authentication, the threshold layout, propane and the Pulse element read."
+  - title: "1mckenna/esp32_iGrill"
+    url: "https://github.com/1mckenna/esp32_iGrill"
+    kind: "implementation"
+    description: "ESP32 MQTT bridge that matches models by advertised service UUID and credits hardware testers per model."
+  - title: "esp32_iGrill: esp32_iGrill.ino (pinned)"
+    url: "https://github.com/1mckenna/esp32_iGrill/blob/45c5f1d30e8b781f1c99640cf8088f95f5ed1719/esp32_iGrill.ino"
+    kind: "implementation"
+    description: "Just Works bonding parameters, the handshake, the single-byte unit write and the propane read."
+  - title: "bendikwa/igrill: igrill.py (pinned)"
+    url: "https://github.com/bendikwa/igrill/blob/e42dba408bc59a2f4ee36546ee92e9e7135ba8d6/igrill.py"
+    kind: "implementation"
+    description: "The Python client whose comment block explains why an all-zero challenge makes the key unnecessary."
+  - title: "kins-dev/igrill-smoker: igrill.py (pinned)"
+    url: "https://github.com/kins-dev/igrill-smoker/blob/5dc78b5f2ce323c9aa2145e2b74d1e49c60d20c4/scripts/pygrill/bluetooth/igrill.py"
+    kind: "implementation"
+    description: "Where the key-free handshake comes from. It also reads temperatures signed and writes thresholds as two int16 LE values."
+  - title: "kvantetore/igrill"
+    url: "https://github.com/kvantetore/igrill"
+    kind: "implementation"
+    description: "The original keyed client. It shows the challenge plaintext layout and how the community first handled per-model keys."
+  - title: "Weber iGrill app on Google Play"
+    url: "https://play.google.com/store/apps/details?id=com.weber.igrill"
+    kind: "other"
+    description: "The vendor app (com.weber.igrill) this spec's static analysis is based on. Version 5.8.1 was listed as updated 2025-10-16."

@@ -1,0 +1,1302 @@
+# Exway electric skateboards, second generation (X1 / Flex / Wave / Atlas) device spec
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Sources (clean-room; derived facts only, every table written in our own words):
+#   - Static analysis of the vendor's second-generation Android app, "Exway"
+#     (com.exway.app 1.8.1, versionCode 38): its BLE service, request builders,
+#     reply splitter, CRC helper, parameter-image helper and settings screens.
+#     Nothing from it is reproduced beyond short paraphrase; the thermistor
+#     lookup tables are summarised as a fitted curve and a few derived points.
+#   - The open-source Android BLE library the app is built on
+#     (aicareles/Android-BLE), to tell the library's default UUIDs apart from
+#     what the app configures.
+#   - Exway's own instruction manuals (Atlas Carbon, X1 Riot, Flex 2022/ER,
+#     Wave) and the ExSkate app guide, for the hardware generations, the power
+#     button and the remote's pairing procedure.
+# No capture, no FCC grant and no hardware were available. Every byte fact is
+# `reported`.
+
+device:
+  name: "Exway electric skateboard, 2nd generation (X1 / Flex / Wave / Atlas)"
+  manufacturer: "Exway"
+  manufacturer_status: "active"
+  type: "electric-skateboard"
+  category: "vehicle"
+  protocol: "ble"
+  transport: "ble-gatt"
+  testing:
+    status: untested
+    notes: >
+      Nobody on this project has connected to an Exway board. Everything
+      below was read out of the vendor's second-generation Android app
+      (com.exway.app 1.8.1) and cross-checked against Exway's published
+      manuals. The research store holds no capture, no FCC filing and no
+      screenshot of the app. Several of the app's request routines did not
+      decompile to source and were read from the bytecode dump, which is
+      noted beside each fact that depends on one.
+  openness:
+    status: "undocumented"
+    reverse_engineered: true
+    notes: >
+      Exway publishes manuals but no protocol, SDK or ESC documentation. The
+      transport library under the app is open source (aicareles/Android-BLE),
+      so the GATT plumbing is public; the Exway framing, the head bytes and
+      the parameter memory map are reconstructed here from the app alone.
+  safety_advisory:
+    severity: "warning"
+    summary: >-
+      Settings written over this link change how a moving skateboard shifts,
+      cruises and brakes, and the link has no authentication.
+    detail: >-
+      This is a rideable vehicle. Exway's own manual warns of death or serious
+      injury from loss of control. Change settings only with the board at a
+      standstill and the rider off it: the vendor app refuses to open its
+      board-settings page unless the board reports less than 2 km/h. Several
+      settings the app exposes (safe mode and its gear cap, cruise control,
+      free mode, gear changes while moving) are marked advanced here. This
+      spec deliberately leaves out writes to per-gear speed limits,
+      acceleration and brake curves and currents, turbo, wheel size, gearing,
+      the power-system type, the mileage counters and anything on the
+      firmware update path. Wheel size and gearing feed the speed the board
+      computes, and the mileage counters gate the new-rider gear limit. Nothing
+      on the phone link is authenticated, so anyone within radio range of a
+      powered board can do what the app does. This spec is not affiliated
+      with Exway; Exway's instructions govern riding the board.
+    advisory_url: "https://cdn.shopify.com/s/files/1/0694/9083/5704/files/Atlas_Instruction_Manual_-_China_UK_France_Korea_Japan_Germany.pdf?v=1766390343"
+  notes: >
+    Exway's second-generation electric skateboards (X1 Pro, X1 Max, X1 Skate,
+    Flex, Flex SE, Flex (2022), Wave and Atlas) talk to a phone over BLE. The
+    phone connects straight to the board's receiver, the radio module that
+    also links the handheld remote (R1/R2) and bridges to the board's one or
+    two ESCs. The vendor app for this generation is "Exway" (com.exway.app).
+    Exway's third generation (R3 remote, ESC 3.0) is a different system: the
+    ExSkate app pairs the phone with the R3 remote rather than the board, and
+    Exway's ExSkate guide says R1/R2 owners must keep using the Exway app.
+    This spec covers the second generation only. No current store listing
+    for the old app was found during this research.
+
+    TRANSPORT (reported). Primary service 0000f1f0-0000-1000-8000-00805f9b34fb.
+    The app configures its BLE library to write requests to
+    0000f1f1-0000-1000-8000-00805f9b34fb and to take replies as notifications
+    on 0000f1f2-0000-1000-8000-00805f9b34fb. An earlier research note had
+    those two the other way round; the app's own set-up call is what is
+    followed here. A second service, 0000f2f0-0000-1000-8000-00805f9b34fb,
+    carries the BLE module's AT-command channel (send 0000f2f1, receive
+    0000f2f2); it is the module's configuration port, not a second ESC.
+    The app requests an ATT MTU of 150; every request declared here fits a
+    default 23-byte MTU. There is no pairing, no bonding and no
+    encryption on the frame path.
+
+    FRAMING (reported). Every request is [head byte][arguments][check byte],
+    where the check byte is the LOW byte of CRC-16/MODBUS (reflected
+    polynomial 0xA001, init 0xFFFF, no final xor) computed over every byte
+    before it. Only the low byte is sent. Short requests are 4 bytes
+    ([head][arg hi][arg lo][crc lo]); a parameter-memory read is 8 bytes
+    ([0x74][address hi][address lo][length hi][length lo][0x00][0x00][crc lo],
+    both 16-bit fields big-endian); a parameter write is
+    [0x75][address hi][address lo][data...][crc lo]. Replies echo the head
+    of the request with bit 0 set for the query heads (0xb0 -> 0xb1,
+    0x90 -> 0x91, 0xb2 -> 0xb3) or with the same head (0x74, 0x75, 0x76,
+    0x92, 0xb4), and end in the same truncated CRC. All multi-byte values
+    on the wire are big-endian. Because no `auto` parameter role covers a
+    truncated CRC, every request below is a fixed byte string with the check
+    byte precomputed; protocol_details.framing has the rule for building
+    others.
+
+    WHAT A CLIENT DOES (reported, from the app's connection service):
+      1. Connect; subscribe to 0000f1f2; wait about 50 ms.
+      2. Send the heartbeat [0xb0 0x00 0x00 0x70]. A 4-byte reply starting
+         0xb1 means the receiver is running its application ("setting
+         mode"); one starting 0x11 means it is sitting in its bootloader, and
+         the vendor app then goes straight to its firmware-recovery page.
+      3. Read the five receiver-information pages (head 0xb4, pages 0-4). The
+         concatenated 80 bytes are five 16-byte UTF-8 strings: firmware
+         version, hardware version, controller model, bootloader version and
+         a per-unit code. The controller string ("exway Wave", "exway X1
+         Pro", ...) is how the app tells the models apart; see
+         device.variants.
+      4. Idle: repeat the heartbeat every 300 ms and read the mileage counter
+         about every 15 s. Dashboard: stop the heartbeat and poll the monitor
+         request (0x90) back to back, one outstanding request at a time. The
+         app gives each reply 500 ms (1.5 s for a save).
+      5. Settings: read parameter memory in 16-byte pages (0x74), write
+         (0x75), then commit with the save request (0x76).
+
+    SAFETY GATES THE APP KEEPS (reported). The app will not open the board
+    settings page while the monitor reports 2 km/h or more. Its quick guide
+    says a new board is held to gears 1 and 2 until it has covered 10 km,
+    and the app warns that settings changes are void until then; the
+    firmware appears to key that state off the stored mileage counter.
+
+    LEFT OUT on purpose: the handheld remote's own radio link to the board;
+    firmware and bootloader flashing for the receiver, the remote and the
+    ESCs (heads 0x10-0x1a, 0x30, 0x50-0x5a and the ESC pass-through under
+    head 0x01); writes to per-gear speed limits, acceleration and brake
+    curves and currents, turbo, wheel size, gearing, power-system type and
+    the mileage counters; the app's "restore default" routine (it rewrites
+    the mileage counter); and the AT commands that rename the module or
+    change its UART speed. The library-default UUIDs that appear in the app
+    (0000fee9 with d44bc439-abfd-45a2-b575-925416129600/9601, and 0000fee8
+    with 003784cf-f7e3-55b4-6c4c-9fd140100a16 / 013784cf-f7e3-55b4-6c4c-9fd140100a16)
+    belong to the BLE library, which the app overrides at start-up; nothing
+    ties them to Exway hardware.
+  identification:
+    service_uuids:
+      - "0000f1f0-0000-1000-8000-00805f9b34fb"
+    notes: >
+      The app's foreground scan lists every named BLE device and lets the
+      user pick one; it filters on nothing. Its library filters on the
+      0000f1f0 service only when scanning from the background, which works
+      only if the board advertises that service, and that is not
+      established. 0000f1f0 is a vendor-chosen 16-bit value on the Bluetooth
+      base, not an assigned one, so other products can carry it. Confirm a
+      match after connecting: the heartbeat answers 0xb1 and the controller
+      string on information page 2 begins "exway ". The advertised name is
+      set through the module's AT channel and its factory default is not
+      recorded.
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          service_uuids:
+            - "0000f1f0-0000-1000-8000-00805f9b34fb"
+        notes: >
+          Hypothesis for the advertisement: the vendor app shows every named
+          device and relies on the user to pick the board. A scanner that
+          finds nothing by service UUID should fall back to listing named
+          devices and confirming with the heartbeat.
+    identity:
+      stable_keys: ["address"]
+      display: "local_name"
+    static_ip_required: false
+
+  setup:
+    required: false
+    confidence: "low"
+    notes: >
+      Nothing to provision: no account, no bond and no credential. The board
+      answers any central that connects while it is powered on. Confidence is
+      low because the connection sequence comes from the vendor app alone and
+      nobody has replayed it.
+    methods:
+      - type: "ble_direct"
+        verified: false
+        description: >
+          Power the board on, connect to it, subscribe to replies and confirm
+          it with the heartbeat and the information pages. The vendor account
+          in the app is only for news, FAQs and firmware metadata; riding and
+          settings do not need it.
+        ble:
+          service_uuid: "0000f1f0-0000-1000-8000-00805f9b34fb"
+          write_characteristic: "0000f1f1-0000-1000-8000-00805f9b34fb"
+          read_characteristic: "0000f1f2-0000-1000-8000-00805f9b34fb"
+          pairing_required: false
+        steps:
+          - action: "Hold the board's power button for about three seconds; the status light turns solid green."
+            actor: "user"
+            notes: "From the Atlas Carbon manual; the 4WD Atlas has a button per ESC and both must be on. Other models' manuals are image-only."
+          - action: "Close the vendor app on any other phone that might be connected to the board."
+            actor: "user"
+          - action: "Scan, connect, and subscribe to notifications on 0000f1f2-0000-1000-8000-00805f9b34fb."
+            actor: "client"
+            request:
+              protocol: "ble_gatt"
+          - action: "Write the heartbeat b0 00 00 70 to 0000f1f1-0000-1000-8000-00805f9b34fb."
+            actor: "client"
+            expect: "A 4-byte notification starting 0xb1 (application running). 0x11 instead means the receiver is in its bootloader."
+            timeout_seconds: 1
+          - action: "Read receiver information pages 0 to 4 and compare the controller string with device.variants."
+            actor: "client"
+            expect: "Five 20-byte replies starting 0xb4; bytes 3-18 of page 2 carry the model string, e.g. \"exway Wave\"."
+        timing:
+          reply_timeout_ms: 500
+          save_reply_timeout_ms: 1500
+          heartbeat_interval_ms: 300
+          mileage_poll_every_n_heartbeats: 50
+          delay_after_subscribe_ms: 50
+          page_read_gap_ms: 15
+          notes: "All from the vendor app's connection service; none measured on hardware."
+        troubleshooting:
+          - symptom: "Connect succeeds but nothing answers the heartbeat."
+            causes:
+              - "The vendor app on another phone still holds the board; the receiver is not known to accept two centrals."
+              - "The client subscribed to the wrong characteristic: replies come on 0000f1f2, requests go to 0000f1f1."
+          - symptom: "The heartbeat is answered with a frame starting 0x11."
+            causes:
+              - "The receiver is in its bootloader, usually after an interrupted firmware update. The vendor app sends the user to its firmware page; this spec does not document the recovery path."
+          - symptom: "A setting written and saved reads back unchanged."
+            causes:
+              - "The board has covered less than 10 km; the app says setting changes are void until then."
+              - "The board was not stationary; the app only offers settings below 2 km/h."
+    factory_reset:
+      applicable: "unknown"
+      confidence: "low"
+      effect: >
+        Not established. The manuals describe no reset of the board's
+        settings. For a phone client there is nothing to reset: the board
+        holds no bond and no credential. The vendor app's "Restore default"
+        item is not a factory reset. It rewrites the stored mileage counter,
+        which re-arms the new-rider gear limit, and it is left out of this
+        spec.
+      description: >
+        Recorded as unknown rather than absent. Two procedures that are easy
+        to mistake for a reset: holding the power button for eight seconds
+        with the board off puts it into REMOTE pairing mode (the handheld
+        remote's radio link, Atlas Carbon manual), and the remote has its own
+        settings menu. Neither touches the phone link. Do not experiment with
+        undocumented button combinations on a board you intend to ride.
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        No network membership and no bond. A new phone connects the same way
+        the old one did, once the old one has disconnected.
+    credentials:
+      wifi_passphrase_protection: "not_applicable"
+      stored_on_device:
+        - "Ride settings, light settings and the mileage counters, in the receiver's parameter memory"
+        - "The paired handheld remote's radio address and pairing records, in the same memory"
+      issued_to_client: []
+      notes: >
+        Nothing authenticates the phone link. Information page 4 and the
+        low parameter pages carry per-unit identifiers (a unit code, the
+        remote's address); treat them as the owner's data.
+
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "none"
+    bonding: "none"
+    exclusivity:
+      single_connection: "unknown"
+      recovery: "Close the vendor app on every other phone, then power-cycle the board if it still does not answer."
+      notes: "The app never bonds and never requests encryption; whether the receiver accepts a second central is not recorded."
+    enter_pairing_mode:
+      required: false
+      notes: >
+        The board is connectable whenever it is on. The eight-second
+        power-button hold in the manuals pairs the handheld remote to the
+        board and has nothing to do with the phone.
+    notes: >
+      Basis: the vendor app and its BLE library never call a bonding API and
+      configure no encryption; the app connects, subscribes and writes.
+
+  variants:
+    - model: "X1 Pro"
+      identification:
+        model_prefix: "exway X1 Pro"
+      notes: >
+        Controller string from information page 2, compared by the app as a
+        whole string. Firmware at or below SE-01.01.10 offers wheel size as a
+        three-way list (80, 83, 85 mm) instead of a millimetre value.
+    - model: "X1 Max"
+      identification:
+        model_prefix: "exway X1 Max"
+    - model: "X1 Skate"
+      identification:
+        model_prefix: "exway X1 Skate"
+      notes: "Wheel size is the three-way list; the app hides the gearing item and skips its firmware-update check for this model."
+    - model: "Flex SE"
+      identification:
+        model_prefix: "exway Flex SE"
+    - model: "Flex (2022)"
+      identification:
+        model_prefix: "exway Flex(2022)"
+      notes: "The controller string has no space before the parenthesis."
+    - model: "Flex"
+      identification:
+        model_prefix: "exway Flex"
+      notes: >
+        The app compares the whole string. "exway Flex" is also a prefix of
+        the Flex SE and Flex (2022) strings, so a client must compare exactly
+        or test those two first.
+    - model: "Wave"
+      identification:
+        model_prefix: "exway Wave"
+      notes: "The only model for which the app shows its lighting page; it hides cruise control for this model."
+    - model: "Atlas"
+      identification:
+        model_prefix: "exway Atlas"
+      notes: "The Atlas Carbon 4WD has two ESCs, each with its own power button."
+
+initialization:
+  - characteristic: "0000f1f2-0000-1000-8000-00805f9b34fb"
+    subscribe: true
+    delay_after_ms: 50
+    notes: >
+      Every reply arrives here. The vendor library also subscribes to every
+      other notifying characteristic it finds (0000f2f2 included); that is
+      not needed for anything in this spec.
+  - characteristic: "0000f1f1-0000-1000-8000-00805f9b34fb"
+    write: [0xb0, 0x00, 0x00, 0x70]
+    notes: >
+      Heartbeat and mode query. Expect a 4-byte reply on 0000f1f2 starting
+      0xb1 (receiver application running). A reply starting 0x11 means the
+      receiver is in its bootloader. The app repeats this every 300 ms while
+      no other request is running (reported).
+
+services:
+  - uuid: "0000f1f0-0000-1000-8000-00805f9b34fb"
+    name: "Exway receiver data service"
+    notes: >
+      Request/reply channel to the board's receiver. One request at a time:
+      replies carry no sequence number, so a client sends, waits for the
+      reply with the matching head (or 500 ms), then sends the next. Replies
+      can arrive split across notifications or glued together; reassemble
+      with the per-head lengths in protocol_details.reply_lengths.
+    characteristics:
+      - uuid: "0000f1f1-0000-1000-8000-00805f9b34fb"
+        name: "Request (write)"
+        properties: ["write"]
+        role: "command"
+        notes: >
+          The app writes with the characteristic's default write type through
+          its library; whether write-without-response is also accepted is not
+          recorded. Frames longer than 150 bytes (firmware images only) are
+          split into 150-byte writes by the library.
+        commands:
+          heartbeat:
+            description: "Heartbeat and receiver-mode query. Reply: 4 bytes on 0000f1f2, 0xb1 = application running, 0x11 = bootloader."
+            verification: "reported"
+            value: [0xb0, 0x00, 0x00, 0x70]
+            packet_layout:
+              "0": "head 0xb0"
+              "1": "0x00"
+              "2": "0x00"
+              "3": "low byte of CRC-16/MODBUS over bytes 0-2"
+          request_monitor:
+            description: >
+              Ask for one live-telemetry frame. Reply: the 20-byte 0x91 frame
+              decoded by 0000f1f2's `format`. The app polls this back to back
+              while its dashboard is open.
+            verification: "reported"
+            value: [0x90, 0xf0, 0x0f, 0x75]
+            packet_layout:
+              "0": "head 0x90"
+              "1": "0xf0 (fixed)"
+              "2": "0x0f (fixed)"
+              "3": "CRC low byte"
+          request_battery_status:
+            description: "Battery page 0 (state of charge, pack voltage, temperature, cycles). Reply: 20-byte 0x92 frame, payload_formats.ExwayBatteryStatus."
+            verification: "reported"
+            value: [0x92, 0x00, 0x00, 0xd0]
+          request_battery_details:
+            description: "Battery page 1 (battery firmware version, capacities). Reply: 20-byte 0x92 frame, payload_formats.ExwayBatteryDetails."
+            verification: "reported"
+            value: [0x92, 0x00, 0x01, 0x11]
+          read_receiver_info_page_0:
+            description: "Receiver information, bytes 0-15 of 80: firmware version string. Reply: [0xb4, 0x00, 0x00, 16 bytes, CRC low]; payload_formats.ExwayReceiverInfo."
+            verification: "reported"
+            value: [0xb4, 0x00, 0x00, 0x31]
+          read_receiver_info_page_1:
+            description: "Receiver information, bytes 16-31: hardware version string."
+            verification: "reported"
+            value: [0xb4, 0x00, 0x01, 0xf0]
+          read_receiver_info_page_2:
+            description: "Receiver information, bytes 32-47: controller (model) string, e.g. \"exway Wave\"."
+            verification: "reported"
+            value: [0xb4, 0x00, 0x02, 0xb0]
+          read_receiver_info_page_3:
+            description: "Receiver information, bytes 48-63: bootloader version string."
+            verification: "reported"
+            value: [0xb4, 0x00, 0x03, 0x71]
+          read_receiver_info_page_4:
+            description: "Receiver information, bytes 64-79: per-unit code (an identifier of this board; do not publish it)."
+            verification: "reported"
+            value: [0xb4, 0x00, 0x04, 0x30]
+          read_parameter_page_09:
+            description: >
+              Read 16 bytes of parameter memory at 0x90-0x9f (144-159): legacy
+              mileage, safe mode, gear-change, free-mode and cruise switches,
+              advanced mode, and the gear 1-3 speed limits. Reply:
+              [0x74, 0x00, 0x90, 16 bytes, CRC low]; data byte k is address
+              0x90 + k. Map in protocol_details.parameter_memory.
+            verification: "reported"
+            value: [0x74, 0x00, 0x90, 0x00, 0x10, 0x00, 0x00, 0xee]
+            packet_layout:
+              "0": "head 0x74"
+              "1": "address high byte (0x00)"
+              "2": "address low byte"
+              "3": "length high byte (0x00)"
+              "4": "length low byte (0x10 = 16)"
+              "5": "0x00"
+              "6": "0x00"
+              "7": "CRC low byte over bytes 0-6"
+          read_parameter_page_10:
+            description: "Read parameter memory 0xa0-0xaf (160-175): gear 4 speed limit, acceleration curves, gear 1-3 brake curves. Reply [0x74, 0x00, 0xa0, 16 bytes, CRC low]."
+            verification: "reported"
+            value: [0x74, 0x00, 0xa0, 0x00, 0x10, 0x00, 0x00, 0xae]
+          read_parameter_page_11:
+            description: "Read parameter memory 0xb0-0xbf (176-191): gear 4 brake curve, acceleration current limits, gear 1-3 brake current limits. Reply [0x74, 0x00, 0xb0, 16 bytes, CRC low]."
+            verification: "reported"
+            value: [0x74, 0x00, 0xb0, 0x00, 0x10, 0x00, 0x00, 0x6f]
+          read_parameter_page_12:
+            description: "Read parameter memory 0xc0-0xcf (192-207): gear 4 brake current, standby switch and time, turbo, wheel size, power system, light brightness, total mileage. Reply [0x74, 0x00, 0xc0, 16 bytes, CRC low]."
+            verification: "reported"
+            value: [0x74, 0x00, 0xc0, 0x00, 0x10, 0x00, 0x00, 0x2e]
+          read_parameter_page_13:
+            description: "Read parameter memory 0xd0-0xdf (208-223): light style, speed, colour and switches, drive and wheel pulley tooth counts. Reply [0x74, 0x00, 0xd0, 16 bytes, CRC low]."
+            verification: "reported"
+            value: [0x74, 0x00, 0xd0, 0x00, 0x10, 0x00, 0x00, 0xef]
+          read_total_mileage:
+            description: >
+              Read the 32-bit mileage counter (4 bytes at 0xcc = 204). Reply:
+              [0x74, 0x00, 0xcc, 4 bytes big-endian, CRC low], units of
+              0.1 km. Valid only when parameter byte 0xcb (203) reads 0x5a;
+              otherwise use read_legacy_mileage. payload_formats.ExwayMileage.
+            verification: "reported"
+            value: [0x74, 0x00, 0xcc, 0x00, 0x04, 0x00, 0x00, 0x7e]
+          read_legacy_mileage:
+            description: "Read the older 16-bit mileage counter (2 bytes at 0x92 = 146). Reply: [0x74, 0x00, 0x92, 2 bytes big-endian, CRC low], units of 0.1 km."
+            verification: "reported"
+            value: [0x74, 0x00, 0x92, 0x00, 0x02, 0x00, 0x00, 0x37]
+          save_parameters:
+            description: >
+              Commit parameter memory to the receiver's flash (the app's "save"
+              step after a settings change). Reply: 4 bytes starting 0x76; the
+              app allows 1.5 s. Whether a write takes effect before the save,
+              and whether it survives a power cycle without one, is not
+              recorded.
+            verification: "reported"
+            value: [0x76, 0x00, 0x00, 0x90]
+          select_setting_mode:
+            description: >
+              Mode change to the receiver's own application ("setting") mode,
+              target byte 0x70. The app sends heartbeats for up to a second
+              first, then this. Reply: [0xb3, 0x70, status, CRC low]; status
+              0x00 = accepted, 0x01 = a second outcome the app passes on
+              without naming, anything else = refused; the app retries up to
+              five times. The other targets (remote, ESC 1, ESC 2, receiver
+              bootloader) lead to the firmware path and are not declared; see
+              protocol_details.mode_change.
+            verification: "reported"
+            value: [0xb2, 0x70, 0x00, 0xf4]
+          standby_timer_on:
+            description: "Enable the idle auto power-off (parameter 0xc2 = 194 := 1). Follow with save_parameters. The app suggests enabling it with the battery at 30-70 %."
+            verification: "reported"
+            value: [0x75, 0x00, 0xc2, 0x01, 0x8a]
+            packet_layout:
+              "0": "head 0x75"
+              "1": "address high byte (0x00)"
+              "2": "address low byte (0xc2)"
+              "3": "value"
+              "4": "CRC low byte over bytes 0-3"
+          standby_timer_off:
+            description: "Disable the idle auto power-off (0xc2 := 0). Follow with save_parameters."
+            verification: "reported"
+            value: [0x75, 0x00, 0xc2, 0x00, 0x4b]
+          standby_time_2h:
+            description: "Idle power-off after 2 hours (0xc3 = 195 := 2; the byte is in hours). The Atlas manual gives two hours as the default."
+            verification: "reported"
+            value: [0x75, 0x00, 0xc3, 0x02, 0xcb]
+          standby_time_1d:
+            description: "Idle power-off after 1 day (0xc3 := 24 hours)."
+            verification: "reported"
+            value: [0x75, 0x00, 0xc3, 0x18, 0x4a]
+          standby_time_2d:
+            description: "Idle power-off after 2 days (0xc3 := 48 hours)."
+            verification: "reported"
+            value: [0x75, 0x00, 0xc3, 0x30, 0x4a]
+          standby_time_7d:
+            description: "Idle power-off after 7 days (0xc3 := 168 hours)."
+            verification: "reported"
+            value: [0x75, 0x00, 0xc3, 0xa8, 0x4b]
+          tail_light_on:
+            description: "Tail light on (0xd7 = 215 := 1). The app writes light settings immediately, without a save, so they preview live; Wave only in the app."
+            verification: "reported"
+            value: [0x75, 0x00, 0xd7, 0x01, 0x84]
+          tail_light_off:
+            description: "Tail light off (0xd7 := 0)."
+            verification: "reported"
+            value: [0x75, 0x00, 0xd7, 0x00, 0x45]
+          brake_light_on:
+            description: "Brake light on (0xd5 = 213 := 1). Wave only in the app."
+            verification: "reported"
+            value: [0x75, 0x00, 0xd5, 0x01, 0x85]
+          brake_light_off:
+            description: "Brake light off (0xd5 := 0)."
+            verification: "reported"
+            value: [0x75, 0x00, 0xd5, 0x00, 0x44]
+          light_style_throttle:
+            description: "Light animation 0: follows the throttle (0xd0 = 208 := 0)."
+            verification: "reported"
+            value: [0x75, 0x00, 0xd0, 0x00, 0x47]
+          light_style_comet:
+            description: "Light animation 1: comet (0xd0 := 1)."
+            verification: "reported"
+            value: [0x75, 0x00, 0xd0, 0x01, 0x86]
+          light_style_breath:
+            description: "Light animation 2: breathing (0xd0 := 2)."
+            verification: "reported"
+            value: [0x75, 0x00, 0xd0, 0x02, 0xc6]
+          light_style_colour_breath:
+            description: "Light animation 3: colour-changing breathing (0xd0 := 3)."
+            verification: "reported"
+            value: [0x75, 0x00, 0xd0, 0x03, 0x07]
+          light_style_steady:
+            description: "Light animation 4: steady on (0xd0 := 4)."
+            verification: "reported"
+            value: [0x75, 0x00, 0xd0, 0x04, 0x46]
+          light_style_none:
+            description: "Light animation 5: no animation (0xd0 := 5)."
+            verification: "reported"
+            value: [0x75, 0x00, 0xd0, 0x05, 0x87]
+          safe_mode_on:
+            description: "Safe mode on (0x94 = 148 := 1): caps the rider at the gear in 0x95. Follow with save_parameters."
+            verification: "reported"
+            advanced: true
+            advanced_reason: "Changes which gears the board allows. Write it with the board stopped and the rider off, then save. Undo with safe_mode_off."
+            value: [0x75, 0x00, 0x94, 0x01, 0xb5]
+          safe_mode_off:
+            description: "Safe mode off (0x94 := 0). Follow with save_parameters."
+            verification: "reported"
+            advanced: true
+            advanced_reason: "Removes the gear cap safe mode applies, so the full gear range becomes available. Write it with the board stopped, then save. Undo with safe_mode_on."
+            value: [0x75, 0x00, 0x94, 0x00, 0x74]
+          safe_mode_max_gear_1:
+            description: "Highest gear safe mode allows: 1 (0x95 = 149 := 1). Follow with save_parameters."
+            verification: "reported"
+            advanced: true
+            advanced_reason: "Sets the gear cap safe mode applies. Write with the board stopped, then save; read page 0x90 first to note the old value."
+            value: [0x75, 0x00, 0x95, 0x01, 0xb4]
+          safe_mode_max_gear_2:
+            description: "Highest gear safe mode allows: 2 (0x95 := 2)."
+            verification: "reported"
+            advanced: true
+            advanced_reason: "Sets the gear cap safe mode applies. Write with the board stopped, then save; read page 0x90 first to note the old value."
+            value: [0x75, 0x00, 0x95, 0x02, 0xf4]
+          safe_mode_max_gear_3:
+            description: "Highest gear safe mode allows: 3 (0x95 := 3)."
+            verification: "reported"
+            advanced: true
+            advanced_reason: "Sets the gear cap safe mode applies. Write with the board stopped, then save; read page 0x90 first to note the old value."
+            value: [0x75, 0x00, 0x95, 0x03, 0x35]
+          safe_mode_max_gear_4:
+            description: "Highest gear safe mode allows: 4 (0x95 := 4), i.e. no cap."
+            verification: "reported"
+            advanced: true
+            advanced_reason: "Sets the gear cap safe mode applies; 4 removes it. Write with the board stopped, then save; read page 0x90 first to note the old value."
+            value: [0x75, 0x00, 0x95, 0x04, 0x74]
+          gear_change_while_moving_on:
+            description: "Allow gear changes while moving (0x96 = 150 := 1). Off means the board must be stopped to change gear. Follow with save_parameters."
+            verification: "reported"
+            advanced: true
+            advanced_reason: "Lets a gear change at speed jump the power available mid-ride. Write it with the board stopped, then save. Undo with gear_change_while_moving_off."
+            value: [0x75, 0x00, 0x96, 0x01, 0xb4]
+          gear_change_while_moving_off:
+            description: "Require a stop to change gear (0x96 := 0). Follow with save_parameters."
+            verification: "reported"
+            advanced: true
+            advanced_reason: "Changes when the remote's gear button takes effect. Write it with the board stopped, then save."
+            value: [0x75, 0x00, 0x96, 0x00, 0x75]
+          free_mode_on:
+            description: "Free mode on (0x97 = 151 := 1): holding the thumbwheel in reverse spins the rear wheels backwards. Follow with save_parameters."
+            verification: "reported"
+            advanced: true
+            advanced_reason: "Makes the reverse throttle drive the board backwards instead of only braking. Write it with the board stopped, then save. Undo with free_mode_off."
+            value: [0x75, 0x00, 0x97, 0x01, 0xb5]
+          free_mode_off:
+            description: "Free mode off (0x97 := 0). Follow with save_parameters."
+            verification: "reported"
+            advanced: true
+            advanced_reason: "Changes what the reverse throttle does. Write it with the board stopped, then save."
+            value: [0x75, 0x00, 0x97, 0x00, 0x74]
+          cruise_control_on:
+            description: "Cruise control available (0x98 = 152 := 1): below 20 km/h a double press of the remote button holds speed. Follow with save_parameters. Hidden for the Wave in the app."
+            verification: "reported"
+            advanced: true
+            advanced_reason: "Enables a mode that holds speed without the throttle. Write it with the board stopped, then save. Undo with cruise_control_off."
+            value: [0x75, 0x00, 0x98, 0x01, 0xb0]
+          cruise_control_off:
+            description: "Cruise control unavailable (0x98 := 0). Follow with save_parameters."
+            verification: "reported"
+            advanced: true
+            advanced_reason: "Changes what a double press of the remote button does. Write it with the board stopped, then save."
+            value: [0x75, 0x00, 0x98, 0x00, 0x71]
+      - uuid: "0000f1f2-0000-1000-8000-00805f9b34fb"
+        name: "Reply (notify)"
+        properties: ["notify"]
+        role: "notify"
+        notes: >
+          Every reply to every request arrives here, so `format` describes
+          only the 20-byte monitor reply (head 0x91) and `format_match`
+          keeps the other replies out of it. The rest are in
+          payload_formats and protocol_details. The frame's last byte is
+          the CRC-16/MODBUS low byte over bytes 0-18; drop a frame that fails
+          it.
+        format_match:
+          offset: 0
+          value: 0x91
+          notes: "Monitor reply head. Frames with any other head are other replies."
+        format:
+          - offset: 1
+            length: 2
+            name: "speed"
+            type: "uint16"
+            endianness: "big"
+            scale: 0.001
+            unit: "km/h"
+            device_class: "speed"
+            notes: "The app shows this directly and multiplies by 0.6214 for mph."
+          - offset: 3
+            length: 2
+            name: "output_raw"
+            type: "int16"
+            endianness: "big"
+            scale: 0.03125
+            notes: >
+              Signed. The app divides by 32 (integer division) and shows the
+              result as "power output", a percentage of a constant it picks
+              from battery_pack_code (22, 32 or 26). Physical quantity not
+              established; plausibly motor current in amperes.
+          - offset: 5
+            length: 2
+            name: "esc_temperature_adc"
+            type: "uint16"
+            endianness: "big"
+            notes: >
+              12-bit ADC reading of the ESC thermistor, not a temperature.
+              Convert with protocol_details.thermistor. The app shows "-" when
+              the conversion gives below -10 °C.
+          - offset: 7
+            length: 2
+            name: "motor_temperature_adc"
+            type: "uint16"
+            endianness: "big"
+            notes: >
+              12-bit ADC reading of the motor thermistor; convert with
+              protocol_details.thermistor. The app shows "-" on boards set to
+              the Riot power system and when the conversion gives below
+              -10 °C.
+          - offset: 9
+            length: 2
+            name: "trip_distance"
+            type: "uint16"
+            endianness: "big"
+            scale: 0.1
+            unit: "km"
+            device_class: "distance"
+          - offset: 11
+            length: 2
+            name: "unlabelled_counter"
+            type: "uint16"
+            endianness: "big"
+            scale: 0.1
+            notes: "The app scales it like the trip distance and never shows it. Meaning not established."
+          - offset: 13
+            length: 2
+            name: "battery_voltage"
+            type: "uint16"
+            endianness: "big"
+            scale: 0.001
+            unit: "V"
+            device_class: "voltage"
+          - offset: 15
+            length: 1
+            name: "battery_percent"
+            type: "uint8"
+            mask: 0x7f
+            unit: "%"
+            device_class: "battery"
+          - offset: 15
+            length: 1
+            name: "charging"
+            type: "uint8"
+            mask: 0x80
+            device_class: "battery_charging"
+            values:
+              0: "not charging"
+              1: "charging"
+            notes: "The app draws its speed dial and battery bar in the charging style when this bit is set."
+          - offset: 16
+            length: 2
+            name: "battery_temperature"
+            type: "int16"
+            endianness: "big"
+            scale: 0.1
+            unit: "C"
+            device_class: "temperature"
+            notes: "The app shows it only when battery_pack_code is 1 or more, and shows \"-\" below -10 °C."
+          - offset: 18
+            length: 1
+            name: "battery_pack_code"
+            type: "uint8"
+            values:
+              0: "code 0 (the app assumes a 26 km full-charge range)"
+              1: "code 1 (the app assumes 22 km)"
+              2: "code 2 (the app assumes 32 km)"
+            notes: >
+              The app estimates remaining range as battery_percent / 100
+              times the constant for this code. Which battery each code
+              names is not recorded.
+          - offset: 19
+            length: 1
+            name: "crc_low"
+            type: "uint8"
+            notes: "Low byte of CRC-16/MODBUS over bytes 0-18."
+
+  - uuid: "0000f2f0-0000-1000-8000-00805f9b34fb"
+    name: "BLE module AT-command service"
+    notes: >
+      The BLE module's own configuration port. The app sends ASCII AT
+      commands to 0000f2f1 and expects an "OK+..." answer: one renames the
+      board's advertised name, another changes the module's UART speed. The
+      UART-speed command can cut the module off from the receiver, so no AT
+      command is declared here. Earlier notes called this service a second
+      ESC; the app gives no support for that. The board's second ESC (on
+      dual-drive models) is reached through the receiver's mode change on
+      0000f1f0.
+    characteristics:
+      - uuid: "0000f2f1-0000-1000-8000-00805f9b34fb"
+        name: "AT send"
+        properties: ["write"]
+      - uuid: "0000f2f2-0000-1000-8000-00805f9b34fb"
+        name: "AT receive"
+        properties: ["notify"]
+
+payload_formats:
+  ExwayBatteryStatus:
+    description: >
+      Reply to request_battery_status: 20 bytes on 0000f1f2,
+      [0x92, 0x00, page = 0x00, fields..., CRC low]. `index` is the byte
+      offset; multi-byte fields are big-endian.
+    fields:
+      - index: 3
+        name: "state_of_charge"
+        description: "uint8, percent."
+        unit: "%"
+      - index: 4
+        name: "pack_voltage"
+        description: "uint32 big-endian, millivolts; bytes 4-7."
+        scale: 0.001
+        unit: "V"
+      - index: 8
+        name: "battery_life"
+        description: "uint16 big-endian, bytes 8-9. The app labels it \"Battery life\"; unit not established (plausibly a health percentage)."
+      - index: 10
+        name: "battery_temperature"
+        description: "int16 big-endian, bytes 10-11, tenths of a degree."
+        scale: 0.1
+        unit: "C"
+      - index: 12
+        name: "cycles_used"
+        description: "uint16 big-endian, bytes 12-13, charge cycles."
+      - index: 14
+        name: "charging_interval"
+        description: "uint16 big-endian, bytes 14-15. Unit not established."
+      - index: 19
+        name: "crc_low"
+        description: "Low byte of CRC-16/MODBUS over bytes 0-18."
+    parse_rules:
+      - "Check byte 0 is 0x92 and byte 2 is 0x00 (page 0); byte 2 = 0x01 is ExwayBatteryDetails."
+      - "Check byte 19 against the CRC-16/MODBUS low byte of bytes 0-18."
+      - "Bytes 16-18 are not read by the app."
+    example: "92 00 00 50 00 00 9b 46 00 61 00 e7 00 2a 00 03 00 00 00 44"
+  ExwayBatteryDetails:
+    description: >
+      Reply to request_battery_details: 20 bytes, [0x92, 0x00, page = 0x01,
+      fields..., CRC low].
+    fields:
+      - index: 4
+        name: "last_charging_interval"
+        description: "uint16 big-endian, bytes 4-5. Unit not established."
+      - index: 6
+        name: "battery_firmware_version"
+        description: "Bytes 6-7. The app prints the four hex digits separated by dots: 0x01 0x23 is shown as 0.1.2.3."
+      - index: 8
+        name: "remaining_capacity"
+        description: "uint32 big-endian, bytes 8-11. Unit not established (plausibly mAh)."
+      - index: 12
+        name: "full_capacity"
+        description: "uint32 big-endian, bytes 12-15. Unit not established."
+      - index: 16
+        name: "design_capacity"
+        description: "uint24 big-endian, bytes 16-18. Unit not established."
+    parse_rules:
+      - "Check byte 0 is 0x92, byte 2 is 0x01, and byte 19 against the CRC low byte of bytes 0-18."
+  ExwayReceiverInfo:
+    description: >
+      The five information pages concatenated. Each reply is
+      [0xb4, 0x00, page, 16 bytes, CRC low]; bytes 3-18 of page n are bytes
+      16n to 16n+15 of an 80-byte block holding five 16-byte UTF-8 strings.
+    fields:
+      - index: 0
+        name: "firmware_version"
+        description: "Bytes 0-15, e.g. SE-01.01.10. The app compares versions as plain strings."
+      - index: 16
+        name: "hardware_version"
+        description: "Bytes 16-31."
+      - index: 32
+        name: "controller"
+        description: "Bytes 32-47: the model string (see device.variants)."
+      - index: 48
+        name: "bootloader_version"
+        description: "Bytes 48-63."
+      - index: 64
+        name: "unit_code"
+        description: "Bytes 64-79: a per-unit code. An identifier of the owner's board; do not publish it."
+    parse_rules:
+      - "Send the five page reads in order, 15 ms apart, one at a time; a page whose echoed page number or CRC is wrong is re-read (the app gives up after five failures)."
+      - "Trim each 16-byte slice of NUL bytes and whitespace at both ends (the app trims every character at or below 0x20)."
+    example: "b4 00 02 65 78 77 61 79 20 57 61 76 65 00 00 00 00 00 00 26"
+  ExwayMileage:
+    description: >
+      Reply to read_total_mileage: [0x74, 0x00, 0xcc, 4 bytes, CRC low], a
+      uint32 big-endian count of 100 m units. Reply to read_legacy_mileage:
+      [0x74, 0x00, 0x92, 2 bytes, CRC low], a uint16 big-endian count of the
+      same unit. Which counter is live is decided by parameter byte 0xcb
+      (203): 0x5a means the 32-bit counter.
+    fields:
+      - index: 3
+        name: "mileage"
+        description: "uint32 (total) or uint16 (legacy) big-endian from byte 3; units of 0.1 km."
+        scale: 0.1
+        unit: "km"
+    parse_rules:
+      - "The app treats less than 10 km as a new board: it shows a new-rider notice and says settings changes are void."
+
+features:
+  - type: "firmware_update"
+    dfu:
+      mechanisms: ["vendor_ble"]
+      transport: "ble"
+      image:
+        signing: "unknown"
+        source: "vendor_cloud"
+        notes: >
+          The app looks up firmware per controller and hardware string
+          against Exway's API (api.exwayboard.com) and downloads images
+          before sending them. The download address pattern was not
+          isolated. Images go over the same request characteristic in small
+          numbered chunks. Whether the bootloader checks a signature is not
+          known.
+      enter:
+        how: "unknown"
+        notes: >
+          A vendor sequence over 0000f1f0: a mode change (head 0xb2) moves the
+          receiver's attention to its own bootloader, the remote or one of
+          the ESCs, followed by per-target boot heads (0x10-0x1a for the
+          receiver, 0x50-0x5a for the remote, 0x01/0x30 with an ESC selector
+          for the ESCs). The routine that drives it did not decompile to
+          source, the exact entry sequence is not established, and flashing
+          bytes are left out of this spec on purpose because an interrupted
+          or wrong image can leave the board unrideable.
+      dfu_mode:
+        notes: >
+          No change to the advertisement is known. After connecting, a
+          receiver in its bootloader answers the heartbeat (0xb0) with a
+          frame starting 0x11 instead of 0xb1.
+      recovery:
+        interrupted: "stays_in_bootloader"
+        notes: >
+          Reported from the app's behaviour: when the heartbeat shows the
+          receiver in its bootloader it skips the dashboard and opens its
+          firmware page, which implies a receiver left there by a failed
+          update waits for a new image. Not observed on hardware.
+      verification: "reported"
+      notes: >
+        The remote and the ESCs are updated through the same BLE link, the
+        receiver passing the image on. The d44bc439 and 0000fee8/003784cf
+        "OTA" UUIDs found in the app are the BLE library's defaults and
+        its generic OTA helper, which the app never calls; they are not
+        this board's update service.
+
+entities:
+  - platform: "sensor"
+    name: "Speed"
+    device_class: "speed"
+    unit: "km/h"
+    state_characteristic: "0000f1f2-0000-1000-8000-00805f9b34fb"
+    state_mapping:
+      value: "speed"
+    commands:
+      poll: "request_monitor"
+  - platform: "sensor"
+    name: "Battery"
+    device_class: "battery"
+    unit: "%"
+    state_characteristic: "0000f1f2-0000-1000-8000-00805f9b34fb"
+    state_mapping:
+      value: "battery_percent"
+    commands:
+      poll: "request_monitor"
+  - platform: "sensor"
+    name: "Battery Voltage"
+    device_class: "voltage"
+    unit: "V"
+    state_characteristic: "0000f1f2-0000-1000-8000-00805f9b34fb"
+    state_mapping:
+      value: "battery_voltage"
+    commands:
+      poll: "request_monitor"
+  - platform: "sensor"
+    name: "Trip Distance"
+    device_class: "distance"
+    unit: "km"
+    state_characteristic: "0000f1f2-0000-1000-8000-00805f9b34fb"
+    state_mapping:
+      value: "trip_distance"
+    commands:
+      poll: "request_monitor"
+  - platform: "sensor"
+    name: "Battery Temperature"
+    device_class: "temperature"
+    unit: "C"
+    state_characteristic: "0000f1f2-0000-1000-8000-00805f9b34fb"
+    state_mapping:
+      value: "battery_temperature"
+    commands:
+      poll: "request_monitor"
+    notes: "Meaningful only when battery_pack_code is 1 or more; the app hides it otherwise."
+  - platform: "binary_sensor"
+    name: "Charging"
+    device_class: "battery_charging"
+    state_characteristic: "0000f1f2-0000-1000-8000-00805f9b34fb"
+    state_mapping:
+      value: "charging"
+      on_when: "nonzero"
+    commands:
+      poll: "request_monitor"
+  - platform: "switch"
+    name: "Standby Timer"
+    command_characteristic: "0000f1f1-0000-1000-8000-00805f9b34fb"
+    commands:
+      turn_on: "standby_timer_on"
+      turn_off: "standby_timer_off"
+    notes: "Current state is parameter byte 0xc2 (read_parameter_page_12, reply byte 5). Send save_parameters after changing it. The time is set with the standby_time_* commands."
+  - platform: "switch"
+    name: "Tail Light"
+    variants: ["Wave"]
+    command_characteristic: "0000f1f1-0000-1000-8000-00805f9b34fb"
+    commands:
+      turn_on: "tail_light_on"
+      turn_off: "tail_light_off"
+    notes: "Current state is parameter byte 0xd7 (read_parameter_page_13, reply byte 10). Takes effect without a save in the app."
+  - platform: "switch"
+    name: "Brake Light"
+    variants: ["Wave"]
+    command_characteristic: "0000f1f1-0000-1000-8000-00805f9b34fb"
+    commands:
+      turn_on: "brake_light_on"
+      turn_off: "brake_light_off"
+    notes: "Current state is parameter byte 0xd5 (read_parameter_page_13, reply byte 8)."
+  - platform: "switch"
+    name: "Safe Mode"
+    command_characteristic: "0000f1f1-0000-1000-8000-00805f9b34fb"
+    commands:
+      turn_on: "safe_mode_on"
+      turn_off: "safe_mode_off"
+    notes: "Advanced. Current state is parameter byte 0x94 (read_parameter_page_09, reply byte 7); the gear cap is 0x95 (reply byte 8), set with safe_mode_max_gear_*. Send save_parameters after changing it."
+  - platform: "switch"
+    name: "Cruise Control"
+    variants: ["X1 Pro", "X1 Max", "X1 Skate", "Flex SE", "Flex (2022)", "Flex", "Atlas"]
+    command_characteristic: "0000f1f1-0000-1000-8000-00805f9b34fb"
+    commands:
+      turn_on: "cruise_control_on"
+      turn_off: "cruise_control_off"
+    notes: "Advanced. Current state is parameter byte 0x98 (read_parameter_page_09, reply byte 11). The app hides this for the Wave."
+  - platform: "switch"
+    name: "Free Mode"
+    command_characteristic: "0000f1f1-0000-1000-8000-00805f9b34fb"
+    commands:
+      turn_on: "free_mode_on"
+      turn_off: "free_mode_off"
+    notes: "Advanced. Current state is parameter byte 0x97 (read_parameter_page_09, reply byte 10)."
+  - platform: "switch"
+    name: "Gear Change While Moving"
+    command_characteristic: "0000f1f1-0000-1000-8000-00805f9b34fb"
+    commands:
+      turn_on: "gear_change_while_moving_on"
+      turn_off: "gear_change_while_moving_off"
+    notes: "Advanced. Current state is parameter byte 0x96 (read_parameter_page_09, reply byte 9)."
+  - platform: "button"
+    name: "Save Settings"
+    command_characteristic: "0000f1f1-0000-1000-8000-00805f9b34fb"
+    commands:
+      press: "save_parameters"
+    notes: "Commits parameter memory to flash, as the app does after a settings change."
+
+protocol_details:
+  framing:
+    description: >
+      Request = [head][arguments][c], c = low byte of CRC-16/MODBUS over
+      every preceding byte of the request (reflected polynomial 0xA001,
+      init 0xFFFF, no final xor; the check value for ASCII "123456789" is
+      0x4B37, so c would be 0x37). All multi-byte values are big-endian.
+      Replies end the same way unless reply_lengths says otherwise. The app
+      computes the full 16-bit CRC and keeps only its low byte; a client
+      that appends both bytes sends a frame one byte too long.
+    request_shapes:
+      short: "[head][arg high][arg low][c] - 4 bytes. Heads 0xb4, 0x92, 0x90 (arg fixed 0xf0 0x0f), 0xb0 and 0x76 (arg 0x0000), 0xb2 ([0xb2][target][0x00][c])."
+      parameter_read: "[0x74][address high][address low][length high][length low][0x00][0x00][c] - 8 bytes. The app reads 16 bytes at a time, pages 0-15 (address = page x 16), 15 ms apart."
+      parameter_write_1_byte: "[0x75][address high][address low][value][c] - 5 bytes. Used for single-byte settings."
+      parameter_write_2_bytes: "[0x75][address high][address low][value high][value low][c] - 6 bytes. The app uses this width for addresses 146, 154-193, 196 and 199."
+      parameter_write_block: "[0x75][address high][address low][16 data bytes][c] - 20 bytes. The app's bulk settings write: 70 bytes from address 148 in 16-byte blocks, each echoed back verbatim, retried up to 20 times 200 ms apart, then a save."
+    reply_lengths:
+      - heads: [0x91, 0x92, 0xb4, 0x14, 0x54]
+        length: 20
+        check: "low CRC byte of bytes 0-18 at byte 19 (an 8-byte form with the check at byte 7 is also accepted by the app's splitter)"
+      - heads: [0x74, 0x75]
+        length: "4 + data length (20 for a 16-byte page)"
+        check: "low CRC byte of all preceding bytes, last; byte 1 must be 0x00"
+      - heads: [0xb1, 0xb3, 0x76, 0x77, 0x11, 0x12, 0x13, 0x19, 0x1a, 0x51, 0x52, 0x53, 0x59, 0x5a]
+        length: 4
+        check: "low CRC byte of bytes 0-2 at byte 3"
+      - heads: [0x01]
+        length: "4 or 13, depending on byte 1"
+        check: "ESC pass-through replies (full CRC low then high on the 4-byte form, low CRC byte on the 13-byte form); not used by anything declared here"
+      - heads: [0x30]
+        length: 5
+        check: "full CRC of bytes 0-2, low then high; ESC update path"
+      - heads: [0xac]
+        length: 25
+        check: "full CRC of bytes 0-22, low then high; role unknown, nothing in the app reads it"
+    splitter_notes: >
+      The app buffers every notification in a ring buffer and cuts frames by
+      head and the lengths above, discarding bytes up to the next known head
+      when it cannot. When a frame arrives exactly one byte short it
+      appends the byte it expected; a client should simply wait for the next
+      notification instead.
+  heads:
+    description: "Head bytes seen in the app, by role. Only the first group is declared as commands."
+    declared:
+      "0xb0 / 0xb1": "Heartbeat and receiver-mode query / reply."
+      "0x90 / 0x91": "Monitor (live telemetry) request / 20-byte reply."
+      "0x92": "Battery page request and reply (pages 0 and 1)."
+      "0xb4": "Receiver information page request and reply (pages 0-4)."
+      "0x74": "Parameter memory read and reply."
+      "0x75": "Parameter memory write and echo."
+      "0x76": "Save parameters and reply."
+      "0xb2 / 0xb3": "Mode change request / reply (only target 0x70 is declared)."
+    known_not_declared:
+      "0x77": "Restore defaults. Defined and recognised in replies, but this app build never sends it; its \"Restore default\" item rewrites the mileage counter instead."
+      "0x10 / 0x11": "Receiver bootloader handshake; 0x11 is also the bootloader's answer to the heartbeat."
+      "0x12, 0x13, 0x14, 0x15-0x1a": "Receiver bootloader: success, failure, information, link, image, finish, init."
+      "0x50 / 0x51": "Remote handshake (the app sends [0x50, 0xff, 0xff, c] as the remote-mode heartbeat)."
+      "0x52-0x5a": "Remote bootloader: success, failure, information (0x54), link, image, finish, init."
+      "0x01": "ESC pass-through with a Modbus-like shape and a full two-byte CRC (low byte first). The app uses it on the ESC update path and to read ESC information in 8-byte pages; its request bytes are not reproduced here."
+      "0x30, 0x98, 0x99": "ESC image transfer and its success/failure answers."
+      "0xa8": "Named for an older \"1.0\" protocol handshake; unused on the paths read."
+  mode_change:
+    description: >
+      [0xb2][target][0x00][c]; reply [0xb3][target][status][c]. The target
+      says which part of the board the receiver talks to on the app's
+      behalf. Status 0x00 = accepted; 0x01 = a second outcome the app
+      returns without naming; anything else = refused. Before switching the
+      app heartbeats for up to one second until the receiver answers 0xb1.
+      After switching to an ESC it heartbeats that ESC and resets it.
+    targets:
+      "0x70": "Receiver application (\"setting mode\"): the normal state. Declared as select_setting_mode."
+      "0x10": "Receiver bootloader. Not declared."
+      "0x50": "Handheld remote (the app reads the remote's information and updates it this way). Not declared."
+      "0x31": "ESC 1. Not declared."
+      "0x32": "ESC 2 on dual-drive boards. Not declared."
+    app_internal_codes: "The app also tracks 0x98 (receiver answered from its bootloader) and 0x99 (not known yet); they are never sent."
+  parameter_memory:
+    description: >
+      256 bytes read in 16-byte pages with 0x74 and written with 0x75. Byte
+      values unsigned unless stated; multi-byte values big-endian. "Declared"
+      names the commands in this spec; "left out" means documented for
+      reading only. Widths of the identifier blocks in the low pages are
+      inferred from the spacing between addresses.
+    map:
+      - {address: 0, width: 1, meaning: "first-initialisation flag", status: "read only"}
+      - {address: 1, width: 1, meaning: "launch mode", status: "read only; values not recorded"}
+      - {address: 2, width: 1, meaning: "voltage-adjust status", status: "read only"}
+      - {address: 3, width: 1, meaning: "voltage-adjust value", status: "read only"}
+      - {address: 7, width: 16, meaning: "remote information slot 0 (further slots at 23, 39, 55, 71)", status: "read only; per-unit data"}
+      - {address: 87, width: 12, meaning: "hardware code", status: "read only; per-unit data"}
+      - {address: 99, width: 12, meaning: "a second unit code", status: "read only; per-unit data"}
+      - {address: 111, width: 1, meaning: "activation status", status: "read only"}
+      - {address: 112, width: 4, meaning: "factory timestamp", status: "read only"}
+      - {address: 116, width: 4, meaning: "activation timestamp", status: "read only"}
+      - {address: 120, width: 1, meaning: "remote pairing status", status: "read only"}
+      - {address: 121, width: 6, meaning: "paired remote's radio address", status: "read only; per-unit data"}
+      - {address: 133, width: 1, meaning: "remote radio frequency or channel", status: "read only"}
+      - {address: 145, width: 1, meaning: "pairing count", status: "read only"}
+      - {address: 146, width: 2, meaning: "legacy mileage counter, uint16, 0.1 km", status: "read (read_legacy_mileage); writes left out"}
+      - {address: 148, width: 1, meaning: "safe mode, 1 = on", status: "declared, advanced"}
+      - {address: 149, width: 1, meaning: "safe mode's highest gear, 1-4", status: "declared, advanced"}
+      - {address: 150, width: 1, meaning: "gear change while moving, 1 = allowed", status: "declared, advanced"}
+      - {address: 151, width: 1, meaning: "free mode (reverse spin), 1 = on", status: "declared, advanced"}
+      - {address: 152, width: 1, meaning: "cruise control, 1 = available", status: "declared, advanced"}
+      - {address: 153, width: 1, meaning: "advanced mode: 0 default, 1 novice, 2 race, 3 custom (the app writes a preset table into 154-193 for 0-2)", status: "left out"}
+      - {address: 154, width: 8, meaning: "speed limit, gears 1-4, four uint16; percent = raw / 20450 x 100", status: "left out"}
+      - {address: 162, width: 8, meaning: "acceleration curve, gears 1-4, four uint16; percent = raw / 31000 x 100", status: "left out"}
+      - {address: 170, width: 8, meaning: "brake curve, gears 1-4, four uint16; percent = raw / 20400 x 100", status: "left out"}
+      - {address: 178, width: 8, meaning: "acceleration current limit, gears 1-4, four uint16; percent = raw / 5120 x 100", status: "left out"}
+      - {address: 186, width: 8, meaning: "brake current limit, gears 1-4, four uint16; percent = raw / 5120 x 100", status: "left out"}
+      - {address: 194, width: 1, meaning: "standby timer, 1 = on", status: "declared"}
+      - {address: 195, width: 1, meaning: "standby time in hours: 2, 24, 48 or 168", status: "declared"}
+      - {address: 196, width: 2, meaning: "turbo: bit 0 = on; the app shows raw / 8192 x 100 as a percentage (0-100 in 25 % steps)", status: "left out (the app says it unlocks the top speed limit)"}
+      - {address: 198, width: 1, meaning: "wheel size: millimetres (70-200), except on X1 Skate and X1 Pro at or below SE-01.01.10 where it is an index 0/1/2 = 80/83/85 mm", status: "left out (feeds the computed speed)"}
+      - {address: 199, width: 2, meaning: "power system: 0 = hub motor, 1 = Riot; the app says to power-cycle after changing it", status: "left out"}
+      - {address: 201, width: 1, meaning: "light brightness, 1-20 in the app", status: "read only here (no fixed command; see framing to build one)"}
+      - {address: 202, width: 1, meaning: "reserved", status: "read only"}
+      - {address: 203, width: 1, meaning: "mileage-counter flag: 0x5a = the 32-bit counter at 204 is in use", status: "read only"}
+      - {address: 204, width: 4, meaning: "total mileage counter, uint32, 0.1 km", status: "read (read_total_mileage); writes left out"}
+      - {address: 208, width: 1, meaning: "light animation: 0 throttle, 1 comet, 2 breath, 3 colour breath, 4 steady, 5 none", status: "declared"}
+      - {address: 209, width: 1, meaning: "light animation speed, 1-20 in the app", status: "read only here"}
+      - {address: 210, width: 3, meaning: "light colour, red, green, blue bytes", status: "read only here"}
+      - {address: 213, width: 1, meaning: "brake light, 1 = on", status: "declared"}
+      - {address: 214, width: 1, meaning: "a third light switch; the app's constants call it the turn light and its light model calls it the headlight", status: "read only"}
+      - {address: 215, width: 1, meaning: "tail light, 1 = on", status: "declared"}
+      - {address: 216, width: 1, meaning: "drive gear tooth count (10-20 in the app)", status: "left out (feeds the computed speed)"}
+      - {address: 217, width: 1, meaning: "wheel pulley tooth count (20-80 in the app)", status: "left out (feeds the computed speed)"}
+    example_page_12: >
+      74 00 c0 00 00 01 02 00 00 5a 00 01 0a 00 00 00 00 00 00 90 decodes
+      as: 0xc2 standby on, 0xc3 = 2 h, 0xc6 wheel size 90 mm, 0xc7-0xc8
+      power system 1 (Riot), 0xc9 brightness 10, 0xcb 0x00 (legacy mileage
+      counter in use). Synthetic values; check byte computed.
+  thermistor:
+    description: >
+      The monitor frame carries the ESC and motor temperatures as 12-bit
+      ADC counts. The app converts each to a resistance,
+      R = raw x 10000 / (4095 - raw) ohms, then looks the resistance up in a
+      descending per-degree table and reports the lower bound of the matching
+      one-degree step, from -11 °C up to 199 °C. When no step matches it
+      returns -11, which the app shows as "-".
+    fitted_curve: >
+      Both tables follow a beta-model NTC with B about 3877 K, referenced to
+      24 °C (297.15 K): R_ref = 47.0 kohm for the ESC sensor and 10.0 kohm for
+      the motor sensor. So T = 1 / (1/297.15 + ln(R / R_ref) / 3877) - 273.15,
+      rounded down, reproduces the app's value within about 1 °C across the
+      range. The tables themselves are not reproduced.
+    derived_points:
+      - "ESC, raw 2048 -> 63 °C in the app (the fitted curve gives 64.0)"
+      - "ESC, raw 3000 -> 36 °C (fit 36.8)"
+      - "Motor, raw 2048 -> 23 °C (fit 24.0)"
+      - "Motor, raw 1000 -> 52 °C (fit 52.2)"
+  timing:
+    heartbeat_interval_ms: 300
+    mileage_poll: "every 50th heartbeat, about 15 s"
+    monitor_poll: "back to back while the dashboard is open, one request outstanding; the heartbeat loop stops meanwhile and resumes 100 ms after"
+    reply_timeout_ms: 500
+    save_timeout_ms: 1500
+    page_gap_ms: 15
+    notes: "All from the vendor app; none measured on hardware."
+  unused_monitor_layout: >
+    The app also carries a decoder for a 25-byte monitor frame (head 0x90 or
+    0x91) with a different layout (direction, gear, battery percent, two
+    per-ESC speeds, voltage, current / 64, ESC and motor temperatures as
+    signed degrees, trip, a 24-bit odometer and a status word). Only a
+    connection opened in a "monitor" mode reaches it, and this build never
+    opens one, so it is recorded as an unused path rather than declared.
+  test_vectors:
+    crc: "CRC-16/MODBUS(\"123456789\") = 0x4b37; transmitted check byte 0x37."
+    requests:
+      heartbeat: "b0 00 00 70"
+      request_monitor: "90 f0 0f 75"
+      read_parameter_page_09: "74 00 90 00 10 00 00 ee"
+      select_setting_mode: "b2 70 00 f4"
+    monitor_reply:
+      frame: "91 48 44 01 40 08 00 08 00 00 7b 00 00 9b 78 4b 00 f5 01 42"
+      decodes_to: >
+        speed 18.500 km/h; output_raw 320 (10 after the app's /32); ESC ADC
+        2048 (63 °C via the app's table); motor ADC 2048 (23 °C); trip 12.3 km;
+        unlabelled counter 0; battery 39.800 V; battery 75 %, not charging;
+        battery temperature 24.5 °C; pack code 1; check byte 0x42 (full
+        CRC 0x7642). Synthetic values, computed check.
+    mode_change_reply:
+      frame: "b3 70 00 a5"
+      decodes_to: "mode change to 0x70 accepted. Synthetic."
+  app_defects:
+    - "The app's current-mode lookup launches its query in the background and returns before it finishes, so it can start a session believing the mode is unknown. A client should wait for the heartbeat reply before anything else."
+    - "As decompiled, after a write retry the app files the echoed data at the offset given by the first data byte instead of the echoed address, so its cached copy of parameter memory can go wrong until the next full read. A client should re-read the page after writing."
+    - "The unused 25-byte monitor decoder builds an 11-item array and the page that shows it reads a twelfth item; it would fail if that path were ever reached."
+
+evidence:
+  app_static_analysis: >
+    Read the connection service, the constants, the CRC helper, the reply
+    splitter, the parameter-image helper, the settings list and its adapter,
+    the lighting and dashboard pages, and the app class that configures the
+    BLE library (service 0000f1f0, write 0000f1f1, notify 0000f1f2, extra
+    service 0000f2f0; MTU 150). Many request routines are Kotlin coroutines
+    that did not decompile to source; the heartbeat, the command builders,
+    the mode change, the info fetch, the reply splitter and the save were
+    read from a second decompilation pass that prints the bytecode as
+    best-effort code. No AES or other cipher is used anywhere in the app's
+    own packages; the 28 AES sites counted earlier sit in bundled
+    libraries. No bonding call exists. The library's own OTA helper and its
+    default UUIDs are never used by the app.
+  documentation_review: >
+    Exway's Atlas Carbon manual (power button three seconds, eight-second
+    hold for remote pairing mode, two-hour default auto power-off, safety
+    warnings), the X1 Riot, Flex (2022)/ER and first-generation Wave
+    manuals (image-only), and the ExSkate app guide, which draws the line
+    between second-generation boards on the Exway app and third-generation
+    hardware (R3 remote, ESC 3.0) on ExSkate.
+  open_questions: >
+    Whether the board advertises 0000f1f0 and what its default name is.
+    What the second monitor distance field, the output field's physical
+    unit, the battery "life" and interval fields and the capacity units
+    are. Whether a single parameter write takes effect before the save.
+    Whether the receiver accepts a second central. What head 0xac carries.
+    Which battery each pack code names.
+  artifacts:
+    - type: "static_analysis"
+      artifact: "Exway (com.exway.app) 1.8.1, versionCode 38, Android split APK"
+      obtained_via: "third-party APK mirror via apkeep, 2026-09"
+      description: >
+        Source of every byte fact here. Negative findings: no cipher on the
+        frame path, no bonding, no use of the BLE library's OTA helper, and
+        the "second ESC service" reading of 0000f2f0 is not supported (it is
+        an AT channel).
+    - type: "vendor_documentation"
+      artifact: "Exway manuals: Atlas Carbon 2WD/4WD, X1 Riot, Flex Hub/Belt (2022) and ER, Wave (first generation); ExSkate app user guide"
+      obtained_via: "Exway's Shopify CDN, 2026-09"
+      description: "Power button, remote pairing, default standby time, model generations. No protocol content."
+    - type: "public_implementation"
+      artifact: "aicareles/Android-BLE"
+      url: "https://github.com/aicareles/Android-BLE"
+      description: "The BLE library under the app; used to separate its default UUIDs from the ones the app configures."
+
+remaining_unknowns:
+  - "Whether 0000f1f0 is in the advertisement, and the board's default advertised name."
+  - "Physical unit of monitor bytes 3-4 (the app shows it as a percentage of a range constant) and meaning of bytes 11-12."
+  - "Units of the battery page's life, charging-interval and capacity fields."
+  - "Whether a 0x75 write takes effect immediately, and whether it persists without 0x76."
+  - "The reply to save_parameters beyond its head byte (the check routine did not decompile cleanly)."
+  - "What status 0x01 in a mode-change reply means."
+  - "The firmware update entry sequence, image format and any signature check (left out on purpose, and also not recoverable from the decompile)."
+  - "The role of the 25-byte 0xac frame the app's splitter recognises."
+  - "Which of 213/214/215 each board model actually has lights on."
+  - "Whether the receiver accepts more than one central at a time."
+  - "The meaning of launch mode (parameter 1) and voltage adjust (parameters 2-3)."
+
+helpful_urls:
+  - title: "Exway Atlas Carbon 2WD/4WD manual (PDF)"
+    url: "https://cdn.shopify.com/s/files/1/0694/9083/5704/files/Atlas_Instruction_Manual_-_China_UK_France_Korea_Japan_Germany.pdf?v=1766390343"
+    kind: "manual"
+    description: >
+      Vendor-hosted, multilingual manual for the second-generation Atlas
+      Carbon: power button, eight-second remote pairing hold, remote
+      functions, warning screens and safety text.
+  - title: "Exway X1 Riot manual (PDF)"
+    url: "https://cdn.shopify.com/s/files/1/0576/4890/6294/files/Instruction_Manual_-Exway_X1_Riot_Instruction_Manual_-_English_312de417-c979-426a-9c15-a1e28b9e2098.pdf?v=1702869744"
+    kind: "manual"
+    description: "Vendor-hosted one-page manual for the X1 Riot (image only): parts, remote, remote-to-board pairing, lights."
+  - title: "Exway Flex Hub/Belt (2022) and Flex ER manual (PDF)"
+    url: "https://cdn.shopify.com/s/files/1/0576/4890/6294/files/Flex_2023_Instruction_Manual_-_China_UK_France_Korea_Japan_Germany_380d7747-0f07-4ba0-aa0a-ec740f5b2c78.pdf?v=1702869750"
+    kind: "manual"
+    description: "Vendor-hosted, multilingual, image-only manual; the cover names the Flex Hub/Belt (2022) and Flex ER."
+  - title: "Exway Wave (first generation) manual (PDF)"
+    url: "https://cdn.shopify.com/s/files/1/0576/4890/6294/files/Wave_Instruction_Manual_-_English_8acc1c3b-f804-4054-ad91-bab8a3e2cf4f.pdf?v=1702869745"
+    kind: "manual"
+    description: "Vendor-hosted, image-only English manual for the first Wave (Riot and Hub): parts, charging, remote."
+  - title: "ExSkate app user guide (PDF)"
+    url: "https://cdn.shopify.com/s/files/1/0576/4890/6294/files/ExSkate_APP_Instruction_Manual_-_English_af53201e-57e7-4c90-8b12-b674350a1060.pdf?v=1702869747"
+    kind: "vendor_support"
+    description: >
+      Exway's guide to the third-generation app. Useful here for what it
+      excludes: it says R1/R2 remotes and second-generation boards stay on
+      the older Exway app, and that ExSkate pairs the phone with the R3
+      remote rather than the board.
+  - title: "aicareles/Android-BLE"
+    url: "https://github.com/aicareles/Android-BLE"
+    kind: "other"
+    description: >
+      The open-source BLE library the vendor app is built on. Its options
+      class shows which UUIDs are library defaults (0000fee9, d44bc439...,
+      0000fee8, 003784cf.../013784cf...) and therefore not Exway's.

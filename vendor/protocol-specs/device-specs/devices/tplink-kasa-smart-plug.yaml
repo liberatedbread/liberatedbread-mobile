@@ -342,6 +342,64 @@ device:
         the emeter module. The four emeter sensors scope here, so a plug
         without a meter never draws four tiles that never fill.
 
+scheduling:
+  supported: true
+  mechanism: "on_device_rules"
+  confidence: "medium"
+  runs_without_a_client: true
+  applies_to: ["HS100", "HS103", "HS105", "HS110", "KP105", "KP115", "Smart Bulb", "Light Strip", "Smart Plug", "Power Strip", "Metering Plug"]
+  applies_to_notes: >
+    The legacy Kasa schedule/count_down/anti_theft modules apply across this
+    spec's plug, switch, bulb and strip families, but capacities and action
+    fields are model-specific. Newer Tapo transports and Deco controllers
+    are outside this spec.
+  summary: >
+    Device-side clock schedules, countdowns and randomized away mode persist
+    after programming. Read existing rules before adding, use the assigned
+    rule ID for edits/deletes, and enable both the rule and overall schedule
+    service where applicable. Multi-device Smart Actions are a separate
+    cloud-dependent mechanism.
+  device_clock_dependency: >
+    Rules use the device's own timezone. Read time.get_time/get_timezone;
+    use a supported local timezone-setting path or LAN NTP rather than
+    resetting a legacy device. Offline firing and DST behavior still need a
+    per-model test.
+  storage:
+    modules:
+      schedule: "Clock rules: get_rules, add_rule, edit_rule, delete_rule(s), get_next_action, set_overall_enable"
+      count_down: "One-shot timers: get_rules, add_rule and edit_rule"
+      anti_theft: "Randomized away-mode windows"
+      time: "Clock and timezone reads/writes on capable models"
+    daily_off_23_30:
+      enable: 1
+      smin: 1410
+      sact: 0
+      stime_opt: 0
+      etime_opt: -1
+      emin: 0
+      eact: -1
+      repeat: 1
+      wday: [1, 1, 1, 1, 1, 1, 1]
+      soffset: 0
+      eoffset: 0
+      notes: "No id for a new rule. An edit needs the complete rule and its existing ID."
+    bulb_actions: "s_light can carry light state, color, brightness and transition on capable bulbs; s_dimmer on capable switches. Do not apply either to a plain relay plug."
+  transfer:
+    steps:
+      - action: "Read time/timezone, current rules and the next action; check the model's rule representation and capacity."
+        actor: "client"
+      - action: "Create one intended rule with the schedule module and read back the complete assigned rule."
+        actor: "client"
+      - action: "Enable the rule and overall scheduling service; verify WAN-off firing without a factory reset when offline behavior matters."
+        actor: "client"
+  limitations:
+    - "Weekly and next-occurrence rules are not a universal arbitrary-calendar-date API; mirror an app-created dated rule before relying on one."
+    - "Countdown and Auto-Off are different mechanisms. Some models retain one countdown, so edit it instead of adding a conflict."
+    - "Multi-device automation requires Internet. Bulb and dimmer actions are model-specific."
+  open_questions:
+    - "Per-model capacities, exact solar-offset limits, arbitrary-date semantics and end-to-end behavior with WAN blocked."
+  verification: "reported"
+
 protocol_handler: "tplink_smarthome"
 
 # Vendor-specific protocol detail this schema does not model. Namespaced so the
@@ -404,6 +462,15 @@ protocol_details:
       cnCloud.get_info: "The cloud link's state, and the host it points at. Bound as get_cloud_info; see cloud_module."
       cnCloud.unbind: "Detach the device from its Kasa account. Needs the cloud reachable; see cloud_module."
       time.set_timezone: 'Set the clock and time zone, e.g. {"time":{"set_timezone":{"year":2016,"month":1,"mday":1,"hour":10,"min":10,"sec":10,"index":42}}} (index = the device''s time-zone table entry). Bulbs carry it on smartlife.iot.common.timesetting. What keeps schedules right when NTP is blocked; python-kasa''s `kasa time sync` sets the clock from the host''s.'
+      schedule.get_rules: "List stored clock rules with start_index/page_size; read before editing. Bulbs can use smartlife.iot.common.schedule."
+      schedule.add_rule: "Create a complete device-side clock rule without an id. Fields and the daily off-at-23:30 example are in scheduling.storage."
+      schedule.edit_rule: "Replace a rule by its existing id with the complete object, not just the changed flag."
+      schedule.delete_rule: "Delete one rule by id; delete_all_rules removes every rule and needs owner confirmation."
+      schedule.get_next_action: "Read which stored rule fires next."
+      schedule.set_overall_enable: "Enable or suspend the scheduling service independently of each rule's enable flag."
+      count_down.get_rules: "Read the one-shot countdown rule before replacing or editing it."
+      count_down.add_rule: "Create a one-shot delay in seconds with act 0 off / 1 on; some models allow only one armed rule."
+      anti_theft.get_rules: "Read randomized away-mode windows, distinct from fixed clock schedules."
     # The local face of the vendor cloud. Worth documenting in a local-protocol
     # spec because it is how an owner cuts the device off deliberately: it names
     # the host to block, and unbinding is the one step that has to happen BEFORE

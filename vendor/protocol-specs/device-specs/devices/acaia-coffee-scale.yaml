@@ -1,0 +1,1575 @@
+# Acaia coffee scales (Pearl / Lunar / Pyxis) device spec
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Two GATT attribute sets, one wire protocol. Newer scales (Lunar 2021,
+# Pearl S, Pyxis) carry a Microchip/ISSC BM70/BM71 transparent-UART module;
+# older ones expose service 0x1820 with a single characteristic 0x2a80. The
+# vendor app speaks the same framed "ver20" protocol (0xEF 0xDD header,
+# command id, payload, two-lane additive checksum) over both, and so does
+# every open implementation. The app also carries an older, obfuscated
+# framing with a smaller command set (none, string, battery, weight, tare,
+# sound, light, file, custom), filed beside the 0x1820 attribute names, but
+# never selects it. It is described in its own section,
+# protocol_details.first_generation, without its substitution table.
+#
+# Sources: the open implementations pyacaia and AcaiaArduinoBLE (and
+# Beanconqueror's decoder) for the checksum, handshake and weight layout,
+# checked against a static read of the delisted vendor app (Acaia Coffee
+# 2.5.10). Nothing here has been run against a scale by this project.
+
+device:
+  name: "Acaia Coffee Scales (Pearl / Lunar / Pyxis)"
+  manufacturer: "Acaia"
+  manufacturer_status: "active"
+  openness:
+    status: "undocumented"
+    reverse_engineered: true
+    notes: >
+      Acaia publishes official connectivity SDKs for Android and iOS: a
+      binary library plus example apps covering scan, connect, tare, timer
+      start/stop and a weight stream of about five updates a second. They
+      are for apps built on Acaia's own library. They do not describe the
+      wire protocol, and nothing in this spec was read from them. The
+      protocol itself is unpublished; everything here was recovered from
+      open-source clients and the vendor app.
+  testing:
+    status: untested
+  protocol: "ble"
+  category: "scale"
+  category_hierarchy: ["measurement", "health", "body_composition"]
+  type: "coffee-scale"
+  notes: >
+    Acaia's Bluetooth coffee scales (Pearl, Lunar, Pearl S, Pyxis, plus the
+    names PROCHBT/CINCO/INFOS the vendor app also scans for) stream weight,
+    timer and battery to a phone over BLE GATT and take tare, timer and a
+    handful of settings writes back. There is no Wi-Fi, LAN or cloud path
+    for any scale function; the vendor apps' servers only ever held recipes
+    and social content. The app this spec was checked against ("Acaia
+    Coffee", Android, 2.5.10) is delisted from Google Play; Acaia itself
+    still sells scales and ships newer apps, which are out of scope.
+
+
+    TWO ATTRIBUTE SETS. (1) Newer scales use a Microchip/ISSC BM70/BM71
+    transparent-UART module: service 49535343-fe7d-4ae5-8fa9-9fafd205e455.
+    The client WRITES frames to 49535343-8841-43f4-a8d4-ecbe34729bb3 (the
+    module vendor's "Transparent UART RX") and RECEIVES notifications on
+    49535343-1e4d-4bd9-ba61-23c647249616 ("Transparent UART TX"). Some
+    write-ups label these the other way round; the vendor app, pyacaia and
+    AcaiaArduinoBLE all write 8841 and subscribe to 1e4d. (2) Older scales
+    expose service 00001820-0000-1000-8000-00805f9b34fb with one
+    characteristic 00002a80-0000-1000-8000-00805f9b34fb that carries both
+    directions. The vendor app picks the set by advertised name (CINCO,
+    PEARLS, PYXIS, PEARL-, LUNAR- to the ISSC module; everything else to
+    0x1820); the open implementations probe the GATT table instead, which is
+    the more robust rule. Both sets carry the same framed protocol.
+
+
+    WHICH GENERATION THIS DESCRIBES. Everything under services, commands
+    and entities is the framed ("ver20") protocol, on either attribute set.
+    The "first-generation" material is kept apart in
+    protocol_details.first_generation: the 0x1820/0x2a80 attribute pair as
+    the older scales expose it, plus the older obfuscated framing and its
+    smaller command set, which the app carries but never uses and which no
+    open client speaks. A client for a pre-2021 Lunar or a Pearl should
+    start with the framed protocol on 0x2a80, which is what works for
+    pyacaia and AcaiaArduinoBLE.
+
+
+    FRAME. 0xEF 0xDD, command id, payload, then two checksum bytes: the
+    first is the sum of the payload bytes at even offsets (0, 2, 4...) mod
+    256, the second the sum at odd offsets mod 256. The header and command
+    id are not summed. Each command id has a fixed payload length or is
+    variable; a variable payload begins with a length byte that COUNTS
+    ITSELF (an 8-byte weight event is 08 05 xx xx xx xx dp flags). Frames
+    can arrive split across notifications or several to a notification, so
+    reassemble on the byte stream and resynchronise on 0xEF 0xDD rather than
+    assuming one frame per notification. Full tables in protocol_details.
+
+
+    SESSION. Subscribe to the notify characteristic, write an identify
+    frame (command 11, 15 ASCII bytes), then an event-subscription frame
+    (command 12), then keep writing the heartbeat EF DD 00 02 00 02 00 every
+    1-3 s. Every client that works keeps the heartbeat going (vendor app
+    every 3 s, AcaiaArduinoBLE every 2.75 s, pyacaia every 1 s); how long
+    the scale waits before it stops streaming or drops the link is not
+    established. The scale then streams weight events (command 12, event
+    type 5): a 32-bit little-endian magnitude, a decimal-places byte (value
+    = magnitude / 10^dp), and a flag byte whose bit 1 is the sign and bit 0
+    the unstable flag. The unit (g or oz) follows the scale's own unit
+    setting, reported in the status frame (command 8).
+
+
+    NOT COVERED. Firmware update (ISP command 9, file transfer command 14 and
+    the module's air-patch characteristic 49535343-aca3-481c-91ec-d85e28a60318)
+    and the link-password command 15 are described by role only; no payload
+    bytes are given, because either can leave a scale unusable. Felicita and
+    Bookoo scales speak different protocols (Bookoo publishes its own) and
+    are not covered.
+
+
+    Everything byte-level is `reported`: taken from the open implementations
+    and cross-checked against the vendor app. No capture exists and nothing
+    has been driven from this document.
+
+  identification:
+    local_name_prefixes: ["ACAIA", "PROCH", "LUNAR", "PEARL", "PYXIS", "CINCO", "INFOS"]
+
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          local_name:
+            match: "prefix"
+            values: ["ACAIA", "PROCH", "LUNAR", "PEARL", "PYXIS", "CINCO", "INFOS"]
+        notes: >
+          The vendor app keeps a scan result whose name starts with INFOS,
+          PROCHBT, CINCO, ACAIA, PEARLS, PYXIS, PEARL- or LUNAR-; pyacaia
+          matches ACAIA/PYXIS/LUNAR/PROCH and AcaiaArduinoBLE the first five
+          characters CINCO/ACAIA/PYXIS/LUNAR/PEARL/PROCH. The union of those,
+          shortened to the prefixes above, is what is declared. Which
+          products advertise INFOS or PROCHBT is not established. Whether the
+          scales advertise a service UUID is not recorded, so nothing here
+          filters on one; after connecting, the GATT table (8841/1e4d versus
+          2a80) says which attribute set is present.
+    identity:
+      stable_keys: ["address"]
+      display: "local_name"
+    static_ip_required: false
+
+  setup:
+    required: false
+    confidence: "medium"
+    notes: >
+      Nothing to provision: no account, no network credentials, no bond. A
+      scale with Bluetooth enabled in its settings (the default) advertises
+      while it is on and accepts a connection from any central. Confidence is
+      medium because three independent open implementations connect this
+      way, but this project has not.
+    methods:
+      - type: "ble_direct"
+        verified: false
+        description: >
+          Scan by name, connect, subscribe to the notify characteristic,
+          identify, subscribe to events, then hold the session up with a
+          heartbeat every 1-3 s.
+        ble:
+          pairing_required: false
+        steps:
+          - action: >
+              Turn the scale on. If it does not appear, check that Bluetooth
+              is On in its settings menu (bt_SEt on LED models, "Bluetooth
+              Setting" on the Pearl S) and that no other phone or the vendor
+              app is connected to it.
+            actor: "user"
+          - action: >
+              Scan for a local name starting with ACAIA, PROCH, LUNAR, PEARL,
+              PYXIS, CINCO or INFOS and connect.
+            actor: "client"
+            request:
+              protocol: "ble_gatt"
+          - action: >
+              Request an ATT MTU of 247 (the vendor app does this on the ISSC
+              module before discovery; pyacaia says the Pyxis needs it for its
+              longer notifications), then discover services. If
+              49535343-8841-43f4-a8d4-ecbe34729bb3 and
+              49535343-1e4d-4bd9-ba61-23c647249616 exist, use them; otherwise
+              use 00002a80-0000-1000-8000-00805f9b34fb for both directions.
+            actor: "client"
+          - action: >
+              Enable notifications on the notify characteristic (1e4d, or 2a80
+              on the older set).
+            actor: "client"
+          - action: >
+              Write the identify frame, then the event-subscription frame
+              (commands `identify` and `subscribe_events`).
+            actor: "client"
+            expect: >
+              The scale starts sending event frames (EF DD 0C ...) carrying
+              weight, and a status frame (EF DD 08 ...) when asked for one.
+          - action: >
+              Write the heartbeat frame EF DD 00 02 00 02 00 at least every
+              3 s for as long as the session should last; optionally write the
+              status request EF DD 06 00 00 00 about 200 ms after each beat,
+              as the vendor app does.
+            actor: "client"
+            expect: "Weight events keep arriving; an ack event may follow each beat."
+        timing:
+          vendor_app_first_heartbeat_ms: 2000
+          vendor_app_heartbeat_interval_ms: 3000
+          vendor_app_status_request_after_heartbeat_ms: 200
+          vendor_app_identify_retry_interval_ms: 1000
+          vendor_app_identify_retries: 20
+          vendor_app_link_lost_after_ms: 1500
+          acaiaarduinoble_heartbeat_interval_ms: 2750
+          acaiaarduinoble_link_lost_after_ms: 5000
+          pyacaia_heartbeat_interval_ms: 1000
+          notes: >
+            The vendor app writes identify on the ISSC module 100 ms after
+            subscribing and repeats it every second up to 20 times (its
+            stop condition is never set in this build). It starts the
+            heartbeat 2 s after it sets up its protocol handler (on the
+            first notification for the ISSC module, at service discovery
+            for the 0x1820 set) and repeats it every 3 s, each beat
+            followed 200 ms later by a status request. It treats
+            the link as dead when it is about to write and nothing has been
+            received for 1.5 s. AcaiaArduinoBLE beats every 2.75 s and
+            declares the link lost after 5 s without a weight frame; pyacaia
+            beats every second on bluepy and every 5 s on pygatt. The
+            scale-side timeout itself is not established.
+        troubleshooting:
+          - symptom: "Weight streams briefly, then stops or the scale disconnects."
+            causes:
+              - "No heartbeat is being written, or the interval is too long; keep it at 3 s or less."
+              - "The identify or event-subscription frame was never written (or was written before notifications were enabled)."
+          - symptom: "The scale is not found in a scan."
+            causes:
+              - "Bluetooth is switched off in the scale's settings menu."
+              - "Another central (often the vendor app in the background) is already connected."
+              - "The scale has gone to sleep. The Lunar manual says the sleep timer only counts while the scale is disconnected from every mobile device."
+          - symptom: "A Lunar (2021 edition) connects and streams weight but ignores tare and timer commands."
+            causes:
+              - "Old firmware; pyacaia's README says the 2021 Lunar needs a firmware update (done with the vendor's updater app) before commands work."
+          - symptom: "Readings wrap or turn nonsensical above 655.35 g (or 6553.5 g)."
+            causes:
+              - "Only the low two bytes of the weight magnitude are being read. The field is 32 bits; pyacaia, Beanconqueror and AcaiaArduinoBLE all read 16, which breaks at 0.01 g resolution above 655.35 g."
+          - symptom: "Nothing decodes, or frames look truncated, on the older 0x2a80 scales."
+            causes:
+              - "Frames are split across notifications (AcaiaArduinoBLE sees 10-byte notifications without the header on pre-2021 Lunars). Buffer and parse the byte stream."
+          - symptom: "The scale shows error 904 (900 on the original Pearl's 2.0 firmware)."
+            causes:
+              - "A wrong password or passcode. The manuals give 0000 as the default. On the original Pearl the settings menu itself sits behind an F.0000 passcode prompt, which is the most likely source. Whether the same stored code is the link password set by command 15 is not established."
+          - symptom: "After an interrupted firmware update the display stays blank or shows UPdAtE, and the scale no longer streams weight."
+            causes:
+              - "The scale is still in update mode. Connecting USB power leaves it; if the scale will not run normally afterwards, redo the update from Acaia's updater app (see the firmware_update feature). A generic client can neither finish nor undo an update."
+    factory_reset:
+      applicable: true
+      confidence: "medium"
+      effect: >
+        Returns the scale's settings menu (sleep timer, beep, unit,
+        resolution, modes, Bluetooth on/off and so on) to factory defaults;
+        on the Pearl S it also clears the hello message and Brewguide data.
+        The scale holds no bond, so there is nothing Bluetooth-related to
+        clear. Whether it clears a link password set with command 15 is not
+        established.
+      description: >
+        From the vendor manuals, not performed here. LED models show the
+        menu as short codes and call the item rESEt.d. The 2022 Pearl S
+        shows words ("Settings", "Reset to Default") but uses the same
+        buttons. The original Pearl reaches the same menu through a passcode
+        prompt, so it has its own procedure. Its 1.8.x firmware has no reset
+        item at all. The current Pyxis Black (APS001, Bluetooth 5.4) has a
+        different menu system and its own procedure; whether it speaks this
+        protocol at all is not established.
+      procedures:
+        - name: "Reset to Default from the settings menu"
+          applies_to: ["Lunar", "Lunar 2021", "Pyxis (2019, AC002)", "Pearl 2021", "Pearl S"]
+          verified: false
+          basis: >
+            Configuration sections of the Acaia Lunar manual (FW 2.6.020),
+            Lunar 2021 manual (FW 1.0.019), Pyxis manual (FW 1.0.019), Pearl
+            2021 manual (FW 1.0.014), Pearl S manual (FW 1.0.057) and 2022
+            Pearl S manual (FW 1.0.009).
+          power_state: "off"
+          indicator: "The display returns to the first menu item (SLEEP, or Brightness on the Pearl S)."
+          steps:
+            - action: "With the scale off, press and hold Power until the display shows ACAIA and then SEt (Settings on the 2022 Pearl S), then release."
+              actor: "user"
+            - action: "Tap the Tare (T) button to enter Settings, then tap Tare repeatedly to step to rESEt.d (Reset to Default)."
+              actor: "user"
+            - action: "Press and hold Tare to open the item, tap Tare to choose YES, then press and hold Tare for about 1 s to save."
+              actor: "user"
+              expect: "Settings return to defaults and the menu shows its first item again."
+            - action: "Tap Power to leave the settings menu (double-tap on the Pearl S)."
+              actor: "user"
+        - name: "Reset to Default on the Pyxis Black"
+          applies_to: ["Pyxis Black (APS001)"]
+          verified: false
+          basis: >
+            Acaia Pyxis Black manual (FW 1.0.2), Basic Operations and
+            Appendix. Included for owners; the protocol in this spec is not
+            established for this model.
+          power_state: "on"
+          indicator: "The scale returns to its default settings; the manual names no display cue."
+          steps:
+            - action: "With the scale on, press and hold Power through the countdown and release when the display highlights SETTINGS (the third stage, after MODE and OFF)."
+              actor: "user"
+            - action: "Tap Tare to step to RESET TO DEFAULT, press and hold Tare to open it, tap Tare to choose YES, then press and hold Tare to save."
+              actor: "user"
+              expect: "Mode customizations, brew-profile data and user preferences return to factory defaults."
+            - action: "Press and hold Power to leave Settings."
+              actor: "user"
+        - name: "Reset to Default on the original Pearl (passcode entry)"
+          applies_to: ["Pearl (original, AP001AT / AP004AT)"]
+          verified: false
+          basis: >
+            Acaia Pearl manual (FW 2.0.010), Configuration section. The FW
+            1.8.390 manual enters settings the same way, but its list has no
+            Reset to Default item.
+          power_state: "off"
+          indicator: "The display shows SLEEP once the passcode is accepted, and SLEEP again after the reset is saved."
+          steps:
+            - action: "With the scale off, press and hold Power. When the display shows ACAIA and then SEt, keep holding Power and tap Tare."
+              actor: "user"
+            - action: "Release both buttons when the display shows F.0000 with the left digit flashing."
+              actor: "user"
+            - action: "Press and hold Tare to move the flashing digit one place right. Do this four times to accept the default passcode 0000 and enter Settings."
+              actor: "user"
+              expect: "SLEEP is shown. A wrong code gives error 900 (904 on older firmware)."
+            - action: "Tap Tare to step to rESEt.d, press and hold Tare to open it, tap Tare to choose YES, then press and hold Tare to save."
+              actor: "user"
+              expect: "Settings return to defaults."
+            - action: "Double-tap Power to leave Settings and return to the weighing modes."
+              actor: "user"
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        Nothing binds a scale to a phone. Moving to a new client means
+        disconnecting the old one (close the vendor app) and connecting from
+        the new one.
+    credentials:
+      wifi_passphrase_protection: "not_applicable"
+      stored_on_device: []
+      issued_to_client: []
+      notes: >
+        No Wi-Fi and no issued secrets. The identify frame carries a fixed
+        15-character ASCII string that is not a credential (the vendor app
+        sends either "012345678901234" or fifteen dashes). The optional link
+        password (command 15, 15-byte payload) would be stored on the scale,
+        but no open client sets or sends one and its payload is not
+        documented here.
+
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "none"
+    bonding: "none"
+    enter_pairing_mode:
+      required: false
+      notes: >
+        Always connectable while on, provided Bluetooth is enabled in the
+        settings menu (it is by default). There is no pairing button.
+    exclusivity:
+      single_connection: true
+      recovery: >
+        Close the vendor app on this phone and on any other phone nearby
+        (or disconnect any other client). If the scale still does not
+        advertise, power-cycle it.
+    notes: >
+      The vendor app connects with a plain GATT connection and never creates
+      a bond; pyacaia, AcaiaArduinoBLE and Beanconqueror do the same. The
+      identify frame is an application-layer hello with a fixed payload, not
+      authentication. The protocol does define a set-password command (15)
+      with success/fail result codes, so a scale may support an
+      application-layer lock; no client examined here uses it.
+      single_connection comes from Acaia's own help centre, which calls the
+      link between a scale and any of its apps one-to-one and tells users to
+      close connected apps on every phone when a connection fails. It is
+      reported, not tested here.
+
+  host_compatibility:
+    - stack: "android"
+      status: "compatible"
+      verification: "reported"
+      basis: >
+        The vendor app and Beanconqueror both drive these scales through the
+        Android GATT client; the only special handling is the MTU request.
+        Not run by this project.
+    - stack: "corebluetooth"
+      status: "compatible"
+      verification: "reported"
+      basis: >
+        Beanconqueror ships one Acaia driver (src/classes/devices/acaia) in
+        its iOS and Android builds. Not run by this project.
+      notes: >
+        No Linux verdict is given: pyacaia's documented Raspberry Pi and
+        Ubuntu use goes through bluepy or gatttool, which bypass bluetoothd's
+        GATT client, so it says nothing about bleak or other bluetoothd
+        clients.
+
+  variants:
+    - model: "ISSC-module scales (Lunar 2021, Pearl S, Pyxis)"
+      identification:
+        local_name_contains: ["PEARL-", "LUNAR-", "PEARLS", "PYXIS", "CINCO"]
+      notes: >
+        Service 49535343-fe7d-4ae5-8fa9-9fafd205e455; write
+        49535343-8841-43f4-a8d4-ecbe34729bb3, notify
+        49535343-1e4d-4bd9-ba61-23c647249616. The name list is the vendor
+        app's routing rule; the GATT table is the reliable test. For names
+        containing PYXIS or CINCO the vendor app ignores the weight event's
+        decimal-places byte and divides by 100 in grams and by 10000 in
+        ounces; open implementations use the byte on the Pyxis and work, so
+        the two probably agree. The model list in this variant's name is a
+        guide, not a rule: see the note on the other variant.
+    - model: "0x1820-service scales (pre-2021 Lunar, Pearl)"
+      identification:
+        local_name_contains: ["ACAIA", "PROCHBT", "INFOS"]
+      notes: >
+        Service 00001820-0000-1000-8000-00805f9b34fb, one characteristic
+        00002a80-0000-1000-8000-00805f9b34fb for writes and notifications.
+        Same framed protocol as the ISSC module. Pre-2021 Lunar firmware
+        splits frames across notifications. AcaiaArduinoBLE also expects
+        14-byte notifications on 0x2a80 from a 2021 Lunar (model AL008), so
+        at least some 2021 Lunar builds appear to carry this attribute set
+        rather than the ISSC module. Probe the GATT table; do not go by
+        model year. No open implementation reports testing an original
+        (non-S) Pearl. See protocol_details.first_generation.
+
+services:
+  - uuid: "49535343-fe7d-4ae5-8fa9-9fafd205e455"
+    name: "ISSC Transparent UART (Microchip BM70/BM71)"
+    notes: >
+      The module vendor's stock transparent-UART service, so the UUID marks
+      the radio module, not an Acaia product; use it together with the name
+      prefixes. Three further characteristics of this service are looked up
+      by the vendor app but never written or read by it:
+      49535343-6daa-4d02-abf6-19569aca69fe (connection parameters),
+      49535343-4c8a-39b3-2f49-511cff073b7e (transparent control point) and
+      49535343-aca3-481c-91ec-d85e28a60318 (the module's air-patch/ISP
+      path, part of the firmware-update route). Their properties were not
+      established, so they are not declared as characteristics here; a
+      client should leave all three alone.
+    initialization:
+      - characteristic: "49535343-1e4d-4bd9-ba61-23c647249616"
+        subscribe: true
+        delay_ms: 100
+        notes: >
+          Enable notifications before writing anything. The vendor app
+          requests an ATT MTU of 247 first.
+      - characteristic: "49535343-8841-43f4-a8d4-ecbe34729bb3"
+        write: [0xef, 0xdd, 0x0b, 0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39, 0x30, 0x31, 0x32, 0x33, 0x34, 0x9a, 0x6d]
+        notes: >
+          Identify (command 11, ASCII "012345678901234"). The vendor app's
+          handshake on this module and AcaiaArduinoBLE's for every scale.
+      - characteristic: "49535343-8841-43f4-a8d4-ecbe34729bb3"
+        write: [0xef, 0xdd, 0x0c, 0x09, 0x00, 0x01, 0x01, 0x02, 0x02, 0x05, 0x03, 0x04, 0x15, 0x06]
+        notes: >
+          Event subscription (command 12) in the form pyacaia and
+          AcaiaArduinoBLE send: weight, battery, timer, key and setting
+          events. The vendor app sends it after the first status frame, with
+          a timer argument of 1 instead of 5 (command subscribe_events_app).
+      - characteristic: "49535343-8841-43f4-a8d4-ecbe34729bb3"
+        write: [0xef, 0xdd, 0x00, 0x02, 0x00, 0x02, 0x00]
+        notes: "The first heartbeat. It has to repeat; see the next step."
+      - characteristic: "49535343-8841-43f4-a8d4-ecbe34729bb3"
+        description: >
+          Keep-alive loop the client must run itself: write the heartbeat
+          EF DD 00 02 00 02 00 at least every 3 s for the life of the
+          connection (the vendor app: every 3 s, then a status request
+          EF DD 06 00 00 00 200 ms later). A client that runs the steps
+          above once and stops gets a scale that stops streaming.
+    characteristics:
+      - uuid: "49535343-8841-43f4-a8d4-ecbe34729bb3"
+        name: "Transparent UART RX (client writes)"
+        properties: ["write", "write_without_response"]
+        role: "command"
+        notes: >
+          Properties per Microchip's transparent-UART documentation. The
+          vendor app writes without response; AcaiaArduinoBLE writes with
+          response for the handshake. The vendor app zero-pads most of its
+          writes to 21 bytes (only the heartbeat goes at exact length), so
+          the scale evidently skips bytes until the next 0xEF 0xDD; open
+          clients send exact lengths. Checksums in every value below are the
+          two-lane sums described in protocol_details.framing.
+        commands:
+          identify:
+            description: >
+              Identify / hello (command 11, fixed 15-byte payload, ASCII
+              "012345678901234"). Starts the scale's reporting. The vendor app
+              sends it every second for up to 20 s after subscribing.
+            verification: "reported"
+            command_id: 11
+            value: [0xef, 0xdd, 0x0b, 0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39, 0x30, 0x31, 0x32, 0x33, 0x34, 0x9a, 0x6d]
+          identify_dashes:
+            description: >
+              The same identify command with fifteen '-' characters. The
+              vendor app sends this in reply to the scale's info message
+              (command 7); pyacaia uses it for the older 0x2a80 scales. Which
+              string the scale expects, if it checks at all, is not
+              established; both forms are accepted by the scales the open
+              implementations were tested on.
+            verification: "reported"
+            command_id: 11
+            value: [0xef, 0xdd, 0x0b, 0x2d, 0x2d, 0x2d, 0x2d, 0x2d, 0x2d, 0x2d, 0x2d, 0x2d, 0x2d, 0x2d, 0x2d, 0x2d, 0x2d, 0x2d, 0x68, 0x3b]
+          subscribe_events:
+            description: >
+              Event subscription (command 12, variable). Payload 09 | 00 01 |
+              01 02 | 02 05 | 03 | 04: weight (argument 1), battery
+              (argument 2), timer (argument 5), key, setting. pyacaia calls
+              the timer argument the number of heartbeats between timer
+              messages; the meaning of the arguments is otherwise not
+              established. This is the pyacaia/AcaiaArduinoBLE form.
+            verification: "reported"
+            command_id: 12
+            value: [0xef, 0xdd, 0x0c, 0x09, 0x00, 0x01, 0x01, 0x02, 0x02, 0x05, 0x03, 0x04, 0x15, 0x06]
+          subscribe_events_app:
+            description: >
+              The vendor app's event subscription: identical to
+              subscribe_events except a timer argument of 1. The app sends it
+              once, after the first status frame of a connection.
+            verification: "reported"
+            command_id: 12
+            value: [0xef, 0xdd, 0x0c, 0x09, 0x00, 0x01, 0x01, 0x02, 0x02, 0x01, 0x03, 0x04, 0x11, 0x06]
+          heartbeat:
+            description: >
+              Keep-alive (command 0, system message, variable payload 02 00:
+              length 2, message 0 = alive). Repeat at least every 3 s. The
+              scale may answer with an ack event (type 11) whose result says
+              "alive".
+            verification: "reported"
+            command_id: 0
+            value: [0xef, 0xdd, 0x00, 0x02, 0x00, 0x02, 0x00]
+          request_status:
+            description: >
+              Ask for a status frame (command 6, fixed 1-byte payload 00). The
+              scale answers with command 8: battery, unit, sleep, key-disable,
+              beep, resolution and capacity. pyacaia sends this with 16 zero
+              bytes; the first is the payload and the rest are skipped.
+            verification: "reported"
+            command_id: 6
+            value: [0xef, 0xdd, 0x06, 0x00, 0x00, 0x00]
+          tare:
+            description: "Tare (command 4, fixed 1-byte payload 00)."
+            verification: "reported"
+            command_id: 4
+            value: [0xef, 0xdd, 0x04, 0x00, 0x00, 0x00]
+          timer_start:
+            description: "Start (or resume) the scale's timer (command 13, payload 00 00: action 0 = start)."
+            verification: "reported"
+            command_id: 13
+            value: [0xef, 0xdd, 0x0d, 0x00, 0x00, 0x00, 0x00]
+          timer_reset:
+            description: >
+              Stop the timer and return it to zero (command 13, action 1).
+              The vendor app calls this "stop"; pyacaia and AcaiaArduinoBLE
+              call it "reset".
+            verification: "reported"
+            command_id: 13
+            value: [0xef, 0xdd, 0x0d, 0x00, 0x01, 0x00, 0x01]
+          timer_pause:
+            description: >
+              Stop the timer and hold its value (command 13, action 2). The
+              vendor app calls this "pause"; pyacaia and AcaiaArduinoBLE call
+              it "stop".
+            verification: "reported"
+            command_id: 13
+            value: [0xef, 0xdd, 0x0d, 0x00, 0x02, 0x00, 0x02]
+          set_unit:
+            description: >
+              Setting change (command 10, fixed 3-byte payload: 00, item,
+              value) for item 0, weighing unit. With a zero first byte the
+              checksum is simply value then item, which is why the parameter
+              appears twice. Units other than grams and ounces are defined in
+              the app's unit table but never offered. Settings writes are
+              partial: see protocol_details.settings.
+            verification: "reported"
+            command_id: 10
+            template: [0xef, 0xdd, 0x0a, 0x00, 0x00, "{unit}", "{unit}", 0x00]
+            parameters:
+              unit:
+                type: "uint8"
+                allowed: [2, 5]
+                labels: ["grams", "ounces"]
+                default: 2
+          set_auto_off:
+            description: >
+              Setting change, item 1 (sleep timer). Values are indices, not
+              minutes: 0 off, 1 = 5 min, 2 = 10 min, 3 = 20 min, 4 = 30 min,
+              5 = 60 min. The index table is the app's settings list and
+              matches the option set the manuals print; the status frame
+              reports the same index. Settings writes are partial: not every
+              model's menu has every option, and the newer scales' handling
+              of this write was not established.
+            verification: "reported"
+            command_id: 10
+            template: [0xef, 0xdd, 0x0a, 0x00, 0x01, "{index}", "{index}", 0x01]
+            parameters:
+              index:
+                type: "uint8"
+                min: 0
+                max: 5
+                labels: ["off", "5 min", "10 min", "20 min", "30 min", "60 min"]
+          set_key_sound:
+            description: >
+              Setting change, item 5 (button beep): 0 off, 1 on. Settings
+              writes are partial: see protocol_details.settings.
+            verification: "reported"
+            command_id: 10
+            template: [0xef, 0xdd, 0x0a, 0x00, 0x05, "{sound}", "{sound}", 0x05]
+            parameters:
+              sound:
+                type: "uint8"
+                min: 0
+                max: 1
+                labels: ["off", "on"]
+          set_key_disable:
+            description: >
+              Setting change, item 2: disable the scale's buttons for a number
+              of seconds (0 re-enables). The vendor app's toggle sends 60 or
+              0; its settings table also names 10, 20 and 30, and it clamps
+              at 255.
+            verification: "reported"
+            command_id: 10
+            template: [0xef, 0xdd, 0x0a, 0x00, 0x02, "{seconds}", "{seconds}", 0x02]
+            parameters:
+              seconds:
+                type: "uint8"
+                min: 0
+                max: 255
+                unit: "s"
+          set_capacity:
+            description: >
+              Setting change, item 4 (maximum weight): 0 = 1000 g, 1 =
+              2000 g. From the Pearl-era settings list; what the newer
+              scales (Pyxis is a 500 g scale) do with it is not established.
+            verification: "reported"
+            command_id: 10
+            template: [0xef, 0xdd, 0x0a, 0x00, 0x04, "{capacity}", "{capacity}", 0x04]
+            parameters:
+              capacity:
+                type: "uint8"
+                min: 0
+                max: 1
+                labels: ["1000 g", "2000 g"]
+
+      - uuid: "49535343-1e4d-4bd9-ba61-23c647249616"
+        name: "Transparent UART TX (scale notifies)"
+        properties: ["notify", "write", "write_without_response"]
+        role: "notify"
+        notes: >
+          Properties per Microchip's transparent-UART documentation; only
+          notify is used. Everything the scale says arrives here as a byte
+          stream of frames. The `format` below describes a notification that
+          holds exactly one whole weight event at offset 0, which is what the
+          Pyxis sends (13 bytes); newer Lunar firmware sends 17-byte
+          notifications that start the same way. Do not rely on it for
+          anything else: reassemble and parse frames as in
+          protocol_details. The weight value is NOT magnitude x constant;
+          it is weight_raw / 10^decimal_places, negated when `negative` is
+          1, in the unit the status frame reports. That rule has no schema
+          field yet, so no entity binds weight_raw directly.
+        format_match:
+          offset: 4
+          value: 5
+          notes: >
+            Byte 4 is the first event type of an event frame (command 12 at
+            byte 2); 5 is a weight event. A status frame (command 8) whose
+            battery byte happens to be 5 also matches, so check byte 2 =
+            0x0c too.
+        format:
+          - offset: 2
+            length: 1
+            name: "command_id"
+            type: "uint8"
+            notes: "0x0c (event) for a weight notification."
+          - offset: 3
+            length: 1
+            name: "payload_length"
+            type: "uint8"
+            notes: "Counts itself: 8 for a lone weight event, so the frame is 13 bytes."
+          - offset: 4
+            length: 1
+            name: "event_type"
+            type: "uint8"
+            values: {5: "weight", 6: "battery", 7: "timer", 8: "key", 9: "setting", 10: "countdown", 11: "ack"}
+          - offset: 5
+            length: 4
+            name: "weight_raw"
+            type: "uint32"
+            endianness: "little"
+            notes: >
+              Magnitude in units of 10^-decimal_places of the scale's current
+              unit. The vendor app reads all four bytes; the open
+              implementations read only the low two, which overflows at
+              655.35 g with two decimals.
+          - offset: 9
+            length: 1
+            name: "decimal_places"
+            type: "uint8"
+            values: {1: "divide by 10", 2: "divide by 100", 3: "divide by 1000", 4: "divide by 10000"}
+          - offset: 10
+            length: 1
+            name: "unstable"
+            type: "uint8"
+            mask: 0x01
+            values: {0: "stable", 1: "unstable"}
+            notes: >
+              Polarity from the app's own stable/unstable ordering; no open
+              implementation reads this bit.
+          - offset: 10
+            length: 1
+            name: "negative"
+            type: "uint8"
+            mask: 0x02
+            values: {0: "positive", 1: "negative"}
+          - offset: 10
+            length: 1
+            name: "weight_type"
+            type: "uint8"
+            mask: 0xfc
+            values: {0: "net", 1: "pw (meaning not established)", 2: "tare"}
+          - offset: 11
+            length: 2
+            name: "checksum"
+            type: "bytes"
+            notes: "Even-offset payload sum, then odd-offset payload sum, each mod 256."
+
+  - uuid: "00001820-0000-1000-8000-00805f9b34fb"
+    name: "Acaia first-generation data service"
+    notes: >
+      The older attribute set: one characteristic, 0x2a80, for both
+      directions. 0x1820 and 0x2a80 are Bluetooth SIG numbers (the Internet
+      Protocol Support service and the Age characteristic) reused for a
+      UART bridge; the vendor app's naming for the pair points to a UART
+      bridge on a CSR (Cambridge Silicon Radio) module. Generic GATT
+      browsers therefore mislabel them, and other products reuse the pair
+      (this project's missing-devices survey lists the Fellow Stagg EKG+
+      kettle on 0x1820 with the same 0xEF 0xDD delimiter), so match the name
+      before treating a 0x1820 device as a scale. The vendor app speaks the
+      same framed protocol here as on the ISSC module (it never selects the
+      older obfuscated framing described in
+      protocol_details.first_generation.legacy_framing). The
+      app subscribes 500 ms after service discovery and, on this set, does
+      not send identify on its own: it answers the scale's info message
+      (command 7) with identify_dashes and sends the event subscription after
+      the first status frame. pyacaia instead writes identify and the event
+      subscription straight after subscribing, which is what the steps below
+      do.
+    initialization:
+      - characteristic: "00002a80-0000-1000-8000-00805f9b34fb"
+        subscribe: true
+        delay_ms: 100
+      - characteristic: "00002a80-0000-1000-8000-00805f9b34fb"
+        write: [0xef, 0xdd, 0x0b, 0x2d, 0x2d, 0x2d, 0x2d, 0x2d, 0x2d, 0x2d, 0x2d, 0x2d, 0x2d, 0x2d, 0x2d, 0x2d, 0x2d, 0x2d, 0x68, 0x3b]
+        notes: >
+          Identify with fifteen dashes, as pyacaia sends to these scales and
+          the vendor app sends in reply to the info message.
+          AcaiaArduinoBLE sends the digit form instead and reports pre-2021
+          Lunars working.
+      - characteristic: "00002a80-0000-1000-8000-00805f9b34fb"
+        write: [0xef, 0xdd, 0x0c, 0x09, 0x00, 0x01, 0x01, 0x02, 0x02, 0x05, 0x03, 0x04, 0x15, 0x06]
+        notes: "Event subscription, pyacaia/AcaiaArduinoBLE form."
+      - characteristic: "00002a80-0000-1000-8000-00805f9b34fb"
+        write: [0xef, 0xdd, 0x00, 0x02, 0x00, 0x02, 0x00]
+        notes: "The first heartbeat. It has to repeat; see the next step."
+      - characteristic: "00002a80-0000-1000-8000-00805f9b34fb"
+        description: >
+          Keep-alive loop the client must run itself: write the heartbeat
+          EF DD 00 02 00 02 00 to 0x2a80 at least every 3 s for the life of
+          the connection.
+    characteristics:
+      - uuid: "00002a80-0000-1000-8000-00805f9b34fb"
+        name: "Acaia data (write and notify)"
+        properties: ["write", "write_without_response", "notify"]
+        notes: >
+          Write and notify are what every client uses (the vendor app writes
+          without response, AcaiaArduinoBLE with response for its
+          handshake); the full property set was not read from a scale.
+          Notifications are a byte stream: pre-2021 Lunar firmware delivers
+          the 3-byte header-plus-command separately from the rest of a
+          frame (AcaiaArduinoBLE decodes 10-byte notifications that begin at
+          the length byte), so no fixed-offset `format` is declared here.
+          Decode with the frame rules and the weight layout declared on
+          49535343-1e4d-4bd9-ba61-23c647249616 and in protocol_details.
+        commands:
+          identify:
+            description: "Identify, digit form (command 11). See the ISSC characteristic for details."
+            verification: "reported"
+            command_id: 11
+            value: [0xef, 0xdd, 0x0b, 0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39, 0x30, 0x31, 0x32, 0x33, 0x34, 0x9a, 0x6d]
+          identify_dashes:
+            description: "Identify, dash form (command 11): what pyacaia and the vendor app send on this attribute set."
+            verification: "reported"
+            command_id: 11
+            value: [0xef, 0xdd, 0x0b, 0x2d, 0x2d, 0x2d, 0x2d, 0x2d, 0x2d, 0x2d, 0x2d, 0x2d, 0x2d, 0x2d, 0x2d, 0x2d, 0x2d, 0x2d, 0x68, 0x3b]
+          subscribe_events:
+            description: "Event subscription, pyacaia/AcaiaArduinoBLE form (timer argument 5)."
+            verification: "reported"
+            command_id: 12
+            value: [0xef, 0xdd, 0x0c, 0x09, 0x00, 0x01, 0x01, 0x02, 0x02, 0x05, 0x03, 0x04, 0x15, 0x06]
+          subscribe_events_app:
+            description: "Event subscription, vendor-app form (timer argument 1)."
+            verification: "reported"
+            command_id: 12
+            value: [0xef, 0xdd, 0x0c, 0x09, 0x00, 0x01, 0x01, 0x02, 0x02, 0x01, 0x03, 0x04, 0x11, 0x06]
+          heartbeat:
+            description: "Keep-alive (command 0, payload 02 00). Repeat at least every 3 s."
+            verification: "reported"
+            command_id: 0
+            value: [0xef, 0xdd, 0x00, 0x02, 0x00, 0x02, 0x00]
+          request_status:
+            description: "Ask for a status frame (command 6, payload 00)."
+            verification: "reported"
+            command_id: 6
+            value: [0xef, 0xdd, 0x06, 0x00, 0x00, 0x00]
+          tare:
+            description: "Tare (command 4, payload 00)."
+            verification: "reported"
+            command_id: 4
+            value: [0xef, 0xdd, 0x04, 0x00, 0x00, 0x00]
+          timer_start:
+            description: "Start the timer (command 13, action 0)."
+            verification: "reported"
+            command_id: 13
+            value: [0xef, 0xdd, 0x0d, 0x00, 0x00, 0x00, 0x00]
+          timer_reset:
+            description: "Stop and zero the timer (command 13, action 1)."
+            verification: "reported"
+            command_id: 13
+            value: [0xef, 0xdd, 0x0d, 0x00, 0x01, 0x00, 0x01]
+          timer_pause:
+            description: "Stop the timer and hold its value (command 13, action 2)."
+            verification: "reported"
+            command_id: 13
+            value: [0xef, 0xdd, 0x0d, 0x00, 0x02, 0x00, 0x02]
+          set_unit:
+            description: "Setting change, item 0 (unit): 2 grams, 5 ounces."
+            verification: "reported"
+            command_id: 10
+            template: [0xef, 0xdd, 0x0a, 0x00, 0x00, "{unit}", "{unit}", 0x00]
+            parameters:
+              unit:
+                type: "uint8"
+                allowed: [2, 5]
+                labels: ["grams", "ounces"]
+                default: 2
+          set_auto_off:
+            description: "Setting change, item 1 (sleep timer index): 0 off, 1-5 = 5/10/20/30/60 min."
+            verification: "reported"
+            command_id: 10
+            template: [0xef, 0xdd, 0x0a, 0x00, 0x01, "{index}", "{index}", 0x01]
+            parameters:
+              index:
+                type: "uint8"
+                min: 0
+                max: 5
+                labels: ["off", "5 min", "10 min", "20 min", "30 min", "60 min"]
+          set_key_sound:
+            description: "Setting change, item 5 (button beep): 0 off, 1 on."
+            verification: "reported"
+            command_id: 10
+            template: [0xef, 0xdd, 0x0a, 0x00, 0x05, "{sound}", "{sound}", 0x05]
+            parameters:
+              sound:
+                type: "uint8"
+                min: 0
+                max: 1
+                labels: ["off", "on"]
+          set_key_disable:
+            description: "Setting change, item 2: disable the buttons for this many seconds (0 re-enables)."
+            verification: "reported"
+            command_id: 10
+            template: [0xef, 0xdd, 0x0a, 0x00, 0x02, "{seconds}", "{seconds}", 0x02]
+            parameters:
+              seconds:
+                type: "uint8"
+                min: 0
+                max: 255
+                unit: "s"
+          set_capacity:
+            description: "Setting change, item 4 (maximum weight): 0 = 1000 g, 1 = 2000 g."
+            verification: "reported"
+            command_id: 10
+            template: [0xef, 0xdd, 0x0a, 0x00, 0x04, "{capacity}", "{capacity}", 0x04]
+            parameters:
+              capacity:
+                type: "uint8"
+                min: 0
+                max: 1
+                labels: ["1000 g", "2000 g"]
+
+features:
+  - type: "firmware_update"
+    dfu:
+      mechanisms: ["vendor_ble"]
+      transport: "ble"
+      image:
+        signing: "unknown"
+        source: "vendor_cloud"
+        notes: >
+          Updates go over Bluetooth from Acaia's separate updater apps
+          (Pearl Updater for the original Pearl, Acaia Updater for every
+          other model), which download the image themselves. The app
+          examined here carries no firmware image and no firmware URL.
+          Image format and signing are not known.
+      enter:
+        how: "button"
+        notes: >
+          From Acaia's manuals and help centre, not tried here. Newer
+          models (Pearl 2021, Pearl S, Lunar 2021) switch to update mode
+          when the updater app asks, which implies an entry command this
+          spec does not have. The Lunar 2021 then shows "Confirm?" and
+          waits for a tap of Tare before the transfer starts. On the
+          original Pearl with firmware 1.83 or later, the updater's request
+          makes the scale show F.u. 2, and a long press of Tare confirms.
+          The button route is the one fallback every model documents.
+          Newer models take a soft reset, or holding Power while plugging
+          in USB. Older Pearl and Lunar firmware go through the settings
+          passcode prompt with an update code; Acaia's firmware-update
+          article gives the code for each firmware line, and it is not
+          repeated here. On the protocol side, the framed protocol reserves
+          an ISP command (9, fixed 15-byte payload), a file-transfer command
+          (14, variable) and ISP success/fail ack results, and the ISSC
+          module has an air-patch characteristic
+          (49535343-aca3-481c-91ec-d85e28a60318). Which of these the updater
+          uses is not established. The app examined never sends them, and
+          no bytes are given.
+      dfu_mode:
+        notes: >
+          The display shows UPdAtE (UPDATE on the Pearl S, ISP on Pearl
+          firmware 1.3 and older), and a status LED blinks while data
+          moves. Connecting USB power leaves update mode. Acaia says the
+          Pearl 2021 powers itself off if no update starts shortly. The
+          advertised name and address in update mode are not recorded.
+      recovery:
+        interrupted: "stays_in_bootloader"
+        notes: >
+          Acaia's help centre says an interrupted update (typically from
+          plugging in USB power mid-transfer) leaves the scale in update
+          mode, sometimes with a blank display. The fix it gives is to
+          force-quit the updater, re-enter update mode by holding Power
+          while plugging in USB, and run the update again. The Pyxis Black
+          manual gives a different way out: hold Power for about 50 s until
+          the scale turns off, then enter update mode again from its
+          settings menu. That is the vendor's account; it has not been
+          tested here.
+      verification: "reported"
+      notes: >
+        Treat commands 9 and 14 and the air-patch characteristic as advanced
+        and out of bounds for a generic client: sending partial or wrong
+        firmware bytes is the one thing in this protocol that can leave a
+        scale unusable. A replacement client can only send owners to
+        Acaia's updater apps.
+
+entities:
+  # ---- ISSC-module scales -------------------------------------------------
+  - platform: "sensor"
+    name: "Weight"
+    device_class: "weight"
+    unit: "g"
+    variants: ["ISSC-module scales (Lunar 2021, Pearl S, Pyxis)"]
+    state_characteristic: "49535343-1e4d-4bd9-ba61-23c647249616"
+    notes: >
+      Decode weight_raw / 10^decimal_places, negate when `negative` is set.
+      No state_mapping: the decimal-places scaling has no schema field, and
+      binding weight_raw would publish raw counts. The unit is grams unless
+      the status frame reports ounces (unit code 5).
+  - platform: "sensor"
+    name: "Battery"
+    device_class: "battery"
+    unit: "%"
+    variants: ["ISSC-module scales (Lunar 2021, Pearl S, Pyxis)"]
+    state_characteristic: "49535343-1e4d-4bd9-ba61-23c647249616"
+    notes: >
+      From a battery event (type 6, one byte, percent) or the status frame
+      (low 7 bits of its first data byte). Neither is at a fixed offset of a
+      notification, so there is no state_mapping.
+  - platform: "sensor"
+    name: "Timer"
+    device_class: "duration"
+    unit: "s"
+    variants: ["ISSC-module scales (Lunar 2021, Pearl S, Pyxis)"]
+    state_characteristic: "49535343-1e4d-4bd9-ba61-23c647249616"
+    notes: "Timer event (type 7): minutes, seconds, tenths; value = min x 60 + s + tenths / 10."
+  - platform: "button"
+    name: "Tare"
+    variants: ["ISSC-module scales (Lunar 2021, Pearl S, Pyxis)"]
+    command_characteristic: "49535343-8841-43f4-a8d4-ecbe34729bb3"
+    commands:
+      press: "tare"
+  - platform: "button"
+    name: "Start Timer"
+    variants: ["ISSC-module scales (Lunar 2021, Pearl S, Pyxis)"]
+    command_characteristic: "49535343-8841-43f4-a8d4-ecbe34729bb3"
+    commands:
+      press: "timer_start"
+  - platform: "button"
+    name: "Pause Timer"
+    variants: ["ISSC-module scales (Lunar 2021, Pearl S, Pyxis)"]
+    command_characteristic: "49535343-8841-43f4-a8d4-ecbe34729bb3"
+    commands:
+      press: "timer_pause"
+  - platform: "button"
+    name: "Reset Timer"
+    variants: ["ISSC-module scales (Lunar 2021, Pearl S, Pyxis)"]
+    command_characteristic: "49535343-8841-43f4-a8d4-ecbe34729bb3"
+    commands:
+      press: "timer_reset"
+  - platform: "select"
+    name: "Weight Unit"
+    variants: ["ISSC-module scales (Lunar 2021, Pearl S, Pyxis)"]
+    command_characteristic: "49535343-8841-43f4-a8d4-ecbe34729bb3"
+    commands:
+      select_option: "set_unit"
+    notes: "Current value is the unit code in the status frame (2 grams, 5 ounces). Settings write, partial: see protocol_details.settings."
+  - platform: "select"
+    name: "Auto-Off"
+    variants: ["ISSC-module scales (Lunar 2021, Pearl S, Pyxis)"]
+    command_characteristic: "49535343-8841-43f4-a8d4-ecbe34729bb3"
+    commands:
+      select_option: "set_auto_off"
+    notes: "Settings write, partial: see set_auto_off. Current index is in the status frame."
+  - platform: "switch"
+    name: "Key Sound"
+    variants: ["ISSC-module scales (Lunar 2021, Pearl S, Pyxis)"]
+    command_characteristic: "49535343-8841-43f4-a8d4-ecbe34729bb3"
+    commands:
+      turn_on: {command: "set_key_sound", values: {sound: 1}}
+      turn_off: {command: "set_key_sound", values: {sound: 0}}
+    notes: "Current state is the beep byte of the status frame. Settings write, partial: see protocol_details.settings."
+
+  # ---- 0x1820-service scales ----------------------------------------------
+  - platform: "sensor"
+    name: "Weight"
+    device_class: "weight"
+    unit: "g"
+    variants: ["0x1820-service scales (pre-2021 Lunar, Pearl)"]
+    state_characteristic: "00002a80-0000-1000-8000-00805f9b34fb"
+    notes: >
+      Same weight event as on the ISSC module, but frames may be split
+      across notifications: reassemble before decoding.
+  - platform: "sensor"
+    name: "Battery"
+    device_class: "battery"
+    unit: "%"
+    variants: ["0x1820-service scales (pre-2021 Lunar, Pearl)"]
+    state_characteristic: "00002a80-0000-1000-8000-00805f9b34fb"
+    notes: "Battery event (type 6) or status frame; see the ISSC entity."
+  - platform: "sensor"
+    name: "Timer"
+    device_class: "duration"
+    unit: "s"
+    variants: ["0x1820-service scales (pre-2021 Lunar, Pearl)"]
+    state_characteristic: "00002a80-0000-1000-8000-00805f9b34fb"
+    notes: "Timer event (type 7): minutes, seconds, tenths."
+  - platform: "button"
+    name: "Tare"
+    variants: ["0x1820-service scales (pre-2021 Lunar, Pearl)"]
+    command_characteristic: "00002a80-0000-1000-8000-00805f9b34fb"
+    commands:
+      press: "tare"
+  - platform: "button"
+    name: "Start Timer"
+    variants: ["0x1820-service scales (pre-2021 Lunar, Pearl)"]
+    command_characteristic: "00002a80-0000-1000-8000-00805f9b34fb"
+    commands:
+      press: "timer_start"
+  - platform: "button"
+    name: "Pause Timer"
+    variants: ["0x1820-service scales (pre-2021 Lunar, Pearl)"]
+    command_characteristic: "00002a80-0000-1000-8000-00805f9b34fb"
+    commands:
+      press: "timer_pause"
+  - platform: "button"
+    name: "Reset Timer"
+    variants: ["0x1820-service scales (pre-2021 Lunar, Pearl)"]
+    command_characteristic: "00002a80-0000-1000-8000-00805f9b34fb"
+    commands:
+      press: "timer_reset"
+  - platform: "select"
+    name: "Weight Unit"
+    variants: ["0x1820-service scales (pre-2021 Lunar, Pearl)"]
+    command_characteristic: "00002a80-0000-1000-8000-00805f9b34fb"
+    commands:
+      select_option: "set_unit"
+  - platform: "select"
+    name: "Auto-Off"
+    variants: ["0x1820-service scales (pre-2021 Lunar, Pearl)"]
+    command_characteristic: "00002a80-0000-1000-8000-00805f9b34fb"
+    commands:
+      select_option: "set_auto_off"
+  - platform: "switch"
+    name: "Key Sound"
+    variants: ["0x1820-service scales (pre-2021 Lunar, Pearl)"]
+    command_characteristic: "00002a80-0000-1000-8000-00805f9b34fb"
+    commands:
+      turn_on: {command: "set_key_sound", values: {sound: 1}}
+      turn_off: {command: "set_key_sound", values: {sound: 0}}
+
+protocol_details:
+  framing:
+    description: >
+      One frame layout in both directions and on both attribute sets.
+      Offsets are from the start of the frame.
+    layout:
+      - {offset: 0, length: 2, name: "header", value: [0xef, 0xdd]}
+      - {offset: 2, length: 1, name: "command_id", notes: "See command_ids."}
+      - {offset: 3, length: "n", name: "payload", notes: "Fixed length per command id, or variable: then payload[0] is a length byte that counts itself."}
+      - {offset: "3+n", length: 1, name: "checksum_even", notes: "Sum of payload[0], payload[2], payload[4]... mod 256."}
+      - {offset: "4+n", length: 1, name: "checksum_odd", notes: "Sum of payload[1], payload[3], payload[5]... mod 256."}
+    checksum:
+      algorithm: "two independent additive sums over the payload only; header and command id excluded"
+      byte_order: "even-offset sum first, odd-offset sum second"
+      sources: >
+        pyacaia encode() and AcaiaArduinoBLE's precomputed frames agree, and
+        the vendor app's packet builder and parser compute the same thing
+        (the parser compares the two bytes as one big-endian 16-bit value,
+        even sum high).
+      schema_gap: >
+        No `auto` checksum role in the schema describes two interleaved
+        sums, so every command above is a precomputed `value`, except the
+        setting writes, whose checksum reduces to copies of their own bytes.
+    receive_rules:
+      - "Search for 0xEF 0xDD; discard anything before it."
+      - "Read the command id. Look its payload length up in command_ids; if variable, the next byte is the length n and counts itself."
+      - "Wait until 5 + n bytes are buffered, verify both checksum bytes, then dispatch. pyacaia's rule: frame end = start + payload[0] + 5 for variable frames."
+      - "The vendor app's parser gives up on payloads longer than 20 bytes."
+      - "Bytes after a frame that are not 0xEF 0xDD are noise (the vendor app pads its own writes with zeros)."
+
+  command_ids:
+    description: >
+      The 18 command ids of the framed protocol. `to` is the direction as
+      the vendor app's naming implies (to_scale, to_app or both);
+      `payload_bytes` is the fixed payload length, or "variable". Only the
+      ones marked sent_by_vendor_app are ever written by the app examined.
+    table:
+      - {id: 0, role: "system message (keep-alive, ack, Bluetooth message)", to: "both", payload_bytes: "variable", sent_by_vendor_app: true, notes: "App sends 02 00 (alive). System message codes: 0 alive, 1 ack, 2 Bluetooth message."}
+      - {id: 1, role: "string message", to: "both", payload_bytes: "variable", sent_by_vendor_app: false, notes: "String types: 0 error, 1 warning, 2 ok, 3 debug. The app ignores incoming ones."}
+      - {id: 2, role: "battery", to: "to_scale", payload_bytes: 1, sent_by_vendor_app: false}
+      - {id: 3, role: "weight", to: "to_scale", payload_bytes: 2, sent_by_vendor_app: false}
+      - {id: 4, role: "tare", to: "to_scale", payload_bytes: 1, sent_by_vendor_app: true}
+      - {id: 5, role: "custom", to: "both", payload_bytes: "variable", sent_by_vendor_app: false}
+      - {id: 6, role: "status request", to: "to_scale", payload_bytes: 1, sent_by_vendor_app: true}
+      - {id: 7, role: "info (scale identifies itself; app answers with identify)", to: "to_app", payload_bytes: "variable", sent_by_vendor_app: false, notes: "Carries ISP and firmware version numbers; field order not established."}
+      - {id: 8, role: "status report", to: "to_app", payload_bytes: "variable", sent_by_vendor_app: false, notes: "Layout in status_frame."}
+      - {id: 9, role: "ISP (firmware update)", to: "to_scale", payload_bytes: 15, sent_by_vendor_app: false, advanced: true, advanced_reason: "Enters or drives firmware programming; wrong or partial bytes can leave the scale unusable. Role only, no payload documented."}
+      - {id: 10, role: "setting change", to: "to_scale", payload_bytes: 3, sent_by_vendor_app: true, notes: "Payload 00, item, value; see settings."}
+      - {id: 11, role: "identify", to: "to_scale", payload_bytes: 15, sent_by_vendor_app: true}
+      - {id: 12, role: "event (subscription to the scale, reports to the app)", to: "both", payload_bytes: "variable", sent_by_vendor_app: true}
+      - {id: 13, role: "timer", to: "to_scale", payload_bytes: 2, sent_by_vendor_app: true, notes: "Payload 00, action: 0 start, 1 stop (zero), 2 pause (hold), 3 start on weight."}
+      - {id: 14, role: "file transfer", to: "to_scale", payload_bytes: "variable", sent_by_vendor_app: false, advanced: true, advanced_reason: "Believed to carry firmware images alongside ISP; can leave the scale unusable. Role only."}
+      - {id: 15, role: "set link password", to: "to_scale", payload_bytes: 15, sent_by_vendor_app: false, advanced: true, advanced_reason: "Locks the scale behind a password; a scale whose password is forgotten may not be recoverable without the vendor. Role only; ack results 2/3 report success/failure."}
+      - {id: 16, role: "piece-count weight", to: "to_scale", payload_bytes: "variable", sent_by_vendor_app: false}
+      - {id: 17, role: "pre-tare", to: "to_scale", payload_bytes: "variable", sent_by_vendor_app: false}
+
+  events:
+    description: >
+      Command 12 carries events. Its payload is a length byte (counting
+      itself) followed by one or more events, each a type byte and that
+      type's fixed-size data. A client reads events until the length is
+      used up. Types 0-4 are the subscription side (what the client asks
+      for); 5-11 are what the scale reports.
+    subscription_types:
+      - {type: 0, event: "weight", argument_bytes: 1}
+      - {type: 1, event: "battery", argument_bytes: 1}
+      - {type: 2, event: "timer", argument_bytes: 1}
+      - {type: 3, event: "key", argument_bytes: 0}
+      - {type: 4, event: "setting", argument_bytes: 0}
+    report_types:
+      - {type: 5, event: "weight", data_bytes: 6, layout: "weight_event"}
+      - {type: 6, event: "battery", data_bytes: 1, notes: "Battery percent, 0-100."}
+      - {type: 7, event: "timer", data_bytes: 3, layout: "timer_event"}
+      - {type: 8, event: "key", data_bytes: 1, notes: "Key id (key_ids), usually followed in the same frame by a weight and/or timer event."}
+      - {type: 9, event: "setting", data_bytes: 2, notes: "Not decoded by the app examined."}
+      - {type: 10, event: "countdown", data_bytes: 3, notes: "Not decoded by the app examined."}
+      - {type: 11, event: "ack", data_bytes: 2, layout: "ack_event", notes: "Often followed in the same frame by a weight (type 5) or timer (type 7) event; pyacaia and Beanconqueror call this the heartbeat response."}
+
+  weight_event:
+    description: "Six data bytes after the type byte 0x05."
+    fields:
+      - {offset: 0, length: 4, name: "magnitude", type: "uint32", endianness: "little"}
+      - {offset: 4, length: 1, name: "decimal_places", type: "uint8", notes: "1-4. value = magnitude / 10^decimal_places."}
+      - {offset: 5, length: 1, name: "flags", type: "uint8", notes: "bit 0: 1 = unstable; bit 1: 1 = negative; bits 2-7: weight type (0 net, 1 pw, 2 tare)."}
+    decode: "weight = (-1 if flags & 0x02 else 1) * magnitude / 10 ** decimal_places, in the scale's current unit (status frame)."
+    bit_order_basis: >
+      The app declares the flag fields in the order stable, sign, type;
+      every open implementation tests 0x02 for the sign, which fixes the
+      packing as least-significant-bit first and puts the stable flag at
+      0x01.
+    vendor_app_quirks:
+      - "For scales named PYXIS or CINCO the app ignores decimal_places and divides by 100 in grams, 10000 in ounces."
+      - "The app suppresses readings of exactly 9999.0, readings beyond +/-3000, the first reading below -5, and the first near-zero reading after a non-zero one. That is display filtering, not protocol; a client need not copy it."
+
+  timer_event:
+    fields:
+      - {offset: 0, length: 1, name: "minutes", type: "uint8", unit: "min"}
+      - {offset: 1, length: 1, name: "seconds", type: "uint8", unit: "s"}
+      - {offset: 2, length: 1, name: "tenths", type: "uint8", notes: "Tenths of a second."}
+    decode: "seconds = minutes * 60 + seconds + tenths / 10 (the vendor app adds 0.2 s for transit)."
+
+  ack_event:
+    fields:
+      - {offset: 0, length: 1, name: "ack_id", type: "uint8"}
+      - {offset: 1, length: 1, name: "result", type: "uint8", notes: "bits 0-4 result type, bits 5-7 result value (same LSB-first packing as the weight flags)."}
+    result_types: {0: "command", 1: "timer", 2: "unit", 3: "sleep", 4: "key disable", 5: "resolution", 6: "capacity"}
+    command_results: {0: "weight command ok", 1: "battery command ok", 2: "set password ok", 3: "set password failed", 4: "tare done", 5: "ISP ok", 6: "ISP failed", 7: "alive (keep-alive acknowledged)"}
+    timer_results: {0: "start", 1: "pause", 2: "stop", 3: "start on weight"}
+    notes: "The app only checks for result type 0 with value 7 (keep-alive acknowledged)."
+
+  key_ids:
+    description: "Data byte of a key event (type 8): which button action happened on the scale."
+    values: {0: "tare", 1: "ISP mode", 2: "weighing mode", 3: "timer-and-weight mode", 4: "timer mode", 5: "unit kg", 6: "unit lb", 7: "unit oz", 8: "timer start", 9: "timer stop (zero)", 10: "timer pause", 11: "countdown start", 12: "countdown stop", 13: "countdown pause"}
+    open_implementation_view: >
+      pyacaia and Beanconqueror decode key 0 and 8 followed by a weight
+      event, and 9 and 10 followed by a timer event and a weight event
+      (they call 9 "reset" and 10 "stop").
+
+  status_frame:
+    description: >
+      Command 8 payload (variable). The app decodes the first nine bytes;
+      pyacaia and Beanconqueror index up to payload[9], so some firmware
+      sends at least ten.
+    fields:
+      - {payload_offset: 0, name: "length", notes: "Counts itself."}
+      - {payload_offset: 1, name: "battery", mask: 0x7f, unit: "%"}
+      - {payload_offset: 1, name: "timer_running", mask: 0x80, notes: "Polarity not established."}
+      - {payload_offset: 2, name: "unit", mask: 0x7f, values: {2: "g", 5: "oz"}, notes: "From the app's unit table: 0 off, 1 kg, 2 g, 3 lb, 4 ct, 5 oz, then troy ounce, grain, piece count, percent."}
+      - {payload_offset: 2, name: "countdown_running", mask: 0x80}
+      - {payload_offset: 3, name: "scale_mode", mask: 0x7f}
+      - {payload_offset: 3, name: "tare_flag", mask: 0x80}
+      - {payload_offset: 4, name: "sleep_index", notes: "0 off, 1-5 = 5/10/20/30/60 min. pyacaia multiplies this by 5, which disagrees above index 2."}
+      - {payload_offset: 5, name: "key_disable", unit: "s"}
+      - {payload_offset: 6, name: "beep", values: {0: "off", 1: "on"}}
+      - {payload_offset: 7, name: "resolution", notes: "Only 0 = default is named."}
+      - {payload_offset: 8, name: "capacity", values: {0: "1000 g", 1: "2000 g"}}
+
+  settings:
+    description: >
+      Setting-change items for command 10 (payload 00, item, value). The
+      item and value tables are the vendor app's; settings writes are
+      partial because only the items the app offers are named, the newer
+      models' behaviour is unknown, and resolution has no value table.
+    items:
+      - {item: 0, setting: "unit", values: {2: "grams", 5: "ounces"}}
+      - {item: 1, setting: "sleep timer", values: {0: "off", 1: "5 min", 2: "10 min", 3: "20 min", 4: "30 min", 5: "60 min"}}
+      - {item: 2, setting: "key disable", notes: "Seconds; app sends 60 or 0."}
+      - {item: 3, setting: "resolution", notes: "Only 0 = default is named; the manuals offer Default/High (Pearl S also Low). Not declared as a command."}
+      - {item: 4, setting: "capacity", values: {0: "1000 g", 1: "2000 g"}}
+      - {item: 5, setting: "beep", values: {0: "off", 1: "on"}}
+
+  keepalive:
+    frame: [0xef, 0xdd, 0x00, 0x02, 0x00, 0x02, 0x00]
+    recommended_interval_ms: 2000
+    observed_intervals_ms: {vendor_app: 3000, acaiaarduinoble: 2750, pyacaia_bluepy: 1000, pyacaia_pygatt: 5000}
+    scale_timeout: "not established"
+    newer_app_behaviour: >
+      pyacaia's comments say a newer official app sends identify, heartbeat
+      and a status request together once a second to the Pyxis, and that the
+      plain heartbeat every 5 s also works. Beanconqueror likewise re-sends
+      identify with each heartbeat on the ISSC module.
+
+  first_generation:
+    description: >
+      The first-generation Pearl and Lunar material, kept apart from the
+      framed protocol above. Two different things carry the label: the
+      0x1820/0x2a80 attribute set, which the older scales still expose and
+      which carries the FRAMED protocol in every client examined; and an
+      older obfuscated framing with its own smaller command set, which the
+      vendor app files beside the 0x1820 attribute names but never selects.
+      The app keeps three protocol-version slots: this legacy framing, an
+      empty placeholder for an intermediate version, and the framed
+      protocol, which is the only one it ever instantiates.
+    attribute_set:
+      service: "00001820-0000-1000-8000-00805f9b34fb"
+      characteristic: "00002a80-0000-1000-8000-00805f9b34fb"
+      notes: >
+        One characteristic, written and notified. In the app examined and in
+        every open implementation this set carries the same framed protocol
+        as the ISSC module; the vendor app routes names that do not match the
+        ISSC list (ACAIA, PROCHBT, INFOS) here. On this set the vendor app
+        subscribes 500 ms after service discovery, writes without response,
+        and sends identify only in reply to the scale's info message.
+    legacy_framing:
+      status: "present in the vendor app, never selected by it"
+      description: >
+        An older protocol from the original Pearl era, reached only through
+        a code path this build never takes (it always asks for the framed
+        protocol above). Which hardware, if any, still speaks it is not
+        established. It is recorded so the next person recognises it, not
+        so a client implements it.
+      frame: >
+        0xDF 0x78, length (= payload length + 5), command, a counter byte
+        (the app pins it to 1), a byte the app always sets to 0x00, payload
+        length, the payload passed through a 256-entry byte-substitution
+        table after adding the counter to each byte, an 8-bit sum of the
+        bytes from the command through the encoded payload, then 0x00.
+        Replies decode through the inverse table.
+      substitution_table: >
+        Not reproduced. The table is the protocol's obfuscation key; it
+        lives in the vendor app and an owner with the app can recover it.
+      commands:
+        - {id: 0, role: "none"}
+        - {id: 1, role: "string"}
+        - {id: 2, role: "battery request (empty payload)"}
+        - {id: 3, role: "battery reply (1 byte)"}
+        - {id: 4, role: "weight request (3 bytes)"}
+        - {id: 5, role: "weight reply (7 bytes)"}
+        - {id: 6, role: "weight reply, long form (12 bytes)"}
+        - {id: 7, role: "tare (6 bytes)"}
+        - {id: 8, role: "sound (3 bytes)"}
+        - {id: 9, role: "sound on/off (1 byte)"}
+        - {id: 10, role: "light on (2 bytes)"}
+        - {id: 11, role: "file"}
+        - {id: 12, role: "custom (sub-command in the first payload byte)"}
+      extended_commands:
+        notes: >
+          A second copy of the table inside the legacy parser appends three
+          more ids. Their payload rules come from the parser's length check.
+        table:
+          - {id: 13, role: "info request (empty payload)"}
+          - {id: 14, role: "info reply (4 bytes)"}
+          - {id: 15, role: "ISP / firmware (empty payload)", advanced: true, advanced_reason: "Firmware-programming entry on the legacy framing; role only."}
+      custom_subcommands: {0: "key (0 tare, 1 zero)", 1: "unit", 2: "set setting", 3: "read setting", 4: "setting reply", 5: "timer start", 6: "timer pause", 7: "timer stop", 8: "timer read", 9: "timer reply", 10: "paused-timer reply", 11: "read A/D", 12: "A/D reply", 13: "countdown start", 14: "countdown pause", 15: "countdown stop", 16: "countdown read", 17: "countdown reply", 18: "paused-countdown reply"}
+      setting_ids: {0: "sleep", 1: "key disable", 2: "sound", 3: "resolution", 4: "capacity"}
+
+  test_vectors:
+    description: >
+      Checksum vectors are the real frames pyacaia and AcaiaArduinoBLE send.
+      The event frames are CONSTRUCTED from the layout above (not captured)
+      so a decoder can be checked before touching a scale.
+    checksum:
+      - {name: "identify", frame: "ef dd 0b 30 31 32 33 34 35 36 37 38 39 30 31 32 33 34 9a 6d"}
+      - {name: "event subscription", frame: "ef dd 0c 09 00 01 01 02 02 05 03 04 15 06"}
+      - {name: "heartbeat", frame: "ef dd 00 02 00 02 00"}
+      - {name: "set unit ounces", frame: "ef dd 0a 00 00 05 05 00"}
+    decode:
+      - {frame: "ef dd 0c 08 05 d2 04 00 00 01 00 db 09", expect: "weight event: 123.4 (grams by default), stable, net"}
+      - {frame: "ef dd 0c 08 05 34 00 00 00 01 02 3d 07", expect: "weight event: -5.2, stable"}
+      - {frame: "ef dd 0c 08 05 39 30 00 00 02 00 43 35", expect: "weight event: 123.45 (two decimals, as a Pyxis sends)"}
+      - {frame: "ef dd 0c 05 07 01 05 03 09 0c", expect: "timer event: 1 min 5.3 s = 65.3 s"}
+      - {frame: "ef dd 0c 03 06 55 58 06", expect: "battery event: 85 %"}
+
+evidence:
+  app_static_analysis: >
+    The delisted Android app Acaia Coffee (version 2.5.10) was read
+    statically in 2026-09. It established both attribute sets and the
+    vendor's name-based routing between them, the write/notify direction on
+    the ISSC module, the frame builder and parser (header, per-command
+    lengths, two-lane checksum), the 18 command ids, the event and
+    result-code tables, the weight/timer/ack/status layouts, the settings
+    items and value indices, the handshake and heartbeat timing, and the
+    presence of an older obfuscated framing that the app never selects.
+    Negative findings: the app never sends commands 9, 14, 15, 16 or 17,
+    never writes the air-patch, control-point or connection-parameter
+    characteristics, carries no firmware image and no firmware URL, and
+    never bonds.
+  open_implementations: >
+    pyacaia, AcaiaArduinoBLE and Beanconqueror's Acaia driver were read for
+    the checksum rule, the identify/heartbeat/subscription frames, the
+    weight decode and the notification-splitting behaviour. They agree with
+    the app everywhere they overlap, except that all three read only 16 bits
+    of the weight magnitude and pyacaia reads the sleep byte as minutes / 5.
+  documentation_review: >
+    Acaia's own manuals (Lunar FW 2.6.020 and 2.6.005, Lunar 2021 FW
+    1.0.019 and 1.0.016, Pyxis FW 1.0.019, Pearl S FW 1.0.057, 2022 Pearl
+    S FW 1.0.009 and 1.0.007, Pearl 2021 FW 1.0.014, Pearl FW 2.0.010 and
+    1.8.390, Pyxis Black FW 1.0.2) supplied the model numbers, the
+    settings menu and its reset item, the Bluetooth on/off setting, the
+    sleep-timer option set (which matches the app's index table on every
+    model except the Pyxis Black), the firmware-update flow with its
+    on-scale confirmation, the update-mode display, and the password error
+    code with its 0000 default. Archived
+    Acaia help-centre articles supplied the one-to-one scale-to-app link,
+    the updater apps and each model's update-mode entry, and recovery from
+    an interrupted update. The READMEs of Acaia's binary SDKs gave the
+    supported models and the roughly 5 Hz weight stream.
+  open_questions: >
+    No capture exists. The scale-side heartbeat timeout, the meaning of the
+    event-subscription arguments, which identify string (if any) the scale
+    checks, whether the newer scales accept every settings write, and the
+    whole firmware-update and password paths are open.
+  artifacts:
+    - type: "static_analysis"
+      artifact: "Acaia Coffee for Android, version 2.5.10"
+      obtained_via: "a copy of the delisted Android release, 2026-09; the Play listing survives only in the Internet Archive"
+      description: >
+        Delisted vendor app. Source of the cross-checks and of the tables no
+        open implementation carries (command lengths, result codes, settings
+        items, the legacy framing's shape).
+    - type: "public_implementation"
+      artifact: "lucapinello/pyacaia at ffe76bdca84dfe7e16456ab01fa48bb1b951d4e3"
+      description: "Python client (bluepy/pygatt); checksum encoder, identify forms, heartbeat, event decode, status parse."
+    - type: "public_implementation"
+      artifact: "tatemazer/AcaiaArduinoBLE at 9c6c34420bf184eec7bb9a542c17d960d06d4443"
+      description: "ESP32 client; precomputed frames, heartbeat period, per-generation notification lengths, compatibility table."
+    - type: "public_implementation"
+      artifact: "graphefruit/Beanconqueror src/classes/devices/acaia at 52d64e2b91f14dede361d4f903815689dee681ea"
+      description: "Mobile app driver; stream decoder that agrees with pyacaia."
+    - type: "vendor_documentation"
+      description: >
+        Acaia user manuals for Lunar, Lunar 2021, Pyxis, Pearl, Pearl 2021
+        and Pearl S; archived help-centre articles on Bluetooth on/off and
+        firmware updates; the READMEs of Acaia's Android and iOS SDKs
+        (links in helpful_urls).
+    - type: "fcc_filing"
+      description: >
+        None found. No Acaia grantee turns up on the FCC ID aggregators and
+        no manual prints an FCC ID; the scales probably rely on the radio
+        module's modular grant.
+
+remaining_unknowns:
+  - "How long the scale tolerates a missing heartbeat before it stops streaming or disconnects."
+  - "What the event-subscription arguments mean (pyacaia guesses the timer argument is heartbeats between timer messages)."
+  - "Whether the scale checks the identify string at all; the digit and dash forms are both reported to work."
+  - "Whether the Lunar 2021, Pearl S and Pyxis accept the settings writes (unit, sleep, beep, key disable, capacity), and what the resolution item's values are."
+  - "Whether the scales advertise a service UUID, and which products advertise the INFOS and PROCHBT names."
+  - "Whether the one-to-one link Acaia's help centre describes is enforced by the scale (a second central refused) or only by the apps."
+  - "Whether the original (non-S) Pearl and the Pearl 2021 speak the framed protocol exactly as the Lunar and Pyxis do; no open implementation reports testing them."
+  - "The command the updater apps use to switch newer models into update mode."
+  - "The properties of the ISSC connection-parameter, control-point and air-patch characteristics."
+  - "The firmware-update sequence (ISP command 9, file transfer 14, air-patch characteristic), its image format and signing, and how an interrupted update recovers."
+  - "The set-password payload, whether the manuals' 0000 default password is the same thing, and whether Reset to Default clears it."
+  - "The info message (command 7) field layout, and the setting (type 9) and countdown (type 10) event layouts."
+  - "Which hardware, if any, still speaks the legacy obfuscated framing."
+  - "The polarity of the status frame's timer-running bit and the meaning of weight type 1."
+  - "Whether the Pyxis Black (APS001, Bluetooth 5.4) speaks this protocol at all. Its manual's sleep-timer options (10, 20, 30, 50 min, off) do not match the app's sleep index table (5, 10, 20, 30, 60 min, off), so set_auto_off indices are at least suspect on it."
+  - "Whether the 2022 Pearl S (PS003 / PS004) and the Lunar 2021 builds after FW 1.0.016 keep the framed protocol unchanged; no open implementation pins a firmware version for them."
+
+helpful_urls:
+  - title: "Acaia Lunar user manual, FW 2.6.020 (models AL001 / AL006 / AL007)"
+    url: "https://cdn.acaia.co/web/2026_doc/manual/Lunar/Lunar_MAN_AFBF26001_EN.pdf"
+    kind: "manual"
+    description: >
+      Vendor-hosted manual for the pre-2021 (Micro-USB) Lunar: settings menu
+      (sleep-timer options, Bluetooth on/off, Reset to Default) and error
+      codes including the 904 password error.
+  - title: "Acaia Lunar user manual, FW 2.6.005 (models AL001 / AL006)"
+    url: "https://cdn.acaia.co/web/doc/manuals/lunar/Lunar_MAN_AE7F2605_EN.pdf"
+    kind: "manual"
+    description: >
+      Older revision of the pre-2021 Lunar manual, for owners on that
+      firmware line; it also says the sleep timer only counts while no
+      phone is connected.
+  - title: "Acaia Lunar (2021) user manual, FW 1.0.019 (models AL008 / AL009 / AL010 / AL012 / AL013)"
+    url: "https://cdn.acaia.co/web/2026_doc/manual/Lunar2021/Lunar2021_MAN_AFBF19001_EN.pdf"
+    kind: "manual"
+    description: >
+      Vendor-hosted manual for the USB-C Lunar, including the firmware-update
+      flow through the Acaia Updater app with the on-scale Confirm? prompt,
+      bt_SEt and Reset to Default.
+  - title: "Acaia Lunar (2021) user manual, FW 1.0.016 (models AL008 / AL009 / AL010)"
+    url: "https://cdn.acaia.co/web/2024_doc/manual/lunar2021/Lunar2021_MAN_AEAF16001_EN.pdf"
+    kind: "manual"
+    description: >
+      Earlier revision of the 2021 Lunar manual, matching the firmware
+      AcaiaArduinoBLE lists as tested.
+  - title: "Acaia Pyxis user manual, FW 1.0.019 (2019 Pyxis, model AC002)"
+    url: "https://cdn.acaia.co/web/2022_doc/manual/Pyxis/Pyxis_MAN_AE9F01901_EN.pdf"
+    kind: "manual"
+    description: >
+      Vendor-hosted manual for the original Pyxis that pyacaia and
+      AcaiaArduinoBLE were tested on: settings entry, Reset to Default,
+      update-mode display, 904 password error.
+  - title: "Acaia Pyxis Black user manual, FW 1.0.2 (model APS001)"
+    url: "https://cdn.acaia.co/web/2025_doc/manual/pyxis/pyxis_MAM_AECF102005_EN.pdf"
+    kind: "manual"
+    description: >
+      Vendor-hosted manual for the current Pyxis Black (Bluetooth 5.4), a
+      newer model than the 2019 Pyxis: countdown-style settings entry, Reset
+      to Default, firmware update from the settings menu, and the 50 s
+      Power hold that leaves a stuck update mode. Whether it keeps this
+      protocol is not established.
+  - title: "Acaia Pearl user manual, FW 2.0.010 (original Pearl, models AP001AT / AP004AT)"
+    url: "https://cdn.acaia.co/web/2026_doc/manual/Pearl/Pearl_MAN_AE10F20003_EN.pdf"
+    kind: "manual"
+    description: >
+      Vendor-hosted manual for the original Pearl: the F.0000 passcode entry
+      to Settings, bt_SEt, Reset to Default and the 900 passcode error.
+  - title: "Acaia Pearl operation manual, FW 1.8.390 (original Pearl)"
+    url: "https://cdn.acaia.co/web/doc/manuals/pearl/manual/Pearl_MAN_AE7F1804_En.pdf"
+    kind: "manual"
+    description: >
+      Vendor-hosted manual for the original Pearl's 1.8 firmware line:
+      F.0000 setup-mode entry, no Reset to Default item, 904 password error.
+  - title: "Acaia Pearl (2021) user manual, FW 1.0.014 (models AP007 / AP008 / AP009)"
+    url: "https://cdn.acaia.co/web/2026_doc/manual/Pearl_2021/Pearl2021_MAN_AFBF14001_EN.pdf"
+    kind: "manual"
+    description: >
+      Vendor-hosted manual for the 2021 Pearl (Bluetooth 5.0, USB-C):
+      settings entry, bt_SEt and Reset to Default.
+  - title: "Acaia Pearl Model S user manual, FW 1.0.057 (models PS001 / PS002)"
+    url: "https://cdn.acaia.co/web/2026_doc/manual/Pearl_S/PearlS_MAN_AFBF57001_EN.pdf"
+    kind: "manual"
+    description: >
+      Vendor-hosted manual for the original (Micro-USB) Pearl S: settings,
+      Bluetooth setting, update-mode display.
+  - title: "Acaia Pearl Model S (2022) user manual, FW 1.0.009 (models PS003 / PS004)"
+    url: "https://cdn.acaia.co/web/2026_doc/manual/Pearl_S_2022/PearlS2022_MAN_AFBF09001_EN.pdf"
+    kind: "manual"
+    description: >
+      Vendor-hosted manual for the USB-C Pearl S: word-based settings menu,
+      Bluetooth setting (default on) and what Reset to Default clears.
+  - title: "Acaia manual index: Lunar"
+    url: "https://acaia.co/pages/lunar-manuals"
+    kind: "vendor_support"
+    description: "Vendor page listing every Lunar manual by firmware version and language."
+  - title: "Acaia manual index: Pearl"
+    url: "https://acaia.co/pages/pearl-manuals"
+    kind: "vendor_support"
+    description: "Vendor page listing the Pearl manuals."
+  - title: "Acaia manual index: Pearl S"
+    url: "https://acaia.co/pages/pearls-manuals"
+    kind: "vendor_support"
+    description: "Vendor page listing the Pearl S manuals."
+  - title: "Acaia manual index: Pyxis"
+    url: "https://acaia.co/pages/pyxis-manuals"
+    kind: "vendor_support"
+    description: "Vendor page listing the Pyxis manuals (now the Pyxis Black only)."
+  - title: "Acaia help centre: How to update your scale's firmware (archived)"
+    url: "https://web.archive.org/web/20231129174656/https://help.acaia.co/hc/en-us/articles/207391486-How-to-update-your-scale-s-firmware"
+    kind: "vendor_support"
+    description: >
+      Which updater app each model uses and how each model enters update
+      mode. The live help centre sits behind a bot challenge.
+  - title: "Acaia help centre: The firmware update failed, or the scale is stuck in Update mode (archived)"
+    url: "https://web.archive.org/web/20191117151329/https://help.acaia.co/hc/en-us/articles/207727653-The-firmware-update-failed-or-the-scale-is-stuck-in-Update-mode"
+    kind: "vendor_support"
+    description: "Vendor recovery steps for an interrupted update on the Lunar and Pearl."
+  - title: "Acaia help centre: How to turn on and off your scale's Bluetooth capability (archived)"
+    url: "https://web.archive.org/web/20191117151323/https://help.acaia.co/hc/en-us/articles/213995583-How-to-turn-on-off-your-scale-s-Bluetooth-capability"
+    kind: "vendor_support"
+    description: "Source of the one-to-one scale-to-app link and the close-every-app recovery step."
+  - title: "Acaia help centre: How do I get my scale's firmware version? (archived)"
+    url: "https://web.archive.org/web/20230529113439/https://help.acaia.co/hc/en-us/articles/204974509-How-do-I-get-my-scale-s-firmware-version-"
+    kind: "vendor_support"
+    description: "How the Pearl and Lunar show their firmware version at power-on, with the version strings for each line."
+  - title: "pyacaia: __init__.py"
+    url: "https://github.com/lucapinello/pyacaia/blob/ffe76bdca84dfe7e16456ab01fa48bb1b951d4e3/pyacaia/__init__.py"
+    kind: "implementation"
+    description: >
+      Python client, pinned at the commit read. Checksum encoder, both
+      identify forms, heartbeat, event subscription, weight/timer/key decode
+      and the status parse.
+  - title: "AcaiaArduinoBLE: AcaiaArduinoBLE.cpp"
+    url: "https://github.com/tatemazer/AcaiaArduinoBLE/blob/9c6c34420bf184eec7bb9a542c17d960d06d4443/AcaiaArduinoBLE.cpp"
+    kind: "implementation"
+    description: >
+      ESP32 client used in brew-by-weight espresso setups, pinned at the
+      commit read. Precomputed frames, the 2.75 s heartbeat, the
+      per-generation notification lengths and a per-model compatibility
+      table in its README.
+  - title: "Beanconqueror: Acaia decoder"
+    url: "https://github.com/graphefruit/Beanconqueror/blob/52d64e2b91f14dede361d4f903815689dee681ea/src/classes/devices/acaia/decoder.ts"
+    kind: "implementation"
+    description: "Stream decoder from a production iOS/Android coffee app, pinned at the commit read."
+  - title: "Acaia SDK for Android (official, binary)"
+    url: "https://github.com/acaia/acaia_sdk_android"
+    kind: "implementation"
+    description: >
+      Acaia's own connectivity SDK: a prebuilt library and an example app
+      for scan, connect, tare, timer and weight. Useful as the vendor's
+      model list; it does not document the wire protocol.
+  - title: "Acaia SDK for iOS (official, binary)"
+    url: "https://github.com/acaia/acaia_sdk_ios"
+    kind: "implementation"
+    description: "The iOS counterpart: a prebuilt framework with Objective-C and Swift example apps."
+  - title: "LunarGateway"
+    url: "https://github.com/frowin/LunarGateway"
+    kind: "implementation"
+    description: "ESP32 gateway AcaiaArduinoBLE was ported from."
+  - title: "btscale"
+    url: "https://github.com/bpowers/btscale"
+    kind: "implementation"
+    description: "The JavaScript client pyacaia was based on."
+  - title: "Acaia Coffee on Google Play (archived listing)"
+    url: "https://web.archive.org/web/20260106123356/https://play.google.com/store/apps/details?id=com.acaia.coffeescale"
+    kind: "other"
+    description: "Internet Archive snapshot of the delisted vendor app's store page."
+  - title: "BOOKOO official BLE protocols"
+    url: "https://github.com/BooKooCode/OpenSource"
+    kind: "protocol_writeup"
+    description: >
+      Out of scope here: Bookoo scales use their own protocol, which the
+      vendor publishes. Linked because the same brew-by-weight setups
+      support both.

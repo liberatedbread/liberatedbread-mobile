@@ -8,6 +8,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- **Finer categories and better ways to find the right device.** Optional
+  `device.category_hierarchy` distinguishes LED displays from illumination,
+  laser distance measurement from environmental sensing, and health
+  measurements such as pulse oximetry, blood pressure and body composition,
+  without changing the legacy flat category used for icons. Optional `aliases`,
+  `distributors` and `companion_apps` carry retail names, manufacturer /
+  distributor / OEM roles and app-generation guidance into both generated
+  indexes; these fields do not loosen radio matching. LEDs2RAVE4 and Lunchbox
+  product names, makers and generation-specific design apps are now explicit,
+  and the two pixel backpacks are displays rather than lights.
+
+- **Beurer PO60 and BM92 setup and transfer corrections.** The PO60 uses a
+  random six-digit PIN on its own display and transfers stored summaries in a
+  short `SYNC` window, not a fixed manual PIN or a live-sample stream. An
+  existing Android HCI capture is recorded as capture evidence, not an
+  end-to-end hardware test. The BM92 guide now distinguishes post-measurement
+  saved-record transfer from cuff control / continuous pressure, documents
+  user selection and the manual-versus-app MEMORY hold-time difference, and
+  links the official BM92 and PO60 manuals.
+
 - **SmartThings owners with Home Assistant are pointed at LocalThings.** The
   SmartThings Hub v2 spec and guide now name
   [LocalThings](https://github.com/mbillow/localthings) (HACS, domain
@@ -102,6 +122,82 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   command objects are open, so a schema-driven consumer could have drawn a
   one-tap control for a write that sets more current than the wiring
   carries.
+- **Bluetooth Classic, first-class.** `device.protocol` gains
+  `bluetooth_classic` for BR/EDR devices — SPP printers, Classic OBD dongles,
+  headphone control channels, the Quin pill box — which until now were filed
+  as `ble` with a paragraph of apology or not filed at all. With it:
+  `device.transport: rfcomm | l2cap | hid`; a `bt_classic_inquiry` discovery
+  method (name, class of device, SDP service UUIDs, whether the device must be
+  put in discoverable mode); a `bt_classic_pairing` setup method for "pair it
+  from the host's Bluetooth settings"; `rfcomm` and `l2cap` on
+  `commands[].transport`, `rfcomm` on a setup step's `request.protocol` and
+  on a DFU `transport`; and a top-level
+  `bluetooth_classic` block that names the SDP profiles, which one carries the
+  control surface, whether its socket is opened **secure or insecure** (the
+  flag that decides whether a pairing dialog appears), and the serial stream's
+  framing and timing. Top-level `commands` on a byte-stream transport carry
+  the BLE `value`/`template`/`parameters` envelope and a `response` frame
+  (`prefix`, `length`, `format`), because RFCOMM has no message boundaries and
+  a protocol with no length field is splittable only that way. The block
+  counts as an access surface. Convention tests require a `device.pairing`
+  block and a `corebluetooth` `host_compatibility` verdict on every Classic
+  spec (CoreBluetooth has no RFCOMM; the vendor's iOS path is MFi or nothing)
+  and that the control profile states `secure`. New page
+  `docs/protocols/bluetooth-classic-common.md`; spec-format section; spec
+  evolution P17. `quin-pillcalendar` (Quin / Daviky A170 and A1310 pill boxes)
+  is the first spec written against it; `brother-ql-1110nwb`,
+  `obd2-bluetooth-adapter` and `obdlink-mx-plus` are migrated off their
+  workarounds. The mobile Rust `Protocol` enum preserves the value verbatim;
+  the app does not open RFCOMM sockets yet, and its BLE matcher does not yet
+  honour `ble_role`.
+  A same-day adversarial review then reshaped the stream half: frames the
+  device sends unprompted (`serial.unsolicited`), reply `correlation` and
+  `max_in_flight`, a real length-prefix description, hex `line_terminator` /
+  `prompt` / `command_terminator`, `rx_start_bytes` / `tx_start_bytes` and an
+  enumerated `resync`, `response.expected` for commands the device does not
+  answer, `initialization` steps that send a top-level `command`,
+  `bluetooth_classic.pairing` for a spec's second radio,
+  `bluetooth_classic.variants` and per-profile `variants`, `commands_from`
+  for a serial link that reuses a GATT characteristic's commands,
+  byte-envelope parameter vocabulary (`endianness`, `min_length`,
+  `max_length`, `allowed`, `labels`) on top-level commands, and
+  host-compatibility vocabulary for Classic verdicts (`link`, stack
+  `iobluetooth`, symptom `no_transport`, `cause: {missing_api}`, workaround
+  `vendor_mfi`). Inquiry matchers now narrow a name rather than OR with it.
+  Profile roles gain `media_control` and `undocumented`; DFU mechanisms gain
+  `vendor_serial`; setup steps take `l2cap` and a `command`.
+  Description-only initialization steps remain valid for handshakes whose
+  bytes cannot be declared, matching the field's documented contract.
+
+- **Thirty-five device specs and the November protocol follow-up.** New
+  Bluetooth Classic profiles cover 94Fifty basketball, AB Shutter remotes,
+  Anker soundcore, the Classic Beddit tracker and Brother P-touch Cube.
+  New BLE profiles cover Acaia, AC Infinity, Anova, Beddit 3/3.5, Blueair,
+  BlueDriver, Blueriiot, Boosted, Eurotronic, Even G1, Exway, Fisher-Price
+  Lumalou, Gocycle, Hestan Cue, HT36, HumsiENK, InMotion, Insta360, iopool,
+  Joule, Kinsa, LEGO Smart Play, Lippert OneControl, Marshall, Meizu MYVU,
+  Pix Backpack and Weber iGrill. Big Ass Fans gains separate firmware-3.x
+  protobuf and legacy SenseME profiles, selected by advertised capability
+  rather than product name. Furbo gains its TUTK V2/V3 and BLE-onboarding
+  map, with model-specific Furbo 2 RTSP and still-unproven offline credential
+  reuse stated honestly. Eye-Fi's expanded receiver research now covers
+  credentials, resume, TAR safety, direct mode and mounted-card records with
+  synthetic test vectors. Lutron and TP-Link scheduling, Truma strict-read
+  transport and Piaggio's Mini/offline boundaries are structured research
+  notes. AUTOBABA gains live GATT property evidence (but no display-command
+  claim), CHEF iQ separates bonding/ownership/probe registration, and Quin
+  gains its A170/A1310 manuals and discovery troubleshooting. Every new spec
+  is marked untested except for the specific evidence named in its testing
+  block; no owner identifiers, app keys or decompiled source are included.
+
+- **LOYPRO identity without the FFF0 collision.** The shared
+  `0000fff0-0000-1000-8000-00805f9b34fb` service is no longer an identity
+  signal anywhere in the catalogue: it activated 16 unrelated specs for
+  `LOY5265115155`. A separate `loypro-led-display` candidate now matches the
+  explicit LOY prefix and stays identify-only until read-only GATT/model
+  evidence arrives. JLX's secondary `fff3` channel and stock SIG services
+  are declared without assigning them a command role, and its guide now
+  reflects the live LDM330 evidence and BlueZ `0x2b3a` workaround.
 
 - **TV remote keys beyond the D-pad.** The entity `key` vocabulary gains
   `power_toggle` (the raw power key beside a stateful Power switch), the
@@ -407,6 +503,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- **AUTOBABA's secondary `5833ff…` service no longer has a maintenance-only
+  label.** The analyzed LOY SPACE display path uses `FFF0`; secondary-UUID
+  reports on other hardware range from SBH OTA to authenticated/ELS control.
+  Its role on this backpack remains unknown, so the spec and guide now reject
+  display, authentication and firmware writes there rather than implying one
+  unverified role.
 - **A misspelt command-parameter key is a validation error.** BLE and network
   command `parameters` objects are closed (`unevaluatedProperties: false`, so
   the `number_semantics` keys still count): `mx: 100` used to validate while

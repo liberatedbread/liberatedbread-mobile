@@ -1,0 +1,981 @@
+# AB Shutter 3 and generic Bluetooth HID shutter / page-turner remotes — Device Specification
+# Status: Spec Available. There is no vendor app to take apart: the family is a
+#         standard Bluetooth HID peripheral that the host operating system
+#         drives. Every device-specific fact below comes from three retail
+#         manuals (two shutter fobs, one of them an FCC exhibit, and a
+#         selfie-stick handle), a MobileRead thread and its companion Kindle
+#         page-turner guide, and a StackOverflow report, read against the
+#         published HID specifications. Nothing was captured and nothing was run
+#         against hardware by this project, so every device fact is `reported`.
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+
+device:
+  name: "AB Shutter 3 and generic Bluetooth HID shutter remotes"
+  manufacturer: "Various OEMs (YiChip-based AB Shutter 3, CamKix and unbranded clones)"
+  manufacturer_status: "active"
+  openness:
+    status: "open_by_design"
+    reverse_engineered: false
+    upstream_docs:
+      - url: "https://www.bluetooth.com/specifications/specs/human-interface-device-profile-1-1-1/"
+        title: "Bluetooth SIG: Human Interface Device Profile 1.1.1"
+        covers: >
+          The Classic HID link: the SDP record (service class 0x1124), the
+          L2CAP control and interrupt channels, report and boot protocol, the
+          transaction header on each report, and who reconnects to whom.
+      - url: "https://www.bluetooth.com/specifications/specs/hid-over-gatt-profile-1-0/"
+        title: "Bluetooth SIG: HID over GATT Profile 1.0"
+        covers: >
+          The BLE variants in protocol_details.ble_hid_variants: service
+          0x1812, its characteristics, the Battery and Device Information
+          services a HID device must also carry, and the bonding requirement.
+      - url: "https://usb.org/document-library/hid-usage-tables-17"
+        title: "USB-IF: HID Usage Tables 1.7"
+        covers: >
+          Every usage page and usage ID in protocol_details.hid_input_surface.key_map
+          (Keyboard/Keypad page 0x07, Consumer page 0x0c, Generic Desktop 0x01).
+    notes: >
+      The remote speaks nothing of its own. It is a Bluetooth HID device: its
+      SDP record carries its own report descriptor, and every host that has a
+      HID stack reads that descriptor and turns the reports into key events.
+      Nothing here had to be recovered. What this spec adds on top of the
+      standards is the part no standard says: which keys this family's buttons
+      send, how the clones differ, and how the fob behaves on the link. Those
+      facts were read off hosts by community users with evtest and a key
+      viewer, not reverse engineered, which is why `reverse_engineered` stays
+      false. The per-clone report descriptors themselves have never been
+      dumped (remaining_unknowns).
+  testing:
+    status: untested
+    notes: >
+      No capture of any unit is held in the research store, and nobody on this
+      project has paired one. The spec rests on the sources named in
+      `evidence`; every device-specific fact is `reported`.
+  protocol: "bluetooth_classic"
+  transport: "hid"
+  category: "mouse"
+  type: "camera-shutter-remote"
+  pictogram: "shutter-remote"
+  integration: "identify_only"
+  notes: >
+    The two-button, coin-cell camera-shutter fob sold for $2-15 as "AB
+    Shutter 3" and under dozens of other names (CamKix among them), and by
+    extension the e-reader page turners, selfie-stick buttons and scroll rings
+    that present to a host as the same kind of HID input. The fob has a
+    larger and a smaller button (the AB Shutter3 manual calls them Button A
+    and Button B; CamKix prints "iOS" on the larger and "Android" on the
+    smaller), a side slide switch that turns it on and off, and a blue LED.
+
+    NO APP. None exists and none is needed. The remote is a standard Bluetooth
+    HID peripheral (a keyboard plus consumer-control device). A person pairs
+    it from the host's own Bluetooth settings and the host's HID stack turns
+    each press into an ordinary key event; phone camera apps take a picture
+    on a volume key, which is the whole trick. A 2026-09 survey of the three
+    Play Store / F-Droid apps that carry the "BLE remote" name found none of
+    them is a companion for this hardware: one is Nordic's stock UART sample
+    (NUS service 6e400001-b5a3-f393-e0a9-e50e24dcca9e), one sends
+    user-defined strings to hobby boards over SPP or BLE, and the third turns
+    the phone itself into a HID remote. All three are out of scope.
+
+    TRANSPORT. The AB Shutter 3 is Bluetooth Classic HID: SDP service class
+    00001124-0000-1000-8000-00805f9b34fb, reports over the L2CAP HID control
+    (PSM 0x0011) and interrupt (PSM 0x0013) channels. A MobileRead report
+    identifies a YiChip Classic Bluetooth chip inside, and a Kindle HID host
+    named the input device it built from the remote's descriptor "YiChip BT
+    Keyboard". The retail manual says "Wireless V4.0", which does not settle
+    whether a unit also advertises over BLE. Newer rings and some clones are
+    BLE HID-over-GATT (service 00001812-0000-1000-8000-00805f9b34fb); the
+    report surface is the same and is described under
+    protocol_details.ble_hid_variants rather than as GATT services, because
+    no application talks to that service directly on any mainstream host.
+
+    KEYS. On the unit the Kindle guide tested (a CamKix-sold AB Shutter 3),
+    the large iOS button sends Volume Up (Linux KEY_VOLUMEUP, 115) and the
+    small Android button sends Enter (KEY_ENTER, 28). Other clones send
+    Volume Down from the second button, and many ship in a mode in which
+    both buttons send Volume Up. A Windows report lists Volume Up, Volume
+    Down, Play/Pause, Next and Previous arriving from one shutter. Scroll
+    rings add consumer media keys and, on some models, a mouse report. The
+    full table, with each key's HID usage, evdev scan code, Linux, Android
+    and Windows key codes, is protocol_details.hid_input_surface.key_map.
+
+    LINK BEHAVIOUR. The LED flashes quickly while the remote is
+    discoverable (both fob manuals). Neither manual says what it does once
+    paired; the Kindle guide describes the blue light as on while connected
+    and flashing on each press. The remote, not the host, initiates the
+    reconnection after either side has slept: when the Kindle guide's host
+    restarted its Bluetooth, the remote's input device came back 14-20
+    seconds later, once the remote called back (measured on one unit).
+    Switching the remote off and on, then waiting about 20 seconds, is the
+    reliable way to make it reconnect. The only manual in hand that states
+    an idle timeout, a Sumvision selfie-stick handle's, says it drops the
+    link and sleeps after 5 minutes unused, and that a short press wakes it
+    and it reconnects to the phone by itself. The fobs' timeout is not
+    documented.
+
+    NOT HERE. No cloud, no account, no application-layer authentication, no
+    encryption beyond the Bluetooth link's own, no firmware update path, no
+    vendor protocol. The vendor side of this family is a retail listing.
+
+    INTEGRATION. `identify_only`, because the client of this device is the
+    host OS's HID stack, not an application. A consumer can recognise the
+    remote by its name and tell the user to pair it in the OS settings; what
+    would earn `supported` is a consumer that reads the OS key events this
+    spec lists (Android KeyEvent, Linux evdev) and binds them to actions,
+    and an entity platform for a momentary input key, which the schema does
+    not have yet.
+
+    EVIDENCE BASE. The AB Shutter3 owner's manual (pairing steps, the
+    "AB Shutter3" device name, CR2032, 10 m range); the CamKix Bluetooth
+    Remote Shutter manual filed with FCC ID 2AUYP-CAMKIX (model
+    D0027-SRC-BLA, "CamKix Shutter", 2400-2483.5 MHz, +3.9 dBm); the
+    Sumvision monopod selfie-stick user guide (Bluetooth 3.0, a 2-second hold
+    for pairing mode, a 5-minute idle sleep, press to reconnect); a MobileRead
+    thread (YiChip, Classic Bluetooth) and its companion GitHub guide (key
+    codes, button modes, reconnection); a StackOverflow question (the key set
+    on Windows); the Bluetooth HID and HID-over-GATT profiles, the USB HID
+    Usage Tables, and the Linux kernel's usage-to-keycode table. Community
+    facts are `reported`; nothing has been captured.
+  identification:
+    local_name_prefix: "AB Shutter"
+    notes: >
+      "AB Shutter" matches both spellings seen: "AB Shutter3", the name in
+      the AB Shutter3 owner's manual and in the Kindle guide's example
+      pairing record, and "AB Shutter 3", the listing spelling. That
+      name is announced in a BR/EDR inquiry, which the bt_classic_inquiry
+      method carries. It sits here as well because BLE HID clones are
+      reported to be sold under the same retail name, and a BLE scan is the
+      cheaper way to find those; whether any BLE unit actually advertises
+      "AB Shutter..." is not established, so the ble_scan method is a
+      hypothesis. CamKix's current unit (D0027-SRC-BLA) announces "CamKix
+      Shutter", which only the inquiry method matches. The Sumvision
+      selfie-stick handle announces its brand name, "SUMVISION", which the
+      brand's other Bluetooth products may share, so nothing matches it
+      either. "Bluetooth Shutter"
+      turns up in community name lists but in no source this spec could
+      check, so nothing matches it. No service UUID is an identification
+      axis on purpose: the HID service class
+      (00001124-0000-1000-8000-00805f9b34fb) and the HID-over-GATT service
+      (00001812-0000-1000-8000-00805f9b34fb) are carried by every Bluetooth
+      keyboard, mouse and game controller, and would claim all of them. No
+      mac_prefixes: the one unit address published in a guide carries the
+      locally-administered bit, so it is not from any registered OUI.
+  discovery:
+    methods:
+      - type: "bt_classic_inquiry"
+        bt_classic:
+          name:
+            match: "prefix"
+            values: ["AB Shutter", "CamKix Shutter"]
+          requires_discoverable_mode: true
+        verification: "reported"
+        notes: >
+          The route every source describes: the host's Bluetooth settings run
+          an inquiry and the remote shows up by name while its LED is
+          flashing. It is discoverable only in that state (switched on and not
+          connected to a host); once it holds a link, or has gone to sleep, it
+          answers no inquiry. The Class of Device is not recorded anywhere,
+          and a HID service-class matcher would match every keyboard, so the
+          name is the only needle.
+      - type: "ble_scan"
+        ble:
+          local_name:
+            match: "prefix"
+            value: "AB Shutter"
+        verification: "hypothesis"
+        notes: >
+          For the BLE HID clones only, and unproven: it assumes they keep the
+          retail name as their advertised local name. The Classic units never
+          appear in a BLE scan. A scan filtered on the HID service UUID would
+          return every BLE keyboard and mouse nearby.
+    identity:
+      stable_keys: ["address"]
+      display: "local_name"
+      notes: >
+        A BR/EDR device address is fixed per unit (Classic has no random or
+        rotating addresses), so it is a stable key for the Classic remotes.
+        Many units share one name, and two remotes in one room are told apart
+        by address alone. The address type of the BLE variants is not known.
+
+  setup:
+    required: true
+    confidence: "medium"
+    notes: >
+      Pairing is the whole setup: there is nothing to configure on the remote
+      and no network to join. Both fob manuals give the same three steps
+      (battery in, switch on until the LED flashes, pick the remote in the
+      phone's Bluetooth list), the selfie-stick handle's differs only in a
+      2-second hold to start pairing, and the community guides pair a fob the
+      same way on Android, Windows and a Kindle. Medium, not high, because
+      nobody here has done it.
+    methods:
+      - type: "bt_classic_pairing"
+        name: "Pair from the host's Bluetooth settings"
+        role: "primary"
+        verified: false
+        description: >
+          The manual route, for a phone, a tablet or a desktop. Basis: the AB
+          Shutter3 owner's manual and the CamKix D0027-SRC-BLA manual (FCC ID
+          2AUYP-CAMKIX), which give these steps. No PIN is asked for in any
+          source.
+        steps:
+          - action: "Fit a CR2032 cell with the positive side up, or pull the isolation strip on a new unit."
+            actor: "user"
+          - action: "Slide the side power switch to ON."
+            actor: "user"
+            expect: "The blue LED flashes quickly: the remote is discoverable."
+          - action: "Open the host's Bluetooth settings and choose the remote from the list of available devices."
+            actor: "user"
+            expect: >
+              It is listed as "AB Shutter3" (or "CamKix Shutter", or the
+              clone's own name). Pairing completes with no PIN; the AB
+              Shutter3 manual says it finishes by itself once the remote is
+              chosen.
+          - action: "Press each button once and note what the host does with it."
+            actor: "user"
+            expect: >
+              On a phone, a volume change or a photo taken in the camera app.
+              Which key each button sends varies by clone; see
+              protocol_details.hid_input_surface.key_map.
+            notes: >
+              On Samsung phones the camera's volume-key setting has to be set
+              to take pictures for the shutter to fire (reported for One UI 6
+              and later; the menu wording varies by version).
+        troubleshooting:
+          - symptom: "Both buttons do the same thing."
+            causes:
+              - >
+                The clone is in its "Android" mode, in which both buttons send
+                Volume Up. Some clones switch with a physical iOS/Android
+                slider, others by holding both buttons for about 3 seconds
+                (Kindle guide).
+              - >
+                The two buttons send different HID usages that the host maps
+                to one key code. On Linux, evtest prints the usage as an
+                EV_MSC/MSC_SCAN value before each key event; if the two
+                differ, the buttons can be told apart.
+              - >
+                The second button lands on a second input device (a keyboard
+                node and a consumer-control node). Read every new
+                /dev/input/event* node.
+          - symptom: "Nothing happens on a press although the remote was paired before."
+            causes:
+              - >
+                The remote has slept or lost the link and has not called the
+                host back. Press a button, or switch it off and on and wait
+                about 20 seconds: the remote initiates the reconnection, the
+                host only waits for it.
+              - >
+                A flat or loose CR2032. A unit that still sends key codes but
+                no longer reconnects on its own was traced to its battery
+                contacts in the Kindle guide.
+          - symptom: "The host sees the key but the camera app takes no picture."
+            causes:
+              - >
+                On a Samsung phone, the camera's volume-key setting is not set
+                to take pictures (reported for One UI 6 and later).
+              - >
+                The camera app does not treat a volume key as a shutter. The
+                CamKix manual's answer is a third-party camera app that does;
+                the Sumvision manual warns that a few Android phone and tablet
+                models do not support remote shutters at all.
+      - type: "bt_classic_pairing"
+        name: "bluetoothctl on a headless Linux host"
+        role: "alternative"
+        verified: false
+        description: >
+          The same pairing driven from BlueZ's command line, for a Raspberry
+          Pi page turner or a kiosk with no settings screen. Basis: the
+          standard BlueZ workflow for a Classic HID device plus the evtest
+          checks in the Kindle guide; not run against this remote here.
+          Current BlueZ accepts HID connections from bonded devices only
+          (input.conf, ClassicBondedOnly defaults to true), so the pair step
+          is not optional.
+        steps:
+          - action: "Switch the remote on so its LED flashes."
+            actor: "user"
+          - action: "In bluetoothctl, run scan on and wait for an entry named AB Shutter... (or the clone's name); note its address."
+            actor: "client"
+          - action: "Run pair, then trust, then connect with that address, for example pair aa:bb:cc:dd:ee:ff."
+            actor: "client"
+            expect: "Pairing succeeds with no PIN prompt."
+            notes: >
+              trust lets the remote's own later reconnects through without an
+              agent asking for authorisation each time.
+          - action: "Find the new input device in /proc/bus/input/devices and read it with evtest."
+            actor: "client"
+            expect: >
+              EV_KEY events on each press, for example code 115 (VolumeUp)
+              value 1 then value 0, each preceded by an EV_MSC MSC_SCAN event
+              carrying the HID usage.
+      - type: "bt_classic_pairing"
+        name: "Selfie-stick handle: hold the camera key"
+        role: "variant"
+        verified: false
+        description: >
+          Selfie sticks with the shutter built into the grip have a power key
+          instead of a slide switch, and the camera key doubles as the pairing
+          button. Basis: the Sumvision monopod selfie-stick user guide. Other
+          handles differ in hold time and LED colour; follow the stick's own
+          leaflet where it has one.
+        steps:
+          - action: "If the handle has been stored, charge it over its micro-USB port first (the red LED lights while it charges)."
+            actor: "user"
+          - action: "Short-press the power key."
+            actor: "user"
+            expect: "The LED lights, then goes out after about a second."
+          - action: "Hold the camera key for 2 seconds."
+            actor: "user"
+            expect: "The green LED flashes: the handle is in pairing mode."
+          - action: "Choose the handle in the phone's Bluetooth list (the Sumvision unit is listed as SUMVISION)."
+            actor: "user"
+            expect: "About 8 seconds later the green LED stays lit: paired."
+        timing:
+          pairing_hold_s: 2
+          paired_indication_after_s: 8
+          idle_sleep_after_s: 300
+        troubleshooting:
+          - symptom: "The shutter stopped working after the stick sat unused."
+            causes:
+              - >
+                The handle sleeps and drops the link after 5 minutes without
+                use. A short press of the camera key wakes it, and it
+                reconnects to the phone by itself.
+    factory_reset:
+      applicable: "unknown"
+      confidence: "low"
+      effect: >
+        No reset is documented. The remote keeps no settings; the only state
+        it can hold is the link key of the host or hosts it paired with.
+      description: >
+        Neither retail manual describes a reset, the remote has no reset
+        button, and no community source mentions one. Whether it stores one
+        bond or several, and whether pulling the CR2032 clears anything, is
+        not established. Handing it to a new host does not appear to need a
+        reset (see rejoin); the clone-specific both-buttons hold changes the
+        key mode, not the pairing.
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        To move the remote to a new host, forget it on the old host (or turn
+        that host's Bluetooth off) so the remote's reconnect attempts cannot
+        reach it, switch the remote off and on so its LED flashes, and pair
+        from the new host. Inferred from the reconnect behaviour and the
+        pairing steps; nobody here has moved one between hosts.
+    credentials:
+      wifi_passphrase_protection: "not_applicable"
+      stored_on_device:
+        - "Bluetooth link key of the paired host (how many hosts it remembers is not known)"
+      issued_to_client: []
+      notes: >
+        No Wi-Fi, no account, no application key. The only secret is the
+        Bluetooth bond, made with no PIN and no confirmation on the remote, so
+        anyone in range while its LED is flashing can pair it.
+
+  pairing:
+    required: true
+    confidence: "medium"
+    security_mode: "just_works"
+    bonding: "required"
+    exclusivity:
+      single_connection: true
+      single_bond: "unknown"
+      recovery: >
+        The remote connects to one host at a time and calls back the host it
+        knows. If it keeps landing on an old phone, forget it there or turn
+        that phone's Bluetooth off, then switch the remote off and on and pair
+        it from the new host.
+      notes: >
+        One host at a time is how a Classic HID device works (one virtual
+        cable) and matches every report; whether a second bond evicts the
+        first is not established.
+    enter_pairing_mode:
+      required: true
+      indicator: >
+        The LED flashes quickly while the remote is discoverable (blue on the
+        fobs, green on the Sumvision handle). Once paired the handle's LED
+        stays lit; the fob manuals say nothing, and the Kindle guide describes
+        the fob's blue light as on while connected.
+      procedures:
+        - name: "Switch on with the side switch"
+          verified: false
+          basis: >
+            The AB Shutter3 owner's manual and the CamKix D0027-SRC-BLA manual
+            (FCC ID 2AUYP-CAMKIX): switch the remote on, the LED starts to
+            flash, pair it from the phone.
+          applies_to:
+            - "AB Shutter3 (YiChip, Classic HID)"
+            - "CamKix Shutter (D0027-SRC)"
+          power_state: "off"
+          indicator: "The blue LED flashes quickly."
+          description: >
+            Slide the switch to ON. If it is already on and connected, or
+            asleep, switch it off and on again.
+          steps:
+            - action: "Slide the power switch to ON (or OFF and back to ON)."
+              actor: "user"
+              expect: "The blue LED flashes quickly."
+        - name: "Hold the camera key (selfie-stick handle)"
+          verified: false
+          basis: >
+            The Sumvision monopod selfie-stick user guide: switch on with a
+            short press of the power key, hold the camera key for 2 seconds,
+            the green LED flashes, pick the handle on the phone, and the LED
+            stays lit about 8 seconds later.
+          applies_to:
+            - "Selfie-stick handle (Sumvision monopod)"
+          power_state: "on"
+          hold_seconds: 2
+          indicator: "The green LED flashes; it stays lit once paired."
+          steps:
+            - action: "With the handle switched on, hold the camera key for 2 seconds."
+              actor: "user"
+              expect: "The green LED flashes."
+      notes: >
+        How long the flashing state lasts before the remote gives up and
+        sleeps is not recorded for the fobs. The Sumvision handle's manual
+        gives 5 minutes of idle before sleep without saying whether that also
+        bounds the pairing window. A remote that already has a bond with a
+        host in range is expected to reconnect to that host rather than stay
+        discoverable (inferred).
+    unpair:
+      supported: "unknown"
+      notes: >
+        No button sequence on the remote is documented for dropping a bond.
+        Forgetting the device on the host is the only unpairing any source
+        describes.
+    notes: >
+      No PIN is asked for in any manual or report, and the remote has no
+      display and no keypad, so the only Secure Simple Pairing association
+      model it can offer is Just Works; hence `just_works`. That is an
+      inference: no capture shows whether a given chip does SSP or legacy
+      pairing with a PIN the host supplies silently. The bond is made by the
+      host OS, and the HID channels are then opened on an encrypted, bonded
+      link (`bluetooth_classic.profiles[].secure: true`). The BLE variants
+      bond too: HID over GATT requires an encrypted link for its reports.
+
+  host_compatibility:
+    - stack: "android"
+      status: "compatible"
+      verification: "reported"
+      basis: >
+        The AB Shutter3 manual (Android 4.2.2 or newer), the CamKix manual (a
+        button labelled for Android), the Sumvision handle's manual (Android
+        2.3.6 or newer, with a warning that a few phone and tablet models do
+        not support remote shutters) and the community reports gathered in
+        the research notes. Not run by this project.
+      notes: >
+        Android's HID host pairs the remote from Settings and delivers
+        KeyEvent codes (KEYCODE_VOLUME_UP 24, KEYCODE_ENTER 66, and so on) to
+        the foreground app. Camera apps treat the volume keys as the shutter;
+        an ordinary app sees the same key events through its key handlers.
+    - stack: "corebluetooth"
+      status: "degraded"
+      verification: "reported"
+      basis: >
+        The AB Shutter3 manual (iOS 6.0 or newer), the CamKix manual (a
+        button labelled for iOS) and the Sumvision handle's manual (iOS 5.0
+        or newer); the rest is how iOS treats a Bluetooth keyboard. Not run
+        by this project.
+      notes: >
+        iOS pairs the remote from Settings as a Bluetooth keyboard, so it
+        works as a camera shutter: Volume Up fires the Camera app's shutter.
+        The degraded part is everything else. CoreBluetooth has no API to the
+        Classic HID link or its reports, and the HID-over-GATT service of the
+        BLE variants is not offered to apps either (hypothesis), so a
+        third-party app sees only what iOS passes on as keyboard input or a
+        volume change, and the system acts on the volume keys itself. macOS
+        is not covered by this verdict.
+    - stack: "windows"
+      status: "compatible"
+      verification: "reported"
+      basis: >
+        StackOverflow question 33955141 (2015): a shutter paired with Windows
+        7/8.x/10 arrives as a HID device sending Volume Up, Volume Down,
+        Play/Pause, Next and Previous.
+      notes: >
+        The keys reach applications as the virtual-key codes in the key map,
+        and Windows also acts on them system-wide: the same report says the
+        system volume changes on every Volume Up and asks how to stop it,
+        with no answer beyond disabling the HID service.
+    - stack: "bluez"
+      status: "compatible"
+      verification: "hypothesis"
+      basis: >
+        BlueZ's input plugin is a standard Classic HID host, and the only
+        Linux report in hand ran a userspace HID host (Google Bumble, via
+        kindle-hid-passthrough) on a Kindle rather than bluetoothd: there the
+        remote became an ordinary evdev keyboard. No report of this remote on
+        bluetoothd itself was collected.
+      notes: >
+        Expect a /dev/input/event* node per HID application collection, key
+        events readable with evtest, and a pair step before anything works
+        (ClassicBondedOnly).
+
+  variants:
+    - model: "AB Shutter3 (YiChip, Classic HID)"
+      notes: >
+        The generic fob: inquiry name "AB Shutter3", YiChip Classic Bluetooth
+        chip (MobileRead), host input device "YiChip BT Keyboard". CR2032,
+        about 6 months at 10 presses a day, 10 m range, "Wireless V4.0"
+        (owner's manual, which calls the two buttons Button A and Button B).
+        On the unit the Kindle guide tested, the top button sends Volume Up
+        and the bottom one Enter; on that CamKix-sold fob the top button is
+        the larger, iOS-labelled one.
+    - model: "CamKix Shutter (D0027-SRC)"
+      notes: >
+        CamKix Bluetooth Remote Shutter, FCC ID 2AUYP-CAMKIX (grantee OEM Tech
+        Bargains LLC), colour models D0027-SRC-BLA/-BLU/-GRE/-RED/-WHI.
+        Inquiry name "CamKix Shutter", coin cell, 30 ft (10 m) range,
+        2400-2483.5 MHz at up to +3.9 dBm (its FCC user manual). Buttons
+        labelled "CAMERA360 iOS" (large) and "ANDROID" (small). The Kindle
+        guide's remote was sold by CamKix on an older listing and its example
+        pairing record shows "AB Shutter3", so older CamKix stock appears to
+        be the generic fob under another label. Key map not reported for
+        this model.
+    - model: "BLE HID ring / page turner"
+      notes: >
+        Scroll rings, page turners and newer clones that are BLE
+        HID-over-GATT rather than Classic. Same key and consumer usages plus,
+        on some models, a relative mouse report for swipe-scrolling.
+        Documented in protocol_details.ble_hid_variants; names, report maps
+        and the Classic/BLE split on the market are not established.
+    - model: "Selfie-stick handle (Sumvision monopod)"
+      notes: >
+        A monopod with the shutter, two zoom keys and a power key in its grip
+        and a rechargeable 100 mAh lithium cell charged over micro-USB.
+        Bluetooth 3.0 (so Classic), inquiry name "SUMVISION", 10 m, GFSK at
+        2.4 GHz, 3-4.2 V, 1 mA working and 0.5 mA dormant (its user guide).
+        Pairing mode is a 2-second hold of the camera key; it sleeps after 5
+        minutes idle and reconnects on a short press. The manual says it
+        needs no iOS/Android switch. What its camera and zoom keys send has
+        not been reported.
+
+bluetooth_classic:
+  dual_mode: "unknown"
+  ble_role: "unknown"
+  address_shared_with_ble: "unknown"
+  profiles:
+    - profile: "hid"
+      uuid: "00001124-0000-1000-8000-00805f9b34fb"
+      psm: 17
+      role: "input"
+      secure: true
+      verification: "reported"
+      notes: >
+        The Human Interface Device profile, the only profile any source
+        mentions. It runs on two L2CAP channels: HID Control on PSM 17
+        (0x0011), opened first, and HID Interrupt on PSM 19 (0x0013), which
+        carries the input reports; both are fixed by the profile, so a host
+        needs no SDP lookup to find them. The report descriptor is in the SDP
+        record (attribute 0x0206, HIDDescriptorList); an open HID host such
+        as kindle-hid-passthrough fetches it from there. Secure: every host
+        pairs the remote before using it, and current BlueZ refuses HID from
+        unbonded Classic devices by default. The client is the host's HID
+        stack; an application opens neither channel itself.
+  verification: "reported"
+  notes: >
+    Classic HID per the MobileRead report (YiChip, Classic Bluetooth) and the
+    Kindle guide, whose HID host paired the remote as a Classic device.
+    Whether a Classic unit also advertises over BLE is not established
+    ("Wireless V4.0" in the manual allows either), hence the unknowns. The
+    BLE HID variants of the family are separate products, not a BLE half of
+    these units; see protocol_details.ble_hid_variants. There is no serial
+    stream and no command: the remote only sends.
+
+protocol_details:
+  # The input surface, stated once for both transports. Nothing below is a
+  # command a client sends: the remote only reports, and the host's HID stack
+  # turns reports into key events. Standard layouts are marked as such and
+  # are not a capture of this family.
+  hid_input_surface:
+    summary: >
+      A keyboard plus consumer-control HID device with two buttons (more on
+      rings and page turners). Each press is one key down and one key up.
+      What a program sees is the host's key event, not the report: the
+      Linux, Android and Windows codes in key_map are what to bind to.
+    classic_link:
+      sdp_service_class: "00001124-0000-1000-8000-00805f9b34fb"
+      l2cap_psm_control: 17        # 0x0011, opened first
+      l2cap_psm_interrupt: 19      # 0x0013, carries the input reports
+      input_report_header: "0xa1"  # HIDP transaction header: DATA (0xa) | Input (0x1)
+      sdp_attributes_of_interest:
+        - id: "0x0205"
+          name: "HIDReconnectInitiate"
+          role: "Whether the device reconnects to the host by itself. The reported behaviour says yes; the value has not been read."
+        - id: "0x0206"
+          name: "HIDDescriptorList"
+          role: "The report descriptor. Reading it (sdptool records, or a host that logs it) settles the per-clone usage questions below."
+        - id: "0x020d"
+          name: "HIDNormallyConnectable"
+          role: "Whether the device accepts a connection the host starts. Not read; the reported behaviour suggests the host must wait to be called."
+        - id: "0x020e"
+          name: "HIDBootDevice"
+          role: "Whether it supports boot protocol. Not read."
+      host_input_device_name: "YiChip BT Keyboard"
+      reconnection: >
+        The remote initiates. After either side sleeps, a host that restarts
+        its own Bluetooth still gets nothing until the remote calls back; on
+        the Kindle guide's unit the input device reappeared 14-20 seconds
+        after the host's restart when the remote did call back, and an off/on
+        of the remote (then about 20 seconds) was the fix when it did not. A
+        host that only connects out (never listens) will not reliably get the
+        remote back; kindle-hid-passthrough does both.
+      idle_sleep:
+        idle_before_sleep_s: 300
+        documented_for: "Selfie-stick handle (Sumvision monopod)"
+        behaviour: >
+          After 5 minutes without use the handle drops the link and sleeps. A
+          short press of the camera key wakes it and it reconnects to the
+          phone by itself. The fobs' idle timeout is not documented; the
+          community reports only that they sleep and that one press brings
+          them back.
+      verification: "reported"
+    key_map:
+      notes: >
+        One row per key the family is reported to send. `hid_usages` lists
+        both usages that produce the key, because which usage page a clone
+        uses has never been read out of its descriptor: Volume Up can be the
+        Consumer page's Volume Increment or the Keyboard page's Volume Up,
+        and every host maps the two to the same key. `msc_scan` is the value
+        Linux evtest prints as EV_MSC/MSC_SCAN before the key event (usage
+        page << 16 | usage ID), which is how to tell which one a unit sends.
+        Usage IDs are from the USB HID Usage Tables; key codes from Linux
+        input-event-codes.h and hid-input.c, Android KeyEvent and the Windows
+        virtual-key list.
+      keys:
+        - function: "volume_up"
+          hid_usages:
+            - { page: "0x0c", usage: "0x00e9", name: "Consumer / Volume Increment", msc_scan: "0xc00e9" }
+            - { page: "0x07", usage: "0x80", name: "Keyboard / Volume Up", msc_scan: "0x70080" }
+          linux: { name: "KEY_VOLUMEUP", code: 115 }
+          android: { name: "KEYCODE_VOLUME_UP", code: 24 }
+          windows_vk: { name: "VK_VOLUME_UP", code: "0xaf" }
+          seen_on: "The large (iOS) button of the AB Shutter 3 (Kindle guide); both buttons on clones in Android mode; the Windows report."
+          verification: "reported"
+        - function: "enter"
+          hid_usages:
+            - { page: "0x07", usage: "0x28", name: "Keyboard / Return (ENTER)", msc_scan: "0x70028" }
+          linux: { name: "KEY_ENTER", code: 28 }
+          android: { name: "KEYCODE_ENTER", code: 66 }
+          windows_vk: { name: "VK_RETURN", code: "0x0d" }
+          seen_on: "The small (Android) button of the AB Shutter 3 (Kindle guide: 'genuine AB Shutter 3 behaviour is 115 and 28')."
+          verification: "reported"
+        - function: "volume_down"
+          hid_usages:
+            - { page: "0x0c", usage: "0x00ea", name: "Consumer / Volume Decrement", msc_scan: "0xc00ea" }
+            - { page: "0x07", usage: "0x81", name: "Keyboard / Volume Down", msc_scan: "0x70081" }
+          linux: { name: "KEY_VOLUMEDOWN", code: 114 }
+          android: { name: "KEYCODE_VOLUME_DOWN", code: 25 }
+          windows_vk: { name: "VK_VOLUME_DOWN", code: "0xae" }
+          seen_on: "The second button on some clones (research notes); the Windows report."
+          verification: "reported"
+        - function: "play_pause"
+          hid_usages:
+            - { page: "0x0c", usage: "0x00cd", name: "Consumer / Play/Pause", msc_scan: "0xc00cd" }
+          linux: { name: "KEY_PLAYPAUSE", code: 164 }
+          android: { name: "KEYCODE_MEDIA_PLAY_PAUSE", code: 85 }
+          windows_vk: { name: "VK_MEDIA_PLAY_PAUSE", code: "0xb3" }
+          seen_on: "The Windows report; scroll rings (research notes)."
+          verification: "reported"
+        - function: "next_track"
+          hid_usages:
+            - { page: "0x0c", usage: "0x00b5", name: "Consumer / Scan Next Track", msc_scan: "0xc00b5" }
+          linux: { name: "KEY_NEXTSONG", code: 163 }
+          android: { name: "KEYCODE_MEDIA_NEXT", code: 87 }
+          windows_vk: { name: "VK_MEDIA_NEXT_TRACK", code: "0xb0" }
+          seen_on: "The Windows report; scroll rings (research notes)."
+          verification: "reported"
+        - function: "previous_track"
+          hid_usages:
+            - { page: "0x0c", usage: "0x00b6", name: "Consumer / Scan Previous Track", msc_scan: "0xc00b6" }
+          linux: { name: "KEY_PREVIOUSSONG", code: 165 }
+          android: { name: "KEYCODE_MEDIA_PREVIOUS", code: 88 }
+          windows_vk: { name: "VK_MEDIA_PREV_TRACK", code: "0xb1" }
+          seen_on: "The Windows report; scroll rings (research notes)."
+          verification: "reported"
+    event_semantics:
+      press: "EV_KEY value 1 (down) on press and value 0 (up) on release; one press is one down/up pair. Android delivers ACTION_DOWN then ACTION_UP."
+      repeat: >
+        While a button is held the Kindle guide sees EV_KEY value 2 (repeat)
+        events and uses them to detect a long press; not every remote
+        produces them. On a stock Linux host the kernel's own autorepeat also
+        produces value 2 for any keyboard device, so where they come from is
+        not established.
+      debounce_ms: 200   # what the Kindle guide's mapper uses; the remote sometimes repeats a press
+      verification: "reported"
+    button_modes:
+      layout: >
+        Two buttons, one larger than the other. The AB Shutter3 manual calls
+        them Button A and Button B; CamKix prints "CAMERA360" and "iOS" on the
+        larger and, as far as its manual's photo shows, "Android" on the
+        smaller. The labels exist because iOS camera apps fire on a volume
+        key; the Enter on the second button presumably suits older Android
+        camera apps (inference). Selfie-stick handles add zoom keys whose
+        usages are not reported.
+      genuine_ab_shutter_3: { top_large_button: "volume_up", bottom_small_button: "enter" }
+      android_mode: >
+        Many clones ship in a mode in which both buttons send Volume Up. A
+        physical iOS/Android slider, or holding both buttons for about 3
+        seconds, switches them (Kindle guide). Which clones have which switch
+        is not recorded. The Sumvision handle's manual says it needs no
+        switch.
+      verification: "reported"
+    reference_report_layouts:
+      caveat: >
+        Standard layouts from the HID specification and one open-source
+        descriptor, given so a reader knows what the report under a key event
+        usually looks like. NOT captured from this family: the real layout
+        is whatever the remote's own descriptor (SDP attribute 0x0206, or the
+        BLE Report Map) says. HID fields are little-endian.
+      boot_keyboard_input:
+        source: "USB HID 1.11 Appendix B.1 (boot keyboard), which Bluetooth HID boot protocol reuses"
+        length_bytes: 8
+        fields:
+          - { offset: 0, length: 1, name: "modifiers", type: "bitmap", notes: "Left Ctrl, Shift, Alt, GUI, then the right-hand four; 0 for this family's keys" }
+          - { offset: 1, length: 1, name: "reserved", type: "uint8" }
+          - { offset: 2, length: 6, name: "keys", type: "uint8[6]", notes: "Keyboard page usage IDs of the keys held; Enter is 0x28; all zero on release" }
+        on_the_wire: >
+          On the Classic interrupt channel each input report is preceded by
+          the 0xa1 transaction header, and in report protocol by a Report ID
+          byte when the descriptor declares IDs.
+      consumer_control_16bit:
+        source: "gitlab.com/Atharok/BtRemote, app/src/main/java/com/atharok/btremote/common/utils/Constants.kt"
+        fields:
+          - { offset: 0, length: 1, name: "report_id", type: "uint8", notes: "2 in that descriptor; assigned per device" }
+          - { offset: 1, length: 2, name: "usage", type: "uint16", endianness: "little", notes: "Consumer page usage ID: Volume Increment 0x00e9 is sent as e9 00; 00 00 on release" }
+      mouse_relative:
+        source: "gitlab.com/Atharok/BtRemote, same file"
+        fields:
+          - { offset: 0, length: 1, name: "report_id", type: "uint8", notes: "3 in that descriptor" }
+          - { offset: 1, length: 1, name: "buttons", type: "bitmap", notes: "bits 0-2 = buttons 1-3, bits 3-7 padding" }
+          - { offset: 2, length: 1, name: "x", type: "int8", unit: "counts", notes: "relative motion, no physical unit" }
+          - { offset: 3, length: 1, name: "y", type: "int8", unit: "counts" }
+          - { offset: 4, length: 1, name: "wheel", type: "int8", unit: "detents" }
+        notes: "The shape a scroll ring's pointer report most likely takes; no ring's report map has been read."
+    power_and_radio:
+      fob:                           # AB Shutter3 and CamKix fobs
+        battery: "CR2032, one cell"
+        battery_life_months: 6       # AB Shutter3 manual, at 10 presses a day
+        range_m: 10                  # both fob manuals (30 ft)
+        frequency_mhz: { min: 2400, max: 2483.5 }  # CamKix FCC manual
+        max_rf_power_dbm: 3.9        # CamKix FCC manual
+        bluetooth_version: "4.0"     # AB Shutter3 manual ("Wireless V4.0")
+      selfie_stick_handle:           # Sumvision monopod user guide
+        battery: "rechargeable lithium, micro-USB charging"
+        battery_capacity_mah: 100
+        supply_voltage_v: { min: 3.0, max: 4.2 }
+        current_ma: { working: 1.0, dormant: 0.5 }
+        bluetooth_version: "3.0"
+        modulation: "GFSK"
+        range_m: 10
+      verification: "reported"
+
+  ble_hid_variants:
+    summary: >
+      Scroll rings, page turners and newer clones that are BLE
+      HID-over-GATT. The key and consumer usages are the same as the Classic
+      table above; some rings add a relative mouse report used for
+      swipe-scrolling. Everything below except the family facts is the
+      profile's own definition, not something read off a ring.
+    service: "00001812-0000-1000-8000-00805f9b34fb"
+    characteristics:
+      - { uuid: "00002a4a-0000-1000-8000-00805f9b34fb", name: "HID Information", properties: ["read"] }
+      - { uuid: "00002a4b-0000-1000-8000-00805f9b34fb", name: "Report Map", properties: ["read"], notes: "The report descriptor; same bytes a Classic device keeps in SDP attribute 0x0206." }
+      - { uuid: "00002a4c-0000-1000-8000-00805f9b34fb", name: "HID Control Point", properties: ["write_without_response"], notes: "Suspend (0x00) / Exit Suspend (0x01)." }
+      - { uuid: "00002a4d-0000-1000-8000-00805f9b34fb", name: "Report", properties: ["read", "notify"], notes: "One instance per report. The value carries no Report ID byte: each instance has a Report Reference descriptor (00002908-0000-1000-8000-00805f9b34fb) giving its ID and type (1 input, 2 output, 3 feature)." }
+      - { uuid: "00002a4e-0000-1000-8000-00805f9b34fb", name: "Protocol Mode", properties: ["read", "write_without_response"], notes: "Boot (0x00) or Report (0x01); present only on devices that support boot protocol." }
+      - { uuid: "00002a22-0000-1000-8000-00805f9b34fb", name: "Boot Keyboard Input Report", properties: ["read", "notify"] }
+      - { uuid: "00002a33-0000-1000-8000-00805f9b34fb", name: "Boot Mouse Input Report", properties: ["read", "notify"] }
+    companion_services:
+      - { uuid: "0000180f-0000-1000-8000-00805f9b34fb", name: "Battery Service", notes: "Required on a HOGP HID device. Battery Level 00002a19-0000-1000-8000-00805f9b34fb, uint8, unit %, 0-100." }
+      - { uuid: "0000180a-0000-1000-8000-00805f9b34fb", name: "Device Information", notes: "Required on a HOGP HID device. PnP ID 00002a50-0000-1000-8000-00805f9b34fb: vendor-ID source (uint8), vendor ID, product ID, product version (uint16 little-endian each)." }
+    security: >
+      HID over GATT requires an encrypted, bonded link before reports flow,
+      so these variants bond with the host the way the Classic units do.
+    host_access: >
+      The host OS claims the HID service. Web Bluetooth blocklists
+      00001812-0000-1000-8000-00805f9b34fb outright (a page reading it could
+      log keystrokes); Android and iOS are understood to withhold it from
+      ordinary apps as well (hypothesis, not checked for this spec). An app
+      gets the key events, not the reports, exactly as on Classic.
+    names: >
+      Not collected. kindle-hid-passthrough's README lists a BLE remote named
+      "BLE-M3" in its example device list, which is a lead, not an
+      identification.
+    verification: "reported"
+
+evidence:
+  artifacts:
+    - type: "vendor_documentation"
+      artifact: "AB Shutter3 wireless remote shutter owner's manual (manuals.plus copy)"
+      url: "https://manuals.plus/ab-shutter3/wireless-remote-shutter-manual"
+      description: >
+        Pairing steps (switch on, LED flashes, pick "AB Shutter3" in the
+        phone's list), Android 4.2.2+ / iOS 6.0+, CR2032, about 6 months at
+        10 presses a day, 10 m, "Wireless V4.0". Says nothing about HID, a
+        PIN, sleep or reset.
+    - type: "fcc_filing"
+      artifact: "FCC ID 2AUYP-CAMKIX, user manual exhibit (CamKix Bluetooth Remote Shutter, model D0027-SRC-BLA)"
+      url: "https://web.archive.org/web/20250109110126/https://fccid.io/2AUYP-CAMKIX/User-Manual/User-Manual-4513779.pdf"
+      obtained_via: "Internet Archive replay of the fccid.io exhibit (the live site refuses automated requests)"
+      description: >
+        Device name "CamKix Shutter", button labels, three-step pairing,
+        2400-2483.5 MHz, max RF power +3.9 dBm, grantee OEM Tech Bargains LLC,
+        colour models D0027-SRC-BLA/BLU/GRE/RED/WHI. No internal photos or
+        test report were read.
+    - type: "vendor_documentation"
+      artifact: "Sumvision Monopod Selfie Stick & Bluetooth Remote user guide (Internet Archive item)"
+      url: "https://archive.org/details/sumvision-monopod-selfie-stick-bluetooth-remote"
+      description: >
+        A scanned three-page leaflet for a selfie stick with the shutter in
+        its grip: Bluetooth 3.0, device name "SUMVISION", a 2-second
+        camera-key hold for pairing mode (green LED flashing, then steady
+        once paired), sleep after 5 minutes idle with a short press to wake
+        and reconnect, iOS 5.0+ / Android 2.3.6+, a 100 mAh lithium cell,
+        3-4.2 V, 1 mA working and 0.5 mA dormant. Undated.
+    - type: "community_thread"
+      artifact: "MobileRead: Working Cheap Bluetooth page turner on PW6 (5.18.5), April-May 2026"
+      url: "https://www.mobileread.com/forums/showthread.php?p=4584542"
+      description: "Identifies the AB Shutter 3 as a YiChip chip on Classic Bluetooth; the remote was a CamKix-sold unit."
+    - type: "public_research"
+      artifact: "GitHub gist liquidguru/1e9c77f9389cdf23f94d2a94b220c90a, Bluetooth Page Turner for Kindle Paperwhite 6 (revised to August 2026)"
+      url: "https://gist.github.com/liquidguru/1e9c77f9389cdf23f94d2a94b220c90a"
+      description: >
+        evtest output (Volume Up 115 from the top button, Enter 28 from the
+        bottom), input device name "YiChip BT Keyboard", the both-buttons
+        Android mode and its switch, two-node remotes, repeat events, the
+        blue light on while connected, remote-initiated reconnection timed at
+        14-20 s, and a battery-contact fault that cost unattended reconnect.
+        The guide's own unit address is not reproduced here.
+    - type: "community_thread"
+      artifact: "StackOverflow question 33955141 (2015), Manage Bluetooth remote shutter keys from my Windows application"
+      url: "https://stackoverflow.com/questions/33955141/manage-bluetooth-remote-shutter-keys-from-my-windows-application"
+      description: >
+        A shutter on Windows 7/8.x/10 is a HID device sending Volume Up,
+        Volume Down, Play/Pause, Next and Previous; Windows acts on the
+        volume keys system-wide and the only answer offered is disabling the
+        HID access service.
+    - type: "public_implementation"
+      artifact: "zampierilucas/kindle-hid-passthrough (GPL-3.0), a userspace Bluetooth HID host on Google Bumble"
+      url: "https://github.com/zampierilucas/kindle-hid-passthrough"
+      description: >
+        The host the Kindle guide used: pairs Classic and BLE HID devices,
+        fetches the report descriptor over SDP, accepts device-initiated as
+        well as host-initiated Classic connections, and hands reports to the
+        kernel through UHID.
+    - type: "public_implementation"
+      artifact: "Atharok/BtRemote (F-Droid com.atharok.btremote), Constants.kt HID descriptor"
+      url: "https://gitlab.com/Atharok/BtRemote/-/blob/main/app/src/main/java/com/atharok/btremote/common/utils/Constants.kt"
+      description: >
+        An open keyboard + consumer-control + mouse report descriptor, used
+        only for the reference layouts in protocol_details. It is a phone
+        acting as a HID device, not this remote.
+  research:
+    date: "2026-09-28"
+    method: >
+      Documentation and community-source review. The research store's survey
+      of generic "BLE remote" apps established that no companion app exists
+      for this family; the three retail manuals (one an FCC exhibit) and the
+      community reports were read for the device facts, and the HID and HID-over-GATT
+      profiles, the USB usage tables, the Linux kernel's usage-to-keycode
+      table (drivers/hid/hid-input.c), BlueZ's input.conf and the Android and
+      Windows key-code lists for the mappings. No capture, no hardware.
+  open_questions:
+    - "What report descriptor does a YiChip AB Shutter 3 carry in SDP attribute 0x0206, and does its Volume Up come from the Consumer page or the Keyboard page?"
+    - "Do the clones that put both buttons on Volume Up differ in descriptor, or only in which usage they send?"
+    - "How long does the remote stay discoverable after power-on, and after how long idle does a fob sleep (the Sumvision handle documents 5 minutes)?"
+    - "What does a fob's LED do once connected: stay lit, as the Kindle guide describes, or go out? Neither fob manual says."
+    - "What HID usages do selfie-stick handles send from the camera key and the zoom keys?"
+    - "How many bonds does the remote keep, and does a new pairing evict the old host?"
+    - "Does a Classic unit also advertise over BLE (dual_mode), and do BLE clones sold as AB Shutter advertise that name?"
+    - "What do scroll rings put in their Report Map, and what are the units and scale of their pointer report?"
+
+remaining_unknowns:
+  - "No per-clone HID report descriptor has been read; usage pages and IDs are inferred from the key events hosts report."
+  - "The Class of Device the remote reports in an inquiry, and the values of its SDP HID attributes (reconnect-initiate, normally-connectable, boot device)."
+  - "Whether pairing is Secure Simple Pairing (Just Works) or legacy pairing with a host-supplied PIN; no capture."
+  - "The discoverable window after power-on, the fobs' idle time before sleep (one selfie-stick handle documents 5 minutes), and whether a press alone wakes and reconnects every clone."
+  - "The LED state of a connected fob, which neither fob manual documents."
+  - "The key map of selfie-stick handles, including their zoom keys."
+  - "How many hosts the remote remembers, and whether pulling the battery clears anything."
+  - "Which clones have an iOS/Android mode switch, and which switch (slider or both-buttons hold)."
+  - "The report layout of scroll-ring pointer reports, and the advertised names of any BLE variant."
+  - "The share of Classic versus BLE units on the market."
+  - "The key map of the current CamKix D0027-SRC model."
+  - "No firmware update path is known for any member of the family, and none is expected."
+
+helpful_urls:
+  - title: "AB Shutter3 wireless remote shutter owner's manual (manuals.plus)"
+    url: "https://manuals.plus/ab-shutter3/wireless-remote-shutter-manual"
+    kind: "manual"
+    description: >
+      The generic "AB Shutter3" fob: pairing steps, device name, CR2032,
+      range and battery life. manuals.plus refuses automated requests (403);
+      it opens in a browser.
+  - title: "CamKix Bluetooth Remote Shutter user manual, FCC ID 2AUYP-CAMKIX (Internet Archive)"
+    url: "https://web.archive.org/web/20250109110126/https://fccid.io/2AUYP-CAMKIX/User-Manual/User-Manual-4513779.pdf"
+    kind: "manual"
+    description: >
+      CamKix model D0027-SRC-BLA (and its colour variants): the "CamKix
+      Shutter" device name, pairing steps, button labels and radio figures,
+      as filed with the FCC.
+  - title: "Sumvision monopod selfie stick and Bluetooth remote user guide (Internet Archive)"
+    url: "https://archive.org/details/sumvision-monopod-selfie-stick-bluetooth-remote"
+    kind: "manual"
+    description: >
+      The Sumvision selfie stick with the shutter in its grip: the 2-second
+      pairing hold, LED states, the 5-minute sleep and press-to-reconnect,
+      battery and radio figures. A scanned three-page leaflet.
+  - title: "FCC ID 2AUYP-CAMKIX grant (fccid.io)"
+    url: "https://fccid.io/2AUYP-CAMKIX"
+    kind: "other"
+    description: "The CamKix shutter's FCC grant and exhibits. fccid.io refuses automated requests (403); it opens in a browser."
+  - title: "MobileRead: Working Cheap Bluetooth page turner on PW6 (5.18.5)"
+    url: "https://www.mobileread.com/forums/showthread.php?p=4584542"
+    kind: "forum"
+    description: "Identifies the AB Shutter 3 as a YiChip Classic Bluetooth HID remote; the thread behind the Kindle guide below."
+  - title: "Bluetooth Page Turner for Kindle Paperwhite 6 (GitHub gist)"
+    url: "https://gist.github.com/liquidguru/1e9c77f9389cdf23f94d2a94b220c90a"
+    kind: "protocol_writeup"
+    description: >
+      The most detailed public account of this remote on a host: evtest key
+      codes, the Android-mode switch, reconnection timing and failure modes.
+  - title: "StackOverflow: Manage Bluetooth remote shutter keys from my Windows application"
+    url: "https://stackoverflow.com/questions/33955141/manage-bluetooth-remote-shutter-keys-from-my-windows-application"
+    kind: "forum"
+    description: "The key set a shutter sends on Windows, and Windows acting on the volume keys system-wide. StackOverflow refuses automated requests (403); it opens in a browser."
+  - title: "kindle-hid-passthrough: userspace Bluetooth HID host"
+    url: "https://github.com/zampierilucas/kindle-hid-passthrough"
+    kind: "implementation"
+    description: "Open HID host (Classic and BLE) that pairs this remote, reads its descriptor over SDP and turns its reports into Linux input events."
+  - title: "Atharok BtRemote: HID report descriptor (Constants.kt)"
+    url: "https://gitlab.com/Atharok/BtRemote/-/blob/main/app/src/main/java/com/atharok/btremote/common/utils/Constants.kt"
+    kind: "implementation"
+    description: "A readable keyboard, consumer-control and mouse descriptor, the source of the reference report layouts."
+  - title: "Bluetooth SIG: Human Interface Device Profile 1.1.1"
+    url: "https://www.bluetooth.com/specifications/specs/human-interface-device-profile-1-1-1/"
+    kind: "standard"
+    description: "The Classic HID profile the remote implements."
+  - title: "Bluetooth SIG: HID over GATT Profile 1.0"
+    url: "https://www.bluetooth.com/specifications/specs/hid-over-gatt-profile-1-0/"
+    kind: "standard"
+    description: "The profile the BLE rings and clones implement."
+  - title: "USB-IF: HID Usage Tables 1.7"
+    url: "https://usb.org/document-library/hid-usage-tables-17"
+    kind: "standard"
+    description: "Usage pages and IDs for every key in the key map."
+  - title: "Linux kernel: drivers/hid/hid-input.c"
+    url: "https://github.com/torvalds/linux/blob/master/drivers/hid/hid-input.c"
+    kind: "implementation"
+    description: "How Linux maps HID usages to the key codes evtest shows (Consumer 0x00e9 and Keyboard 0x80 both become KEY_VOLUMEUP)."
+  - title: "BlueZ input.conf (ClassicBondedOnly)"
+    url: "https://github.com/bluez/bluez/blob/master/profiles/input/input.conf"
+    kind: "implementation"
+    description: "Why a Linux host must pair the remote before its HID connection is accepted."
+  - title: "Web Bluetooth GATT blocklist"
+    url: "https://github.com/WebBluetoothCG/registries/blob/master/gatt_blocklist.txt"
+    kind: "standard"
+    description: "Lists the HID service 0x1812 as off-limits to web pages, the clearest statement that apps do not read HID-over-GATT reports."

@@ -1,0 +1,1194 @@
+# BlueDriver Bluetooth Pro OBD-II Scan Tool (Bluetooth LE) — Device Specification
+# Status: Spec Available. Every protocol fact below is third-party and
+#         capture-derived: an open project decoded iOS HCI logs of the vendor
+#         app driving a BLE BlueDriver and replayed the session in a Bleak
+#         client. This project has run none of it against hardware, so facts
+#         are `reported`, never `confirmed`. The GATT service UUID and the
+#         meaning of the flow-control bytes are inferred from Silicon Labs'
+#         public BGX13P documentation and are marked as inferred where used.
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+
+device:
+  name: "BlueDriver Bluetooth Pro OBD-II Scan Tool (Bluetooth LE)"
+  manufacturer: "Lemur Vehicle Monitors (BlueDriver)"
+  manufacturer_status: "active"
+  openness:
+    status: "undocumented"
+    reverse_engineered: true
+    upstream_docs:
+      - url: "https://docs.silabs.com/gecko-os/1/bgx/latest/ble-services"
+        title: "Silicon Labs BGX: BLE Services"
+        covers: >
+          The radio module's layer only: the Xpress Streaming service, its
+          three characteristics (the same UUIDs as CMD, DATA and STATUS here),
+          the three-byte Fast-Ack streaming control messages, and the Mode
+          values. It says nothing about BlueDriver's XOR encoding, its LM
+          commands or its OBD behaviour.
+      - url: "https://docs.silabs.com/gecko-os/1/bgx/latest/security"
+        title: "Silicon Labs BGX: Security"
+        covers: >
+          The module family's pairing and bonding behaviour: Just Works or
+          passkey, and a bond table of up to 14 hosts with least-recently-used
+          eviction. These are module defaults, not confirmed product settings.
+    notes: >
+      Two layers with different provenance. The BLE transport matches a stock
+      Silicon Labs BGX13P "Bluetooth Xpress" module, whose GATT profile and
+      flow control Silicon Labs documents publicly. The application layer is
+      the vendor's own and undocumented: the XOR wire encoding, the LM command
+      set and the way the ELM327-style core is configured. Everything known
+      about it comes from one open project's HCI captures.
+  testing:
+    status: untested
+  protocol: "ble"
+  category: "vehicle"
+  type: "OBD-II scan tool: a Silicon Labs BGX13P BLE module in front of an ELM327-style OBD core"
+  notes: >
+    A plug-in OBD-II scanner sold with a vendor phone app. This spec covers
+    the Bluetooth LE scanners, which advertise a local name starting
+    "BlueDriv" or "LSB2-". Per the vendor, these units have "LE" engraved on
+    the side, or are the BlueDriver Pro Next-Gen, which is always LE. The
+    original Bluetooth Classic BlueDriver (no "LE" marking, paired from the
+    phone's Bluetooth settings) is a different radio path. It has not been
+    researched and nothing here describes it.
+
+    EVIDENCE BASE: the open project sjalkote/bluedriver-reverse-engineering
+    (README.md and main.py, pinned in `evidence`) was built from Apple
+    PacketLogger HCI logs of the BlueDriver iOS app while it paired and
+    streamed live data. The author then replicated the session in a Python
+    Bleak client that connects, bonds, initialises and polls PIDs. The
+    repository has no licence, so this spec restates its facts in its own
+    words and tables and copies none of its code. Silicon Labs' BGX13P
+    documentation supplies the service UUID and the reading of the
+    flow-control bytes. Vendor support articles supply the pairing window,
+    the LED meanings and the fact that firmware updates exist. This project
+    holds no capture of its own and has driven no hardware.
+
+    STACK: the phone talks to a Silicon Labs BGX13P module over its Xpress
+    Streaming service. Behind it sits an ELM327-style OBD core that
+    implements the vendor's "LM" commands and the OBD-II protocols. Upstream
+    says the LM commands are handled by the BGX overlay rather than the ELM
+    core; which chip actually parses them is not established. Four
+    application rules sit on top of the stock BGX profile, and a client that
+    misses any one of them gets nothing useful back:
+      1. Every stream byte is XORed with 0x26, except that 0x0D (CR) and
+         0x3E ('>') pass through unchanged (protocol_details.wire_codec).
+      2. The client announces a receive window on DATA (00 ff 7f) and must
+         acknowledge every DATA notification with 01 <len> 00. Without the
+         acknowledgement the scanner stops after the first fragment.
+      3. A fixed nine-command LM init has to run before any PID query works
+         (`initialization`).
+      4. After the init, standard ELM327 AT commands must not be sent. ATZ,
+         ATE0 and the rest corrupt the firmware's state, and every later
+         query answers NO DATA. Upstream gives no recovery. Unplugging the
+         scanner to power-cycle it is the obvious remedy, but it is untested.
+
+    Generic ELM327 behaviour (prompt handling, protocol numbers, the AT
+    vocabulary) is documented in obd2-bluetooth-adapter. PID formulas are in
+    the obd2-pid-reference spec. This spec records only what BlueDriver does
+    differently.
+
+    WHY THE PAIRING WINDOW EXISTS: CERT/CC VU#615456 (CVE-2016-2354, April
+    2016) found that the "BlueDriver LSB2" took Bluetooth connections with no
+    PIN, so anyone in radio range could reach the vehicle's diagnostic bus.
+    The vendor's fix was a firmware update that limits discoverability to one
+    minute after the scanner is plugged in, which is the 60-second window in
+    `pairing`. The note does not say which radio that 2016 unit used. The
+    LE units covered here already ship with the window, so this spec records
+    the note as history rather than as a `security_advisory`. Just Works
+    still means that whoever can plug the scanner in can pair with it.
+
+    OUT OF SCOPE: the vendor app's enhanced and manufacturer diagnostics
+    (ABS/SRS/TPMS and similar), repair reports and every cloud feature. Also
+    firmware update (only its existence is recorded, under `features`) and
+    DTC clearing (mode 04), which the source never exercised.
+
+    SAFETY: reading PIDs is diagnostic only and moves nothing. Two practical
+    hazards remain. OBD pin 16 is usually unswitched, so a scanner left in
+    the connector draws on the battery. And a live-data display must not be
+    read by the driver while the vehicle is moving.
+  identification:
+    local_name_prefixes: ["BlueDriv", "LSB2-"]
+    notes: >
+      Name only. The BGX Xpress Streaming service UUID
+      (331a36f5-2459-45ea-9d95-6142f0c4b307) is inferred, not observed, and
+      nothing records whether this product advertises it. It would also match
+      every other BGX13P product, so it is deliberately not an identification
+      axis. The source does not say which LE hardware line advertises which
+      prefix. LSB2 is the vendor's model code for the BlueDriver Bluetooth
+      Pro (the CERT note and the LSB2 owner's guide both use it), so "LSB2-"
+      is presumably the model code plus a per-unit suffix. No suffix is
+      recorded.
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          local_name:
+            match: "prefix"
+            values: ["BlueDriv", "LSB2-"]
+        verification: "reported"
+        notes: >
+          The upstream client scans for about 10 s and keeps any result whose
+          name starts with either prefix. The scanner advertises only while it
+          has power from the diagnostic connector, which usually means the
+          ignition must be on. A BGX13P peripheral takes one central at a
+          time, and the vendor warns that a previously paired phone nearby
+          can reconnect on its own. A scanner held by that phone is not
+          available, and a connected BLE peripheral usually stops
+          advertising (see pairing.exclusivity).
+    identity:
+      stable_keys: ["address"]
+      display: "local_name"
+      notes: >
+        The address type (public or random) is not recorded. Upstream keys
+        reconnects on the platform's peripheral identifier (a CoreBluetooth
+        UUID on macOS), which is stable for a bonded device on that host. If
+        the address turns out to rotate, the bond's identity key resolves it
+        on a bonded host. A host that has never bonded should then key on the
+        local name instead.
+
+  setup:
+    required: false
+    confidence: "medium"
+    notes: >
+      Nothing to provision: there is no Wi-Fi, and the documented path needs
+      no account. The vendor app offers an account or a guest mode, and per
+      the vendor all local diagnostics work offline. The only one-time act is
+      the LE bond described in `pairing`, and it must be made within 60
+      seconds of plugging the scanner in. After that, every connection runs
+      the handshake in top-level `initialization`. Confidence is medium
+      because there is a working open client (upstream) and vendor support
+      articles, but nothing has been replayed here.
+    methods:
+      - type: "ble_direct"
+        verified: false
+        description: >
+          Plug in with the ignition on, find the scanner by name, connect, and
+          read the encrypted characteristic. On first contact that makes the
+          host pair (Just Works, no PIN) and store a bond. Then open the DATA
+          receive window, run the nine-command LM init, and poll mode-01 PIDs
+          one at a time. No button, no PIN and no account are involved.
+        ble:
+          pairing_required: true
+        steps:
+          - action: "Turn the ignition on (engine running, or key-on/engine-off), then plug the scanner into the diagnostic connector."
+            actor: "user"
+            expect: >
+              LED solid blue while the scanner starts, then flashing red
+              (BlueDriver Pro) or green (Pro Next-Gen). Either means it is
+              powered and talking to the vehicle but no app is connected yet.
+          - action: "Within 60 seconds of plugging in, scan for a local name starting with 'BlueDriv' or 'LSB2-' and connect."
+            actor: "client"
+            timeout_seconds: 60
+            notes: >
+              60 s is the vendor's pairing window for a phone that has not
+              bonded yet. Unplugging and replugging restarts it.
+          - action: "Run the connection handshake in `initialization`. Its read of the encrypted characteristic makes the host pair on first contact."
+            actor: "client"
+            request:
+              protocol: "ble_gatt"
+            expect: >
+              The host stores a bond. Each LM init command's reply ends with
+              the '>' prompt, and LMDP answers with the detected OBD protocol
+              number.
+          - action: "Poll mode-01 PIDs one request at a time, waiting for '>' before each next write."
+            actor: "client"
+            expect: "Space-separated hex data bytes, then CR and '>' (see payload_formats.ElmResponse)."
+        timing:
+          pairing_window_s: 60
+          window_open_settle_ms: 100
+          init_reply_timeout_s: 3
+          pause_after_reply_ms: 50
+          encrypted_read_timeout_s: 20
+          query_time_lmx0_ms: 45
+          query_time_lmx1_ms: 200
+          six_pid_serial_refresh_s: "0.25-0.3"
+          connection_interval_ms: 15
+          notes: >
+            All values are from upstream. The timeouts (3 s per init reply,
+            20 s for the pairing read) are the upstream client's own choices,
+            not device limits. The per-query figures and the roughly 15 ms
+            connection interval were observed in its captures.
+        troubleshooting:
+          - symptom: "The first reply fragment arrives, then nothing; the '>' prompt never comes."
+            causes:
+              - "The DATA notification was not acknowledged. Write 01 <len> 00 to DATA for every fragment, immediately, before decoding it."
+              - "The 00 ff 7f receive-window message was never written to DATA before the first command."
+          - symptom: "Every query answers NO DATA."
+            causes:
+              - "A standard AT command (ATZ, ATE0, ATSP, ...) was sent after the LM init. That breaks the firmware's state. No recovery is documented. Unplugging the scanner, reconnecting and rerunning the init without AT commands is the obvious thing to try (untested)."
+              - "The LM init was skipped or run out of order."
+              - "ATRV and ATDP answer NO DATA by design. Use PID 0142 for voltage and LMDP for the protocol."
+          - symptom: "Queries time out at random, or replies are cut short."
+            causes:
+              - "A new command was written before the previous reply's '>' arrived. There is no pipelining: any new input makes the ELM core abort the query in flight."
+          - symptom: "Live data refreshes about once a second."
+            causes:
+              - "The scanner is in LMX1 (exhaustive timing, ~200 ms per query). Send LMX0 for live polling."
+          - symptom: "The scanner is not found, or the pairing read times out."
+            causes:
+              - "More than 60 s passed since plug-in on a host that has not bonded. Unplug, replug and connect promptly."
+              - "Another phone that paired earlier, or the vendor app running in the background, already holds the scanner's only connection. Close the app and turn Bluetooth off on the other devices."
+              - "The ignition is off, so the scanner has no power."
+              - "The host kept a stale bond. Forget the scanner in the OS Bluetooth settings and pair again inside the 60 s window."
+          - symptom: "The LED is solid red as soon as the scanner is plugged in."
+            causes:
+              - "The scanner is in firmware recovery mode after an interrupted update. Only the vendor app's update flow recovers it (see features.firmware_update)."
+    factory_reset:
+      applicable: "unknown"
+      confidence: "low"
+      effect: >
+        None is documented. The vendor's support pages describe no reset for
+        the scanner itself. Their remedies are all on the phone side: forget
+        the device, clear the app's data, or unplug and replug. The scanner
+        stores no user configuration a client sets. The only state it is
+        known to hold is its bonds with paired hosts, and whether anything
+        short of eviction clears those is not established.
+      description: >
+        Unplugging the scanner is a power cycle, not a reset. It restarts the
+        60 s pairing window and presumably clears the firmware state that
+        stray AT commands corrupt, but no source says it drops bonds. On the stock
+        BGX13P the bond table holds 14 hosts and evicts the least recently
+        used one when a new host bonds. If this product keeps that default,
+        old bonds age out on their own. That is a module default, not a
+        product fact.
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        Moving to a new phone or client is just pairing again inside the 60 s
+        window after plug-in. A phone that bonded earlier may reconnect first
+        and take the only connection. Turn Bluetooth off on it, or forget the
+        scanner there, before pairing the new one.
+    credentials:
+      wifi_passphrase_protection: "not_applicable"
+      stored_on_device:
+        - "LE bond keys for each host that has paired (up to 14 on a stock BGX13P; not confirmed for this product)"
+      issued_to_client:
+        - "The LE bond (long-term key), held by the host operating system's Bluetooth stack rather than by the application"
+      notes: >
+        No application-layer credential exists. The XOR 0x26 encoding is a
+        fixed obfuscation shared by every unit, not a key. Link security is
+        LE Secure Connections Just Works. That gives encryption but no
+        protection against a man in the middle, and anyone who plugs the
+        scanner in can pair a phone inside the window.
+
+  pairing:
+    required: true
+    confidence: "medium"
+    security_mode: "just_works"
+    bonding: "required"
+    exclusivity:
+      single_connection: true
+      single_bond: false
+      recovery: >
+        Fully close the vendor app, including in the background. Turn
+        Bluetooth off on every other phone or tablet that has paired with the
+        scanner, because the vendor says they reconnect by themselves. Then
+        unplug and replug the scanner and connect within 60 seconds.
+      notes: >
+        One central at a time. A BGX13P peripheral accepts a single
+        connection (Silicon Labs), and the vendor's troubleshooting assumes
+        another phone can take it. More than one host stays bonded: the
+        vendor text implies it, and a stock BGX13P keeps 14 bonds. So adding
+        a client does not unbind the phone app. It just has to lose the race
+        for the connection.
+    enter_pairing_mode:
+      required: true
+      window_seconds: 60
+      indicator: >
+        No distinct pairing indicator. The LED is solid blue at power-up, then
+        flashes red (BlueDriver Pro) or turns green (Pro Next-Gen) while it
+        waits for an app. It flashes blue once a phone is connected and
+        talking to it.
+      procedures:
+        - name: "Plug the scanner in with the ignition on, then pair within 60 seconds"
+          verified: false
+          basis: >
+            Vendor support articles "Device Not Pairing - Device type LE
+            engraved on device" and "Android Troubleshooting" (60-second
+            window, restarted by unplugging and replugging). CERT/CC
+            VU#615456 records the origin: the 2016 firmware fix for
+            CVE-2016-2354 limited discoverability to one minute after plug-in,
+            and only after plug-in, not at every ignition-on. Upstream's
+            instructions to connect right after plugging in are consistent
+            with this. Not replayed here.
+          power_state: "off"
+          description: >
+            The scanner is pairable for about a minute after it powers up from
+            the connector. If the window passes, unplug the scanner and plug
+            it back in to reopen it.
+          steps:
+            - action: "Turn the ignition on and plug the scanner into the diagnostic connector (unplug it first if it is already in)."
+              actor: "user"
+            - action: "Connect and read the encrypted characteristic 12e868e7-c926-4906-96c8-a7ee81d4b1b3 before 60 seconds have passed."
+              actor: "client"
+              expect: "The host completes LE Secure Connections Just Works pairing with no prompt and stores the bond."
+      notes: >
+        Whether a host that has already bonded can reconnect outside the
+        window is not stated by any source. CERT's wording ("discoverability")
+        leaves open whether the scanner stops advertising after the minute or
+        only stops accepting new pairings. The stock BGX13P can do the latter:
+        with pairing turned off, bonded hosts still connect. Upstream
+        reconnects straight to a known address, and the vendor's advice for a
+        bonded phone that will not connect is again to unplug and replug.
+    unpair:
+      supported: "unknown"
+      notes: >
+        No scanner-side unpair is documented. On the host side, forget the
+        scanner in the OS Bluetooth settings. The vendor says to do exactly
+        that when a bonded iPhone will not reconnect. On the scanner side,
+        bonds presumably age out through the BGX module's 14-entry
+        least-recently-used table (a module default, not confirmed).
+    notes: >
+      Pairing is plain LE link-layer security with nothing above it. The
+      scanner answers the SMP Pairing Request with IO capability
+      NoInputNoOutput. Whatever the host offers, that forces LE Secure
+      Connections Just Works, with no PIN and no confirmation dialog.
+      CoreBluetooth has no pairing call of its own, so the vendor app
+      triggers pairing by reading the encrypted characteristic
+      12e868e7-c926-4906-96c8-a7ee81d4b1b3, and upstream does the same. On
+      later connections the same read simply runs on the already-encrypted
+      link, or fails harmlessly if the bond is cached. Silicon Labs
+      documents the stock BGX streaming service as always requiring an
+      encrypted link, so the XOR layer is obfuscation on top of real link encryption,
+      not a replacement for it. `bonding: required` reflects that the bond
+      is persisted and reused (macOS lists the scanner as a saved device
+      after one run upstream) and that a host without one can only pair
+      inside the 60 s window. Whether the scanner refuses a pairing request
+      that does not set the bonding flag is not established.
+  host_compatibility:
+    - stack: "corebluetooth"
+      status: "compatible"
+      verification: "reported"
+      basis: >
+        The vendor's own iOS app, and the upstream Bleak client, which its
+        author ran on macOS (Bleak's CoreBluetooth backend): scan, bond,
+        initialise and poll all worked there.
+      notes: >
+        Pairing happens implicitly, on the read of the encrypted
+        characteristic. The bond then appears in the macOS Bluetooth device
+        list.
+    - stack: "android"
+      status: "compatible"
+      verification: "reported"
+      basis: >
+        The vendor's Android app, supported on Android 8.0 and later per the
+        vendor's compatibility article. No third-party Android client is
+        known.
+      notes: >
+        The vendor warns that many aftermarket Android head units run a
+        common ROM that blocks the scanner from pairing, and knows of no
+        workaround. That is a property of those ROMs, not of the Android
+        stack in general.
+
+services:
+  - uuid: "331a36f5-2459-45ea-9d95-6142f0c4b307"
+    name: "Silicon Labs BGX Xpress Streaming Service (inferred)"
+    notes: >
+      INFERRED, not observed. Upstream lists the three characteristics below
+      by UUID but never names their service. Silicon Labs' BGX documentation
+      lists exactly these three characteristic UUIDs as the Xpress Streaming
+      service 331a36f5-2459-45ea-9d95-6142f0c4b307, as Peripheral Receive
+      (Rx), Peripheral Transmit (Tx) and Mode. The properties upstream
+      observed match that table as well. No GATT dump of a BlueDriver
+      confirms the service UUID, so a client should look the characteristics
+      up by characteristic UUID across all services rather than depend on
+      this one. The upstream names CMD / DATA / STATUS are kept, with the
+      BGX names in each entry.
+    characteristics:
+      - uuid: "a9da6040-0823-4995-94ec-9ce41ca28833"
+        name: "CMD (BGX Peripheral Receive, Rx)"
+        properties: ["write", "write_without_response", "notify"]
+        role: "command"
+        notes: >
+          Client to scanner: XOR-encoded ASCII commands, each ending in CR
+          (0x0D, which passes through the encoding unchanged). The upstream
+          client writes without response. Scanner to client: notifications
+          here are BGX streaming control messages, not data. On the initial
+          connection the scanner sends 00 ff 07. The BGX procedure has a
+          peripheral send this when the central enables notifications here.
+          Upstream calls this a status message; the BGX layout reads it as
+          Initial Buffer Size, 0x07ff = 2047 bytes. After each command it
+          sends 01 01 00, which upstream calls an ACK and the BGX layout
+          reads as Buffer Bytes Freed = 1. Upstream ignores both and nothing
+          breaks, because a single command of five to fifteen bytes never
+          nears a 2047-byte window. The commands below are the exact wire
+          bytes, already XOR-encoded. Each description gives the plaintext.
+          Send one command, then wait for the '>' prompt on DATA before
+          sending the next.
+        commands:
+          lm_identify:
+            description: >
+              LMI + CR. Firmware identity probe. The first call of the init
+              may answer "?". The others answer with an OSAPI version line and
+              OK (e.g. "OSAPI v2.60", CR, "OK", CR, ">"). Sent three times
+              during the LM init.
+            value: [0x6A, 0x6B, 0x6F, 0x0D]
+            verification: "reported"
+          lm_d:
+            description: >
+              LMD + CR. Part of the LM init (sent twice). Replies OK. Its
+              meaning is not known.
+            value: [0x6A, 0x6B, 0x62, 0x0D]
+            verification: "reported"
+          lm_l0:
+            description: >
+              LML0 + CR. Part of the LM init. The expected reply is "?" (the
+              ELM core's unknown-command answer), and the vendor app sends it
+              anyway. Its meaning is not known.
+            value: [0x6A, 0x6B, 0x6A, 0x16, 0x0D]
+            verification: "reported"
+          lm_protocol:
+            description: >
+              LMDP + CR. Reports the OBD protocol the scanner auto-detected, as
+              one ELM-style protocol number (0-9 or A, table in
+              protocol_details.lmdp_protocol_numbers), then CR, OK, CR, '>'.
+              Use this in place of ATDP, which answers NO DATA here.
+            value: [0x6A, 0x6B, 0x62, 0x76, 0x0D]
+            verification: "reported"
+          lm_timing_exhaustive:
+            description: >
+              LMX1 + CR. Exhaustive response timing: the firmware waits out its
+              full ~200 ms timeout on every query, whether or not the ECU has
+              answered. The vendor app switches to this for its one-time
+              monitor and freeze-frame scans. Replies OK.
+            value: [0x6A, 0x6B, 0x7E, 0x17, 0x0D]
+            verification: "reported"
+          lm_timing_fast:
+            description: >
+              LMX0 + CR. Fast response timing: the reply comes back as soon as
+              the ECU answers, about 45 ms per query. This is the last
+              command of the LM init and the mode for live polling. Replies
+              OK.
+            value: [0x6A, 0x6B, 0x7E, 0x16, 0x0D]
+            verification: "reported"
+          read_supported_pids:
+            description: >
+              0100 + CR. Mode 01 PID 00, the supported-PID bitmap for PIDs
+              01-20 (4 data bytes, bitmask per obd2-pid-reference). Upstream
+              lists it among common PIDs but not among the ones it tested.
+            value: [0x16, 0x17, 0x16, 0x16, 0x0D]
+            verification: "hypothesis"
+          read_engine_rpm:
+            description: >
+              010C + CR. Engine speed: 2 data bytes A B, rpm = (A*256 + B) / 4
+              (unsigned 16-bit big-endian, scale 0.25). Upstream's example
+              reply is "0F 80" plus CR and '>', which decodes to 992 rpm.
+            value: [0x16, 0x17, 0x16, 0x65, 0x0D]
+            verification: "reported"
+          read_vehicle_speed:
+            description: "010D + CR. Vehicle speed: 1 data byte A, km/h = A."
+            value: [0x16, 0x17, 0x16, 0x62, 0x0D]
+            verification: "reported"
+          read_coolant_temperature:
+            description: "0105 + CR. Engine coolant temperature: 1 data byte A, C = A - 40."
+            value: [0x16, 0x17, 0x16, 0x13, 0x0D]
+            verification: "reported"
+          read_intake_air_temperature:
+            description: "010F + CR. Intake air temperature: 1 data byte A, C = A - 40."
+            value: [0x16, 0x17, 0x16, 0x60, 0x0D]
+            verification: "reported"
+          read_engine_load:
+            description: "0104 + CR. Calculated engine load: 1 data byte A, % = A * 100 / 255."
+            value: [0x16, 0x17, 0x16, 0x12, 0x0D]
+            verification: "reported"
+          read_throttle_position:
+            description: "0111 + CR. Throttle position: 1 data byte A, % = A * 100 / 255."
+            value: [0x16, 0x17, 0x17, 0x17, 0x0D]
+            verification: "reported"
+          read_fuel_level:
+            description: "012F + CR. Fuel tank level input: 1 data byte A, % = A * 100 / 255."
+            value: [0x16, 0x17, 0x14, 0x60, 0x0D]
+            verification: "reported"
+          read_intake_manifold_pressure:
+            description: "010B + CR. Intake manifold absolute pressure: 1 data byte A, kPa = A."
+            value: [0x16, 0x17, 0x16, 0x64, 0x0D]
+            verification: "reported"
+          read_module_voltage:
+            description: >
+              0142 + CR. Control module voltage: 2 data bytes A B,
+              V = (A*256 + B) / 1000 (unsigned 16-bit big-endian, scale
+              0.001). This stands in for battery voltage, because ATRV
+              answers NO DATA on this scanner.
+            value: [0x16, 0x17, 0x12, 0x14, 0x0D]
+            verification: "reported"
+          read_live_six_pids:
+            description: >
+              010C0D0504110B + CR. One mode-01 request for six PIDs (rpm,
+              speed, coolant, load, throttle, manifold pressure), the most one
+              request may carry. CAN vehicles only. The reply echoes each PID
+              number before its data bytes (layout in
+              payload_formats.ElmResponse). If fewer than the six PIDs come
+              back (non-CAN protocols), fall back to one PID per request.
+              Costs one BLE round trip instead of six.
+            value: [0x16, 0x17, 0x16, 0x65, 0x16, 0x62, 0x16, 0x13, 0x16, 0x12, 0x17, 0x17, 0x16, 0x64, 0x0D]
+            verification: "reported"
+      - uuid: "a73e9a10-628f-4494-a099-12efaf72258f"
+        name: "DATA (BGX Peripheral Transmit, Tx)"
+        properties: ["write_without_response", "notify", "indicate"]
+        role: "notify"
+        notes: >
+          Scanner to client: XOR-encoded reply fragments from the ELM core.
+          One reply commonly spans two notifications, so decode each fragment
+          and append it to a buffer until the decoded buffer contains '>'.
+          Clear the buffer before each new command, so a stale '>' cannot end
+          the next wait early. Client to scanner: only the three-byte stream
+          control messages below, written without response and NOT
+          XOR-encoded. Acknowledge every notification, immediately and before
+          decoding it. Upstream found that without these acknowledgements the
+          scanner stops after the first fragment.
+        commands:
+          open_receive_window:
+            description: >
+              00 ff 7f, written once per connection after subscribing and
+              before the first CMD write. Upstream calls it opening a
+              255-byte receive credit window. Under the BGX Fast-Ack layout it
+              is an Initial Buffer Size message (opcode 0x00) announcing
+              0x7fff = 32767 bytes of client buffer. The bytes are the same
+              whichever reading is right. Upstream pauses about 100 ms after
+              writing it.
+            value: [0x00, 0xFF, 0x7F]
+            packet_layout:
+              "0": "opcode 0x00: Initial Buffer Size (BGX Fast-Ack naming)"
+              "1": "buffer size, low byte (0xff)"
+              "2": "buffer size, high byte (0x7f); little-endian 0x7fff = 32767 bytes"
+            verification: "reported"
+          ack_fragment:
+            description: >
+              01 <len> 00: acknowledge one DATA notification. <len> is the
+              exact byte count of the fragment being acknowledged, as a 16-bit
+              little-endian value. A fragment never exceeds 250 bytes, so on
+              the wire this is always 01, the length, then 00. BGX Fast-Ack
+              names it Buffer Bytes Freed (opcode 0x01). Send one per
+              notification, as soon as it arrives.
+            template: [0x01, "{bytes_freed}"]
+            parameters:
+              bytes_freed:
+                type: "uint16"
+                endianness: "little"
+                min: 1
+                max: 250
+                unit: "bytes"
+                description: >
+                  Byte count of the DATA notification being acknowledged, as
+                  received (before XOR decoding, which does not change the
+                  length). The 250 ceiling is the BGX characteristic's
+                  maximum value length.
+            packet_layout:
+              "0": "opcode 0x01: Buffer Bytes Freed (BGX Fast-Ack naming)"
+              "1": "fragment length, low byte"
+              "2": "fragment length, high byte (always 0x00 for a BLE fragment)"
+            verification: "reported"
+      - uuid: "75a9f022-af03-4e41-b4bc-9de90a47d50b"
+        name: "STATUS (BGX Stream Mode, Mode)"
+        properties: ["read", "write", "notify", "indicate"]
+        notes: >
+          Upstream subscribes and logs occasional "status bursts" here but
+          never decoded them. In the stock BGX profile this is the Mode
+          characteristic. Its values are 1 = streaming, 2 = local command
+          mode, 3 = remote command mode, so the bursts are plausibly mode
+          reports (hypothesis). Silicon Labs also lists
+          write-without-response for it; upstream did not report that
+          property. Do NOT write it. On a BGX module a Mode write switches
+          the module out of streaming, which would cut the OBD stream off.
+          The upstream client never writes it, and the source records no
+          write to it by the vendor app.
+
+  - uuid: "0000180a-0000-1000-8000-00805f9b34fb"
+    name: "Device Information"
+    notes: >
+      Standard SIG service. Upstream reads the two strings below once after
+      pairing, for display. The actual values seen are not recorded.
+    characteristics:
+      - uuid: "00002a24-0000-1000-8000-00805f9b34fb"
+        name: "Model Number String"
+        properties: ["read"]
+        notes: "ASCII/UTF-8 model string; length not recorded."
+      - uuid: "00002a26-0000-1000-8000-00805f9b34fb"
+        name: "Firmware Revision String"
+        properties: ["read"]
+        notes: >
+          ASCII/UTF-8 firmware string; length not recorded. Whether it
+          reports the BGX module's firmware or the product firmware (the
+          LMI reply carries an "OSAPI" version) is not established.
+
+initialization:
+  - characteristic: "a9da6040-0823-4995-94ec-9ce41ca28833"
+    subscribe: true
+    notes: >
+      Subscribe CMD first. The scanner answers with a 00 ff 07 notification
+      (BGX Initial Buffer Size, 2047 bytes). Later CMD notifications (01 01
+      00 after each command) can be ignored by a client that sends one
+      command at a time.
+  - characteristic: "a73e9a10-628f-4494-a099-12efaf72258f"
+    subscribe: true
+    notes: "Subscribe DATA; every reply arrives here."
+  - characteristic: "75a9f022-af03-4e41-b4bc-9de90a47d50b"
+    subscribe: true
+    notes: "Subscribe STATUS, as upstream does; its bursts are not decoded (see the characteristic's notes). Never write to it."
+  - characteristic: "12e868e7-c926-4906-96c8-a7ee81d4b1b3"
+    read: true
+    notes: >
+      Read the encrypted characteristic. On a host that has not bonded, this
+      starts SMP pairing, which completes as LE Secure Connections Just Works
+      with no user interaction. It must happen within 60 s of plug-in (see
+      device.pairing). On a bonded host it just reads over the encrypted
+      link. Upstream allows 20 s, and if the read errors it assumes a cached
+      bond and continues after a 0.5 s pause. What the returned value means
+      is not documented, so do not depend on it. The characteristic's
+      service is not recorded, so look it up by characteristic UUID (it is
+      not one of the three BGX streaming characteristics). If a host stack
+      refuses the three subscriptions above with an insufficient-encryption
+      error instead of pairing on its own, do this read first and then
+      subscribe (hypothesis; upstream's order was run only on macOS).
+  - characteristic: "00002a26-0000-1000-8000-00805f9b34fb"
+    read: true
+    notes: "Optional: firmware revision string, for display only."
+  - characteristic: "00002a24-0000-1000-8000-00805f9b34fb"
+    read: true
+    notes: "Optional: model number string, for display only."
+  - characteristic: "a73e9a10-628f-4494-a099-12efaf72258f"
+    write: [0x00, 0xFF, 0x7F]
+    delay_ms: 100
+    notes: "Open the receive window (DATA command open_receive_window). Not XOR-encoded."
+  - characteristic: "a73e9a10-628f-4494-a099-12efaf72258f"
+    description: >
+      From here on, for EVERY DATA notification: immediately write 01 <len> 00
+      to DATA (the ack_fragment command, <len> = that notification's byte
+      count), then XOR-decode the fragment and append it to the reply buffer.
+      A reply is complete when the decoded buffer contains '>'. Every LM step
+      below must wait for that prompt before the next write. This is receive
+      logic that no fixed byte sequence can state, so a client has to
+      implement it itself. A consumer that cannot must stop here: without the
+      acknowledgements the scanner stalls after the first fragment.
+  - characteristic: "a9da6040-0823-4995-94ec-9ce41ca28833"
+    write: [0x6A, 0x6B, 0x6F, 0x0D]
+    delay_ms: 50
+    notes: "LMI. Wait for '>' first (upstream allows 3 s), then pause 50 ms. Reply: '?' or 'OSAPI v2.60' CR 'OK'."
+  - characteristic: "a9da6040-0823-4995-94ec-9ce41ca28833"
+    write: [0x6A, 0x6B, 0x62, 0x0D]
+    delay_ms: 50
+    notes: "LMD. Wait for '>' first. Reply: 'OK'."
+  - characteristic: "a9da6040-0823-4995-94ec-9ce41ca28833"
+    write: [0x6A, 0x6B, 0x6A, 0x16, 0x0D]
+    delay_ms: 50
+    notes: "LML0. Wait for '>' first. Reply: '?' (expected; the vendor app sends it regardless)."
+  - characteristic: "a9da6040-0823-4995-94ec-9ce41ca28833"
+    write: [0x6A, 0x6B, 0x6F, 0x0D]
+    delay_ms: 50
+    notes: "LMI (second). Wait for '>' first. Reply: 'OSAPI v2.60' CR 'OK'."
+  - characteristic: "a9da6040-0823-4995-94ec-9ce41ca28833"
+    write: [0x6A, 0x6B, 0x62, 0x0D]
+    delay_ms: 50
+    notes: "LMD (second). Wait for '>' first. Reply: 'OK'."
+  - characteristic: "a9da6040-0823-4995-94ec-9ce41ca28833"
+    write: [0x6A, 0x6B, 0x62, 0x76, 0x0D]
+    delay_ms: 50
+    notes: "LMDP. Wait for '>' first. Reply: the detected protocol number (protocol_details.lmdp_protocol_numbers) CR 'OK'."
+  - characteristic: "a9da6040-0823-4995-94ec-9ce41ca28833"
+    write: [0x6A, 0x6B, 0x6F, 0x0D]
+    delay_ms: 50
+    notes: "LMI (third). Wait for '>' first. Reply: 'OSAPI v2.60' CR 'OK'."
+  - characteristic: "a9da6040-0823-4995-94ec-9ce41ca28833"
+    write: [0x6A, 0x6B, 0x7E, 0x17, 0x0D]
+    delay_ms: 50
+    notes: "LMX1 (exhaustive timing). Wait for '>' first. Reply: 'OK'."
+  - characteristic: "a9da6040-0823-4995-94ec-9ce41ca28833"
+    write: [0x6A, 0x6B, 0x7E, 0x16, 0x0D]
+    delay_ms: 50
+    notes: >
+      LMX0 (fast timing). Wait for '>' first. Reply: 'OK'. The init is now
+      complete. The ELM core is left with echo off, headers off, linefeeds
+      off, spaces on and automatic protocol selection. Mode-01 PIDs now work
+      raw. Send no AT commands from here on.
+
+payload_formats:
+  ElmResponse:
+    description: >
+      One reply from the ELM core as it appears on DATA after XOR-decoding the
+      concatenated fragments. The LM init leaves the core with echo off,
+      headers off, linefeeds off and spaces on, so a reply is space-separated
+      hex text, then CR, then the '>' prompt. Every character except CR and
+      '>' is XOR-encoded on the wire.
+    parse_rules:
+      - "Acknowledge each DATA notification (01 <len> 00) before anything else, then XOR-decode it: every byte b becomes b ^ 0x26, except 0x0d and 0x3e, which stay as they are."
+      - "Append decoded fragments to a buffer that was cleared before the command was sent. The reply is complete when the buffer contains '>'. Do not parse earlier; replies commonly span two notifications."
+      - "Drop the '>' and treat CR as a separator. Lines are CR-only (linefeeds are off)."
+      - "If the text contains NO DATA, UNABLE, ERROR, STOPPED, SEARCHING or a bare '?', the query produced no value. These are standard ELM327 status words; see obd2-bluetooth-adapter."
+      - "LM commands answer with text lines followed by OK (e.g. 'OSAPI v2.60' then 'OK'; for LMDP, the protocol number then 'OK'). The first token of an LMDP reply is the protocol number."
+      - "Single-PID mode-01 reply: per upstream, ONLY the data bytes, with no 41 mode byte and no PID echo. Upstream's example for 010C is '0F 80' followed by CR and '>'. Strip a leading '41 <pid>' defensively in case a firmware revision restores the echo, as upstream's parser does."
+      - "Multi-PID mode-01 reply (CAN only): each requested PID number comes back ahead of its own data bytes, with no leading 41. Upstream's parser also skips a leading 41 if one appears. CAN multi-frame output can carry ELM frame-index tokens ending in ':' ('0:', '1:'); drop those, join the remaining hex, and walk it PID by PID using each PID's data length from obd2-pid-reference. If the walk hits a byte that is not the next expected PID, the scanner returned fewer PIDs; fall back to single-PID requests."
+      - "Decode data bytes with the J1979 formulas in obd2-pid-reference (the nine upstream tested are tabulated in protocol_details.tested_pids)."
+    example: "wire 16 60 06 1e 16 06 0d 3e -> decoded '0F 80 ' CR '>' -> PID 010C rpm = 0x0f80 / 4 = 992"
+  StreamControlMessage:
+    description: >
+      The three-byte BGX Fast-Ack flow-control message. The scanner sends it
+      as a CMD notification, and the client writes it to DATA without
+      response. It is never XOR-encoded. The field meanings come from Silicon
+      Labs' BGX documentation, and the four instances below match that
+      layout. Upstream describes the same bytes without naming the fields.
+    fields:
+      - index: 0
+        name: "opcode"
+        description: "0x00 = Initial Buffer Size; 0x01 = Buffer Bytes Freed."
+      - index: 1
+        name: "byte_count"
+        unit: "bytes"
+        description: "Bytes 1-2, unsigned 16-bit little-endian: the buffer size (opcode 0x00) or the number of bytes freed (opcode 0x01)."
+    values:
+      "00 ff 07": "scanner -> client on CMD at connect: Initial Buffer Size 2047 bytes"
+      "00 ff 7f": "client -> scanner on DATA before the first command: Initial Buffer Size 32767 bytes (upstream: 'a 255-byte credit window')"
+      "01 01 00": "scanner -> client on CMD after each command: Buffer Bytes Freed 1 (upstream: 'ACK')"
+      "01 <len> 00": "client -> scanner on DATA for every DATA notification: Buffer Bytes Freed <len>"
+    example: "01 14 00 (acknowledging a 20-byte DATA notification)"
+
+obd:
+  role: "adapter"
+  adapter_profile:
+    capabilities:
+      - "single_frame"
+      - "multiframe_rx"
+    verification: "reported"
+    known_limitations:
+      - >
+        No capability class is claimed. The core behaves like an ELM327 for
+        mode-01 reads, but the AT command set is off-limits after the
+        mandatory LM init: any AT command corrupts the firmware state and
+        every later query returns NO DATA. So nothing that needs AT
+        configuration (custom headers, protocol forcing, raw frames, flow
+        control, monitor mode) is available to a third-party client. This
+        is a firmware restriction, not a sign of clone silicon.
+      - >
+        multiframe_rx rests on the six-PID mode-01 request, which CAN
+        vehicles answer in one multi-frame response. Non-CAN protocols do
+        not support combined requests.
+      - >
+        ATRV (adapter voltage) and ATDP (protocol name) answer NO DATA. Use
+        PID 0142 for voltage and LMDP for the protocol number.
+      - >
+        One query at a time. A command written while a query is in flight
+        aborts it.
+      - >
+        Mode 03 (read DTCs), mode 04 (clear DTCs) and the vendor's enhanced
+        manufacturer diagnostics were not exercised by the source and are
+        not documented here.
+  connector:
+    standard: "sae-j1962"
+    location: "vehicle diagnostic socket"
+    pins:
+      - pin: 16
+        signal: "battery +12V (usually unswitched; powers the scanner)"
+        verification: "reported"
+  transport:
+    standard: "iso15765-4"
+    bitrate: 500000
+    addressing: "11bit"
+    functional_id: "0x7DF"
+    verification: "reported"
+  requests:
+    - name: "read_supported_pids"
+      description: "Mode 01 PID 00. Listed by upstream as a common PID but not among the ones it tested."
+      command_class: "basic"
+      requires: ["single_frame"]
+      service: "01"
+      request: "01 00"
+      writes: false
+      verification: "hypothesis"
+      notes: "Reply carries data bytes only (no 41 00 echo) on this scanner; see payload_formats.ElmResponse."
+    - name: "read_engine_rpm"
+      description: "Mode 01 PID 0C, the upstream worked example (reply '0F 80' = 992 rpm)."
+      command_class: "basic"
+      requires: ["single_frame"]
+      service: "01"
+      request: "01 0C"
+      writes: false
+      verification: "reported"
+    - name: "read_module_voltage"
+      description: "Mode 01 PID 42, the stand-in for battery voltage because ATRV is unavailable."
+      command_class: "basic"
+      requires: ["single_frame"]
+      service: "01"
+      request: "01 42"
+      writes: false
+      verification: "reported"
+    - name: "read_live_six_pids"
+      description: "One mode-01 request carrying six PIDs (0C 0D 05 04 11 0B). CAN only."
+      command_class: "basic"
+      requires: ["single_frame", "multiframe_rx"]
+      service: "01"
+      request: "01 0C 0D 05 04 11 0B"
+      writes: false
+      verification: "reported"
+
+features:
+  - type: "firmware_update"
+    dfu:
+      mechanisms: ["unknown"]
+      transport: "ble"
+      image:
+        signing: "unknown"
+        source: "vendor_cloud"
+        notes: >
+          The vendor says downloading firmware updates needs an internet
+          connection, so images come from the vendor's servers through the
+          app. Format and signing are not known.
+      enter:
+        how: "unknown"
+        notes: >
+          How the app starts an update is not documented, and no command is
+          declared here. The stock BGX13P module family also has its own
+          Silicon Labs OTA path, which per the module datasheet accepts only
+          images Silicon Labs has signed and encrypted. Whether this product
+          exposes it, or updates the OBD core some other way, is not
+          recorded.
+      dfu_mode:
+        notes: >
+          In firmware recovery mode the LED is solid red from the moment the
+          scanner is plugged in, and it cannot be connected to normally.
+          Its advertised name and services in that state are not recorded.
+      recovery:
+        interrupted: "stays_in_bootloader"
+        notes: >
+          Per the vendor, an update interrupted by a phone disconnect or power
+          loss leaves the scanner in recovery mode (solid red LED). Running
+          the app's firmware update again reinstalls the firmware.
+      verification: "reported"
+      notes: >
+        Recorded so the standing question has an answer: the scanner does
+        take firmware updates, delivered by the vendor app over BLE.
+        Everything about how is outside the researched scope. A third-party
+        client should never attempt one.
+
+evidence:
+  public_research: >
+    sjalkote/bluedriver-reverse-engineering, read at commit b4d1bc1 (master,
+    2026-09). README.md gives the name prefixes, the four characteristics and
+    their properties, the SMP IO capability, the XOR key and its two
+    pass-through bytes, the 00 ff 07 / 01 01 00 / 00 ff 7f / 01 <len> 00
+    byte sequences, the LM init order with its expected replies, the LMX0 and
+    LMX1 timings, the AT-command and ATRV/ATDP pitfalls, the tested PID table
+    and the multi-PID and no-pipelining findings. main.py is a working Bleak
+    client that confirms the order of operations: subscribe, pairing read,
+    Device Information reads, window, init, then polling. It also gives the
+    upstream timeouts and the reply parser's handling of error words, frame
+    markers and optional 41 echoes. Its facts are restated in this spec's own
+    words; none of its code is copied (the repository carries no licence).
+  vendor_documentation: >
+    Silicon Labs BGX documentation (BLE Services and Security pages, read
+    2026-09-28). It establishes that the three streaming characteristic UUIDs
+    here are the stock BGX Xpress Streaming Rx, Tx and Mode characteristics,
+    and gives their service UUID. It defines the three-byte Fast-Ack streaming
+    control messages that 00 ff 07, 00 ff 7f and 01 <len> 00 fit, the Mode
+    values, the single-central limit, and the 14-bond table. BlueDriver
+    support articles (read 2026-09-28) give the LE and Classic hardware split,
+    the in-app pairing flow with its 60-second window, the LED meanings, the
+    firmware recovery mode, and the offline scope of diagnostics. The LSB2
+    owner's guide names the model and the app's "Update Sensor F/W" entry but
+    says nothing about pairing or the radio.
+  public_reporting: >
+    CERT/CC Vulnerability Note VU#615456 (CVE-2016-2354, 2016-04-07, revised
+    2016-04-20), read 2026-09-28. It names the "BlueDriver LSB2", describes
+    Bluetooth access with no PIN, and gives the vendor's fix: firmware that
+    limits discoverability to one minute after plug-in. That is the only
+    source for why the 60-second window exists.
+  open_questions: >
+    The service UUID and every BGX field name are inferences from the module
+    documentation, not observations. The biggest open point is the flow
+    control. Under the BGX reading, 00 ff 7f announces 32767 bytes of client
+    buffer, and a peripheral honouring that should not need an
+    acknowledgement per fragment. Yet upstream saw the scanner stall after one
+    fragment without them. Either this firmware treats the window
+    differently or something else is at work. A capture that withholds the
+    acknowledgements and watches the stall would settle it. Until then, do
+    what the vendor app does and acknowledge every fragment.
+  artifacts:
+    - type: "public_research"
+      artifact: "sjalkote/bluedriver-reverse-engineering README.md at commit b4d1bc1aa693c213dcd08bb4dffb3bb9e66e2a74"
+      url: "https://github.com/sjalkote/bluedriver-reverse-engineering/blob/b4d1bc1aa693c213dcd08bb4dffb3bb9e66e2a74/README.md"
+      description: >
+        Findings written up from iOS PacketLogger HCI logs of the vendor app
+        pairing and streaming live data. The primary source for every
+        application-layer fact in this spec.
+    - type: "public_implementation"
+      artifact: "sjalkote/bluedriver-reverse-engineering main.py at commit b4d1bc1aa693c213dcd08bb4dffb3bb9e66e2a74"
+      url: "https://github.com/sjalkote/bluedriver-reverse-engineering/blob/b4d1bc1aa693c213dcd08bb4dffb3bb9e66e2a74/main.py"
+      description: >
+        Bleak CLI that replays the session: order of operations, timeouts,
+        XOR codec, per-fragment acknowledgement and reply parsing. Read for
+        facts only.
+    - type: "vendor_documentation"
+      artifact: "Silicon Labs BGX (Gecko OS) documentation: BLE Services, Security"
+      url: "https://docs.silabs.com/gecko-os/1/bgx/latest/ble-services"
+      description: >
+        Source of the inferred service UUID, the Rx/Tx/Mode mapping, the
+        Fast-Ack control-message layout and the Mode values.
+    - type: "public_reporting"
+      artifact: "CERT/CC Vulnerability Note VU#615456 (CVE-2016-2354)"
+      url: "https://www.kb.cert.org/vuls/id/615456"
+      description: >
+        The 2016 no-PIN finding against the BlueDriver LSB2 and the vendor's
+        fix, a one-minute discoverability window after plug-in. It does not
+        say whether that unit was Classic or LE.
+    - type: "vendor_manual"
+      artifact: "BlueDriver LSB2 Bluetooth Pro OBDII Scan Tool instruction guide (manuals.plus copy)"
+      url: "https://manuals.plus/bluedriver/bluedriver-lsb2-bluetooth-pro-obdii-scan-tool"
+      description: >
+        Owner's guide for model LSB2. Confirms the model code and that the
+        app can update the scanner's firmware. No pairing steps, LED table,
+        radio type or FCC ID.
+    - type: "vendor_documentation"
+      artifact: "BlueDriver support articles (pairing, LED colours, troubleshooting, update failure, internet requirement)"
+      url: "https://support.bluedriver.com/en/articles/15108496-device-not-pairing-device-type-le-engraved-on-device"
+      description: >
+        The 60-second pairing window, in-app pairing for LE units, LED
+        meanings, the solid-red recovery mode, and which features need the
+        internet.
+
+remaining_unknowns:
+  - "The primary service UUID is not stated by the source. 331a36f5-2459-45ea-9d95-6142f0c4b307 is inferred from Silicon Labs' BGX documentation and has not been seen in a BlueDriver GATT dump."
+  - "Which service holds the ENCRYPTED characteristic 12e868e7-c926-4906-96c8-a7ee81d4b1b3, and what the value it returns means."
+  - "What the STATUS (BGX Mode) bursts carry. The BGX mode values 1/2/3 are a hypothesis."
+  - "Why the scanner needs an acknowledgement for every DATA fragment when the window it was given (00 ff 7f) reads as 32767 bytes under the BGX layout."
+  - "The meaning of LMD and LML0, and why the vendor app sends LML0 when its expected answer is '?'. Also whether LMI's first-call '?' carries any meaning."
+  - "Whether the LM commands are handled by the BGX13P module or by the OBD core behind it."
+  - "Whether the BlueDriver Pro (LE, engraved 'LE') and the Pro Next-Gen share this stack, and which of the two advertises 'BlueDriv' and which 'LSB2-'. The upstream author does not say which unit they had."
+  - "The older Bluetooth Classic BlueDriver was not researched. Which radio the 2016 LSB2 in CERT VU#615456 used, and whether the Classic and LE units share the LSB2 model code, is not established."
+  - "Whether a host that is already bonded can connect outside the 60-second pairing window (CERT VU#615456 says only that discoverability ends after one minute), and whether the scanner refuses a pairing request without the bonding flag."
+  - "The scanner's BLE address type (public or random) and the format of the 'LSB2-' suffix."
+  - "Mode 02 (freeze frame), 03 (read DTCs), 06, 09 and the vendor's enhanced diagnostics were not documented. Mode 04 (clear DTCs) was never exercised. It erases stored codes and resets readiness monitors, so a client that adds it should treat it as advanced and confirm first."
+  - "How firmware updates are delivered, whether images are signed, and how the scanner advertises in recovery mode."
+  - "The Device Information strings' actual values, and whether the firmware revision string is the BGX module's or the product's."
+
+helpful_urls:
+  - title: "BlueDriver LSB2 Bluetooth Pro OBDII Scan Tool instruction guide (manuals.plus)"
+    url: "https://manuals.plus/bluedriver/bluedriver-lsb2-bluetooth-pro-obdii-scan-tool"
+    kind: "manual"
+    description: >
+      Owner's guide for the BlueDriver Bluetooth Pro, model LSB2, on the
+      manuals.plus aggregator (it refuses non-browser clients with a 403).
+      It covers the app's features, including the sensor firmware update,
+      but does not say whether it describes the LE or the Classic unit and
+      has no pairing steps.
+  - title: "sjalkote/bluedriver-reverse-engineering"
+    url: "https://github.com/sjalkote/bluedriver-reverse-engineering"
+    kind: "implementation"
+    description: >
+      The open project this spec rests on: HCI-log findings plus a Bleak CLI
+      that pairs, initialises and polls a BLE BlueDriver. No licence, so read
+      it rather than copy from it.
+  - title: "bluedriver-reverse-engineering: README.md (pinned)"
+    url: "https://github.com/sjalkote/bluedriver-reverse-engineering/blob/b4d1bc1aa693c213dcd08bb4dffb3bb9e66e2a74/README.md"
+    kind: "protocol_writeup"
+    description: >
+      The findings: GATT map, SMP IO capability, XOR 0x26 with its CR and '>'
+      exceptions, flow-control bytes, the LM init reply table, LMX0/LMX1
+      timing, the tested PID table and the multi-PID notes.
+  - title: "bluedriver-reverse-engineering: main.py (pinned)"
+    url: "https://github.com/sjalkote/bluedriver-reverse-engineering/blob/b4d1bc1aa693c213dcd08bb4dffb3bb9e66e2a74/main.py"
+    kind: "implementation"
+    description: >
+      The working client: order of operations, timeouts, per-fragment
+      acknowledgement and reply parsing.
+  - title: "Silicon Labs BGX: BLE Services (Xpress Streaming Service)"
+    url: "https://docs.silabs.com/gecko-os/1/bgx/latest/ble-services"
+    kind: "protocol_writeup"
+    description: >
+      Module vendor documentation for the BGX13P. It lists the three streaming
+      characteristic UUIDs this scanner uses under service
+      331a36f5-2459-45ea-9d95-6142f0c4b307, the Fast-Ack control-message
+      layout and the Mode values. It is the basis for this spec's inferred
+      service UUID.
+  - title: "Silicon Labs BGX: Security"
+    url: "https://docs.silabs.com/gecko-os/1/bgx/latest/security"
+    kind: "protocol_writeup"
+    description: >
+      BGX pairing and bonding behaviour: Just Works versus passkey, the
+      always-encrypted streaming service, and the 14-entry bond table. These
+      are module defaults, not confirmed product settings.
+  - title: "Silicon Labs BGX13P Bluetooth Xpress module data sheet (archived PDF)"
+    url: "https://web.archive.org/web/20240419150258/https://www.silabs.com/documents/public/data-sheets/bgx13p-datasheet.pdf"
+    kind: "other"
+    description: >
+      Module datasheet for the BGX13P radio inside the scanner: LE Secure
+      Connections encryption on connect, and module OTA that accepts only
+      images Silicon Labs signed. Archive replay, because silabs.com refuses
+      non-browser clients.
+  - title: "CERT/CC VU#615456: BlueDriver LSB2 does not authenticate users for Bluetooth access"
+    url: "https://www.kb.cert.org/vuls/id/615456"
+    kind: "other"
+    description: >
+      CVE-2016-2354. No PIN for Bluetooth access on the BlueDriver LSB2, and
+      the vendor's fix: discoverability limited to one minute after plug-in,
+      the origin of the 60-second pairing window.
+  - title: "BlueDriver support: Device Not Pairing - Device type LE engraved on device"
+    url: "https://support.bluedriver.com/en/articles/15108496-device-not-pairing-device-type-le-engraved-on-device"
+    kind: "vendor_support"
+    description: >
+      Vendor article for the Bluetooth LE BlueDriver: pairing happens inside
+      the app, within 60 seconds of plugging the scanner in, and replugging
+      restarts the window.
+  - title: "BlueDriver support: Understanding LED Colors"
+    url: "https://support.bluedriver.com/en/articles/15108475-understanding-led-colors"
+    kind: "vendor_support"
+    description: >
+      Vendor article for the BlueDriver Pro scanner. It covers solid blue
+      (starting), flashing blue (talking to a phone), flashing red (no app
+      connected) and solid red (firmware recovery mode).
+  - title: "BlueDriver support: iPhone and iPad Troubleshooting"
+    url: "https://support.bluedriver.com/en/articles/15108480-iphone-and-ipad-troubleshooting"
+    kind: "vendor_support"
+    description: >
+      Covers both LE lines (BlueDriver Pro marked "LE", and the Pro Next-Gen)
+      and the Classic unit. How to tell them apart, the LED sequence for each,
+      other paired phones stealing the connection, and forgetting a stale iOS
+      bond.
+  - title: "BlueDriver support: Android Troubleshooting"
+    url: "https://support.bluedriver.com/en/articles/15108483-android-troubleshooting"
+    kind: "vendor_support"
+    description: >
+      The 60-second connection window after reinserting the scanner, and
+      turning Bluetooth off on previously paired devices. Applies to the
+      BlueDriver Pro and the Pro Next-Gen.
+  - title: "BlueDriver support: Update Failure - Solid Red Light"
+    url: "https://support.bluedriver.com/en/articles/15108486-update-failure-solid-red-light"
+    kind: "vendor_support"
+    description: >
+      Firmware recovery mode after an interrupted update, and how the app
+      reinstalls the firmware. The only source for this spec's
+      firmware_update entry.
+  - title: "BlueDriver support: Do I need an Internet Connection?"
+    url: "https://support.bluedriver.com/en/articles/15108454-do-i-need-an-internet-connection"
+    kind: "vendor_support"
+    description: >
+      Which vendor-app features work offline (codes, freeze frame, live data)
+      and which need the vendor's servers (repair reports, VIN decoding,
+      firmware downloads).
+  - title: "BlueDriver Bluetooth OBD2 Scan Tool (product page)"
+    url: "https://us.bluedriver.com/products/bluedriver-scan-tool"
+    kind: "vendor_support"
+    description: >
+      Vendor product page for the BlueDriver Pro scanner, with the vendor's
+      own setup steps: ignition to key-on/engine-off, plug in, connect from
+      the app.
+  - title: "BlueDriver Pro Next-Gen (product page)"
+    url: "https://us.bluedriver.com/products/bluedriver-pro-scan-tool-next-gen"
+    kind: "vendor_support"
+    description: >
+      Vendor product page for the Next-Gen scanner, which the vendor says is
+      always Bluetooth LE. Whether it speaks exactly the stack in this spec
+      is not established.
+
+protocol_details:
+  wire_codec:
+    description: >
+      Obfuscation applied by the BlueDriver firmware to every stream byte on
+      CMD writes and DATA notifications, in both directions. It does not
+      apply to the three-byte stream control messages, which travel as-is.
+    key: 0x26
+    rule: "wire = plain ^ 0x26 for every byte, except 0x0d (CR) and 0x3e ('>'), which are sent unchanged. Decoding applies the same rule to the wire bytes."
+    caveats:
+      - >
+        The mapping is not one-to-one, so two plaintext bytes cannot be
+        represented. '+' (0x2b) encodes to 0x0d and 0x18 encodes to 0x3e, so
+        both would decode as CR and '>'. Neither appears in ELM327 command or
+        reply text, so the collision does not arise in practice. It is
+        arithmetic from the rule above, not an observation.
+      - >
+        CR is the command terminator, and '>' is the end-of-reply prompt. Both
+        survive the encoding, so a receiver can find the end of a reply on
+        the raw wire bytes without decoding them first.
+    test_vectors:
+      - plain: "LMI\\r"
+        wire: "6a 6b 6f 0d"
+      - plain: "LMX0\\r"
+        wire: "6a 6b 7e 16 0d"
+      - plain: "010C\\r"
+        wire: "16 17 16 65 0d"
+      - plain: "0F 80 \\r>"
+        wire: "16 60 06 1e 16 06 0d 3e"
+        notes: "Upstream's example reply to 010C; 0x0f80 / 4 = 992 rpm."
+      - plain: "OK\\r>"
+        wire: "69 6d 0d 3e"
+      - plain: "?\\r>"
+        wire: "19 0d 3e"
+      - plain: "NO DATA\\r>"
+        wire: "68 69 06 62 67 72 67 0d 3e"
+  lm_init:
+    description: >
+      The vendor app's mandatory initialisation, in order, sent over CMD after
+      the 00 ff 7f window message on DATA. Wait for '>' after each command.
+      The expected replies are upstream's table.
+    sequence:
+      - { command: "LMI",  reply: "'?' or 'OSAPI v2.60' CR 'OK'", role: "firmware identity probe" }
+      - { command: "LMD",  reply: "'OK'", role: "unknown" }
+      - { command: "LML0", reply: "'?'", role: "unknown; the '?' is expected" }
+      - { command: "LMI",  reply: "'OSAPI v2.60' CR 'OK'", role: "firmware identity probe" }
+      - { command: "LMD",  reply: "'OK'", role: "unknown" }
+      - { command: "LMDP", reply: "protocol number CR 'OK'", role: "report the auto-detected OBD protocol" }
+      - { command: "LMI",  reply: "'OSAPI v2.60' CR 'OK'", role: "firmware identity probe" }
+      - { command: "LMX1", reply: "'OK'", role: "exhaustive timing (~200 ms per query)" }
+      - { command: "LMX0", reply: "'OK'", role: "fast timing (~45 ms per query); leaves the scanner ready for live polling" }
+    resulting_elm_state: "echo off, headers off, linefeeds off, spaces on, automatic protocol selection"
+    after_init:
+      - "Mode-01 PIDs are sent raw (e.g. 010C + CR). No further setup is needed."
+      - "Never send AT commands. ATZ, ATE0 and the rest corrupt the firmware's state and every query returns NO DATA."
+      - "ATRV and ATDP return NO DATA. Use PID 0142 and LMDP instead."
+      - "LMX1 and LMX0 can be switched at any time. The vendor app uses LMX1 only for its one-time monitor and freeze-frame scans, and LMX0 for live data."
+    example_version_string: "OSAPI v2.60 (the product firmware string in LMI replies, as captured upstream)"
+  lmdp_protocol_numbers:
+    description: "LMDP reply values. They are the ELM327 protocol numbers (see obd2-bluetooth-adapter)."
+    values:
+      "0": "Automatic"
+      "1": "SAE J1850 PWM"
+      "2": "SAE J1850 VPW"
+      "3": "ISO 9141-2"
+      "4": "ISO 14230-4 KWP, 5-baud init"
+      "5": "ISO 14230-4 KWP, fast init"
+      "6": "ISO 15765-4 CAN, 11-bit ID, 500 kbit/s"
+      "7": "ISO 15765-4 CAN, 29-bit ID, 500 kbit/s"
+      "8": "ISO 15765-4 CAN, 11-bit ID, 250 kbit/s"
+      "9": "ISO 15765-4 CAN, 29-bit ID, 250 kbit/s"
+      "A": "SAE J1939 CAN"
+  tested_pids:
+    description: >
+      The mode-01 PIDs upstream ran against a vehicle through this scanner.
+      Data bytes are A, B in reply order, and multi-byte values are
+      big-endian as J1979 defines them. The formulas agree with the
+      obd2-pid-reference spec, which is authoritative for these and every
+      other PID.
+    pids:
+      - { pid: "0C", name: "Engine RPM", bytes: 2, formula: "(A * 256 + B) / 4", unit: "rpm", endianness: "big", scale: 0.25 }
+      - { pid: "0D", name: "Vehicle speed", bytes: 1, formula: "A", unit: "km/h", scale: 1 }
+      - { pid: "05", name: "Engine coolant temperature", bytes: 1, formula: "A - 40", unit: "C", scale: 1, value_offset: -40 }
+      - { pid: "0F", name: "Intake air temperature", bytes: 1, formula: "A - 40", unit: "C", scale: 1, value_offset: -40 }
+      - { pid: "04", name: "Calculated engine load", bytes: 1, formula: "A * 100 / 255", unit: "%", scale: 0.392157 }
+      - { pid: "11", name: "Throttle position", bytes: 1, formula: "A * 100 / 255", unit: "%", scale: 0.392157 }
+      - { pid: "2F", name: "Fuel tank level input", bytes: 1, formula: "A * 100 / 255", unit: "%", scale: 0.392157 }
+      - { pid: "0B", name: "Intake manifold absolute pressure", bytes: 1, formula: "A", unit: "kPa", scale: 1 }
+      - { pid: "42", name: "Control module voltage", bytes: 2, formula: "(A * 256 + B) / 1000", unit: "V", endianness: "big", scale: 0.001 }
+  timing:
+    lmx0_per_query_ms: 45
+    lmx1_per_query_ms: 200
+    serial_poll_per_pid_ms: "40-50"
+    six_pid_serial_refresh_s: "0.25-0.3"
+    ble_connection_interval_ms: 15
+    notes: >
+      All observed by upstream. Serial polling at 40-50 ms per PID matched
+      the vendor iOS app's refresh rate. The combined six-PID request costs
+      one round trip instead of six.
+  multi_pid_requests:
+    max_pids: 6
+    protocols: "ISO 15765-4 (CAN) only; non-CAN vehicles answer incompletely, so fall back to one PID per request"
+    reply_layout: "each PID number, then its data bytes, repeated; no leading 41 (see payload_formats.ElmResponse)"
+    pipelining: "not supported: a command written while a query is in flight aborts that query"
+  encrypted_characteristic:
+    uuid: "12e868e7-c926-4906-96c8-a7ee81d4b1b3"
+    properties: ["read"]
+    security: "encryption required"
+    service: "not recorded"
+    role: >
+      Pairing trigger. Reading it on a host with no bond makes the stack run
+      SMP, which completes as LE Secure Connections Just Works (the scanner
+      advertises IO capability NoInputNoOutput). It is not one of the BGX
+      streaming characteristics. What its value means is not documented.

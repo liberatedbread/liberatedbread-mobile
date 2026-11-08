@@ -75,11 +75,25 @@ side matches.
 
 ### Bluetooth Classic
 
-SPP (UUID `0x1101`, string in the app) advertised as `OBDLink MX+`. Primary link
-per the vendor spec sheet; iOS uses it via MFi iAP2. The app throws
-`DualModeRequiresClassicBluetoothException` when an operation needs Classic, so
-a BLE-only client should expect some functions (possibly including firmware
-update) to be Classic-only until proven otherwise.
+SPP (UUID `00001101-0000-1000-8000-00805f9b34fb`, string in the app) advertised
+as `OBDLink MX+`. Primary link per the vendor spec sheet; iOS uses it via MFi
+iAP2. The app throws `DualModeRequiresClassicBluetoothException` when an
+operation needs Classic, so a BLE-only client should expect some functions
+(possibly including firmware update) to be Classic-only until proven otherwise.
+
+The spec records this side in its `bluetooth_classic` block (`dual_mode: true`,
+`ble_role: secondary_control`; SPP as the secure control profile, iAP2 listed
+but not documented) and finds it with a `bt_classic_inquiry` discovery method
+(name prefix `OBDLink MX+`, SPP service class, discoverable only inside the
+Connect-button window). The stream is the same ASCII AT/ST command set as the
+BLE pipe, lines ending in CR (`0d`), a reply ending at the `>` prompt. The
+Classic bond lives in `bluetooth_classic.pairing` (required, inside a ~120 s
+window opened by the Connect button); `device.pairing` describes only the BLE
+pipe, whose pairing needs are still unknown. `host_compatibility` gives
+CoreBluetooth two verdicts: the Classic link is `incompatible` on iOS (no
+RFCOMM; workaround `vendor_mfi`, since iAP2 is reachable only through the
+vendor's own MFi app), and the BLE link is `degraded`, the path a third-party
+iOS client takes, minus whatever the app reserves for Classic.
 
 ### STN command surface visible in the app
 

@@ -10,6 +10,7 @@ device:
     status: untested
   protocol: "ble"
   category: "display"
+  category_hierarchy: ["display", "led_matrix"]
   notes: >
     Monochrome LED dot-matrix name badge. Sold under many brands on AliExpress.
     Matrix height 11, 12, or 16 rows; width is variable per text/image content.

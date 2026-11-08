@@ -10,6 +10,7 @@ device:
     status: untested
   protocol: "ble"
   category: "sensor"
+  category_hierarchy: ["measurement", "temperature"]
   notes: >
     Covers Inkbird BLE BBQ thermometers using direct BLE protocol:
     IBT-2X (BG-BT1X, 1 probe), IBT-4XS (4 probes), IBT-6X (6 probes),

@@ -19,6 +19,7 @@ device:
       protocol.py and vikstrous/zengge-lightcontrol.
   protocol: "wifi"
   category: "light"
+  category_hierarchy: ["light", "led"]
   transport: "tcp"
   notes: >
     Zengge makes the Wi-Fi LED controllers and bulbs sold under a huge number of

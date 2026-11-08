@@ -10,6 +10,7 @@ device:
     status: untested
   protocol: "ble"
   category: "health"
+  category_hierarchy: ["measurement", "health", "pulse_oximetry"]
   notes: >
     Uses standard Nordic UART service. Interaction is POLL-based, not
     subscribe-and-stream: each measurement notification requires a poll write

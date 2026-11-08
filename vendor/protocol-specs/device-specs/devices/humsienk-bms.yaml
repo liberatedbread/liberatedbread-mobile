@@ -1,0 +1,1206 @@
+# HumsiENK Smart BMS (HS-prefixed LiFePO4 batteries) device spec
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Scope: HumsiENK LiFePO4 packs whose built-in BMS advertises a BLE name
+# starting "HS" and speaks the 0xAA-framed request/response protocol on
+# service 00000001-0000-1000-8000-00805f9b34fb (the upstream write-up calls
+# it the "BMC" protocol). The same vendor app carries a second, unrelated
+# protocol for differently-branded packs (a PACE/Pylontech-derived one on
+# service 0000fff0-0000-1000-8000-00805f9b34fb, "WATT"). That one is out of
+# scope and was not researched.
+#
+# Sources: one open project, mdelandgraaf/humsienk-esp32 (an ESP32 bridge to
+# Home Assistant). Its protocol document says it was reverse-engineered from
+# the vendor's Android app v1.2.0 and checked against a real 4-cell pack,
+# and its firmware is a working client of the framing, handshake, polls and
+# FET writes. The layouts below are restated in our own words and tables
+# from that document and firmware; none of its code or table text is copied.
+# The vendor's user manuals supplied the model range and protection
+# thresholds; Play Store reviews supplied the app-side troubleshooting.
+# Nothing here has been captured or run against hardware by this project, so
+# every fact is `reported`.
+
+device:
+  name: "HumsiENK Smart BMS (HS-prefixed LiFePO4 batteries)"
+  manufacturer: "HumsiENK (Shenzhen HumsiENK New Energy Technology Co., Ltd.)"
+  manufacturer_status: "active"
+  openness:
+    status: "undocumented"
+    reverse_engineered: true
+    source_code: "https://github.com/mdelandgraaf/humsienk-esp32"
+    license: "MIT"
+    upstream_docs:
+      - url: "https://github.com/mdelandgraaf/humsienk-esp32/blob/fa0bb5a17ed89061a919e7a80eb639cece12f671/docs/PROTOCOL.md"
+        title: "humsienk-esp32: the HumsiENK BMC BLE protocol"
+        covers: >
+          GATT UUIDs, the 0xAA frame and its checksum, the command table, the
+          0x20/0x21/0x22 response layouts, the 32-bit status bitfield,
+          multi-notification reassembly and the connection flow.
+    notes: >
+      HumsiENK publishes no protocol. The only description is the community
+      write-up above, reverse-engineered from the vendor's Android app. The
+      repository's LICENSE file is the MIT text followed by a
+      non-affiliation notice. GitHub's licence detector reports it as
+      NOASSERTION because of that notice. This spec cites the project by
+      URL and restates its layouts rather than copying them.
+  testing:
+    status: untested
+    notes: >
+      Not driven against hardware by this project, and no capture exists in
+      our research store. Every byte layout comes from the humsienk-esp32
+      protocol document and firmware, whose author reports checking them
+      against a real 4-cell (12 V) pack.
+  protocol: "ble"
+  category: "energy"
+  type: "battery-bms"
+  safety_advisory:
+    severity: "warning"
+    summary: >-
+      A client can switch this battery's charge and discharge MOSFETs.
+      Switching the discharge FET off cuts power to everything the battery
+      feeds until something switches it back on.
+    detail: >-
+      The vendor app shows the charge (Chg) and discharge (Dsg) FET controls
+      as ordinary buttons, and owners have asked for a way to lock them on
+      packs running a UPS or other critical load. Turning the charge FET off
+      stops charging, so a pack on solar can run flat and trip its own
+      under-voltage protection. The current-calibration commands change how
+      the BMS counts current. A wrong calibration corrupts the state of
+      charge and the over-current accounting the protections rely on. This
+      spec marks the FET-off, forced-heating, clear-status and calibration
+      commands `advanced`. It is unaffiliated with HumsiENK, and the vendor's
+      manual governs installation and use.
+    acknowledge_required: false
+  notes: >
+    HumsiENK sells 12 V, 24 V, 36 V and 48 V LiFePO4 packs. Only the models
+    with "Smart" (or "Mini Smart") in the name have Bluetooth, per the
+    vendor's 12 V manual. Their BMS answers a small binary protocol over
+    BLE GATT. The phone writes a request frame and the BMS answers with a
+    frame on a notify characteristic. There is no pairing, no password,
+    no cloud and no key. The vendor app is "HumsiENK Smart BMS" (Android
+    uni.UNI3890CA7, and an iOS build of the same name).
+
+    GATT: service 00000001-0000-1000-8000-00805f9b34fb. Write requests to
+    00000002-0000-1000-8000-00805f9b34fb. Responses arrive as
+    notifications on 00000003-0000-1000-8000-00805f9b34fb. These are
+    16-bit custom UUIDs on the Bluetooth SIG base. At least one unrelated
+    product in this catalogue (the Blueair Cabin P2i air purifier) uses the
+    same service UUID, so the UUID alone does not identify a HumsiENK pack.
+
+    FRAME (both directions): 0xAA, command byte, data length N (one byte),
+    N data bytes, then a 16-bit checksum sent little-endian. The checksum is
+    the sum of the command, length and data bytes (everything after 0xAA),
+    truncated to 16 bits. A response carries the request's command byte.
+    A read request has N = 0. A response can be longer than one
+    notification. Its total length is N + 5, known from the third byte of
+    the first chunk, so a client accumulates notifications until it has
+    that many bytes. See protocol_details.framing.
+
+    SESSION: subscribe to 00000003, optionally raise the ATT MTU to 247 (the
+    vendor app does), send the handshake (command 0x00, no data) and wait
+    for its echo. Then poll. Keep one request in flight: send the next
+    command only after the previous response arrived or timed out (the
+    vendor app queues its requests). What the handshake response carries is
+    not documented.
+
+    READS: 0x10 manufacturer name, 0x11 pack name and 0xF5 firmware version
+    (all ASCII). 0x20 running status: uptime, a 32-bit status bitfield
+    (protections, warnings, FET states, heating), and per-cell balance and
+    disconnect bits. 0x21 battery info: pack voltage and current as signed
+    int32 LE in mV and mA (positive current = charging), SOC and SOH as
+    percent, remaining and full capacity as int32 LE mAh, cycle count, and
+    six single-byte temperatures in whole degrees Celsius with no offset.
+    0x22 cell voltages: 24 uint16 LE slots in mV with no count byte, where
+    unused slots read 0. 0x58 is the protection-threshold block, only
+    partly understood. All multi-byte response fields are little-endian.
+
+    CONTROL: 0x50 charge FET, 0x51 discharge FET and 0x52 heating each take
+    one data byte, 1 = on, 0 = off. 0x53 clears status. 0x66, 0x67 and 0x68
+    calibrate current (static, charge, discharge). 0x67 and 0x68 carry the
+    reference current as an int16 BIG-endian mA value, the protocol's one
+    big-endian field. The BMS echoes the command byte when a control
+    command succeeds.
+
+    Not covered: writes to the 0x58 threshold block (none is documented,
+    and none is invented here), firmware update (none documented), and the
+    "WATT" protocol on 0000fff0.
+
+  identification:
+    local_name_prefix: "HS"
+    notes: >
+      "HS" is a two-letter prefix and plenty of unrelated BLE devices start
+      with it, so treat a name match as a candidate only. Confirm after
+      connecting. The GATT table must contain service
+      00000001-0000-1000-8000-00805f9b34fb with write characteristic
+      00000002 and notify characteristic 00000003, and the handshake frame
+      AA 00 00 00 00 must come back as a checksum-valid 0xAA frame with
+      command byte 0x00. Whether the pack also advertises the service UUID
+      is not established. The one published name is "HS" followed by 16
+      upper-case hex digits, which looks like a per-unit serial (written
+      HS<serial> here). One example is not a pattern, so the matcher stays a
+      plain prefix. No manufacturer data or OUI is documented.
+
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          local_name:
+            match: "prefix"
+            value: "HS"
+        notes: >
+          Name prefix only. The service UUID is deliberately not a scan
+          matcher. Whether it is advertised is not established, and in a
+          ble_scan method it would be OR-ed with the name, which would admit
+          any device advertising 16-bit service 0x0001. Pair the name with
+          the post-connect GATT and handshake check in
+          device.identification.notes. The humsienk-esp32 bridge finds packs
+          by name prefix alone.
+    identity:
+      stable_keys: ["address"]
+      display: "local_name"
+    static_ip_required: false
+
+  setup:
+    required: false
+    confidence: "high"
+    notes: >
+      Nothing to provision. There is no button on the pack, and its
+      Bluetooth is on whenever the pack is. A client connects, subscribes,
+      handshakes and polls. Confidence is high because a working open
+      implementation (humsienk-esp32) does exactly this, and Play Store
+      reviewers describe the same thing. This project has not replayed it.
+    methods:
+      - type: "ble_direct"
+        verified: false
+        description: >
+          Scan for a name starting "HS", connect without pairing, confirm the
+          GATT table, subscribe to 00000003, raise the MTU if the stack
+          allows, send the handshake, then poll 0x21 / 0x22 / 0x20.
+        ble:
+          pairing_required: false
+        steps:
+          - action: >
+              Nothing to press: the pack has no Bluetooth button and
+              advertises while it is on. Bring the phone or bridge close. App
+              users advise within about 1 m (1-3 ft) for the first connection.
+            actor: user
+          - action: "Scan for a local name starting with HS."
+            actor: client
+          - action: >
+              Connect (no pairing, no bonding) and discover services. Require
+              service 00000001-0000-1000-8000-00805f9b34fb with write
+              characteristic 00000002-0000-1000-8000-00805f9b34fb and notify
+              characteristic 00000003-0000-1000-8000-00805f9b34fb, or
+              disconnect: it is not this device.
+            actor: client
+          - action: >
+              Optionally request an ATT MTU of 247, which the vendor app does,
+              so a whole response fits one notification.
+            actor: client
+          - action: "Enable notifications on 00000003."
+            actor: client
+          - action: "Write the handshake AA 00 00 00 00 to 00000002."
+            actor: client
+            expect: >
+              A checksum-valid frame starting AA 00. Its data is not
+              documented; the open client only checks the echo and checksum.
+            timeout_seconds: 3
+          - action: >
+              Poll: write AA 21 00 21 00 (battery info), AA 22 00 22 00 (cell
+              voltages) and AA 20 00 20 00 (running status), one at a time,
+              waiting for each response. Read AA F5 00 F5 00, AA 11 00 11 00
+              and AA 58 00 58 00 once per session.
+            actor: client
+            expect: "Response frames echoing each command byte, reassembled to data length + 5 bytes."
+        timing:
+          request_timeout_ms: 2500
+          connect_timeout_ms: 4000
+          poll_interval_s: "5-30"
+          notes: >
+            humsienk-esp32's values. It gives each request 2.5 s. Its
+            connect timeout is 4 s in the main firmware and 8 s in its
+            examples, kept short so a pack that does not answer does not
+            stall a sweep of several packs. Its protocol document says polling
+            every 5-30 s is plenty. The bridge disconnects after each sweep,
+            which leaves the pack free for the vendor app in between.
+        troubleshooting:
+          - symptom: "The vendor app cannot find the battery on Android."
+            causes:
+              - >
+                The app insists on the precise-location permission and will
+                not scan when location is set to "ask every time" (Play
+                reviews, app 1.1.5-1.2.4). Grant precise location, or use a
+                client that scans without it. The pack itself needs no
+                location.
+              - >
+                The phone is too far away. Owners report connecting from
+                about 1 m (1-3 ft).
+          - symptom: "The app's scan or connect control does nothing, or opens a QR-code camera view."
+            causes:
+              - >
+                Early app versions (1.0.17-1.1.1) opened a QR scanner from the
+                scan button and some reported a camera-permission error. One
+                later version drew the Bluetooth connect control invisibly in
+                a top corner of the screen. These are app defects. The BLE
+                protocol has no QR or pairing step.
+          - symptom: "A client connects and is dropped after a few seconds."
+            causes:
+              - >
+                Reported once against app 1.1.9 with a new pack on charge.
+                The cause is not established. A third-party client should send
+                the handshake promptly after subscribing, as the open client
+                does, but nobody has shown that a missing handshake causes the
+                drop.
+              - >
+                Another client (the vendor app on another phone, or a bridge)
+                holds the pack. Whether the BMS accepts a second central is not
+                established.
+          - symptom: "The pack reads 0 V at its terminals and does not answer."
+            causes:
+              - >
+                A protection has disconnected the output. Per the 12 V manual,
+                an over-current or short-circuit trip stays latched until the
+                battery cables are removed. Disconnect the load, measure, and
+                reconnect only above 10.8 V (12 V packs). The status bitfield
+                (command 0x20) names the protection when the BMS still
+                answers.
+    factory_reset:
+      applicable: "unknown"
+      confidence: low
+      effect: >
+        Not established. No manual, the protocol document or the app
+        listing describes a factory reset. The BMS stores no pairing,
+        password or network state that a BLE client would need cleared.
+      description: >
+        Command 0x53 "clear status" exists, but what it clears is not
+        documented, and there is nothing to suggest it restores defaults.
+        The vendor app's description mentions parameter setting, so the
+        protection thresholds (command 0x58's block) are presumably
+        writable. No write command is documented, and a reset that
+        restores them has not been found. Do not guess one on a battery's
+        protection settings.
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        No network membership and no bond. A new phone or bridge connects as
+        soon as no other client holds the link.
+    credentials:
+      wifi_passphrase_protection: not_applicable
+      stored_on_device: []
+      issued_to_client: []
+      notes: >
+        BLE only, with no link-layer or application-layer authentication in
+        the documented protocol. Anyone in range can read the pack and
+        switch its FETs. No Wi-Fi. The separate "Humsienk Home" app is for
+        the vendor's inverters and data loggers, not these packs.
+
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "none"
+    bonding: "none"
+    enter_pairing_mode:
+      required: false
+      notes: >
+        Always connectable while the pack is on. There is no Bluetooth
+        button (Play reviews), and the open bridge connects at will.
+    exclusivity:
+      recovery: >
+        If a client cannot connect, close the vendor app on every nearby
+        phone and stop any bridge polling the pack, then try again.
+      notes: >
+        Whether the BMS accepts more than one central at a time is not
+        established. humsienk-esp32 disconnects after every poll sweep,
+        which works either way.
+    notes: >
+      The open client connects with no security request and the vendor app
+      has no pairing step. The handshake (command 0x00) has a fixed request
+      and is not authentication. Reported, not tested here.
+
+  host_compatibility:
+    - stack: "android"
+      status: "compatible"
+      verification: "reported"
+      basis: >
+        The vendor app (Google Play uni.UNI3890CA7, "HumsiENK Smart BMS")
+        drives these packs through Android's GATT client, and the upstream
+        protocol was recovered from its Android build 1.2.0. Not run by this
+        project.
+      notes: >
+        The app demands precise location to scan. That is the app's own
+        requirement, not the pack's.
+    - stack: "corebluetooth"
+      status: "compatible"
+      verification: "reported"
+      basis: >
+        HumsiENK ships an iOS build of the same app on the App Store (1.2.5,
+        2026-09), described as connecting to the BMS over Bluetooth.
+        Nobody we know of has reported a third-party iOS client. No Linux
+        verdict is given: the only open client runs NimBLE on an ESP32,
+        which says nothing about BlueZ.
+
+services:
+  - uuid: "00000001-0000-1000-8000-00805f9b34fb"
+    name: "HumsiENK BMC service"
+    notes: >
+      16-bit custom service 0x0001 on the SIG base. It is shared with at
+      least one unrelated product, so identify the pack by name prefix +
+      this service + a valid handshake echo. Requests go to 00000002 and
+      responses come back on 00000003. Every frame is 0xAA, command, data
+      length N, data, and a 16-bit little-endian sum of command+length+data
+      (see protocol_details.framing). One request in flight at a time.
+    initialization:
+      - characteristic: "00000003-0000-1000-8000-00805f9b34fb"
+        subscribe: true
+        notes: >
+          Open notifications before writing anything. The vendor app
+          requests an ATT MTU of 247 first. Without it, a 0x21 response
+          (31 bytes) arrives in two notifications and a 0x22 response
+          (53 bytes) in three.
+      - characteristic: "00000002-0000-1000-8000-00805f9b34fb"
+        write: [0xaa, 0x00, 0x00, 0x00, 0x00]
+        notes: >
+          Handshake (command 0x00, no data). Wait for the response (a
+          checksum-valid frame with command byte 0x00) before polling. Its
+          data is not documented. humsienk-esp32 abandons the connection if
+          the handshake gets no answer within 2.5 s.
+    characteristics:
+      - uuid: "00000002-0000-1000-8000-00805f9b34fb"
+        name: "Command write"
+        properties: ["write"]
+        role: "command"
+        notes: >
+          Request frames go here. humsienk-esp32 writes with response.
+          Whether write-without-response is also accepted is not
+          established. Each command's frame is complete, including the
+          checksum. Send one and wait for its response (or 2.5 s) before
+          the next.
+        commands:
+          handshake:
+            description: >
+              Handshake, command 0x00, no data. Send once per connection,
+              after subscribing and before any other command. The response
+              echoes 0x00. Its data is not documented.
+            verification: "reported"
+            command_id: 0
+            value: [0xaa, 0x00, 0x00, 0x00, 0x00]
+          read_manufacturer_name:
+            description: "Read the manufacturer name (command 0x10). The response data is ASCII text."
+            verification: "reported"
+            command_id: 16
+            value: [0xaa, 0x10, 0x00, 0x10, 0x00]
+          read_pack_name:
+            description: "Read the battery pack name (command 0x11). The response data is ASCII text."
+            verification: "reported"
+            command_id: 17
+            value: [0xaa, 0x11, 0x00, 0x11, 0x00]
+          read_running_status:
+            description: >
+              Read the running status (command 0x20): uptime, the 32-bit
+              protection/warning/FET/heating bitfield, and per-cell balance
+              and disconnect bits. Response data layout:
+              payload_formats.StatusResponse.
+            verification: "reported"
+            command_id: 32
+            value: [0xaa, 0x20, 0x00, 0x20, 0x00]
+          read_battery_info:
+            description: >
+              Read the main metrics (command 0x21): voltage, current, SOC,
+              SOH, capacities, cycle count and temperatures. The response
+              is decoded by the `format` on 00000003.
+            verification: "reported"
+            command_id: 33
+            value: [0xaa, 0x21, 0x00, 0x21, 0x00]
+          read_cell_voltages:
+            description: >
+              Read the cell voltages (command 0x22): 24 uint16 LE slots in
+              mV, unused slots 0, no count byte. Layout:
+              payload_formats.CellVoltages.
+            verification: "reported"
+            command_id: 34
+            value: [0xaa, 0x22, 0x00, 0x22, 0x00]
+          read_parameters:
+            description: >
+              Read the protection-threshold block (command 0x58), a run of
+              int16 values that is only partly understood. See
+              payload_formats.Parameters. Read-only here: no write command
+              for these thresholds is documented.
+            verification: "reported"
+            command_id: 88
+            value: [0xaa, 0x58, 0x00, 0x58, 0x00]
+          read_firmware_version:
+            description: "Read the BMS firmware version (command 0xF5). The response data is ASCII text."
+            verification: "reported"
+            command_id: 245
+            value: [0xaa, 0xf5, 0x00, 0xf5, 0x00]
+          charge_fet_on:
+            description: >
+              Charge MOSFET on (command 0x50, data 01), allowing charging
+              again. The BMS echoes 0x50 on success. The protections still
+              apply: the BMS refuses charge current when a charge protection
+              is active.
+            verification: "reported"
+            command_id: 80
+            value: [0xaa, 0x50, 0x01, 0x01, 0x52, 0x00]
+          charge_fet_off:
+            description: >
+              Charge MOSFET off (command 0x50, data 00). The pack stops
+              accepting charge until the FET is switched back on. The vendor
+              app offers this as its Chg button.
+            verification: "reported"
+            command_id: 80
+            advanced: true
+            advanced_reason: >
+              Stops the battery charging. A pack on solar or a charger then
+              runs down, and can reach its own under-voltage cut-off
+              unattended. Undo with charge_fet_on.
+            value: [0xaa, 0x50, 0x01, 0x00, 0x51, 0x00]
+          discharge_fet_on:
+            description: >
+              Discharge MOSFET on (command 0x51, data 01), reconnecting the
+              load. The BMS echoes 0x51 on success.
+            verification: "reported"
+            command_id: 81
+            value: [0xaa, 0x51, 0x01, 0x01, 0x53, 0x00]
+          discharge_fet_off:
+            description: >
+              Discharge MOSFET off (command 0x51, data 00). The pack's
+              output is cut. The vendor app offers this as its Dsg button.
+            verification: "reported"
+            command_id: 81
+            advanced: true
+            advanced_reason: >
+              Cuts power to everything this battery feeds (inverter, UPS,
+              trolling motor, bilge pump) at once. Undo with
+              discharge_fet_on from a client that can still reach the pack.
+            value: [0xaa, 0x51, 0x01, 0x00, 0x52, 0x00]
+          heating_on:
+            description: >
+              Heating on (command 0x52, data 01). Only meaningful on a pack
+              with a built-in heater. Which HumsiENK models have one is not
+              established. Status bit 15 reports heating.
+            verification: "reported"
+            command_id: 82
+            advanced: true
+            advanced_reason: >
+              Forces the pack's cell heater on. Whether the BMS still applies
+              its own temperature cut-off to a forced heat is not documented,
+              and the heater draws from the pack or charger. Undo with
+              heating_off.
+            value: [0xaa, 0x52, 0x01, 0x01, 0x54, 0x00]
+          heating_off:
+            description: "Heating off (command 0x52, data 00)."
+            verification: "reported"
+            command_id: 82
+            value: [0xaa, 0x52, 0x01, 0x00, 0x53, 0x00]
+          clear_status:
+            description: >
+              Clear status (command 0x53, no data). What it clears is not
+              documented. It may reset latched protection or warning
+              flags.
+            verification: "reported"
+            command_id: 83
+            advanced: true
+            advanced_reason: >
+              May release a latched protection such as a short-circuit or
+              over-current trip, reconnecting the pack to whatever tripped
+              it. Find and fix the fault first. What else it clears is not
+              documented.
+            value: [0xaa, 0x53, 0x00, 0x53, 0x00]
+          calibrate_static_current:
+            description: >
+              Static current calibration (command 0x66, no data). By its
+              name, this sets the current sensor's zero while no current
+              flows. The preconditions the app enforces are not documented.
+            verification: "reported"
+            command_id: 102
+            advanced: true
+            advanced_reason: >
+              Rewrites the BMS's current-sensor zero. Sent while current is
+              flowing, it offsets every later current reading, which
+              corrupts state of charge and the over-current protection
+              accounting. No documented way back other than recalibrating.
+            value: [0xaa, 0x66, 0x00, 0x66, 0x00]
+          calibrate_charge_current:
+            description: >
+              Charge current calibration (command 0x67). The data is the
+              true charging current as measured externally, int16 BIG-endian
+              in mA, the protocol's only big-endian field. Frame:
+              AA 67 02 <current hi> <current lo> <checksum lo> <checksum hi>.
+              Example: 10.000 A is AA 67 02 27 10 A0 00.
+            verification: "reported"
+            command_id: 103
+            advanced: true
+            advanced_reason: >
+              Rescales the BMS's charge-current measurement to the value
+              sent. A wrong value skews state of charge, capacity counting
+              and over-current protection until recalibrated against a
+              trusted meter.
+            template: [0xaa, 0x67, 0x02, "{current}", "{checksum}"]
+            parameters:
+              current:
+                type: "int16"
+                endianness: "big"
+                unit: "A"
+                scale: 0.001
+                min: -32768
+                max: 32767
+                description: >
+                  Reference charging current, raw in mA, big-endian. The
+                  field is 16 bits wide, so calibration tops out at
+                  32.767 A. Which sign the app sends is not documented;
+                  a charging current is presumably positive.
+              checksum:
+                type: "uint16"
+                endianness: "little"
+                description: >
+                  The frame checksum: (0x67 + 0x02 + high byte + low byte of
+                  `current`) & 0xFFFF, little-endian. The schema has no
+                  `auto` role for a 16-bit sum. `auto: checksum` is sum-mod-256
+                  and is wrong here whenever the sum exceeds 0xFF, so a
+                  consumer that cannot compute this cannot send the command.
+          calibrate_discharge_current:
+            description: >
+              Discharge current calibration (command 0x68). The data is the
+              true discharging current measured externally, int16
+              BIG-endian in mA. Frame: AA 68 02 <current hi> <current lo>
+              <checksum lo> <checksum hi>. Example: 10.000 A is
+              AA 68 02 27 10 A1 00.
+            verification: "reported"
+            command_id: 104
+            advanced: true
+            advanced_reason: >
+              Rescales the BMS's discharge-current measurement to the value
+              sent. A wrong value skews state of charge, capacity counting
+              and over-current protection until recalibrated against a
+              trusted meter.
+            template: [0xaa, 0x68, 0x02, "{current}", "{checksum}"]
+            parameters:
+              current:
+                type: "int16"
+                endianness: "big"
+                unit: "A"
+                scale: 0.001
+                min: -32768
+                max: 32767
+                description: >
+                  Reference discharging current, raw in mA, big-endian.
+                  Whether the app sends a positive magnitude or a negative
+                  value for discharge is not documented.
+              checksum:
+                type: "uint16"
+                endianness: "little"
+                description: >
+                  (0x68 + 0x02 + high byte + low byte of `current`) & 0xFFFF,
+                  little-endian. No schema `auto` role computes a 16-bit sum.
+                  See calibrate_charge_current.
+
+      - uuid: "00000003-0000-1000-8000-00805f9b34fb"
+        name: "Response notify"
+        properties: ["notify"]
+        role: "notify"
+        notes: >
+          Every response arrives here, whatever the request. Reassemble
+          first: the first chunk starts 0xAA and its third byte is the data
+          length N. Keep appending notifications until N + 5 bytes have
+          arrived, then check the checksum (16-bit sum of bytes 1 .. N+2,
+          little-endian at N+3). The `format` below describes a reassembled
+          0x21 battery-info response only. The other responses are in
+          payload_formats. The upstream decoder requires at least 26 data
+          bytes for 0x21 and ignores anything past byte 25. Take the
+          checksum from 3 + N, never from a fixed offset, in case some
+          firmware sends more.
+        format_match:
+          offset: 1
+          value: 33
+          notes: "Byte 1 is the echoed command byte. 0x21 (33) marks a battery-info response."
+        format:
+          - offset: 0
+            length: 1
+            name: "start_of_frame"
+            type: "uint8"
+            notes: "Always 0xAA."
+          - offset: 1
+            length: 1
+            name: "command"
+            type: "uint8"
+            notes: "0x21 for this layout."
+          - offset: 2
+            length: 1
+            name: "data_length"
+            type: "uint8"
+            notes: "26 on the pack upstream tested. The frame is data_length + 5 bytes."
+          - offset: 3
+            length: 4
+            name: "pack_voltage"
+            type: "int32"
+            endianness: "little"
+            scale: 0.001
+            unit: "V"
+            device_class: "voltage"
+            notes: "Raw mV."
+          - offset: 7
+            length: 4
+            name: "current"
+            type: "int32"
+            endianness: "little"
+            scale: 0.001
+            unit: "A"
+            device_class: "current"
+            notes: "Raw mA, signed: positive = charging, negative = discharging."
+          - offset: 11
+            length: 1
+            name: "state_of_charge"
+            type: "uint8"
+            unit: "%"
+            device_class: "battery"
+          - offset: 12
+            length: 1
+            name: "state_of_health"
+            type: "uint8"
+            unit: "%"
+          - offset: 13
+            length: 4
+            name: "remaining_capacity"
+            type: "int32"
+            endianness: "little"
+            scale: 0.001
+            unit: "Ah"
+            notes: "Raw mAh."
+          - offset: 17
+            length: 4
+            name: "full_capacity"
+            type: "int32"
+            endianness: "little"
+            scale: 0.001
+            unit: "Ah"
+            notes: "Raw mAh."
+          - offset: 21
+            length: 2
+            name: "cycle_count"
+            type: "uint16"
+            endianness: "little"
+          - offset: 23
+            length: 1
+            name: "temperature_1"
+            type: "int8"
+            unit: "C"
+            device_class: "temperature"
+            notes: >
+              Whole degrees Celsius, no offset (no +40, no Kelvin). The
+              upstream table calls it an unsigned byte. Its firmware reads it
+              signed, and packs discharge down to -20 C (-25 C for golf-cart
+              packs, per the manuals), so read it as int8. How the BMS
+              encodes a sub-zero reading has not been observed. Which cell
+              each of the four probes sits on, and what an unfitted probe
+              reads, are not documented.
+          - offset: 24
+            length: 1
+            name: "temperature_2"
+            type: "int8"
+            unit: "C"
+            device_class: "temperature"
+            notes: "As temperature_1."
+          - offset: 25
+            length: 1
+            name: "temperature_3"
+            type: "int8"
+            unit: "C"
+            device_class: "temperature"
+            notes: "As temperature_1."
+          - offset: 26
+            length: 1
+            name: "temperature_4"
+            type: "int8"
+            unit: "C"
+            device_class: "temperature"
+            notes: "As temperature_1."
+          - offset: 27
+            length: 1
+            name: "ambient_temperature"
+            type: "int8"
+            unit: "C"
+            device_class: "temperature"
+            notes: "As temperature_1."
+          - offset: 28
+            length: 1
+            name: "mos_temperature"
+            type: "int8"
+            unit: "C"
+            device_class: "temperature"
+            notes: "MOSFET (power switch) temperature. As temperature_1."
+
+payload_formats:
+  StatusResponse:
+    description: >
+      Data of a 0x20 response (after the 3-byte header, before the checksum):
+      15 bytes on the layout upstream documents. Offsets below are into the
+      data. The status bitfield names every one of its 32 bits. The upstream
+      author matched the app's bit tests against the order of the fields in
+      its status model.
+    fields:
+      - {name: "uptime_days", offset: 0, length: 2, type: "uint16", endianness: "little", unit: "d"}
+      - {name: "uptime_hours", offset: 2, length: 1, type: "uint8", unit: "h"}
+      - {name: "uptime_minutes", offset: 3, length: 1, type: "uint8", unit: "min"}
+      - {name: "status", offset: 4, length: 4, type: "uint32", endianness: "little", description: "The 32-bit status bitfield, decoded bit by bit below. Upstream reads it as int32. Read it unsigned so bit 31 is not a sign."}
+      - {name: "charge_overcurrent_protection", offset: 4, length: 4, type: "uint32", endianness: "little", mask: 0x00000001}
+      - {name: "charge_over_temperature_protection", offset: 4, length: 4, type: "uint32", endianness: "little", mask: 0x00000002}
+      - {name: "charge_under_temperature_protection", offset: 4, length: 4, type: "uint32", endianness: "little", mask: 0x00000004}
+      - {name: "cell_overvoltage_protection", offset: 4, length: 4, type: "uint32", endianness: "little", mask: 0x00000008}
+      - {name: "pack_overvoltage_protection", offset: 4, length: 4, type: "uint32", endianness: "little", mask: 0x00000010}
+      - {name: "afe_error", offset: 4, length: 4, type: "uint32", endianness: "little", mask: 0x00000020, description: "Analogue front-end (cell-measurement chip) fault."}
+      - {name: "charging_stopped", offset: 4, length: 4, type: "uint32", endianness: "little", mask: 0x00000040}
+      - {name: "charge_fet_on", offset: 4, length: 4, type: "uint32", endianness: "little", mask: 0x00000080, description: "1 = charge MOSFET conducting. State of the Charge FET switch."}
+      - {name: "charge_overcurrent_warning", offset: 4, length: 4, type: "uint32", endianness: "little", mask: 0x00000100}
+      - {name: "charge_over_temperature_warning", offset: 4, length: 4, type: "uint32", endianness: "little", mask: 0x00000200}
+      - {name: "charge_under_temperature_warning", offset: 4, length: 4, type: "uint32", endianness: "little", mask: 0x00000400}
+      - {name: "cell_overvoltage_warning", offset: 4, length: 4, type: "uint32", endianness: "little", mask: 0x00000800}
+      - {name: "pack_overvoltage_warning", offset: 4, length: 4, type: "uint32", endianness: "little", mask: 0x00001000}
+      - {name: "cell_voltage_difference_warning", offset: 4, length: 4, type: "uint32", endianness: "little", mask: 0x00002000}
+      - {name: "cell_voltage_difference_excessive", offset: 4, length: 4, type: "uint32", endianness: "little", mask: 0x00004000, description: "The spread between cells is too large (a stronger condition than the warning bit above)."}
+      - {name: "heating", offset: 4, length: 4, type: "uint32", endianness: "little", mask: 0x00008000, description: "1 = heater running. State of the Heating switch."}
+      - {name: "discharge_overcurrent_protection", offset: 4, length: 4, type: "uint32", endianness: "little", mask: 0x00010000}
+      - {name: "discharge_over_temperature_protection", offset: 4, length: 4, type: "uint32", endianness: "little", mask: 0x00020000}
+      - {name: "discharge_under_temperature_protection", offset: 4, length: 4, type: "uint32", endianness: "little", mask: 0x00040000}
+      - {name: "cell_undervoltage_protection", offset: 4, length: 4, type: "uint32", endianness: "little", mask: 0x00080000}
+      - {name: "short_circuit_protection", offset: 4, length: 4, type: "uint32", endianness: "little", mask: 0x00100000}
+      - {name: "pack_undervoltage_protection", offset: 4, length: 4, type: "uint32", endianness: "little", mask: 0x00200000}
+      - {name: "discharging_stopped", offset: 4, length: 4, type: "uint32", endianness: "little", mask: 0x00400000}
+      - {name: "discharge_fet_on", offset: 4, length: 4, type: "uint32", endianness: "little", mask: 0x00800000, description: "1 = discharge MOSFET conducting. State of the Discharge FET switch."}
+      - {name: "discharge_overcurrent_warning", offset: 4, length: 4, type: "uint32", endianness: "little", mask: 0x01000000}
+      - {name: "discharge_over_temperature_warning", offset: 4, length: 4, type: "uint32", endianness: "little", mask: 0x02000000}
+      - {name: "discharge_under_temperature_warning", offset: 4, length: 4, type: "uint32", endianness: "little", mask: 0x04000000}
+      - {name: "cell_undervoltage_warning", offset: 4, length: 4, type: "uint32", endianness: "little", mask: 0x08000000}
+      - {name: "pack_undervoltage_warning", offset: 4, length: 4, type: "uint32", endianness: "little", mask: 0x10000000}
+      - {name: "mos_over_temperature_warning", offset: 4, length: 4, type: "uint32", endianness: "little", mask: 0x20000000}
+      - {name: "mos_over_temperature_protection", offset: 4, length: 4, type: "uint32", endianness: "little", mask: 0x40000000}
+      - {name: "pre_discharge_fet_on", offset: 4, length: 4, type: "uint32", endianness: "little", mask: 0x80000000, description: "1 = pre-discharge (pre-charge of the load's capacitors) MOSFET conducting."}
+      - {name: "cell_balance_bits", offset: 8, length: 4, type: "bytes", description: "Per-cell balancing flags, one bit per cell. Which bit and byte map to cell 1 is not documented."}
+      - {name: "cell_disconnect_bits", offset: 12, length: 3, type: "bytes", description: "Per-cell disconnection (open sense wire) flags, 24 bits for the 24 cell slots. Bit order not documented."}
+    parse_rules:
+      - "Reassemble to data length + 5 bytes and verify the checksum. The fields start at frame byte 3."
+      - "status = u32le(data[4:8]). Each named flag is (status & mask) != 0. 1 means the condition is active (or the FET is on)."
+      - "Protections have no bit to themselves in the 0x21 frame. The status word is the only place a client learns why a pack has stopped charging or discharging."
+      - "The balance and disconnect byte runs are raw. Do not assign bits to cells until the order is established."
+    example: "aa 20 0f 03 00 04 05 80 00 80 00 00 00 00 00 00 00 00 3b 01"
+  CellVoltages:
+    description: >
+      Data of a 0x22 response: exactly 24 cell slots, each uint16
+      little-endian in mV (48 data bytes, 53-byte frame). There is no count
+      byte. Slots for cells the pack does not have read 0, so the number of
+      non-zero slots is the cell count (4 on a 12 V pack, 8 on 24 V, 16 on
+      48 V, presumably). Only a 4-cell pack has been tested upstream.
+    fields:
+      - {name: "cell_1_voltage", offset: 0, length: 2, type: "uint16", endianness: "little", scale: 0.001, unit: "V", description: "Slot 1. Slots 2-24 follow at offsets 2, 4, ... 46 in the same form."}
+    parse_rules:
+      - "cell[i] = u16le(data[2*i : 2*i+2]) / 1000 V, for i = 0 .. 23."
+      - "Skip zero slots. Min, max and spread (max - min) are over the non-zero slots only."
+    example: "aa 22 30 fd 0c fc 0c fe 0c f9 0c 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 72 04"
+  Parameters:
+    description: >
+      Data of a 0x58 response: the protection-threshold block, a run of
+      int16 values. Not mapped upstream (monitoring does not need it). Some
+      temperature thresholds appear to be encoded as tenths of a kelvin
+      offset by 2731, i.e. raw = C x 10 + 2731. The field order, count and
+      endianness of the block are not documented. The rest of the protocol
+      is little-endian, which is a guess here, not a fact.
+    fields:
+      - {name: "temperature_threshold (where used)", type: "int16", scale: 0.1, value_offset: -273.1, unit: "C", description: "The apparent encoding of the temperature entries only: C = (raw - 2731) / 10. Which entries use it is not established."}
+    parse_rules:
+      - "Treat as read-only and informational. No write command for these thresholds is documented, and none should be invented."
+  AsciiString:
+    description: >
+      Data of 0x10 (manufacturer name), 0x11 (pack name) and 0xF5 (firmware
+      version) responses: ASCII text of data-length bytes. Whether it is
+      NUL-padded or terminated is not documented. Trim trailing NULs and
+      spaces.
+
+protocol_details:
+  framing:
+    description: >
+      One frame shape in both directions. A request with no data is 5 bytes.
+      A response is data length + 5 bytes and may span several
+      notifications.
+    layout:
+      - {offset: 0, length: 1, name: "start", value: "0xaa"}
+      - {offset: 1, length: 1, name: "command", notes: "Request opcode. A response carries the same byte."}
+      - {offset: 2, length: 1, name: "data_length", notes: "N, 0-255."}
+      - {offset: 3, length: "N", name: "data"}
+      - {offset: "3+N", length: 2, name: "checksum", notes: "(sum of bytes 1 .. 2+N) & 0xFFFF, little-endian. The 0xAA start byte is not summed."}
+    reassembly: >
+      On the first chunk of a response (it starts 0xAA), total = byte[2] + 5.
+      Append later notifications until total bytes are held, then verify.
+      The open client resets its buffer if it ever exceeds 256 bytes and
+      rejects a frame whose command byte is not the one it asked for.
+    byte_order: >
+      Little-endian everywhere except the int16 reference current of
+      commands 0x67 and 0x68, which is big-endian. Upstream notes that
+      assuming big-endian responses produced garbage.
+
+  commands:
+    - {code: 0x00, name: "handshake", data: "none", response: "undocumented data; echo of 0x00"}
+    - {code: 0x10, name: "manufacturer name", data: "none", response: "ASCII"}
+    - {code: 0x11, name: "pack name", data: "none", response: "ASCII"}
+    - {code: 0x20, name: "running status", data: "none", response: "payload_formats.StatusResponse"}
+    - {code: 0x21, name: "battery info", data: "none", response: "format on 00000003"}
+    - {code: 0x22, name: "cell voltages", data: "none", response: "payload_formats.CellVoltages"}
+    - {code: 0x58, name: "protection parameters", data: "none", response: "payload_formats.Parameters (partial)"}
+    - {code: 0xf5, name: "firmware version", data: "none", response: "ASCII"}
+    - {code: 0x50, name: "charge FET", data: "1 byte: 01 on, 00 off", response: "echo on success"}
+    - {code: 0x51, name: "discharge FET", data: "1 byte: 01 on, 00 off", response: "echo on success"}
+    - {code: 0x52, name: "heating", data: "1 byte: 01 on, 00 off", response: "echo on success"}
+    - {code: 0x53, name: "clear status", data: "none", response: "echo on success"}
+    - {code: 0x66, name: "calibrate static current", data: "none", response: "echo on success", advanced: true}
+    - {code: 0x67, name: "calibrate charge current", data: "int16 BE mA", response: "echo on success", advanced: true}
+    - {code: 0x68, name: "calibrate discharge current", data: "int16 BE mA", response: "echo on success", advanced: true}
+
+  session:
+    order:
+      - "Connect, discover services, check for 00000001 / 00000002 / 00000003."
+      - "Optionally request ATT MTU 247."
+      - "Subscribe to 00000003."
+      - "Handshake (0x00) and wait for its echo."
+      - "Poll 0x21, 0x22 and 0x20 as needed (every 5-30 s is plenty)."
+      - "Once per session: 0xF5, 0x11, 0x58."
+    one_in_flight: >
+      The vendor app sends requests through a serial queue. A client sends
+      the next request only after the previous response was reassembled
+      or timed out (2.5 s in the open client).
+    control_confirmation: >
+      A control command succeeded when the BMS answers with a valid frame
+      carrying the same command byte. Re-read 0x20 to see the FET or
+      heating bit change.
+
+  test_vectors:
+    note: >
+      Request frames are the upstream worked examples, recomputed. The
+      response frames are SYNTHETIC: built from the documented layout with
+      invented values to test a decoder, not captured from a pack.
+    requests:
+      - {command: "handshake", hex: "aa 00 00 00 00"}
+      - {command: "read_battery_info", hex: "aa 21 00 21 00"}
+      - {command: "read_cell_voltages", hex: "aa 22 00 22 00"}
+      - {command: "read_running_status", hex: "aa 20 00 20 00"}
+      - {command: "charge_fet_on", hex: "aa 50 01 01 52 00"}
+      - {command: "charge_fet_off", hex: "aa 50 01 00 51 00"}
+      - {command: "discharge_fet_off", hex: "aa 51 01 00 52 00"}
+      - {command: "calibrate_charge_current 10.000 A", hex: "aa 67 02 27 10 a0 00"}
+      - {command: "calibrate_charge_current 32.767 A", hex: "aa 67 02 7f ff e7 01", notes: "0x67+0x02+0x7f+0xff = 0x01e7: the sum carries into the high checksum byte, which a sum8 encoder would get wrong."}
+    responses:
+      - name: "battery info, discharging"
+        hex: "aa 21 1a f0 33 00 00 7e eb ff ff 57 64 d8 53 01 00 a0 86 01 00 0c 00 15 15 16 15 14 17 5f 08"
+        decodes_to: {pack_voltage_v: 13.296, current_a: -5.25, state_of_charge_pct: 87, state_of_health_pct: 100, remaining_capacity_ah: 87.0, full_capacity_ah: 100.0, cycle_count: 12, temperatures_c: [21, 21, 22, 21], ambient_c: 20, mos_c: 23, checksum: "0x085f"}
+      - name: "battery info, below freezing (int8 temperatures)"
+        hex: "aa 21 1a 30 33 00 00 00 00 00 00 28 64 40 9c 00 00 a0 86 01 00 03 00 fb fb fc fb fa fd 14 09"
+        decodes_to: {pack_voltage_v: 13.104, current_a: 0.0, state_of_charge_pct: 40, temperatures_c: [-5, -5, -4, -5], ambient_c: -6, mos_c: -3, checksum: "0x0914"}
+      - name: "cell voltages, 4S pack"
+        hex: "aa 22 30 fd 0c fc 0c fe 0c f9 0c 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 72 04"
+        decodes_to: {cells_v: [3.325, 3.324, 3.326, 3.321], cell_count: 4, spread_mv: 5, checksum: "0x0472"}
+      - name: "running status, both FETs on, no faults"
+        hex: "aa 20 0f 03 00 04 05 80 00 80 00 00 00 00 00 00 00 00 3b 01"
+        decodes_to: {uptime: "3 d 4 h 5 min", status: "0x00800080", charge_fet_on: true, discharge_fet_on: true, checksum: "0x013b"}
+
+  out_of_scope:
+    watt_protocol: >
+      The vendor app's second protocol family ("WATT", derived from the
+      PACE/Pylontech BMS protocol) runs on service
+      0000fff0-0000-1000-8000-00805f9b34fb for differently-branded packs.
+      Not researched. A pack that shows 0000fff0 and no 00000001 service is
+      not covered by this spec.
+
+entities:
+  - platform: "sensor"
+    name: "Voltage"
+    device_class: "voltage"
+    unit: "V"
+    precision: 0.01
+    state_characteristic: "00000003-0000-1000-8000-00805f9b34fb"
+    state_mapping:
+      value: "pack_voltage"
+    commands:
+      poll: "read_battery_info"
+  - platform: "sensor"
+    name: "Current"
+    device_class: "current"
+    unit: "A"
+    precision: 0.01
+    state_characteristic: "00000003-0000-1000-8000-00805f9b34fb"
+    state_mapping:
+      value: "current"
+    commands:
+      poll: "read_battery_info"
+    notes: "Positive = charging, negative = discharging. Power is voltage x current; the pack does not report it."
+  - platform: "sensor"
+    name: "State of Charge"
+    device_class: "battery"
+    unit: "%"
+    state_characteristic: "00000003-0000-1000-8000-00805f9b34fb"
+    state_mapping:
+      value: "state_of_charge"
+    commands:
+      poll: "read_battery_info"
+  - platform: "sensor"
+    name: "State of Health"
+    unit: "%"
+    icon: "mdi:battery-heart-variant"
+    state_characteristic: "00000003-0000-1000-8000-00805f9b34fb"
+    state_mapping:
+      value: "state_of_health"
+    commands:
+      poll: "read_battery_info"
+  - platform: "sensor"
+    name: "Remaining Capacity"
+    unit: "Ah"
+    precision: 0.01
+    state_characteristic: "00000003-0000-1000-8000-00805f9b34fb"
+    state_mapping:
+      value: "remaining_capacity"
+    commands:
+      poll: "read_battery_info"
+  - platform: "sensor"
+    name: "Full Capacity"
+    unit: "Ah"
+    precision: 0.01
+    state_characteristic: "00000003-0000-1000-8000-00805f9b34fb"
+    state_mapping:
+      value: "full_capacity"
+    commands:
+      poll: "read_battery_info"
+  - platform: "sensor"
+    name: "Cycle Count"
+    icon: "mdi:battery-sync"
+    state_characteristic: "00000003-0000-1000-8000-00805f9b34fb"
+    state_mapping:
+      value: "cycle_count"
+    commands:
+      poll: "read_battery_info"
+  - platform: "sensor"
+    name: "Temperature 1"
+    device_class: "temperature"
+    unit: "C"
+    state_characteristic: "00000003-0000-1000-8000-00805f9b34fb"
+    state_mapping:
+      value: "temperature_1"
+    commands:
+      poll: "read_battery_info"
+  - platform: "sensor"
+    name: "Temperature 2"
+    device_class: "temperature"
+    unit: "C"
+    state_characteristic: "00000003-0000-1000-8000-00805f9b34fb"
+    state_mapping:
+      value: "temperature_2"
+    commands:
+      poll: "read_battery_info"
+    notes: "What an unfitted probe reads is not documented. Hide it if it never changes from 0."
+  - platform: "sensor"
+    name: "Temperature 3"
+    device_class: "temperature"
+    unit: "C"
+    state_characteristic: "00000003-0000-1000-8000-00805f9b34fb"
+    state_mapping:
+      value: "temperature_3"
+    commands:
+      poll: "read_battery_info"
+    notes: "What an unfitted probe reads is not documented. Hide it if it never changes from 0."
+  - platform: "sensor"
+    name: "Temperature 4"
+    device_class: "temperature"
+    unit: "C"
+    state_characteristic: "00000003-0000-1000-8000-00805f9b34fb"
+    state_mapping:
+      value: "temperature_4"
+    commands:
+      poll: "read_battery_info"
+    notes: "What an unfitted probe reads is not documented. Hide it if it never changes from 0."
+  - platform: "sensor"
+    name: "Ambient Temperature"
+    device_class: "temperature"
+    unit: "C"
+    state_characteristic: "00000003-0000-1000-8000-00805f9b34fb"
+    state_mapping:
+      value: "ambient_temperature"
+    commands:
+      poll: "read_battery_info"
+  - platform: "sensor"
+    name: "MOS Temperature"
+    device_class: "temperature"
+    unit: "C"
+    state_characteristic: "00000003-0000-1000-8000-00805f9b34fb"
+    state_mapping:
+      value: "mos_temperature"
+    commands:
+      poll: "read_battery_info"
+  - platform: "switch"
+    name: "Charge FET"
+    icon: "mdi:battery-arrow-up"
+    command_characteristic: "00000002-0000-1000-8000-00805f9b34fb"
+    commands:
+      turn_on: "charge_fet_on"
+      turn_off: "charge_fet_off"
+    notes: >
+      State is bit 7 (mask 0x00000080) of the 0x20 status word
+      (payload_formats.StatusResponse.charge_fet_on). The notify
+      characteristic's `format` covers 0x21 only, so there is no
+      state_mapping. Poll read_running_status and test the bit. Off is
+      `advanced`.
+  - platform: "switch"
+    name: "Discharge FET"
+    icon: "mdi:battery-arrow-down"
+    command_characteristic: "00000002-0000-1000-8000-00805f9b34fb"
+    commands:
+      turn_on: "discharge_fet_on"
+      turn_off: "discharge_fet_off"
+    notes: >
+      State is bit 23 (mask 0x00800000) of the 0x20 status word. No
+      state_mapping for the reason given on Charge FET. Off is `advanced`
+      because it cuts power to the load.
+  - platform: "switch"
+    name: "Heating"
+    icon: "mdi:heat-wave"
+    command_characteristic: "00000002-0000-1000-8000-00805f9b34fb"
+    commands:
+      turn_on: "heating_on"
+      turn_off: "heating_off"
+    notes: >
+      Only packs with a built-in heater. Which models have one is not
+      established. State is bit 15 (mask 0x00008000) of the 0x20 status
+      word. On is `advanced`.
+  - platform: "button"
+    name: "Clear Status"
+    command_characteristic: "00000002-0000-1000-8000-00805f9b34fb"
+    commands:
+      press: "clear_status"
+    notes: "Advanced: may release a latched protection. What it clears is not documented."
+
+evidence:
+  documentation_review: >
+    The humsienk-esp32 protocol document (pinned at commit fa0bb5a) is the
+    source of every byte layout, the command table and the 32 status bits.
+    It says it was recovered from the vendor's Android app v1.2.0 and
+    verified against a real 4-cell pack. Its README's compatibility section
+    restates the GATT check (name HS..., service 0x0001, write 0x0002,
+    notify 0x0003) and the out-of-scope WATT family on 0xfff0. The vendor's
+    12 V, 24 V and golf-cart manuals (2026 revisions) and the 12 V 314 Ah
+    datasheet give the model range ("Smart" models have Bluetooth), the
+    protection thresholds and the latching over-current behaviour. They
+    say nothing about the BLE protocol, advertised names or a BMS reset.
+  open_implementations: >
+    humsienk-esp32 firmware (the webconfig bridge and two examples) is a
+    working client. It shows connect with a public address type and no
+    security, subscribe, handshake, then 0x21 / 0x22 / 0x20 polls. Writes
+    go with response, one request in flight with a 2.5 s timeout, and
+    reassembly by data length + 5. It sends FET writes after a handshake
+    on a fresh connection, reads temperatures as int8, and requests MTU 247
+    in its examples. It never sends heating, clear-status or calibration
+    commands, so those are from the protocol document alone.
+  store_listings: >
+    Google Play (uni.UNI3890CA7) and the App Store list "HumsiENK Smart
+    BMS", 1.2.5, updated 2026-09. The App Store description names real-time
+    monitoring, running-parameter setting and device control. Play reviews
+    report no Bluetooth button on the pack, an always-on radio, the
+    precise-location requirement, early QR-scanner and invisible-button
+    defects, one "drops after 3 seconds" report, and that some app
+    versions showed neither cycle count nor per-cell voltages (both are
+    in the protocol).
+  open_questions: >
+    The handshake response's data. Whether the service UUID is advertised.
+    Whether more than one central may connect. The 0x58 block's layout and
+    endianness, and how parameters are written. The sign convention of
+    the 0x67/0x68 reference current. What 0x53 clears. The bit order of the
+    balance and disconnect flags. Sub-zero temperature encoding on real
+    hardware. Which models have heaters. Behaviour on 8S/16S packs. Whether
+    the iOS app speaks the same protocol (likely, as a cross-platform build).
+    A Play reviewer says a third-party "KIJO" app can read and lock their
+    HumsiENK pack. Which protocol that app speaks, and whether it is this
+    one, was not examined.
+  artifacts:
+    - type: "public_implementation"
+      artifact: "mdelandgraaf/humsienk-esp32 at commit fa0bb5a17ed89061a919e7a80eb639cece12f671 (docs/PROTOCOL.md, README.md, firmware/)"
+      url: "https://github.com/mdelandgraaf/humsienk-esp32"
+      obtained_via: "GitHub, read 2026-09-28"
+      description: >
+        Protocol document plus a working ESP32 client (MIT). Source of every
+        layout here. It establishes framing, checksum, command set,
+        0x20/0x21/0x22 layouts, the status bit map and session flow. It does
+        not establish handshake response data, 0x58 layout, calibration sign,
+        or behaviour above 4S.
+    - type: "vendor_documentation"
+      artifact: "HumsiENK 12V LiFePO4 Battery User Manual rev 2604; 24V user manual; 36V/48V golf-cart Bluetooth manual (2026); 12V 314Ah Bluetooth 200A BMS tech specs"
+      obtained_via: "Vendor CDN, linked from the vendor's User Manual Center, 2026-09"
+      description: >
+        Model range, which models have Bluetooth, protection thresholds,
+        latching short-circuit behaviour, sub-zero discharge range. No
+        protocol, advertised-name or reset information.
+    - type: "vendor_store_listing"
+      artifact: "HumsiENK Smart BMS: Google Play uni.UNI3890CA7 and App Store id6741700213, version 1.2.5"
+      obtained_via: "Store pages and reviews, read 2026-09-28"
+      description: >
+        App identity and platforms. The reviews supplied the troubleshooting
+        entries in this spec.
+
+remaining_unknowns:
+  - "The handshake (0x00) response data, and whether the BMS drops a client that skips the handshake."
+  - "Whether the advertisement carries service 00000001 or any manufacturer data. Only the local name is known to be advertised."
+  - "Whether the BMS accepts more than one connected central."
+  - "The 0x58 protection-parameter block's field order, count and endianness, and the command (if any) that writes it."
+  - "The sign the vendor app uses for the int16 BE reference current in 0x67 / 0x68, and the preconditions it enforces before calibrating."
+  - "What 0x53 clear-status clears, and whether it can release a latched short-circuit or over-current protection."
+  - "The bit/byte order of the 0x20 cell-balance (4 bytes) and cell-disconnect (3 bytes) flags."
+  - "How sub-zero temperatures are encoded on real hardware (read as int8 here), and what an unfitted temperature probe reads."
+  - "Which HumsiENK models have a heater that 0x52 controls."
+  - "Behaviour on 8S (24 V), 12S (36 V) and 16S (48 V) packs. Only a 4-cell pack has been tested upstream."
+  - "Whether any HumsiENK 'Smart' model uses the WATT / 0000fff0 protocol instead of this one."
+  - "Firmware update: none documented. Whether the app can update BMS firmware is unknown."
+
+helpful_urls:
+  - title: "HumsiENK 12V LiFePO4 Battery User Manual, rev 2604 (PDF)"
+    url: "https://cdn.shopify.com/s/files/1/0867/1821/8558/files/Humsienk_12V_LiFePO4_Battery_User_Manual_2604.pdf?v=1776774089"
+    kind: "manual"
+    description: >
+      Vendor-hosted manual for the whole 12 V range (50-640 Ah), including
+      the Smart and Mini Smart Bluetooth models, the BMS protection table,
+      and the latching over-current behaviour cited in troubleshooting.
+  - title: "HumsiENK 24V LiFePO4 Battery User Manual (PDF)"
+    url: "https://cdn.shopify.com/s/files/1/0867/1821/8558/files/Humsienk_24V_LiFePO4_Battery_User_Manual_Download.pdf?v=1772522277"
+    kind: "manual"
+    description: >
+      Vendor-hosted manual for the 24 V packs, including the 100, 150 and
+      320 Ah Smart (Bluetooth) models. Image-only PDF with no text layer.
+  - title: "HumsiENK 36V / 48V golf-cart Bluetooth LiFePO4 Battery User Manual (PDF)"
+    url: "https://cdn.shopify.com/s/files/1/0867/1821/8558/files/Humsienk_36V_100Ah_Golf_Cart_Bluetooth_LiFePO4_Battery_User_Manual.pdf?v=1789381432"
+    kind: "manual"
+    description: >
+      Vendor-hosted 2026 manual for the 36V 100Ah GC Smart, 48V 100Ah GC
+      Smart / Ironguard Smart and 48V 150Ah GC Smart, with their
+      low-temperature protection ranges.
+  - title: "HumsiENK 12V 314Ah Bluetooth LiFePO4 Battery, 200A BMS tech specs (PDF)"
+    url: "https://cdn.shopify.com/s/files/1/0867/1821/8558/files/Humsienk_12V_314Ah_Bluetooth_LiFePO4_Battery_200A_BMS_Tech_Specs.pdf?v=1763973497"
+    kind: "manual"
+    description: "Vendor datasheet for the 12V 314Ah Bluetooth model: BMS protection list and ratings."
+  - title: "humsienk-esp32: HumsiENK BMC BLE protocol"
+    url: "https://github.com/mdelandgraaf/humsienk-esp32/blob/fa0bb5a17ed89061a919e7a80eb639cece12f671/docs/PROTOCOL.md"
+    kind: "protocol_writeup"
+    description: >
+      The community protocol document this spec restates, pinned at the
+      commit read. Frame, checksum, commands, response layouts, status bits.
+  - title: "humsienk-esp32 (ESP32 BLE bridge to Home Assistant)"
+    url: "https://github.com/mdelandgraaf/humsienk-esp32"
+    kind: "implementation"
+    description: >
+      Working open client (MIT): scan, handshake, polls, FET control, MQTT
+      and REST publishing. Its README has a safety section on FET control.
+  - title: "humsienk-esp32: main bridge firmware"
+    url: "https://github.com/mdelandgraaf/humsienk-esp32/blob/fa0bb5a17ed89061a919e7a80eb639cece12f671/firmware/humsienk_bms_webconfig/humsienk_bms_webconfig.ino"
+    kind: "implementation"
+    description: "The BLE client: frame builder and parser, reassembly, timeouts, int8 temperature reads."
+  - title: "HumsiENK Smart BMS on Google Play"
+    url: "https://play.google.com/store/apps/details?id=uni.UNI3890CA7"
+    kind: "other"
+    description: "The vendor app (Android). Reviews there are the source of the app-side troubleshooting."
+  - title: "HumsiENK Smart BMS on the App Store"
+    url: "https://apps.apple.com/us/app/humsienk-smart-bms/id6741700213"
+    kind: "other"
+    description: "The vendor app's iOS build."

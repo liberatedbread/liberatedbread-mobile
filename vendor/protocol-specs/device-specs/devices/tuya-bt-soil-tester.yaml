@@ -28,6 +28,7 @@ device:
       no official public DP schema at all.
   protocol: "ble"
   category: "sensor"
+  category_hierarchy: ["measurement", "environmental"]
   transport: "ble-gatt"  # Tuya's own framing rides on plain GATT notify/write
   notes: >
     A battery-powered (2×AAA) probe that measures soil moisture and

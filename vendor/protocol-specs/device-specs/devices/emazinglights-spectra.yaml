@@ -14,6 +14,7 @@ device:
       hardware has been replayed by this project.
   protocol: "ble"
   category: "light"
+  category_hierarchy: ["light", "led"]
   notes: >
     EmazingLights Spectra is a programmable LED glove set. The phone does NOT
     talk to the gloves: it talks over BLE to a Spectra "Smart Hub" (firmware

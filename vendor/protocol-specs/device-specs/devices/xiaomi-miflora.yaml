@@ -10,6 +10,7 @@ device:
     status: untested
   protocol: "ble"
   category: "sensor"
+  category_hierarchy: ["measurement", "temperature"]
   notes: >
     Plant/soil sensor measuring soil moisture (%), temperature (°C), light
     intensity (lux), and soil conductivity/fertility (µS/cm). Coin cell

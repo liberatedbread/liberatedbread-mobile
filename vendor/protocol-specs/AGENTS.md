@@ -17,9 +17,15 @@ speaks, are:
   and SOAP, and device provisioning.
 
 Specs are not limited to those two. The authoritative `device.protocol` enum in
-`device-specs/schema.json` also covers `zigbee`, `zwave`, `obd2`, `uart`, and
-`can` (e-bikes, OBD-II dongles, and other wired/radio buses) — treat that enum
-as the source of truth for what a spec may declare.
+`device-specs/schema.json` also covers `bluetooth_classic` (BR/EDR devices
+reached over RFCOMM/SPP, L2CAP or HID — printers, OBD dongles, headphones,
+the Quin pill box; see [docs/protocols/bluetooth-classic-common.md](docs/protocols/bluetooth-classic-common.md)),
+`zigbee`, `zwave`, `obd2`, `uart`, and `can` (e-bikes, OBD-II dongles, and
+other wired/radio buses) — treat that enum as the source of truth for what a
+spec may declare. A Classic spec carries the top-level `bluetooth_classic`
+block, a `device.pairing` block and a `host_compatibility` verdict for
+`corebluetooth`; a dual-mode device declares the protocol of the link its
+control surface runs on and records the other radio beside it.
 
 **The specs are the product.** `device-specs/devices/*.yaml` is written to be
 implementable on its own, validated against `device-specs/schema.json`. We do
@@ -130,7 +136,7 @@ helpful_urls:
    pairing, factory reset, rebinding).
 2. Add the device to `docs/devices/index.md` and to `mkdocs.yml`'s nav.
 3. Add a spec under `device-specs/devices/`, then
-   `python scripts/validate_specs.py`. A BLE spec must carry a
+   `python scripts/validate_specs.py`. A BLE or Bluetooth Classic spec must carry a
    `device.pairing` block — "nothing pairs" is the usual answer and saying it
    is the point; see
    [docs/protocols/pairing.md](docs/protocols/pairing.md). If the device has

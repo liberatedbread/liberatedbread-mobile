@@ -43,6 +43,7 @@ device:
       bluetoothd's source, not off the air.
   protocol: "ble"
   category: "sensor"
+  category_hierarchy: ["measurement", "distance"]
   notes: >
     Bluetooth-equipped laser distance meters: LDM330 (Johnson model 40-6013,
     330 ft / ~100 m range, integrated angle sensor) and its 130 ft sibling
@@ -423,6 +424,101 @@ services:
           disconnect), or a measurement frame (see
           payload_formats.Precaster_Measurement_Frame).
 
+  - uuid: "0000fff3-0000-1000-8000-00805f9b34fb"
+    name: "Secondary vendor channel (purpose unknown)"
+    verification: "confirmed"
+    notes: >
+      Present in both the original LDM330 enumeration and the independent
+      2026-11-07 GATT report. The report contains characteristic properties
+      only and no responses, so it establishes no role or dialect for this
+      channel. Do not send the f150 init/measure frames or another product's
+      protocol here. The vendor app did not use this service in the capture.
+    characteristics:
+      - uuid: "0000fff4-0000-1000-8000-00805f9b34fb"
+        name: "Secondary notifications (role unknown)"
+        properties: ["notify"]
+        notes: "Property confirmed; no payload observed."
+      - uuid: "0000fff5-0000-1000-8000-00805f9b34fb"
+        name: "Secondary writes (role unknown)"
+        properties: ["write", "write_without_response"]
+        notes: "Both properties confirmed; no command assigned."
+  - uuid: "00001802-0000-1000-8000-00805f9b34fb"
+    name: "Immediate Alert"
+    characteristics:
+      - uuid: "00002a06-0000-1000-8000-00805f9b34fb"
+        name: "Alert Level"
+        properties: ["write_without_response"]
+        notes: "Standard SIG alert characteristic; not a distance-control channel."
+  - uuid: "00001803-0000-1000-8000-00805f9b34fb"
+    name: "Link Loss"
+    characteristics:
+      - uuid: "00002a06-0000-1000-8000-00805f9b34fb"
+        name: "Alert Level"
+        properties: ["read", "write"]
+        notes: "Standard SIG link-loss characteristic; unrelated to measurements."
+  - uuid: "00001804-0000-1000-8000-00805f9b34fb"
+    name: "Tx Power"
+    characteristics:
+      - uuid: "00002a07-0000-1000-8000-00805f9b34fb"
+        name: "Tx Power Level"
+        properties: ["read", "notify"]
+        notes: "Standard SIG radio-power characteristic."
+  - uuid: "0000180d-0000-1000-8000-00805f9b34fb"
+    name: "Heart Rate (module stock service)"
+    notes: >
+      Present in the module's stock firmware, but no heart-rate measurement
+      has been observed or linked to the laser meter. Do not infer a health
+      sensor or subscribe expecting distance data.
+    characteristics:
+      - uuid: "00002a37-0000-1000-8000-00805f9b34fb"
+        name: "Heart Rate Measurement (unused)"
+        properties: ["notify"]
+        notes: "Property confirmed; no payload observed."
+      - uuid: "00002a38-0000-1000-8000-00805f9b34fb"
+        name: "Body Sensor Location"
+        properties: ["read"]
+        notes: "Standard SIG characteristic; no value established."
+  - uuid: "0000180f-0000-1000-8000-00805f9b34fb"
+    name: "Battery"
+    characteristics:
+      - uuid: "00002a19-0000-1000-8000-00805f9b34fb"
+        name: "Battery Level"
+        properties: ["read", "notify"]
+        format:
+          - offset: 0
+            length: 1
+            name: "battery_percent"
+            type: "uint8"
+            unit: "%"
+            device_class: "battery"
+            notes: "Standard SIG percentage. Read by attribute handle on this firmware, not Read By Type."
+  - uuid: "0000180a-0000-1000-8000-00805f9b34fb"
+    name: "Device Information"
+    notes: >
+      Values identify the Precaster BLE module rather than the retail meter:
+      manufacturer Precaster, model BT A8105, hardware A810501, firmware
+      0001, software 1000, serial 00001. Read by attribute handle on this
+      firmware.
+    characteristics:
+      - uuid: "00002a24-0000-1000-8000-00805f9b34fb"
+        name: "Model Number String"
+        properties: ["read"]
+      - uuid: "00002a25-0000-1000-8000-00805f9b34fb"
+        name: "Serial Number String"
+        properties: ["read"]
+      - uuid: "00002a26-0000-1000-8000-00805f9b34fb"
+        name: "Firmware Revision String"
+        properties: ["read"]
+      - uuid: "00002a27-0000-1000-8000-00805f9b34fb"
+        name: "Hardware Revision String"
+        properties: ["read"]
+      - uuid: "00002a28-0000-1000-8000-00805f9b34fb"
+        name: "Software Revision String"
+        properties: ["read"]
+      - uuid: "00002a29-0000-1000-8000-00805f9b34fb"
+        name: "Manufacturer Name String"
+        properties: ["read"]
+
 ble:
   connection_sequence:
     description: >
@@ -453,11 +549,15 @@ entities:
     name: "Battery"
     device_class: "battery"
     unit: "%"
+    state_characteristic: "00002a19-0000-1000-8000-00805f9b34fb"
+    state_mapping:
+      value: "battery_percent"
     notes: >
       Standard Battery Service (0x180f / 0x2a19). HARDWARE 2026-08-19: reads
-      via a plain by-handle Read Request (100% on a fresh unit); a Read By
-      Type for the same characteristic fails like every other by-type read
-      on this firmware, so clients must read it by handle.
+      via a plain by-handle Read Request (100% on a fresh unit). Use that
+      path on this firmware because the separate Server Supported Features
+      (0x2b3a) read can stall bluetoothd; other by-type reads were answered
+      in the vendor-app capture.
 
 helpful_urls:
   - title: "Precaster Enterprises (OEM)"

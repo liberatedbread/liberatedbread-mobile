@@ -20,6 +20,7 @@ device:
       for each family.
   protocol: "ble"
   category: "scale"
+  category_hierarchy: ["measurement", "health", "body_composition"]
   notes: >
     openScale (GPLv3) documents dozens of Bluetooth body-composition scales whose
     vendor apps are cloud/account-oriented; this spec captures three families

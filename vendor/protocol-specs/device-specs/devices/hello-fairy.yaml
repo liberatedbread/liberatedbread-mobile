@@ -10,6 +10,7 @@ device:
     status: untested
   protocol: "ble"
   category: "light"
+  category_hierarchy: ["light", "led"]
   notes: >
     App-controlled addressable RGB(W) light strings (fairy/string, curtain and
     Christmas-tree products) sold under the Hello Fairy brand by Avatar Controls.

@@ -17,6 +17,7 @@ device:
     status: untested
   protocol: "ble"
   category: "light"
+  category_hierarchy: ["light", "led"]
   notes: >
     BLE motorcycle LED controller from XKGlow. Single custom GATT service
     with 7 characteristics (the 8th UUID in the app's attribute table is

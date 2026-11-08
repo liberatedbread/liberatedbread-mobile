@@ -10,6 +10,7 @@ device:
     status: untested
   protocol: "wifi"
   category: "light"
+  category_hierarchy: ["light", "led"]
   transport: "udp"
   notes: >
     LIFX Z LED strips support the LIFX binary LAN protocol over UDP port 56700

@@ -38,7 +38,6 @@ device:
   identification:
     local_name_prefix: "OBD"
     service_uuids:
-      - "0000fff0-0000-1000-8000-00805f9b34fb"
       - "000018f0-0000-1000-8000-00805f9b34fb"
       - "0000ffe0-0000-1000-8000-00805f9b34fb"
   discovery:
@@ -49,9 +48,24 @@ device:
             match: "contains"
             value: "OBD"
           service_uuids:
-            - "0000fff0-0000-1000-8000-00805f9b34fb"
             - "000018f0-0000-1000-8000-00805f9b34fb"
             - "0000ffe0-0000-1000-8000-00805f9b34fb"
+      - type: "bt_classic_inquiry"
+        bt_classic:
+          name:
+            match: "prefix"
+            values: ["OBDII", "OBDII-BT", "V-LINK", "Vgate", "OBDLink LX", "OBDLink MX"]
+          service_uuids: ["00001101-0000-1000-8000-00805f9b34fb"]
+          requires_discoverable_mode: false
+        verification: "reported"
+        notes: >
+          The Classic SPP members of the family: a BLE scan never sees them, and
+          a BR/EDR inquiry never sees the BLE-only members. Classic dongles are
+          discoverable whenever they have power from the connector, under a
+          fixed name -- no button and no pairing window. The SPP UUID alone
+          matches every serial module ever made, so the name list is the
+          needle; "OBDLink MX" also covers the dual-mode MX+, whose BLE side
+          the ble_scan method above finds more cheaply.
     identity:
       stable_keys: ["address"]
       display: "local_name"
@@ -141,14 +155,17 @@ device:
               An ELM327 identification string. Cloned firmware reports a
               version it does not implement, so match the adapter_profile class
               rather than trusting this string.
-      - type: "button_pairing"
+      - type: "bt_classic_pairing"
         name: "Bluetooth Classic dongles: OS pairing, fixed PIN"
         role: "variant"
         verified: false
         description: >
           Bluetooth Classic (SPP/RFCOMM) variants pair with the host operating
           system first, using a fixed PIN. There is no button; the PIN is the
-          proof of possession, and it is not a secret.
+          proof of possession, and it is not a secret. The link-layer facts
+          (legacy PIN mode, fixed default, single connection) are in
+          `pairing`; the socket and stream parameters are in the top-level
+          `bluetooth_classic` block.
         steps:
           - action: "Plug the adapter in and power the ignition."
             actor: "user"
@@ -237,7 +254,35 @@ device:
       family A, whose OBDLink CX exemplar bonds with a legacy PIN and always
       encrypts the link. Bluetooth Classic SPP variants pair with the host
       operating system first and are not reachable from an application until
-      they have.
+      they have; their link-layer story is `bluetooth_classic.pairing`.
+  host_compatibility:
+    - stack: "corebluetooth"
+      status: "incompatible"
+      link: "br_edr"
+      symptom: "no_transport"
+      cause:
+        missing_api: "rfcomm"
+      workaround: "none_known"
+      variants:
+        - "Bluetooth Classic SPP (no GATT)"
+        - "OBDLink MX Bluetooth"
+      verification: "reported"
+      basis: >
+        Vendor comparison table for the OBDLink MX Bluetooth lists iOS as
+        unsupported (https://www.obdlink.com/mxbt/); Car Scanner's adapter
+        guide states the same for every non-MFi Classic dongle
+        (https://www.carscanner.info/choosing-obdii-adapter/).
+      notes: >
+        Cause: CoreBluetooth exposes no RFCOMM, so an iPhone or iPad has no
+        way to open the SPP socket these variants are reached through; the
+        device is simply never listed. The vendor iOS path for a Classic
+        adapter is MFi (iAP2 through the ExternalAccessory framework) or
+        nothing -- the OBDLink MX+ is the MFi case and is scoped out of this
+        verdict, and the BLE GATT families are reachable from CoreBluetooth
+        like any other BLE peripheral. macOS is not covered by this verdict:
+        IOBluetooth does expose RFCOMM. Scoped to the two Classic-only
+        variants; a consumer that cannot tell the variant before connecting
+        must not read it as the family's.
 services:
   - uuid: "0000fff0-0000-1000-8000-00805f9b34fb"
     name: "Serial Pipe (family A)"
@@ -294,6 +339,92 @@ services:
       - uuid: "0000ffe1-0000-1000-8000-00805f9b34fb"
         name: "Bidirectional Serial"
         properties: ["read", "write", "write_without_response", "notify"]
+
+bluetooth_classic:
+  variants:
+    - "Bluetooth Classic SPP (no GATT)"
+    - "OBDLink MX Bluetooth"
+  pairing:
+    required: true
+    confidence: "medium"
+    security_mode: "legacy_pin"
+    bonding: "required"
+    pin:
+      source: "fixed_default"
+      notes: >
+        Commonly 1234, 0000 or 6789, printed in the adapter's manual. A
+        default shared by enormous numbers of dongles, not a secret; no value
+        is stated because the family spans many vendors.
+    exclusivity:
+      single_connection: true
+      recovery: >
+        Remove the bond from the previous host as well as the new one. A
+        Classic dongle takes one RFCOMM connection at a time, and a phone
+        reconnecting in the background is the usual cause of an adapter that
+        stopped answering after a second device was introduced.
+    enter_pairing_mode:
+      required: false
+      notes: >
+        Classic dongles are discoverable and pairable whenever they have power
+        from the connector; there is no button and no window.
+    notes: >
+      The Classic SPP members pair with the host operating system (a legacy
+      PIN) before any application can open the SPP socket. `device.pairing`
+      describes the BLE GATT families, which is the link this spec's
+      `protocol: ble` names.
+  dual_mode: false
+  ble_role: "none"
+  profiles:
+    - profile: "spp"
+      uuid: "00001101-0000-1000-8000-00805f9b34fb"
+      role: "control"
+      secure: true
+      verification: "reported"
+      notes: >
+        Serial Port Profile on one RFCOMM channel, usually 1. Secure socket:
+        the dongle demands a legacy PIN bond (see `pairing`), so a client
+        opens an authenticated socket to a device the host has already
+        paired; an insecure socket to an unpaired dongle is refused.
+  serial:
+    profile_uuid: "00001101-0000-1000-8000-00805f9b34fb"
+    encoding: "ascii_lines"
+    line_terminator: "0d"
+    command_terminator: "0d"
+    prompt: "3e"
+    correlation: "in_order"
+    max_in_flight: 1
+    commands_from:
+      service: "0000fff0-0000-1000-8000-00805f9b34fb"
+      characteristic: "0000fff2-0000-1000-8000-00805f9b34fb"
+    framing:
+      length_prefix: false
+      checksum: "none"
+      notes: >
+        Commands are ASCII ended by CR. A response is complete only when the
+        ELM327 prompt character '>' arrives; buffer across reads until then,
+        because a reply can land in pieces or glued to the previous one.
+        Lines inside a reply are separated by CR (CR LF with ATL1). Echo is
+        on until ATE0, so the first line of a reply is the command itself.
+    verification: "reported"
+    notes: >
+      Resolve the channel by SDP from the SPP UUID; it is usually 1, but is
+      not fixed across the family. Linux: `rfcomm bind 0 aa:bb:cc:dd:ee:ff 1`
+      gives /dev/rfcomm0, which any serial library opens. The command set is
+      the same ASCII AT/ST vocabulary the family-A write characteristic's
+      commands spell out byte for byte -- ATZ, ATI, ATE0 and the rest are
+      identical over SPP.
+  verification: "reported"
+  notes: >
+    Describes the Classic-only SPP members of the family -- the "Bluetooth
+    Classic SPP (no GATT)" and "OBDLink MX Bluetooth" variants -- which is why
+    `dual_mode` is false and `ble_role` is none here. The family as a whole
+    has Classic-only, BLE-only (GATT families A/B/C, UniCarScan) and dual-mode
+    members; the dual-mode OBDLink MX+ (Classic SPP plus iAP2 for iOS, plus a
+    BLE GATT pipe -- `ble_role` would be secondary_control) has its own spec,
+    obdlink-mx-plus. This spec stays `protocol: ble` because the BLE GATT pipe
+    is the path a BLE-only phone client drives; the Classic path is what
+    Android SPP tools such as Torque Pro require, and it is invisible to a
+    BLE-only client.
 
 obd:
   role: "adapter"
@@ -459,8 +590,8 @@ obd:
       verification: "reported"
 
 helpful_urls:
-  - title: "ELM327 Bluetooth OBD-II user manual (PDF)"
-    url: "https://www.seicane.com/media/installation/0/SC01/Seicane-SC01-OBDII-User-Instruction.pdf"
+  - title: "ELM327 Bluetooth OBD-II adapter installation manual (FCC exhibit, PDF)"
+    url: "https://fccid.co/api/files/s1/r6aelm327_usersmanual_1878590_5cf54a09d0.pdf"
     kind: "manual"
     description: >
-      A representative vendor manual for the generic ELM327 Bluetooth adapters this spec's family covers. There is no single vendor: these are unbranded clones, which is why the pairing PIN in this spec is given as a family default rather than one value.
+      User-manual exhibit filed with FCC ID R6AELM327, an unbranded ELM327 Bluetooth OBD-II adapter -- a representative member of the generic clones this spec's family covers (supported vehicle protocols, host Bluetooth pairing, PC software setup). There is no single vendor: these are unbranded clones, which is why the pairing PIN in this spec is given as a family default rather than one value.

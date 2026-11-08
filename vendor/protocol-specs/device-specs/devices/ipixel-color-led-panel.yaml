@@ -19,6 +19,7 @@ device:
       implementations, which agree.
   protocol: "ble"
   category: "display"
+  category_hierarchy: ["display", "led_matrix"]
   type: "led-matrix-panel"
   openness:
     status: "undocumented"

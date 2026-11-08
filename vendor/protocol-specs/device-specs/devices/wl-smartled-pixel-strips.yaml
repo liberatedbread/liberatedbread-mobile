@@ -15,6 +15,7 @@ device:
       project yet — see the CONFIDENCE paragraph in notes.
   protocol: "ble"
   category: "light"
+  category_hierarchy: ["light", "led"]
   notes: >
     THREE APPS, ONE PROTOCOL. duoCo StripX (wl.smartled.duoco.rgb), Lotus
     Lantern (wl.smartled) and Magic Lantern (wl.smartled.rgb) are channel
@@ -178,14 +179,20 @@ device:
     responses — confirm via live HCI capture.
 
   identification:
-    service_uuids:
-      - "0000fff0-0000-1000-8000-00805f9b34fb"
+    local_name_prefixes: ["MELK", "ELK", "XSL", "LED LIGHT STRIP"]
+    notes: >
+      Match a documented name prefix, then confirm the characteristic
+      layout. The shared FFF0 service is not an identity signal.
   discovery:
     methods:
       - type: "ble_scan"
         ble:
-          service_uuids:
-            - "0000fff0-0000-1000-8000-00805f9b34fb"
+          local_name:
+            match: "prefix"
+            values: ["MELK", "ELK", "XSL", "LED LIGHT STRIP"]
+        notes: >
+          Match a documented name prefix, then confirm the characteristic
+          layout. The shared FFF0 service is not an identity signal.
     identity:
       stable_keys: ["address"]
       display: "local_name"
