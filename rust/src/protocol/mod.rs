@@ -16,6 +16,7 @@ pub mod health;
 pub mod http;
 pub mod idotmatrix;
 pub mod image_upload;
+pub mod ipl;
 pub mod ipp;
 pub mod kasa;
 pub mod ledbadge_bitmap;

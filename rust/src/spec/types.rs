@@ -1181,7 +1181,22 @@ impl DeviceSpec {
                 fallback.get_or_insert((service, characteristic));
             }
         }
-        fallback
+        if fallback.is_some() {
+            return fallback;
+        }
+
+        // Some protocols cannot know their containing service UUID until a
+        // real discovery. Falling back is safe only when the characteristic
+        // identifies exactly one declaration; repeated UUIDs stay scoped.
+        let mut candidates = self.services.iter().filter_map(|service| {
+            service
+                .characteristics
+                .iter()
+                .find(|characteristic| characteristic.uuid.eq_ignore_ascii_case(char_uuid))
+                .map(|characteristic| (service, characteristic))
+        });
+        let first = candidates.next()?;
+        candidates.next().is_none().then_some(first)
     }
 
     /// Entities that actually bind to a characteristic in this spec.
