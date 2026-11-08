@@ -51,6 +51,9 @@ class IplSetupSession extends ChangeNotifier {
   IplSetupState _state;
   IplSetupState get state => _state;
   bool _busy = false;
+  bool _disposed = false;
+  final List<StreamSubscription<List<int>>> _subscriptions = [];
+  final Set<Completer<dynamic>> _outcomes = {};
   ForeoActivationDto? _activation;
 
   IplSetupSession({
@@ -66,7 +69,7 @@ class IplSetupSession extends ChangeNotifier {
   String get handler => spec.protocolHandler ?? '';
 
   void start() {
-    if (_busy) return;
+    if (_busy || _disposed) return;
     _busy = true;
     unawaited(
       _start()
@@ -89,7 +92,7 @@ class IplSetupSession extends ChangeNotifier {
   }
 
   Future<void> activate() async {
-    if (_busy) return;
+    if (_busy || _disposed) return;
     _busy = true;
     _update(phase: IplSetupPhase.working, error: null, notice: null);
     try {
@@ -201,38 +204,71 @@ class IplSetupSession extends ChangeNotifier {
   }
 
   Future<void> _executeBraun(int commandId, String commandName) async {
-    if (_busy || handler != 'ipl_braun') return;
+    if (_busy || _disposed || handler != 'ipl_braun') return;
     _busy = true;
     _update(phase: IplSetupPhase.working, error: null, notice: null);
     const statusChar = 'a0f03c03-5047-4d53-8208-4f72616c2d42';
-    StreamSubscription<List<int>>? subscription;
+    const pushChar = 'a0f03c04-5047-4d53-8208-4f72616c2d42';
+    final acknowledgement = Completer<int>();
+    final completion = Completer<int>();
+    _outcomes.addAll([acknowledgement, completion]);
+    final subscriptions = <StreamSubscription<List<int>>>[];
     try {
-      final notifications = ble.subscribeCharacteristic(
+      final statusNotifications = ble.subscribeCharacteristic(
         deviceId,
         _serviceFor(statusChar),
         statusChar,
       );
-      final outcome = Completer<int>();
-      subscription = notifications.listen((bytes) async {
-        if (outcome.isCompleted) return;
-        try {
-          final decoded = await _readDecodedFrom(statusChar, bytes);
-          final status = _rawInt(decoded, 'status');
-          if (_rawInt(decoded, 'opcode') == 0xC3 &&
-              _rawInt(decoded, 'cmd_id') == commandId &&
-              status != null &&
-              !outcome.isCompleted) {
-            outcome.complete(status);
+      subscriptions.add(
+        statusNotifications.listen((bytes) async {
+          if (acknowledgement.isCompleted) return;
+          try {
+            final decoded = await _readDecodedFrom(statusChar, bytes);
+            final status = _rawInt(decoded, 'status');
+            if (_rawInt(decoded, 'opcode') == 0xC3 &&
+                _rawInt(decoded, 'cmd_id') == commandId &&
+                status != null &&
+                !acknowledgement.isCompleted) {
+              acknowledgement.complete(status);
+            }
+          } catch (error) {
+            if (!acknowledgement.isCompleted) {
+              acknowledgement.completeError(error);
+            }
           }
-        } catch (error) {
-          if (!outcome.isCompleted) outcome.completeError(error);
+        }, onError: acknowledgement.completeError),
+      );
+      final pushNotifications = ble.subscribeCharacteristic(
+        deviceId,
+        _serviceFor(pushChar),
+        pushChar,
+      );
+      subscriptions.add(
+        pushNotifications.listen((bytes) async {
+          if (completion.isCompleted) return;
+          try {
+            final decoded = await _readDecodedFrom(pushChar, bytes);
+            final reason = _rawInt(decoded, 'reason');
+            if (_rawInt(decoded, 'command') == commandId &&
+                (reason == 1 || reason == 2) &&
+                !completion.isCompleted) {
+              completion.complete(reason);
+            }
+          } catch (error) {
+            if (!completion.isCompleted) completion.completeError(error);
+          }
+        }, onError: completion.completeError),
+      );
+      _subscriptions.addAll(subscriptions);
+      for (final notifications in [statusNotifications, pushNotifications]) {
+        if (notifications case final BleReadyNotificationStream ready) {
+          await ready.ready;
         }
-      }, onError: outcome.completeError);
-      if (notifications case final BleReadyNotificationStream ready) {
-        await ready.ready;
       }
       await _send('a0f03c00-5047-4d53-8208-4f72616c2d42', commandName);
-      final status = await outcome.future.timeout(const Duration(seconds: 10));
+      final status = await acknowledgement.future.timeout(
+        const Duration(seconds: 10),
+      );
       if (status != 0) {
         throw _IplError(
           status == 1
@@ -240,13 +276,25 @@ class IplSetupSession extends ChangeNotifier {
               : 'The device refused the command (status $status).',
         );
       }
+      final reason = await completion.future.timeout(
+        const Duration(seconds: 10),
+      );
+      if (reason != 1) {
+        throw const _IplError('The device reported a command-end failure.');
+      }
       await _send('a0f03c00-5047-4d53-8208-4f72616c2d42', 'get_session_data');
       final session = await _readDecoded(
         'a0f03c01-5047-4d53-8208-4f72616c2d42',
       );
+      final operationState = _rawInt(session, 'operation_state');
+      if (commandId == 5 && operationState == 6) {
+        throw const _IplError(
+          'The device is still measuring. Wait for it to finish.',
+        );
+      }
       _update(
         phase: IplSetupPhase.ready,
-        operationState: _rawInt(session, 'operation_state'),
+        operationState: operationState,
         skinTone: _rawInt(session, 'skin_tone'),
         energyLevel: _rawInt(session, 'energy_level'),
         mountedHead: _rawInt(session, 'mounted_head'),
@@ -259,7 +307,11 @@ class IplSetupSession extends ChangeNotifier {
     } catch (error) {
       _fail(error, 'The device did not acknowledge the command.');
     } finally {
-      await subscription?.cancel();
+      _outcomes.removeAll([acknowledgement, completion]);
+      for (final subscription in subscriptions) {
+        _subscriptions.remove(subscription);
+        await subscription.cancel();
+      }
       _busy = false;
     }
   }
@@ -275,11 +327,20 @@ class IplSetupSession extends ChangeNotifier {
     await _writeRaw(charUuid, bytes);
   }
 
-  Future<List<int>> _readRaw(String charUuid) =>
-      ble.readCharacteristic(deviceId, _serviceFor(charUuid), charUuid);
+  Future<List<int>> _readRaw(String charUuid) {
+    _requireAlive();
+    return ble.readCharacteristic(deviceId, _serviceFor(charUuid), charUuid);
+  }
 
-  Future<void> _writeRaw(String charUuid, List<int> bytes) =>
-      ble.writeCharacteristic(deviceId, _serviceFor(charUuid), charUuid, bytes);
+  Future<void> _writeRaw(String charUuid, List<int> bytes) {
+    _requireAlive();
+    return ble.writeCharacteristic(
+      deviceId,
+      _serviceFor(charUuid),
+      charUuid,
+      bytes,
+    );
+  }
 
   Future<List<DecodedValueDto>> _readDecoded(String charUuid) async =>
       _readDecodedFrom(charUuid, await _readRaw(charUuid));
@@ -330,6 +391,7 @@ class IplSetupSession extends ChangeNotifier {
     String? notice,
     String? error,
   }) {
+    if (_disposed) return;
     _state = IplSetupState(
       phase: phase ?? _state.phase,
       locked: locked ?? _state.locked,
@@ -343,6 +405,25 @@ class IplSetupSession extends ChangeNotifier {
       error: error,
     );
     notifyListeners();
+  }
+
+  void _requireAlive() {
+    if (_disposed) throw const _IplError('Setup was cancelled.');
+  }
+
+  @override
+  void dispose() {
+    if (_disposed) return;
+    _disposed = true;
+    for (final outcome in _outcomes) {
+      if (!outcome.isCompleted) outcome.complete(2);
+    }
+    _outcomes.clear();
+    for (final subscription in _subscriptions) {
+      unawaited(subscription.cancel());
+    }
+    _subscriptions.clear();
+    super.dispose();
   }
 }
 
