@@ -456,7 +456,7 @@ void main() {
     test(
       'a query that stalls falls back rather than hanging the run',
       () async {
-        final ble = FakeBleService()..writeGate = Completer<void>().future;
+        final ble = FakeBleService(writeGate: Completer<void>().future);
         final codec = FakeSpecCodec()
           ..panelProbeResult = PanelProbeDto(
             serviceUuid: _svc,
