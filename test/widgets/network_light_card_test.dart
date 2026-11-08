@@ -638,7 +638,7 @@ void main() {
 
       await tester.tap(find.byKey(const Key('bridge-zone-all')));
       await tester.pumpAndSettle();
-      await tester.tap(find.byType(Switch));
+      await tester.tap(find.byKey(const Key('bridge-all-on')));
       await tester.pumpAndSettle();
       expect(sent[2].$1, 'turn_on');
       expect(sent[2].$2, isEmpty);
@@ -806,6 +806,190 @@ void main() {
         findsOneWidget,
         reason: 'an On that did not go out did not turn anything on',
       );
+    });
+
+    Future<void> pick(WidgetTester tester, String chip) async {
+      await tester.tap(find.byKey(Key('bridge-zone-$chip')));
+      await tester.pumpAndSettle();
+    }
+
+    Future<void> flip(WidgetTester tester) async {
+      await tester.tap(find.byType(Switch));
+      await tester.pumpAndSettle();
+    }
+
+    group('a bridge remembers each zone', () {
+      testWidgets('one zone off under all on: All states neither', (
+        tester,
+      ) async {
+        final sent = await pump(tester, kLimitlessledTransport, bridge());
+        await flip(tester); // all on
+        await pick(tester, '0');
+        await flip(tester); // zone 1 off
+        expect(sent.last.$2, {'zone': '1'});
+        expect(find.text('Off (sent)'), findsOneWidget);
+
+        await pick(tester, 'all');
+        expect(find.byType(Switch), findsNothing);
+        expect(find.text('Zones differ'), findsOneWidget);
+        expect(find.text('Off (sent)'), findsNothing);
+        expect(find.text('On (sent)'), findsNothing);
+      });
+
+      testWidgets('from differing zones, All reaches off', (tester) async {
+        final sent = await pump(tester, kLimitlessledTransport, bridge());
+        await flip(tester);
+        await pick(tester, '0');
+        await flip(tester);
+        await pick(tester, 'all');
+
+        await tester.tap(find.byKey(const Key('bridge-all-off')));
+        await tester.pumpAndSettle();
+        expect(sent.last.$1, 'turn_off');
+        expect(sent.last.$2, isEmpty, reason: 'every zone');
+        expect(find.text('Off (sent)'), findsOneWidget);
+        expect(tester.widget<Switch>(find.byType(Switch)).value, isFalse);
+
+        await pick(tester, '2');
+        expect(find.text('Off (sent)'), findsOneWidget, reason: 'all of them');
+      });
+
+      testWidgets('from differing zones, All reaches on', (tester) async {
+        final sent = await pump(tester, kLimitlessledTransport, bridge());
+        await flip(tester);
+        await pick(tester, '0');
+        await flip(tester);
+        await pick(tester, 'all');
+
+        await tester.tap(find.byKey(const Key('bridge-all-on')));
+        await tester.pumpAndSettle();
+        expect(sent.last.$1, 'turn_on');
+        expect(sent.last.$2, isEmpty);
+        expect(find.text('On (sent)'), findsOneWidget);
+
+        await pick(tester, '0');
+        expect(find.text('On (sent)'), findsOneWidget, reason: 'zone 1 too');
+      });
+
+      testWidgets('each zone shows its own, and presses by it', (tester) async {
+        final sent = await pump(tester, kLimitlessledTransport, bridge());
+        await flip(tester);
+        await pick(tester, '0');
+        await flip(tester);
+
+        await pick(tester, '1');
+        expect(find.text('On (sent)'), findsOneWidget);
+        await flip(tester);
+        expect(sent.last.$1, 'turn_off', reason: 'zone 2 was on');
+        expect(sent.last.$2, {'zone': '2'});
+
+        await pick(tester, '0');
+        expect(find.text('Off (sent)'), findsOneWidget);
+        await flip(tester);
+        expect(sent.last.$1, 'turn_on', reason: 'zone 1 was off');
+      });
+
+      testWidgets('agreeing again gets the switch back', (tester) async {
+        await pump(tester, kLimitlessledTransport, bridge());
+        await flip(tester);
+        await pick(tester, '0');
+        await flip(tester);
+        await flip(tester); // zone 1 back on
+        await pick(tester, 'all');
+        expect(find.byType(Switch), findsOneWidget);
+        expect(find.text('On (sent)'), findsOneWidget);
+      });
+
+      testWidgets('a zone told something beside three told nothing differs', (
+        tester,
+      ) async {
+        await pump(tester, kLimitlessledTransport, bridge());
+        await pick(tester, '0');
+        await flip(tester);
+        await pick(tester, 'all');
+        expect(find.text('Zones differ'), findsOneWidget);
+        await pick(tester, '1');
+        expect(find.text('Ready'), findsOneWidget, reason: 'told nothing yet');
+      });
+
+      testWidgets('a zone\'s colour turns on that zone and no other', (
+        tester,
+      ) async {
+        await pump(tester, kLimitlessledTransport, bridge());
+        await switchOff(tester);
+        await pick(tester, '1');
+        await tester.tap(swatch(0xFFFF0000));
+        await tester.pumpAndSettle();
+        expect(find.text('On (sent)'), findsOneWidget);
+
+        await pick(tester, '0');
+        expect(find.text('Off (sent)'), findsOneWidget);
+        await pick(tester, 'all');
+        expect(find.text('Zones differ'), findsOneWidget);
+      });
+
+      testWidgets('a zone\'s brightness turns on that zone and no other', (
+        tester,
+      ) async {
+        final sent = await pump(tester, kLimitlessledTransport, bridge());
+        await switchOff(tester);
+        await pick(tester, '3');
+        await tester.drag(find.byType(Slider), const Offset(-40, 0));
+        await tester.pumpAndSettle();
+        expect(sent.last.$1, 'set_brightness');
+        expect(sent.last.$2['zone'], '4');
+        expect(find.text('On (sent)'), findsOneWidget);
+
+        await pick(tester, '2');
+        expect(find.text('Off (sent)'), findsOneWidget);
+      });
+
+      testWidgets('a colour under All turns them all on', (tester) async {
+        await pump(tester, kLimitlessledTransport, bridge());
+        await flip(tester);
+        await pick(tester, '0');
+        await flip(tester);
+        await pick(tester, 'all');
+        await tester.tap(swatch(0xFFFF0000));
+        await tester.pumpAndSettle();
+        expect(find.text('On (sent)'), findsOneWidget);
+        await pick(tester, '0');
+        expect(find.text('On (sent)'), findsOneWidget);
+      });
+
+      testWidgets('a zone send that did not go changes nothing', (
+        tester,
+      ) async {
+        var delivered = true;
+        await pump(
+          tester,
+          kLimitlessledTransport,
+          bridge(),
+          delivers: () => delivered,
+        );
+        await flip(tester);
+        delivered = false;
+        await pick(tester, '0');
+        await flip(tester);
+        expect(find.text('On (sent)'), findsOneWidget);
+        await pick(tester, 'all');
+        expect(find.byType(Switch), findsOneWidget);
+        expect(find.text('On (sent)'), findsOneWidget);
+      });
+    });
+
+    testWidgets('a light with no zones keeps its one switch', (tester) async {
+      final sent = await pump(tester, kYeelightTransport, cube());
+      expect(find.byKey(const Key('bridge-zone-all')), findsNothing);
+      await tester.tap(find.byType(Switch));
+      await tester.pumpAndSettle();
+      expect(find.text('On'), findsOneWidget);
+      await tester.tap(find.byType(Switch));
+      await tester.pumpAndSettle();
+      expect(find.text('Off'), findsOneWidget);
+      expect(find.text('Zones differ'), findsNothing);
+      expect(find.byKey(const Key('bridge-all-on')), findsNothing);
+      expect(sent.map((s) => s.$2), everyElement(isEmpty));
     });
 
     testWidgets('a colour says nothing about power on any other light', (
