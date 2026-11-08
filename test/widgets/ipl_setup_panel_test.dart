@@ -22,6 +22,7 @@ const _wakeup = '00000a30-0000-1000-8000-00805f9b34fb';
 const _command = 'a0f03c00-5047-4d53-8208-4f72616c2d42';
 const _read = 'a0f03c01-5047-4d53-8208-4f72616c2d42';
 const _status = 'a0f03c03-5047-4d53-8208-4f72616c2d42';
+const _push = 'a0f03c04-5047-4d53-8208-4f72616c2d42';
 
 Widget _wrap({
   required String handler,
@@ -44,7 +45,7 @@ Widget _wrap({
           services: iplDiscovered(
             handler == 'ipl_foreo'
                 ? const [_security, _sw, _activation, _wakeup]
-                : const [_command, _read, _status],
+                : const [_command, _read, _status, _push],
           ),
         ),
       ),
@@ -104,6 +105,9 @@ void main() {
             decodedInt('status', 0),
           ];
         }
+        if (charUuid == _push) {
+          return [decodedInt('command', 11), decodedInt('reason', 1)];
+        }
         return [decodedInt('operation_state', 9)];
       },
     );
@@ -126,6 +130,7 @@ void main() {
     await tester.tap(find.widgetWithText(FilledButton, 'Start patch test'));
     await tester.pump();
     notify.add([0xC3, 11, 0]);
+    notify.add([0x00, 11, 0x10, 0x01]);
     for (var index = 0; index < 8; index++) {
       await tester.pump();
     }
@@ -155,8 +160,11 @@ void main() {
             decodedInt('status', 0),
           ];
         }
+        if (charUuid == _push) {
+          return [decodedInt('command', 5), decodedInt('reason', 1)];
+        }
         return [
-          decodedInt('operation_state', 6),
+          decodedInt('operation_state', 7),
           decodedInt('skin_tone', 321),
           decodedInt('energy_level', 1),
         ];
@@ -176,6 +184,7 @@ void main() {
     await tester.tap(find.text('Measure skin tone'));
     await tester.pump();
     notify.add([0xC3, 5, 0]);
+    notify.add([0x00, 5, 0x10, 0x01]);
     for (var index = 0; index < 8; index++) {
       await tester.pump();
     }

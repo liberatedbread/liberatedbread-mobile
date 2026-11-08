@@ -18,6 +18,7 @@ const _lock = '12345678-9012-3456-7890-123456789033';
 const _command = 'a0f03c00-5047-4d53-8208-4f72616c2d42';
 const _read = 'a0f03c01-5047-4d53-8208-4f72616c2d42';
 const _status = 'a0f03c03-5047-4d53-8208-4f72616c2d42';
+const _push = 'a0f03c04-5047-4d53-8208-4f72616c2d42';
 
 IplSetupSession _session(
   String handler,
@@ -34,7 +35,7 @@ IplSetupSession _session(
   discoveredServices: iplDiscovered(switch (handler) {
     'ipl_foreo' => [_security, _sw, _activation, _wakeup],
     'ipl_silkn' => [_lock],
-    _ => [_command, _read, _status],
+    _ => [_command, _read, _status, _push],
   }),
 );
 
@@ -163,8 +164,11 @@ void main() {
               decodedInt('status', 0),
             ];
           }
+          if (charUuid == _push) {
+            return [decodedInt('command', 5), decodedInt('reason', 1)];
+          }
           return [
-            decodedInt('operation_state', 6),
+            decodedInt('operation_state', 7),
             decodedInt('skin_tone', 321),
             decodedInt('energy_level', 1),
             decodedInt('mounted_head', 33),
@@ -184,7 +188,10 @@ void main() {
       expect(session.state.phase, IplSetupPhase.ready);
 
       unawaited(
-        Future<void>.delayed(Duration.zero, () => notify.add([0xC3, 5, 0])),
+        Future<void>.delayed(Duration.zero, () {
+          notify.add([0xC3, 5, 0]);
+          notify.add([0x00, 5, 0x10, 0x01]);
+        }),
       );
       await session.measureSkinTone();
       expect(session.state.phase, IplSetupPhase.ready);
@@ -212,6 +219,9 @@ void main() {
             decodedInt('status', 0),
           ];
         }
+        if (charUuid == _push) {
+          return [decodedInt('command', 11), decodedInt('reason', 1)];
+        }
         return [decodedInt('operation_state', 9)];
       },
     );
@@ -226,7 +236,10 @@ void main() {
     await _settle();
 
     unawaited(
-      Future<void>.delayed(Duration.zero, () => notify.add([0xC3, 11, 0])),
+      Future<void>.delayed(Duration.zero, () {
+        notify.add([0xC3, 11, 0]);
+        notify.add([0x00, 11, 0x10, 0x01]);
+      }),
     );
     await session.startPatchTest();
     expect(session.state.phase, IplSetupPhase.ready);
@@ -268,4 +281,71 @@ void main() {
       'measure_skin_tone',
     ]);
   });
+
+  test('Braun command-end failure never fetches a result', () async {
+    final notify = StreamController<List<int>>.broadcast();
+    addTearDown(notify.close);
+    final specCodec = FakeSpecCodec(
+      decodedFor: (charUuid, _) {
+        if (charUuid == _status) {
+          return [
+            decodedInt('opcode', 0xC3),
+            decodedInt('cmd_id', 5),
+            decodedInt('status', 0),
+          ];
+        }
+        if (charUuid == _push) {
+          return [decodedInt('command', 5), decodedInt('reason', 2)];
+        }
+        return [decodedInt('skin_tone', 999)];
+      },
+    );
+    final session = _session(
+      'ipl_braun',
+      FakeBleService(notifyStream: notify.stream),
+      specCodec,
+      FakeIplCodec(),
+    );
+    addTearDown(session.dispose);
+    session.start();
+    await _settle();
+
+    unawaited(
+      Future<void>.delayed(Duration.zero, () {
+        notify.add([0xC3, 5, 0]);
+        notify.add([0x00, 5, 0x10, 0x02]);
+      }),
+    );
+    await session.measureSkinTone();
+    expect(session.state.phase, IplSetupPhase.error);
+    expect(session.state.error, contains('command-end failure'));
+    expect(session.state.skinTone, isNull);
+    expect(specCodec.encodeCalls.map((call) => call.commandName), [
+      'measure_skin_tone',
+    ]);
+  });
+
+  test(
+    'disposing during a Braun command stops writes and notifications',
+    () async {
+      final specCodec = FakeSpecCodec();
+      final session = _session(
+        'ipl_braun',
+        FakeBleService(),
+        specCodec,
+        FakeIplCodec(),
+      );
+      session.start();
+      await _settle();
+      final pending = session.measureSkinTone();
+      session.dispose();
+      await pending;
+      expect(
+        specCodec.encodeCalls.where(
+          (call) => call.commandName == 'get_session_data',
+        ),
+        isEmpty,
+      );
+    },
+  );
 }
