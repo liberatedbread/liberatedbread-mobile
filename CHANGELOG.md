@@ -13,6 +13,18 @@ heading.
 
 ### Added
 
+- **Static-key AES commands.** iDeal LED strings and trees, the Shining Mask,
+  Shining Glasses and Magic Display take commands now: each is encrypted with
+  the AES-128-ECB key its spec states, so their light cards and group controls
+  work, colour included on iDeal LED. Derived keys (PAX, NIU) stay refused.
+  Written from the specs; not yet run against hardware.
+- **SEEBlue envelope.** LEDGlow and Seeblue motorcycle lights take commands in
+  their `seeblue_envelope` framing. The vendor app's post-connect handshake is
+  not sent, because the spec declares no command for it and does not know
+  whether firmware requires it. Not yet run against hardware.
+- **MXW01 printing (`cat_printer_mxw01`).** The newer cat-shaped printer is
+  offered as a printer: 1-bit images, with the spec's status check, print
+  request and print-complete wait. Not yet run against hardware.
 - **Pride mode for groups.** One button: displays show pride flags, each
   starting from a different one and cycling by themselves where the panel can
   hold an animation, and lights take the rainbow — along the string where it

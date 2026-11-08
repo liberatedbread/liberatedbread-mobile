@@ -474,11 +474,34 @@ mod tests {
 
     #[test]
     fn a_printer_without_an_encoder_is_known_but_not_printable() {
+        let yaml = r#"
+device:
+  name: "Unimplemented Printer"
+  manufacturer: "Test"
+  manufacturer_status: "active"
+  protocol: "ble"
+  category: "printer"
+protocol_handler: "no_such_encoder"
+features:
+  - type: "image_upload"
+    max_width: 384
+  - type: "raster_print"
+"#;
+        let dto = raster_print_for_spec(yaml.to_string())
+            .unwrap()
+            .expect("a raster printer");
+        assert!(!dto.encodable);
+        assert!(dto.transport.is_none());
+    }
+
+    /// The MXW01 was the test above's example until its encoder landed.
+    #[test]
+    fn the_mxw01_prints_over_a_ble_write_plan() {
         let dto = raster_print_for_spec(vendored("cat-printer-mxw01.yaml"))
             .unwrap()
             .expect("mxw01 is a raster printer");
-        assert!(!dto.encodable);
-        assert!(dto.transport.is_none());
+        assert!(dto.encodable);
+        assert_eq!(dto.transport.as_deref(), Some("ble_write_plan"));
     }
 
     #[test]

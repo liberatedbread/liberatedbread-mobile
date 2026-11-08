@@ -302,7 +302,7 @@ fn command_frame(
 /// Encrypt one 16-byte packet in place. ECB is a single block application —
 /// no IV, no chaining — which is exactly why every packet here is padded to
 /// the block size before it gets here.
-fn encrypt_block(key: &[u8; 16], packet: Vec<u8>) -> Result<Vec<u8>, ProtocolError> {
+pub(crate) fn encrypt_block(key: &[u8; 16], packet: Vec<u8>) -> Result<Vec<u8>, ProtocolError> {
     if packet.len() != BLOCK {
         return Err(ProtocolError::ImageUploadUnsupported {
             reason: format!(

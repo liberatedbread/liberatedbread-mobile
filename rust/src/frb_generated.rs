@@ -11088,12 +11088,16 @@ impl SseDecode for crate::api::device_api::ReplyWaitDto {
         let mut var_expectPrefix = <Vec<u8>>::sse_decode(deserializer);
         let mut var_errorPrefixes = <Vec<Vec<u8>>>::sse_decode(deserializer);
         let mut var_timeoutMs = <u32>::sse_decode(deserializer);
+        let mut var_mustCarryOffset = <u32>::sse_decode(deserializer);
+        let mut var_mustCarry = <Option<Vec<u8>>>::sse_decode(deserializer);
         return crate::api::device_api::ReplyWaitDto {
             after_write: var_afterWrite,
             characteristic_uuid: var_characteristicUuid,
             expect_prefix: var_expectPrefix,
             error_prefixes: var_errorPrefixes,
             timeout_ms: var_timeoutMs,
+            must_carry_offset: var_mustCarryOffset,
+            must_carry: var_mustCarry,
         };
     }
 }
@@ -15036,6 +15040,8 @@ impl flutter_rust_bridge::IntoDart for crate::api::device_api::ReplyWaitDto {
             self.expect_prefix.into_into_dart().into_dart(),
             self.error_prefixes.into_into_dart().into_dart(),
             self.timeout_ms.into_into_dart().into_dart(),
+            self.must_carry_offset.into_into_dart().into_dart(),
+            self.must_carry.into_into_dart().into_dart(),
         ]
         .into_dart()
     }
@@ -18361,6 +18367,8 @@ impl SseEncode for crate::api::device_api::ReplyWaitDto {
         <Vec<u8>>::sse_encode(self.expect_prefix, serializer);
         <Vec<Vec<u8>>>::sse_encode(self.error_prefixes, serializer);
         <u32>::sse_encode(self.timeout_ms, serializer);
+        <u32>::sse_encode(self.must_carry_offset, serializer);
+        <Option<Vec<u8>>>::sse_encode(self.must_carry, serializer);
     }
 }
 
