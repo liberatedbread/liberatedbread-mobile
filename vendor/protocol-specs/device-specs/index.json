@@ -2661,6 +2661,7 @@
     "category": "personal_care",
     "manufacturer": "Braun (Procter & Gamble)",
     "manufacturer_status": "active",
+    "protocol_handler": "ipl_braun",
     "testing_status": "untested",
     "helpful_urls": [
       {
@@ -4436,6 +4437,7 @@
     "category": "personal_care",
     "manufacturer": "FOREO AB",
     "manufacturer_status": "active",
+    "protocol_handler": "ipl_foreo",
     "testing_status": "untested",
     "helpful_urls": [
       {
@@ -10178,6 +10180,7 @@
     "category": "personal_care",
     "manufacturer": "Home Skinovations (Silk'n)",
     "manufacturer_status": "active",
+    "protocol_handler": "ipl_silkn",
     "testing_status": "untested",
     "helpful_urls": [
       {
