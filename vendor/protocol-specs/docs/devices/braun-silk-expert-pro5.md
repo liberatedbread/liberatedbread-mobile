@@ -127,6 +127,11 @@ Oral-B brand name — P&G's shared grooming SDK; the same scheme and the same
 **The containing service UUID was not recovered** — locate characteristics by
 enumeration, not by service.
 
+Client integration: `protocol_handler: ipl_braun` selects the mobile
+skin-tone measurement and patch-test surface. Results stay raw; the unrecovered
+skin-tone bucketing table must not be guessed. Patch-test start requires an
+explicit user confirmation, and no flash is triggered by setup alone.
+
 | UUID suffix | Name | Access | Description |
 |-------------|------|--------|-------------|
 | `3C00` | Command | write | All command verbs: `{opcode, cmdId}` |
