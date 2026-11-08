@@ -35,6 +35,7 @@ device:
       Home Assistant ships).
   protocol: "ble"
   category: "sensor"
+  category_hierarchy: ["measurement", "environmental"]
   pictogram: "co2-sensor"
   notes: >
     Aranet4 is a battery-powered e-ink CO2 / temperature / humidity /

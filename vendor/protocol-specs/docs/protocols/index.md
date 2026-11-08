@@ -5,5 +5,7 @@ Common patterns we see across IoT device protocols.
 - [Initial Device Setup](device-setup.md) — provisioning, factory reset, and
   moving a device to a new network
 - [Common BLE Patterns](ble-common.md)
+- [Common Bluetooth Classic Patterns](bluetooth-classic-common.md) — SPP/RFCOMM,
+  dual-mode devices, and why an iPhone cannot open the socket
 - [Common WiFi Patterns](wifi-common.md)
 - [Common OBD-II / Vehicle Diagnostic Patterns](obd2-common.md)

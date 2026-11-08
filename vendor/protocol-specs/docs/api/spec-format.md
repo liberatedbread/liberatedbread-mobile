@@ -21,9 +21,13 @@ device:              # identity, discovery, and one-time setup
   manufacturer: ...
   manufacturer_status: ...   # abandoned | shutdown | unsupported | active
   openness: ...              # was this protocol published, or did we recover it?
-  protocol: ...              # ble | wifi | lan | zigbee | zwave | obd2 | uart | can
+  protocol: ...              # ble | bluetooth_classic | wifi | lan | zigbee | zwave | obd2 | uart | can
   category: ...              # what KIND of thing it is — closed vocabulary
+  category_hierarchy: ...    # optional domain/kind[/subtype] path
   type: ...                  # what the thing IS — free text
+  aliases: ...               # other retail/product names an owner may know
+  distributors: ...          # brands, retailers and OEMs with roles and URLs
+  companion_apps: ...        # apps that identify a model/board generation
   identification: ...        # how to recognise it while scanning
   discovery: ...             # how to FIND one that is already on the network
   managed_by: ...            # driven through a controller — which spec, how to spot it
@@ -31,6 +35,7 @@ device:              # identity, discovery, and one-time setup
   variants: ...              # models that share a protocol but differ in detail
 
 services: ...        # BLE GATT services and characteristics
+bluetooth_classic: ... # BR/EDR profiles and the serial stream, for SPP/RFCOMM devices
 http_endpoints: ...  # REST/SOAP endpoints for WiFi devices
 mqtt_topics: ...     # MQTT topics
 commands: ...        # named invocations, for devices with no GATT to hang them on
@@ -40,7 +45,7 @@ helpful_videos: ...  # optional human video references: teardown/setup/capture w
 ```
 
 A spec must have `device` plus at least one transport block such as `services`,
-`http_endpoints`, `mqtt_topics`, `obd`, `bus` or `cloud`. The one exception is a
+`bluetooth_classic`, `http_endpoints`, `mqtt_topics`, `obd`, `bus` or `cloud`. The one exception is a
 **reference spec** — a `device.type` beginning `reference-` (SAE J1979 PIDs, ISO
 14229 UDS services, ISO 15765-2 framing) documents a published standard that
 other specs cite instead of restating, so it carries protocol tables rather than
@@ -70,6 +75,46 @@ first-class key is a contract.
 Deeper objects — inside a service, an endpoint, an entity — remain open, so a
 spec can still annotate freely where it is describing rather than declaring.
 Consumers parse the subset they understand.
+
+### Categories, product names, and discovery are different jobs
+
+`category` remains the closed, broad icon bucket. Optional
+`category_hierarchy` adds a two- or three-part classification without
+changing that consumer behavior:
+
+```yaml
+category: "sensor"
+category_hierarchy: ["measurement", "distance"]
+```
+
+Current hierarchy domains are:
+
+- `display`: `led_matrix`, `screen`, `other` — panels whose primary job is
+  showing content rather than illuminating a space.
+- `light`: `led`, `bulb`, `strip`, `lamp`, `other` — illumination.
+- `measurement`: `distance`, `temperature`, `environmental`, `health`,
+  `other`. Health measurements add a third component: `pulse_oximetry`,
+  `blood_pressure`, `thermometry`, `sleep`, `body_composition`,
+  `medication_management`, `metabolic`, or `other`.
+
+The allowed paths are checked by `scripts/test_taxonomy.py`; propose a new
+kind or subtype in that test and in this section together. `category` and
+`category_hierarchy` must agree: `display` starts with `display`, `light`
+with `light`, and `sensor`, `health`, or `scale` with `measurement`.
+
+Three other optional metadata blocks help an owner find the right device,
+but **never loosen protocol matching**:
+
+- `aliases` lists other retail, product, board or model names.
+- `distributors` lists `{name, role, url?, notes?}` parties, where `role` is
+  `brand`, `retailer`, `distributor`, `manufacturer`, or `oem`.
+- `companion_apps` lists `{name, package?, role?, platform?, url?, notes?}`
+  apps. `role` uses the same `primary` / `alternative` / `variant` /
+  `historical` vocabulary as setup methods. Use it to distinguish board or
+  app generations, not to suggest trying every app against unknown hardware.
+
+`manufacturer` remains the original maker. A distributor is not automatically
+a manufacturer, and an app name is not automatically a device identity.
 
 Two keys are rejected by name rather than by the closure, because the error
 message matters more than the rejection:
@@ -626,6 +671,7 @@ Each method has a `type` from a fixed set:
 | Type | Meaning |
 |---|---|
 | `none`, `ble_direct` | Nothing to provision — power on, scan, connect |
+| `bt_classic_pairing` | Paired from the host's own Bluetooth settings (a fixed or printed PIN, or an SSP prompt) before the RFCOMM, L2CAP or HID surface answers; the link-layer facts are in `device.pairing` |
 | `softap_http`, `softap_soap` | Device hosts a temporary AP; credentials go over HTTP or SOAP |
 | `ble_provisioning` | Credentials pushed over GATT |
 | `wps`, `smartconfig` | Credentials delivered at the WiFi layer |
@@ -1519,6 +1565,142 @@ this and I cannot tell which half is wrong" into a diff.
 and a Crock-Pot, where the Crock-Pot answers `GetBinaryState` with `0`
 whatever it is doing, so the entity that would have been obvious is the one
 that lies.
+
+## Bluetooth Classic: `bluetooth_classic`, `bt_classic_inquiry` and `rfcomm` commands
+
+A BR/EDR device — an SPP printer, an OBD dongle, a pill box, a headset with a
+vendor control channel — has no GATT to hang anything on. Until 2026-09-27 the
+catalogue had nowhere to put one, and the few that existed were filed as `ble`
+with a paragraph explaining why that was wrong. Now `device.protocol:
+bluetooth_classic` names the link, and these blocks carry what a client needs,
+in the order a client needs them:
+
+| Block | Answers |
+|---|---|
+| `device.identification` + a discovery method | How to find it: a `ble_scan` method on a dual-mode unit that advertises, a `bt_classic_inquiry` method (inquiry name, class of device, SDP UUIDs) otherwise |
+| `device.pairing` (+ a `bt_classic_pairing` setup method) | Whether the host has to pair first, with what PIN, and which button opens the window |
+| `device.host_compatibility` | Whether each platform can reach it at all — required for `corebluetooth`, because iOS has no RFCOMM |
+| top-level `bluetooth_classic` | Which SDP profile carries the control surface, whether its socket is opened secure or insecure, and how the stream splits: framing, reply correlation, frames the device sends unprompted, terminators, timing |
+| `initialization` steps with `command` | The connect handshake, as a sequence of stream commands |
+| `commands` with `transport: rfcomm` | The bytes, spelled like a BLE characteristic command, each with the `response` frame it is answered by |
+
+```yaml
+device:
+  protocol: "bluetooth_classic"
+  identification:
+    local_name_prefixes: ["A170", "A1310"]     # advertised over BLE too: dual-mode
+  discovery:
+    methods:
+      - type: "ble_scan"                        # found over BLE ...
+        ble: { local_name: { match: "prefix", values: ["A170", "A1310"] } }
+      - type: "bt_classic_inquiry"              # ... or by inquiry
+        bt_classic: { name: { match: "prefix", values: ["A170", "A1310"] } }
+  pairing: { required: false, security_mode: "none", bonding: "none", confidence: "medium" }
+  host_compatibility:
+    - stack: "corebluetooth"
+      status: "unknown"                         # the vendor ships an iOS app; how it connects is unknown
+      verification: "hypothesis"
+      basis: "Android app analysed only; CoreBluetooth has no RFCOMM, so the iOS app must use BLE or MFi."
+
+bluetooth_classic:
+  dual_mode: true
+  ble_role: "discovery_only"                    # a client must NOT open GATT to it
+  address_shared_with_ble: "unknown"
+  wake_required: true
+  profiles:
+    - profile: "spp"
+      uuid: "00001101-0000-1000-8000-00805f9b34fb"
+      role: "control"
+      secure: false                             # insecure socket: no bond, no dialog
+  serial:
+    profile_uuid: "00001101-0000-1000-8000-00805f9b34fb"
+    encoding: "binary"
+    correlation: "prefix"                       # replies are sorted by their prefix
+    framing:
+      length_prefix: false                      # so every reply's length is stated below
+      checksum: "none"
+      tx_start_bytes: "23"
+      rx_start_bytes: ["26", "40"]              # replies and pushes
+      resync: "scan_to_start_bytes"
+    unsolicited:
+      - name: "low_battery_alarm"
+        prefix: "40 47 02"
+        length: 4
+    inter_write_delay_ms: 50
+
+initialization:
+  - command: "query_firmware"
+    expect_response: true
+    delay_after_ms: 100
+  - command: "query_serial"
+    expect_response: true
+
+commands:
+  query_battery:
+    description: "Battery percentage."
+    transport: "rfcomm"
+    value: [0x23, 0x47, 0x08, 0x00]
+    response:
+      prefix: "26 47 08"
+      length: 6
+      format:
+        - { offset: 5, length: 1, name: "battery", type: "uint8", unit: "%" }
+  set_ring:
+    description: "Ring type and volume."
+    transport: "rfcomm"
+    template: [0x23, 0x53, 0x05, "{type}", "{volume}"]
+    parameters:
+      type:   { type: "uint8", min: 1, max: 3 }
+      volume: { type: "uint8", min: 0, max: 3 }
+    response:
+      expected: "unknown"
+      notes: "The vendor app parses no reply to a set command; nobody has looked on the air."
+```
+
+Five rules follow from the shape of the link.
+
+- **`secure` is a fact about one socket, not a preference.** The vendor app
+  opens the socket with one flag or the other, the firmware was tested
+  against that flag, and the wrong one is either a pairing dialog the device
+  never answers or a rejected connection. The control profile must state it.
+  It is not the same fact as `device.pairing.required`: a headset bonds for
+  A2DP whatever flag its control channel is opened with.
+- **A stream has no edges.** RFCOMM hands a client whatever bytes have
+  arrived. On a stream with no length field (`length_prefix: false`) every
+  command says what comes back — `expected: false`, or a `prefix` and
+  `length`, or `expected: unknown` with a note — and every frame the device
+  sends on its own is an `unsolicited` entry. A frame that matches neither
+  has no known length, and a client meeting one applies `resync`. Where the
+  stream does carry a length, `length_offset`, `length_size`,
+  `length_endianness` and `length_adjust` say where and what it counts.
+- **Text protocols end replies with a prompt.** An ELM327 answers several
+  CR-separated lines and then `>`. `line_terminator: "0d"` ends a line,
+  `prompt: "3e"` ends the reply, `command_terminator: "0d"` goes after every
+  command, and `correlation: in_order` with `max_in_flight: 1` says one
+  command at a time. All four are hex, because `'\r'` and `"\r"` are two
+  characters and one byte and both used to validate.
+- **Each radio gets its own pairing block.** `device.pairing` always
+  describes the link `device.protocol` names. A `ble` OBD family with Classic
+  members, or a LAN printer with a Bluetooth path, states the Classic side's
+  bond and PIN in `bluetooth_classic.pairing`, and scopes the block to the
+  members that have it with `bluetooth_classic.variants`. A dual-mode adapter
+  whose SPP link carries exactly what a GATT characteristic carries says so
+  with `serial.commands_from`, so an RFCOMM client inherits those commands.
+- **Every Classic spec answers the iPhone question.** CoreBluetooth has no
+  RFCOMM, so a `bluetooth_classic` spec carries a `host_compatibility`
+  verdict for `corebluetooth` on its BR/EDR link — usually `incompatible`,
+  with `symptom: no_transport`, `cause: {missing_api: rfcomm}`, and
+  `workaround: vendor_mfi` when the device is an MFi accessory that only the
+  vendor's own app reaches. On a dual-mode device, `link: ble` and
+  `link: br_edr` give the two radios separate verdicts, and macOS, which does
+  have RFCOMM, is `iobluetooth`.
+
+An entity reads a stream reply the way a WiFi entity reads a JSON reply:
+`state_command` names the query and `state_mapping` names a field of its
+`response.format`; a reading the device pushes on its own is
+`state_field: "<unsolicited name>.<field>"`. The patterns page,
+[Common Bluetooth Classic Patterns](../protocols/bluetooth-classic-common.md),
+walks through inquiry, the socket flag and stream reassembly at length.
 
 ## Validating a spec
 

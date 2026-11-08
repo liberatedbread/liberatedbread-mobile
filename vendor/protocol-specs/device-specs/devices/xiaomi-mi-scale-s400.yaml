@@ -10,6 +10,7 @@ device:
     status: untested
   protocol: "ble"
   category: "scale"
+  category_hierarchy: ["measurement", "health", "body_composition"]
   notes: >
     Xiaomi Body Composition Scale S400, product model MJTZC01YM (MiOT
     model `yunmai.scales.ms104`; S400 Pro is MJTZC03YM and shares the

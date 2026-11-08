@@ -28,6 +28,7 @@ device:
       M_GET_RUNNING_STATUS produced no observable reply, framed or not.
   protocol: "ble"
   category: "light"
+  category_hierarchy: ["light", "led"]
   notes: >
     SmartDawn (smartdawn.com, Shopify storefront linked to the Minetom
     string-lights seller) sells addressable-RGB holiday lighting: RGBIC

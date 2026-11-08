@@ -13,6 +13,7 @@ device:
     status: untested
   protocol: "ble"
   category: "light"
+  category_hierarchy: ["light", "led"]
   notes: >
     Govee's segment-capable light family — RGBIC/DreamColor strips
     (H6102, H6116/H6117/H6119, H6125-H6127, H612A-H612F, H6143-H6147,

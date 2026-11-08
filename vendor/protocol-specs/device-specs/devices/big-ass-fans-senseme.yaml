@@ -1,0 +1,1617 @@
+# Big Ass Fans Haiku with SenseME (legacy firmware) — Device Specification
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Scope: Haiku ceiling fans with SenseME, Haiku L fans with the Wi-Fi module,
+# the standalone Haiku Light and the Haiku Wall Control, while they still run
+# the legacy firmware (2.x; every published dump is 2.5.x or 2.6.0). That
+# firmware speaks the ASCII "SenseME" protocol on port 31415.
+#
+# Out of scope, each for a stated reason:
+#   - Firmware 3.x, i6 and es6 (the protobuf protocol aiobafi6 implements).
+#     It is a different wire protocol on some of the same ports; see the
+#     big-ass-fans-i6 spec. A legacy device that accepts the current vendor
+#     app's firmware update moves there (features[0] below).
+#   - The vendor cloud (account claim, Alexa, remote access, OTA download).
+#   - Firmware upload framing. The update is described, never the bytes.
+#   - The Bluetooth wall-remote pairing, a 3.x-era accessory.
+#
+# Sources (clean-room: derived facts only, written in our own words):
+#   - bdraco/aiosenseme (GPL-3.0, archived 2023-06-09): discovery.py
+#     (the probe, reply shape, reply filter), device.py (connection
+#     lifecycle, reply parser, per-key value counts, the set vocabulary and
+#     client-side clamps), data/*.txt (GETALL key sets from five models).
+#   - bpennypacker/SenseME-Indigo-Plugin (GPL-2.0): plugin.py. The original
+#     traffic analysis of the Haiku Home app; set commands sent as single
+#     UDP datagrams; the ranges the plugin validates.
+#   - Cross-checks: TomFaulkner/SenseMe senseme.py (GET-with-qualifier
+#     spelling, occupancy timeout and fan-height writes), sean9keenan/
+#     BigAssFansAPI BigAssApi.js, forty2/haiku-senseme commands.json, and
+#     the openHAB bigassfan binding (TIME;VALUE format, TCP client).
+#   - Static reading of the current vendor app (Big Ass Fans 3.3.4 and 3.4.0): it still
+#     carries a legacy-device handler that speaks this protocol. It adds the
+#     Wi-Fi join, Wi-Fi scan, rename and identify messages, the escaping
+#     rule for free text, the subnet-directed discovery broadcast and the
+#     firmware path. Roles only here; no vendor symbols or paths.
+#
+# Nothing in this file has been run against hardware by this project, and
+# no capture of real traffic is held. Every fact is `reported`.
+
+device:
+  name: "Big Ass Fans Haiku with SenseME (legacy firmware)"
+  manufacturer: "Big Ass Fans (Delta T LLC)"
+  manufacturer_status: "active"
+  openness:
+    status: "undocumented"
+    reverse_engineered: true
+    source_code: "https://github.com/bdraco/aiosenseme"
+    notes: >
+      Big Ass Fans never published the SenseME protocol. The community worked
+      it out from traffic between the Haiku Home app and a Haiku fan (Bruce
+      Pennypacker's Indigo plugin, 2015 onwards). Several clients followed,
+      and aiosenseme became the Home Assistant library. aiosenseme was
+      archived on 2023-06-09 because firmware 3.x replaced the protocol. The
+      Indigo plugin is GPL-2.0 and aiosenseme is GPL-3.0; this file cites
+      them by file and restates the protocol in its own words.
+  testing:
+    status: untested
+    notes: >
+      Not driven against hardware by this project, and no capture of real
+      traffic is held in the research store. The wire grammar, reply shapes
+      and ranges come from open-source clients that were written against
+      real fans (aiosenseme, the Indigo plugin, TomFaulkner/SenseMe,
+      openHAB). The vendor-app facts come from a static reading of Big Ass
+      Fans 3.3.4 and 3.4.0. Both kinds of source are `reported`, not `confirmed`.
+  protocol: "wifi"
+  type: "ceiling-fan"
+  category: "climate"
+  transport: "tcp"
+  notes: >
+    WHAT THIS IS: the local protocol of Big Ass Fans' residential Haiku line
+    (fans, the standalone Haiku Light and the Haiku Wall Control) on the
+    SenseME firmware that predates 3.0. A device on this firmware can be
+    fully controlled on the LAN with no account and no cloud: power, speed
+    0-7, direction, Whoosh, sleep mode, Smart Mode (the vendor's "Auto
+    Comfort") and its temperature target and speed bounds, the light level,
+    the Haiku Light's colour temperature, and the motion (occupancy)
+    sensor. There is no authentication of any kind: anything on the LAN can
+    read and change every setting, rename the device or move it to another
+    Wi-Fi network.
+
+    PORT 31415, BOTH UDP AND TCP. Discovery is a UDP broadcast of the ASCII
+    probe <ALL;DEVICE;ID;GET> to port 31415; each device answers with one
+    datagram (name;DEVICE;ID;<mac>;<model>). Control and state normally run
+    over a TCP connection to port 31415. aiosenseme, openHAB, TomFaulkner's
+    client and the current vendor app's legacy-device handler all use TCP.
+    The Indigo plugin sends set commands as single UDP datagrams to the same
+    port and reads state over TCP, so the device accepts a request in either
+    form. A client that wants replies and pushed state should hold one TCP
+    connection open.
+
+    FRAMING (protocol_details.senseme has the full grammar, per-key value
+    counts, ranges and units). Requests are ASCII, wrapped in angle
+    brackets, with tokens separated by semicolons:
+    <target;CATEGORY;ATTRIBUTE;...>. The target is the device's MAC
+    (aiosenseme, openHAB), its name (Indigo, TomFaulkner) or ALL (the
+    discovery probe). Replies and pushed state are wrapped in parentheses:
+    (name;CATEGORY;ATTRIBUTE;...;value). The first token of a reply is the
+    device's name. Nothing terminates a message except its closing bracket.
+    A TCP read can carry several replies or half of one, so buffer and
+    split on the closing parenthesis. Free text (names, SSIDs, passphrases)
+    escapes the eight characters < > ; ( ) + , and backslash with a
+    backslash.
+
+    STATE: <target;GETALL> returns every setting as a burst of replies. It
+    does not include the occupancy status, which needs its own
+    <target;SNSROCC;STATUS;GET>. After the first read, an open TCP
+    connection receives a reply-shaped push for every change, whatever
+    caused it (the remote, the wall control, the vendor app, the fan's own
+    Smart Mode loop). aiosenseme re-sends GETALL every minute and treats
+    about 90 s of silence as a dead connection.
+
+    TWO GENERATIONS, ONE PORT NUMBER. Firmware 3.x (April 2022 onwards, and
+    all i6 and es6 fans) replaced this protocol with a protobuf one. Per the
+    current vendor app, it also uses TCP port 31415, and the device
+    advertises mDNS _api._tcp. An open TCP 31415 therefore does not mean
+    "legacy". A device that answers the UDP probe with a
+    (name;DEVICE;ID;mac;model) datagram is the legacy signal. Accepting a
+    firmware update from the current Big Ass Fans app moves a legacy device
+    to 3.x. The app also has a support-directed "downgrade" path that
+    factory-resets the device back onto legacy firmware (features[0]).
+
+    ROOM TEMPERATURE: none of the published legacy clients reads a room
+    temperature. The fan uses one internally for Smart Mode. The room
+    temperature the current app shows belongs to 3.x firmware. Whether a
+    legacy GET for it exists is an open question.
+
+    MANUFACTURER STATUS: Big Ass Fans is an active company and still
+    supports these products. The legacy protocol itself is superseded. The
+    vendor steers legacy devices either to its older "Haiku by BAF" app or
+    to a firmware update to 3.x.
+  identification:
+    lan_protocols: ["senseme"]
+    default_port: 31415
+    mac_prefixes:
+      - prefix: "20:F8:5E"
+        confidence: "low"
+        notes: >
+          Carried by the fan, Haiku Light and wall-control examples in the
+          openHAB bigassfan binding's documentation. The block is registered
+          to Delta Electronics (registries/ieee-oui.tsv). Delta Electronics
+          is not Big Ass Fans' parent (Delta T LLC), so this is most likely
+          the Wi-Fi module's maker, and the OUI covers everything that maker
+          ships. It ranks a scan result and identifies nothing.
+    notes: >
+      The strong signal is an answer to the UDP probe on port 31415 (see
+      discovery). Only a SenseME device replies, and its fifth field names
+      the model family (device.variants). No mDNS or SSDP advertisement is
+      established for legacy firmware.
+  discovery:
+    methods:
+      - type: "udp_broadcast"
+        udp_broadcast:
+          port: 31415
+          broadcast_address: "255.255.255.255"
+          # ASCII "<ALL;DEVICE;ID;GET>", 19 bytes, no terminator.
+          probe_hex: "3c414c4c3b4445564943453b49443b4745543e"
+          passive_ok: false
+          identity_mapping:
+            stable_keys:
+              - source: "field:3"
+                key: "mac"
+            display:
+              source: "field:0"
+        notes: >
+          The reply is one ASCII datagram, (name;DEVICE;ID;mac;model). Strip
+          the parentheses and split on ';'. field:N counts from 0 in that
+          split. The schema's response_format enum has no value for
+          delimited ASCII, so the shape is in
+          payload_formats.DiscoveryReply. Send the probe from local UDP port
+          31415 with SO_REUSEADDR and broadcast enabled. aiosenseme, the
+          BigAssFansAPI client and the vendor app all bind that port. The
+          vendor app falls back to an ephemeral source port after repeated
+          bind failures and still expects answers, which suggests the device
+          answers to the probe's source port (reported, not verified).
+          aiosenseme sends to 255.255.255.255 on every IPv4 interface. The
+          vendor app sends to the subnet-directed broadcast (address OR NOT
+          netmask). aiosenseme repeats the probe every second for 5 s and
+          then waits minutes before the next round. The vendor app repeats
+          every 5 s while its device list is open. aiosenseme drops replies
+          shorter than 31 or longer than 200 characters, replies that do not
+          have exactly five fields, and the wall control's model string.
+          Whether replies are unicast or broadcast is not established.
+    identity:
+      stable_keys: ["mac", "nw_token"]
+      display: "name"
+      notes: >
+        The MAC is the discovery reply's fourth field. aiosenseme sends it
+        back as the target of every request. NW;TOKEN (in GETALL) is a
+        per-device UUID that aiosenseme keeps as the device's uuid. The name
+        is user-assigned and changes. Key stored state by MAC and never by
+        IP address.
+    static_ip_required: false
+
+  setup:
+    required: true
+    confidence: "low"
+    notes: >
+      A legacy device joins Wi-Fi from its own setup access point. Evidence:
+      GETALL reports NW;AP;STATUS (OFF on every provisioned device in the
+      published dumps) and NW;DHCP. The current vendor app's legacy-device
+      handler can send a Wi-Fi scan request and a join request carrying SSID
+      and passphrase, then tells the user the device "was instructed to
+      join" the new network. Not established: the setup AP's SSID, its
+      security, the device's address on it, and how a factory-fresh device
+      signals that it is in setup mode. Nothing here has been replayed. The
+      exchange is the same protocol and port as normal control, so any
+      client that can send one command can provision.
+    methods:
+      - type: "softap_udp"
+        name: "Setup access point, then a join request on port 31415"
+        role: "primary"
+        verified: false
+        description: >
+          Join the device's own setup Wi-Fi, find it with the normal UDP
+          probe, and send it NW;JOIN with the home SSID and passphrase. The
+          passphrase travels in plain text. No account and no cloud are
+          involved. The type is softap_udp because the same request is
+          accepted as a UDP datagram or on the TCP connection. The vendor
+          app uses TCP, and the schema has no softap type for a raw TCP
+          text protocol.
+        steps:
+          - action: "Power a device that has no Wi-Fi network stored: new, factory reset, or downgraded from 3.x. Wait for it to start its setup access point."
+            actor: "device"
+            expect: "A new Wi-Fi network appears. Its name and security are not established."
+          - action: "Join the client to the device's setup access point."
+            actor: "user"
+          - action: "Broadcast <ALL;DEVICE;ID;GET> to UDP 31415 on that network and read the device's MAC and model from the reply."
+            actor: "client"
+            request:
+              protocol: "udp"
+              command: "discover"
+            expect: "One (name;DEVICE;ID;mac;model) datagram."
+            timeout_seconds: 5
+          - action: "Optionally ask the device to scan for networks."
+            actor: "client"
+            request:
+              protocol: "udp"
+              command: "wifi_scan"
+            notes: >
+              The current vendor app sends this. The reply format is not
+              established. Skip it and ask the user for the SSID instead.
+          - action: "Send the home SSID and passphrase with NW;JOIN, escaping both."
+            actor: "client"
+            request:
+              protocol: "udp"
+              command: "wifi_join"
+            expect: "The device leaves its setup network and joins the home network. No reply format is established."
+            notes: >
+              The vendor app sends this on its TCP connection to port 31415.
+              The body is the same either way.
+          - action: "Return the client to the home network and repeat discovery there."
+            actor: "user"
+          - action: "Broadcast the probe on the home network and confirm the device answers with the same MAC."
+            actor: "client"
+            request:
+              protocol: "udp"
+              command: "discover"
+            expect: "The device answers from its new home-network address."
+            timeout_seconds: 60
+        troubleshooting:
+          - symptom: "The device never answers on the home network."
+            causes:
+              - "A wrong passphrase. No join result is established on the wire, so the only sign of failure is the device returning to its setup network, if it does at all."
+              - "The home network is 5 GHz-only or uses client isolation. The Wi-Fi band the module supports is not established."
+              - "The client is still on the setup network, or the phone OS is keeping it there because that network has no internet."
+      - type: "softap_udp"
+        name: "Vendor app: Haiku by BAF"
+        role: "alternative"
+        verified: false
+        description: >
+          The vendor's older app, which the current Big Ass Fans app names
+          as the one legacy products are designed for. It performs the same
+          setup-access-point exchange. Whether it can still be installed is
+          not established. Do not use the current Big Ass Fans app for this
+          if the goal is to stay on this protocol: it offers a firmware
+          update that moves the device to 3.x.
+        steps:
+          - action: "Install Haiku by BAF (or the older Haiku Home) and add the product. The app walks through joining the device's setup network."
+            actor: "user"
+            expect: "The device appears on the home network and answers the UDP probe."
+          - action: "Decline any firmware update offered by the current Big Ass Fans app if the device must stay on SenseME."
+            actor: "user"
+    factory_reset:
+      applicable: true
+      confidence: "low"
+      effect: >
+        Per the current vendor app, a factory-reset device loses its network
+        connection and must be added again. Per the i6 manual, for the i6, a
+        reset erases fan names and Wi-Fi settings. Whether a legacy reset
+        also clears room membership, schedules and Smart Mode settings is not
+        established.
+      description: >
+        No legacy-specific reset procedure is held. The candidate below is
+        the current vendor app's remote-control reset, written for fans on
+        current firmware. Legacy Haiku fans shipped with an infrared remote,
+        and the sequence may differ on them. The Haiku L installation guide's
+        remote REBOOT is a different thing and does not clear settings: hold
+        fan On/Off until the LEDs blink, then press it again within 30 s. No
+        protocol message that resets the device is known.
+      procedures:
+        - name: "Remote: hold Fan Power, then tap a speed key"
+          verified: false
+          basis: >
+            The reset instructions in the current Big Ass Fans app (3.3.4 and 3.4.0).
+            Hold Fan Power about 5 s until the LEDs blink and the fan beeps,
+            then tap Speed Minus or Speed Plus (the app shows one or the
+            other depending on the product). The reset is complete when the
+            LEDs stop blinking, and the light comes on if one is fitted.
+            Written for current-firmware fans; not established for legacy
+            firmware or for the infrared remote.
+          hold_seconds: 5
+          indicator: "Fan LEDs blink rapidly, then stop. A fitted light comes on."
+          steps:
+            - action: "Press and hold Fan Power on the remote for about 5 seconds, until the fan's LEDs start blinking and it beeps."
+              actor: "user"
+            - action: "Tap Speed Minus (or Speed Plus, depending on the product)."
+              actor: "user"
+            - action: "Wait for the LEDs to stop blinking."
+              actor: "device"
+              expect: "The reset is complete. A fitted light comes on."
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        While the device is still reachable, send wifi_join with the new SSID
+        and passphrase. It leaves the current network and joins the new one.
+        The current vendor app's legacy handler does exactly this and then
+        tells the user to move the phone to the new network. The old network
+        must still be up when the join is sent. After a router has already
+        been replaced, the only route is a factory reset and the
+        setup-access-point method. Reported from the vendor app; not
+        replayed.
+      steps:
+        - action: "Send wifi_join with the new SSID and passphrase to the device on the current network."
+          actor: "client"
+          request:
+            protocol: "udp"
+            command: "wifi_join"
+        - action: "Move the client to the new network and rediscover the device by MAC."
+          actor: "user"
+    credentials:
+      wifi_passphrase_protection: "plaintext"
+      stored_on_device:
+        - "Home Wi-Fi SSID and passphrase"
+        - "Device name, room name and room type"
+        - "Smart Mode, sleep and motion settings, and on-device schedules"
+        - "NW;TOKEN, a per-device UUID associated with the vendor cloud"
+      issued_to_client: []
+      notes: >
+        The passphrase goes to the device in clear ASCII inside NW;JOIN,
+        backslash-escaped but not encrypted, on a network with no transport
+        security. After setup nothing authenticates a client: there is no
+        key, token or pairing, and every command in this file works for
+        anyone on the LAN.
+
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "none"
+    bonding: "none"
+    exclusivity:
+      single_connection: false
+      single_bond: false
+      recovery: >
+        Nothing to clear. Several clients can hold TCP connections at once.
+        aiosenseme was designed to keep its socket open while the vendor app
+        and the remote are in use, and it receives their changes as pushes.
+    unpair:
+      supported: false
+      requires_factory_reset: false
+      notes: >
+        There is nothing to unpair: the protocol has no client registration.
+        To stop a client controlling the device, take the client, or the
+        device, off the network.
+    enter_pairing_mode:
+      required: false
+    notes: >
+      Nothing pairs. The LAN protocol is unauthenticated and needs no bond,
+      key or code. The Bluetooth wall remote pairs with the fan over BLE,
+      but that link is a 3.x-era accessory and out of scope here.
+
+  variants:
+    - model: "Haiku SenseME fan"
+      identification:
+        model_prefix: "FAN,HAIKU,SENSEME"
+    - model: "Haiku H fan"
+      identification:
+        model_prefix: "FAN,HAIKU,HSERIES"
+    - model: "Haiku L fan"
+      identification:
+        model_prefix: "FAN,LSERIES"
+    - model: "Haiku Light"
+      identification:
+        model_prefix: "LIGHT,HAIKU"
+    - model: "Haiku Wall Control"
+      identification:
+        model_prefix: "SWITCH,SENSEME"
+
+# Per-connection handshake: what aiosenseme and the Indigo plugin send right
+# after opening the TCP connection. Commands are declared below.
+initialization:
+  - command: "get_device_id"
+    description: "Learn the MAC and model string. aiosenseme sends this first on every connection."
+  - command: "get_occupancy"
+    description: "GETALL does not report the occupancy sensor, so ask for it explicitly (aiosenseme, Indigo)."
+  - command: "get_all"
+    description: >
+      Read every setting. The burst ends with no terminator. aiosenseme
+      treats a fan's WINTERMODE;STATE reply, or a light's
+      SNSROCC;TIMEOUT;MIN, as the end of the first full update.
+
+protocol_details:
+  senseme:
+    ports:
+      udp: 31415
+      tcp: 31415
+      notes: >
+        Discovery is UDP. Control is normally one long-lived TCP connection,
+        which is the only way to receive pushed changes. The Indigo plugin
+        shows a set command also works as one UDP datagram to port 31415.
+        The vendor app connects with a 10 s connect timeout. openHAB and the
+        Indigo plugin enable TCP keepalive (Indigo: 60 s).
+    request_grammar:
+      form: "<TARGET;TOKEN;TOKEN;...>"
+      encoding: "ASCII (clients encode UTF-8). Every other byte is literal, with no length prefix, checksum or line terminator."
+      target: >
+        The first token picks the device. Clients use the MAC as the device
+        reports it (upper-case, colon-separated), the device name, or ALL
+        (the discovery probe and BigAssFansAPI's broadcast). aiosenseme's
+        first unicast request uses the IP address. On a unicast connection
+        the device therefore accepts more than its own MAC here, and whether
+        it checks the token at all is not established. Use the MAC.
+      verbs:
+        - pattern: "<T;CATEGORY;ATTRIBUTE;ON> / <T;...;OFF>"
+          meaning: "Switch a boolean. Examples: FAN;PWR;ON, LIGHT;AUTO;OFF, FAN;WHOOSH;ON."
+        - pattern: "<T;CATEGORY;ATTRIBUTE;SET;VALUE[;VALUE]>"
+          meaning: "Write a value. Examples: FAN;SPD;SET;3, FAN;BOOKENDS;SET;2;6."
+        - pattern: "<T;CATEGORY;ATTRIBUTE;GET[;QUALIFIER]>"
+          meaning: >
+            Read one value. The qualifier (ACTUAL, MIN, MAX, CURR, STATUS)
+            comes AFTER GET on the request, though the reply puts it before
+            the value: <T;FAN;SPD;GET;ACTUAL> is answered with
+            (name;FAN;SPD;ACTUAL;3). Keys without a qualifier take a bare
+            GET (FAN;PWR;GET). Spelling from TomFaulkner/SenseMe.
+        - pattern: "<T;GETALL>"
+          meaning: "Dump every setting as a burst of replies. The occupancy status is not included."
+      spelling_variants: >
+        Clients disagree on a few boolean writes. The Indigo plugin and
+        aiosenseme send FAN;AUTO;ON while TomFaulkner sends FAN;AUTO;SET;ON.
+        For Smart Mode, aiosenseme and Indigo write SMARTMODE;STATE;SET;<mode>
+        while BigAssFansAPI and TomFaulkner drive an older LEARN;STATE key
+        whose "on" value is the word LEARN. openHAB sends FAN;WINTERMODE;ON
+        but reads WINTERMODE;STATE. This file declares the spelling that at
+        least two independent clients share and leaves the rest here.
+    reply_grammar:
+      form: "(NAME;KEY TOKENS...;VALUE[;VALUE...])"
+      rules:
+        - "A reply starts with '(' and ends with the first ')' that is not preceded by a backslash. Several replies can arrive back to back with nothing between them, and a TCP read can end partway through one. Keep the tail for the next read."
+        - "Split the inside on ';'. Token 0 is the device's name. openHAB's parser also accepts the MAC there, so compare it to neither; the connection already says which device this is."
+        - "The remaining tokens are a KEY followed by one or more VALUES. How many trailing tokens are values depends on the key. Most keys have one; the exceptions are in value_counts. A parser that does not know the key cannot split it reliably."
+        - "A key of ERROR reports a rejected request. Its value is not documented; aiosenseme logs it and moves on."
+        - "Values are ASCII: ON/OFF, integers in decimal, enumerated words, or free text with the escaping below."
+      value_counts:
+        "DEVICE;ID": "2 (mac;model)"
+        "NW;PARAMS;ACTUAL": "3 (address;netmask;gateway in the published dumps; aiosenseme labels fields 1 and 2 the other way round, which the dumps contradict)"
+        "FAN;BOOKENDS": "2 (min;max)"
+        "LIGHT;BOOKENDS": "2 (min;max)"
+        "DEVICE;LIGHT": "variable: PRESENT, NOT PRESENT, or PRESENT;COLOR on the Haiku Light, whose reply key is DEVICE;LIGHT;PRESENT with value COLOR"
+        "FW;<fw name>": "1, but the key itself carries the firmware family token from FW;NAME (for example FW;FW000003)"
+        "default": "1"
+    escaping:
+      characters: ["<", ">", ";", "(", ")", "+", ",", "\\"]
+      rule: >
+        Free-text values (the device name, an SSID, a passphrase) put a
+        backslash before each of these eight characters. This is the vendor
+        app's rule. aiosenseme's reply splitter honours backslash escapes on
+        the way back. Keys and enumerated values never need escaping.
+    state_keys:
+      # Keys seen in GETALL (aiosenseme data/*.txt) and single GETs. `writes`
+      # names the declared command, where there is one. Ranges are the
+      # device's own MIN/MAX keys where it reports them, otherwise a
+      # published client's validation, which is marked.
+      "FAN;PWR": {values: "ON|OFF", writes: "fan_turn_on / fan_turn_off"}
+      "FAN;SPD;ACTUAL": {type: "integer", min: 0, max: 7, notes: "Speed step. 0 = stopped. Bounded by FAN;SPD;MIN/MAX (1 and 7 in every dump).", writes: "fan_set_speed"}
+      "FAN;SPD;MIN": {type: "integer", notes: "Lowest running speed step, read-only. 1 in every dump."}
+      "FAN;SPD;MAX": {type: "integer", notes: "Highest speed step, read-only. 7 in every dump. Clamp writes to this, never to a constant."}
+      "FAN;BOOKENDS": {type: "integer pair", notes: "Room-level speed limits min;max (1;7 by default). The number of steps stays the same inside the limits.", writes: "fan_set_room_speed_limits"}
+      "FAN;DIR": {values: "FWD|REV", notes: "REV is the vendor's winter or Heat Assist direction.", writes: "fan_set_direction"}
+      "FAN;WHOOSH;STATUS": {values: "ON|OFF", notes: "Whoosh varies speed around the current setting. aiosenseme observed that setting a speed turns it off.", writes: "fan_whoosh_on / fan_whoosh_off"}
+      "FAN;AUTO": {values: "ON|OFF", notes: "The fan switches on with motion.", writes: "fan_motion_auto_on / fan_motion_auto_off"}
+      "FAN;TIMER;CURR": {type: "integer", notes: "Fan timer. MIN 1 and MAX 7 in the dumps. The unit is not established."}
+      "LIGHT;PWR": {values: "ON|OFF", writes: "light_turn_on / light_turn_off"}
+      "LIGHT;LEVEL;ACTUAL": {type: "integer", min: 0, max: 16, notes: "Brightness step, bounded by LIGHT;LEVEL;MIN/MAX (1 and 16).", writes: "light_set_level"}
+      "LIGHT;BOOKENDS": {type: "integer pair", notes: "Room-level brightness limits min;max (1;16). No published client writes it."}
+      "LIGHT;AUTO": {values: "ON|OFF", notes: "The light switches on with motion.", writes: "light_motion_auto_on / light_motion_auto_off"}
+      "LIGHT;COLOR;TEMP;VALUE": {type: "integer", unit: "K", notes: "Haiku Light only. Bounded by LIGHT;COLOR;TEMP;MIN/MAX (2200 and 5000 K). aiosenseme rounds writes to 100 K.", writes: "light_set_color_temp"}
+      "LIGHT;COLOR;LEVEL;VALUE": {type: "integer", notes: "Haiku Light only, 1-10 with 5 observed. Meaning not established."}
+      "LIGHT;MODE": {values: "MANUAL (only value seen)", notes: "Haiku Light only. Other values not established."}
+      "SNSROCC;STATUS": {values: "OCCUPIED|UNOCCUPIED", notes: "Motion sensor. Not in GETALL; ask with get_occupancy. Pushed on change on an open connection (Indigo triggers on it)."}
+      "SNSROCC;TIMEOUT;CURR": {type: "integer", unit: "ms", notes: "No-motion auto-off delay. MIN 60000 (1 min), MAX 86400000 (24 h).", writes: "occupancy_set_timeout"}
+      "SMARTMODE;STATE": {values: "OFF|COOLING|HEATING|FOLLOWTSTAT", notes: "The configured Smart Mode (the vendor's Auto Comfort). FOLLOWTSTAT follows a linked thermostat's mode.", writes: "smartmode_set"}
+      "SMARTMODE;ACTUAL": {values: "OFF|COOLING|HEATING", notes: "The mode currently in effect. Read-only."}
+      "LEARN;ZEROTEMP": {type: "integer", unit: "C", scale: 0.01, notes: "Cooling target in hundredths of a degree Celsius, always Celsius on the wire. 2111 = 21.11 C = 70 F.", writes: "cooling_set_ideal_temp"}
+      "LEARN;MINSPEED": {type: "integer", notes: "Smart cooling lowest speed. 0 = no minimum. Indigo validates 0-6.", writes: "cooling_set_min_speed"}
+      "LEARN;MAXSPEED": {type: "integer", notes: "Smart cooling highest speed. 7 = no maximum. Indigo validates 1-7.", writes: "cooling_set_max_speed"}
+      "SLEEP;STATE": {values: "ON|OFF", writes: "sleep_on / sleep_off"}
+      "SMARTSLEEP;IDEALTEMP": {type: "integer", unit: "C", scale: 0.01, notes: "Sleep-mode target, hundredths of a degree Celsius.", writes: "sleep_set_ideal_temp"}
+      "SMARTSLEEP;MINSPEED": {type: "integer", notes: "0-7 (haiku-senseme). 0 = no minimum.", writes: "sleep_set_min_speed"}
+      "SMARTSLEEP;MAXSPEED": {type: "integer", notes: "0-7 (haiku-senseme).", writes: "sleep_set_max_speed"}
+      "SLEEP;EVENT": {values: "ON|OFF", notes: "Meaning not established. aiosenseme suppresses callbacks for it."}
+      "SLEEP;EVENT;OFF": {values: "LIGHT,PWR,OFF | LIGHT,LEVEL,<0-16>", notes: "What the light does when sleep mode ends (TomFaulkner: wake-up brightness). Comma-separated inside one value."}
+      "WINTERMODE;STATE": {values: "ON|OFF", notes: "Winter (heating) mode. The write spelling is disputed between clients; not declared."}
+      "WINTERMODE;HEIGHT": {type: "integer", unit: "cm", notes: "Fan mounting height used by winter mode. 213 = 7 ft, 274 = 9 ft. TomFaulkner writes WINTERMODE;HEIGHT;SET;<cm>."}
+      "DEVICE;BEEPER": {values: "ON|OFF", writes: "beeper_on / beeper_off"}
+      "DEVICE;INDICATORS": {values: "ON|OFF", writes: "indicators_on / indicators_off"}
+      "DEVICE;LIGHT": {values: "PRESENT | NOT PRESENT | PRESENT;COLOR", notes: "Whether a light kit is fitted. Draw light controls only when PRESENT."}
+      "DEVICE;OPTION;SENSORS": {values: "PRESENT|NOT PRESENT", notes: "Haiku L and Haiku Light: whether the sensor board is fitted. The Haiku Light dump reports NOT PRESENT and still reports SNSROCC;STATUS."}
+      "DEVICE;SERVER": {values: "PRODUCTION (only value seen)", notes: "Which vendor cloud environment the device uses."}
+      "DEVICE;ID": {values: "mac;model", notes: "See payload_formats.DiscoveryReply."}
+      "NAME;VALUE": {type: "string", notes: "User-assigned name, escaped.", writes: "set_name"}
+      "GROUP;LIST": {type: "string", notes: "Room name, or EMPTY when the device is in no room."}
+      "GROUP;ROOM;TYPE": {type: "integer", min: 0, max: 28, notes: "Room category code. 0 = not in a room; 1-28 are vendor room categories (bedroom, kitchen, patio and so on). aiosenseme's device.py lists the labels. Cosmetic."}
+      "FW;NAME": {type: "string", notes: "Firmware family token: FW000003 (Haiku fan), FW000004 (wall control), FW000005 (Haiku L), FW000006 (Haiku Light) in the dumps. The vendor app also knows FW000007."}
+      "FW;<family>": {type: "string", notes: "Firmware version, e.g. 2.5.0, 2.5.5, 2.6.0."}
+      "NW;SSID": {type: "string", notes: "The Wi-Fi network the device is on."}
+      "NW;PARAMS;ACTUAL": {type: "string triple", notes: "address;netmask;gateway, see payload_formats.NetworkParams."}
+      "NW;DHCP": {values: "ON|OFF", notes: "Whether the device runs a DHCP server, presumably on its setup access point. OFF once provisioned."}
+      "NW;AP;STATUS": {values: "ON|OFF", notes: "Whether the device's own access point is up. OFF once provisioned. TomFaulkner reads it as NW;AP;GET;STATUS."}
+      "NW;TOKEN": {type: "string", notes: "Per-device UUID, 8-4-4-4-12 hex. aiosenseme uses it as the device's uuid."}
+      "NW;RSSI": {type: "integer", unit: "dBm", notes: "Seen in the Haiku Light dump only."}
+      "TIME;VALUE": {type: "string", notes: "Device clock as ISO-8601 UTC, e.g. 2017-03-26T14:06:27Z (openHAB)."}
+      "SCHEDULE;CAP": {type: "string", notes: "'MAX EVENTS,29' in every dump: up to 29 schedule events."}
+      "SCHEDULE;EVENT;LIST": {type: "string", notes: "NONE when empty. The schedule event format is not established."}
+      "ERRORLOG;ENTRIES;NUM": {type: "integer", notes: "Error-log entry count (MAX 10). How to read entries is not established."}
+      "WALLCONTROL;CONFIGURE;FANSPEED": {type: "string", notes: "Wall control only. LIGHTLEVEL observed. Meaning not established."}
+    models:
+      "FAN,HAIKU,SENSEME": "Haiku fan with SenseME. Occupancy sensor fitted; light kit optional (DEVICE;LIGHT)."
+      "FAN,HAIKU,HSERIES": "Haiku H series. aiosenseme treats it as the same Haiku fan."
+      "FAN,LSERIES": "Haiku L with the Wi-Fi module. Sensor presence reported by DEVICE;OPTION;SENSORS."
+      "LIGHT,HAIKU": "Standalone Haiku Light (discontinued), tunable white."
+      "SWITCH,SENSEME": "Haiku Wall Control. Has an occupancy sensor. aiosenseme ignores it in discovery; its state is reflected through the fans it controls."
+      notes: >
+        The model field is a comma-separated list. aiosenseme treats an
+        unknown model as a fan. The current vendor app's legacy handler
+        also accepts the string "Speakeasy", which it draws with Haiku Luxe
+        line art. No open-source client has seen it; its wire behaviour is
+        a hypothesis. "FAN,HAIKU,CBE" appears only in the app's 3.x handler
+        and is not a legacy discovery reply.
+    rooms: >
+      Legacy "rooms" (the vendor app's fan and light groups) are stored on
+      each device as GROUP;LIST (room name) and GROUP;ROOM;TYPE, together
+      with the FAN;BOOKENDS and LIGHT;BOOKENDS room limits. No room-wide
+      command is established. The published clients address one device at a
+      time, and aiosenseme finds a room's members by matching GROUP;LIST
+      across discovered devices. NEGATIVE FINDING: RESEARCH.md listed
+      FANCLUSTERMESSAGE, LIGHTCLUSTERMESSAGE, FANSTEPCOMMAND,
+      LIGHTLEVELCONTROLCOMMAND, FANMAXSPEED and SLEEPFANSPEED as SenseME
+      vocabulary. In the vendor app they are field and payload-case names of
+      the 3.x protobuf messages, not ASCII tokens. None of them appears on
+      the legacy wire.
+    vendor_app_only:
+      # Messages seen only in the current vendor app's legacy-device handler.
+      "DEVICE;SIGNAL;SET;10000": "Identify. The app's locate action sends 10000; the unit is not established (plausibly milliseconds). Declared as `identify`."
+      "NW;SCAN": "Ask the device to scan for Wi-Fi networks. Reply format not established. Declared as `wifi_scan`."
+      "NW;JOIN;<ssid>;<passphrase>": "Join a network. Both fields escaped. Declared as `wifi_join`."
+      "NAME;VALUE;SET;<name>": "Rename, escaped. Declared as `set_name`."
+      "FW;NAME;GET then FW;<family>;GET": "Firmware family and version. Both keys are also in GETALL."
+      "GROUP;LIST": "Sent bare, with no GET, to learn the room when firmware info is missing."
+    connection_lifecycle:
+      - "Open TCP 31415. Send get_device_id, get_occupancy and get_all (see initialization)."
+      - "Keep the connection open. Every change arrives as a reply-shaped push, whatever made it."
+      - "aiosenseme re-sends DEVICE;ID;GET, SNSROCC;STATUS;GET and GETALL about once a minute, with jitter, and aborts the connection after about 90 s of silence (refresh interval + 30 s). The Indigo plugin re-initialises after a configurable number of silent minutes."
+      - "On a lost connection, reconnect after a short delay. aiosenseme waits 1 s after a drop and 60 s after a refused connect."
+      - "Several clients may be connected at once. Do not assume a write came from this client; read the push."
+    test_vectors:
+      discovery_probe_ascii: "<ALL;DEVICE;ID;GET>"
+      discovery_probe_hex: "3c414c4c3b4445564943453b49443b4745543e"
+      discovery_reply: "(Living Room Fan;DEVICE;ID;20:F8:5E:AA:BB:CC;FAN,HAIKU,SENSEME)"
+      discovery_reply_fields: ["Living Room Fan", "DEVICE", "ID", "20:F8:5E:AA:BB:CC", "FAN,HAIKU,SENSEME"]
+      set_speed_3: "<20:F8:5E:AA:BB:CC;FAN;SPD;SET;3>"
+      two_replies_one_read: "(Living Room Fan;FAN;PWR;ON)(Living Room Fan;FAN;SPD;ACTUAL;3)"
+      two_replies_parsed: [["FAN;PWR", "ON"], ["FAN;SPD;ACTUAL", "3"]]
+      bookends_reply: "(Living Room Fan;FAN;BOOKENDS;2;6)"
+      bookends_parsed: ["FAN;BOOKENDS", ["2", "6"]]
+      escape_name_in: "Den (East); Main"
+      escape_name_wire: "Den \\(East\\)\\; Main"
+      zerotemp_raw: 2388
+      zerotemp_celsius: 23.88
+      set_22_5_celsius_raw: 2250
+
+payload_formats:
+  DiscoveryReply:
+    description: >
+      The single UDP datagram a device sends in answer to the discovery
+      probe, and the reply to get_device_id on a TCP connection. Strip the
+      outer parentheses first.
+    delimiter: ";"
+    fields:
+      - index: 0
+        name: "name"
+        description: "User-assigned device name, escaped as in protocol_details.senseme.escaping."
+      - index: 1
+        name: "category"
+        description: "Always DEVICE."
+      - index: 2
+        name: "attribute"
+        description: "Always ID."
+      - index: 3
+        name: "mac"
+        description: "Wi-Fi MAC, upper-case hex, colon-separated. The stable identity and the target for every later request."
+      - index: 4
+        name: "model"
+        description: "Comma-separated model family, e.g. FAN,HAIKU,SENSEME. Matched against device.variants[].identification.model_prefix."
+    parse_rules:
+      - "Drop the datagram unless it starts with '(' and ends with ')'."
+      - "Strip both, split on ';' and expect exactly five fields. aiosenseme discards anything else, and anything shorter than 31 or longer than 200 characters overall."
+      - "A name containing an escaped ';' breaks naive splitting. Split on ';' not preceded by a backslash, then unescape."
+      - "The model field is itself comma-separated. Keep it whole for matching."
+    example: "(Living Room Fan;DEVICE;ID;20:F8:5E:AA:BB:CC;FAN,HAIKU,SENSEME)"
+  SenseMEReply:
+    description: >
+      Every reply and every pushed state change on the control connection:
+      a device name, a key of one or more tokens, and one or more values.
+    delimiter: ";"
+    parse_rules:
+      - "Accumulate bytes. Cut a message at each ')' that is not preceded by a backslash. Keep any tail after the last cut for the next read."
+      - "Each message must start with '('. Strip the outer parentheses."
+      - "Split on unescaped ';'. Token 0 is the device name."
+      - "Look the remaining tokens up in protocol_details.senseme.value_counts: that many trailing tokens are values and the rest is the key. Default one value."
+      - "A key of ERROR is a rejected request. Log it; its value is not documented."
+      - "A key of TIME;VALUE is the device clock (ISO-8601 UTC); aiosenseme ignores it for change detection because it moves every read."
+    example: "(Living Room Fan;FAN;SPD;ACTUAL;3)(Living Room Fan;FAN;BOOKENDS;1;7)(Living Room Fan;LEARN;ZEROTEMP;2388)"
+  NetworkParams:
+    description: "The value of NW;PARAMS;ACTUAL: the device's own view of its IPv4 configuration."
+    delimiter: ";"
+    fields:
+      - index: 0
+        name: "address"
+        description: "Device IPv4 address."
+      - index: 1
+        name: "netmask"
+        description: "Subnet mask."
+      - index: 2
+        name: "gateway"
+        description: "Default gateway."
+    parse_rules:
+      - "Three values. This order is what every published dump shows. aiosenseme's accessors swap fields 1 and 2; trust the dumps."
+    example: "192.168.1.50;255.255.255.0;192.168.1.51"
+  Bookends:
+    description: "FAN;BOOKENDS and LIGHT;BOOKENDS: a room-level min;max pair."
+    delimiter: ";"
+    fields:
+      - index: 0
+        name: "min"
+        description: "Lowest step the room allows (speed step for the fan, brightness step for the light)."
+      - index: 1
+        name: "max"
+        description: "Highest step the room allows."
+    parse_rules:
+      - "Two values. min must be below max; aiosenseme refuses to send min >= max."
+    example: "1;7"
+  CentiCelsius:
+    description: "LEARN;ZEROTEMP and SMARTSLEEP;IDEALTEMP: a temperature target as an integer in hundredths of a degree Celsius."
+    fields:
+      - name: "temperature"
+        unit: "C"
+        scale: 0.01
+        description: "value = raw x 0.01. Always Celsius on the wire; clients convert for display."
+    parse_rules:
+      - "Parse as a decimal integer and multiply by 0.01. Round writes to the nearest integer after dividing by 0.01. The app's Fahrenheit targets produce values such as 2388 (75 F)."
+    example: "2388"
+
+# The protocol is ASCII over a raw TCP socket (and UDP datagrams) on port
+# 31415, not HTTP. This entry exists only because the schema needs an access
+# surface block and has no raw-socket one yet.
+http_endpoints:
+  - method: "GET"
+    path: "/"
+    name: "Local API Placeholder"
+    status: "placeholder"
+    description: >
+      Placeholder only. Nothing here is an HTTP control endpoint. Control is
+      the ASCII SenseME protocol on TCP and UDP port 31415 (see
+      protocol_details.senseme and the commands below).
+
+# Commands. `body` is the literal ASCII the client writes, placeholders
+# rendered as text, with no terminator. Commands with no `transport` go on
+# the TCP connection (device.transport). The same body also works as one UDP
+# datagram to port 31415 (Indigo plugin). `target` is the device's MAC from
+# discovery.
+commands:
+  discover:
+    description: "Discovery probe. Broadcast to UDP 31415; every legacy device answers with a DiscoveryReply."
+    transport: "udp"
+    body: "<ALL;DEVICE;ID;GET>"
+    returns:
+      - name: "DiscoveryReply"
+        type: "string"
+        description: "(name;DEVICE;ID;mac;model), one datagram per device."
+    verification: "reported"
+
+  get_device_id:
+    description: "Ask one device for its name, MAC and model on an open connection."
+    body: "<{target};DEVICE;ID;GET>"
+    parameters:
+      target:
+        type: "string"
+        default: "ALL"
+        description: >
+          ALL, the MAC, or the name. On a unicast connection before the MAC
+          is known, aiosenseme puts the device's IP address here and gets an
+          answer.
+    returns:
+      - name: "DiscoveryReply"
+        type: "string"
+        description: "Same shape as the discovery reply."
+    example_body: "<ALL;DEVICE;ID;GET>"
+    verification: "reported"
+
+  get_all:
+    description: "Dump every setting as a burst of SenseMEReply messages. Does not include the occupancy status."
+    body: "<{target};GETALL>"
+    parameters:
+      target:
+        type: "string"
+        source: "state:get_device_id.mac"
+        description: "The device's MAC as it reports it."
+    returns:
+      - name: "SenseMEReply"
+        type: "string"
+        description: "About 40-55 replies, depending on model (see protocol_details.senseme.state_keys)."
+    example_body: "<20:F8:5E:AA:BB:CC;GETALL>"
+    verification: "reported"
+
+  get_occupancy:
+    description: "Read the motion sensor. GETALL leaves it out."
+    body: "<{target};SNSROCC;STATUS;GET>"
+    parameters:
+      target:
+        type: "string"
+        source: "state:get_device_id.mac"
+        description: "The device's MAC."
+    returns:
+      - name: "SNSROCC;STATUS"
+        type: "string"
+        description: "OCCUPIED or UNOCCUPIED."
+    example_body: "<20:F8:5E:AA:BB:CC;SNSROCC;STATUS;GET>"
+    verification: "reported"
+
+  fan_turn_on:
+    description: "Switch the fan motor on at its last speed."
+    body: "<{target};FAN;PWR;ON>"
+    parameters:
+      target: {type: "string", source: "state:get_device_id.mac", description: "The device's MAC."}
+    example_body: "<20:F8:5E:AA:BB:CC;FAN;PWR;ON>"
+    verification: "reported"
+
+  fan_turn_off:
+    description: "Switch the fan motor off."
+    body: "<{target};FAN;PWR;OFF>"
+    parameters:
+      target: {type: "string", source: "state:get_device_id.mac", description: "The device's MAC."}
+    example_body: "<20:F8:5E:AA:BB:CC;FAN;PWR;OFF>"
+    verification: "reported"
+
+  fan_set_speed:
+    description: "Set the fan speed step. 0 stops the fan; 1-7 run it."
+    body: "<{target};FAN;SPD;SET;{speed}>"
+    parameters:
+      target: {type: "string", source: "state:get_device_id.mac", description: "The device's MAC."}
+      speed:
+        type: "integer"
+        required: true
+        min: 0
+        max: 7
+        description: >
+          Speed step, the vendor app's seven speeds plus 0 for off. Clamp to
+          the device's own FAN;SPD;MAX, which is 7 in every dump, as
+          aiosenseme does. The room's FAN;BOOKENDS may narrow the usable
+          range further.
+    example_body: "<20:F8:5E:AA:BB:CC;FAN;SPD;SET;3>"
+    notes: "aiosenseme observed that setting a speed also switches Whoosh off."
+    verification: "reported"
+
+  fan_set_direction:
+    description: "Set the rotation direction. REV is the vendor's winter / Heat Assist direction (air pushed up to mix warm air down)."
+    body: "<{target};FAN;DIR;SET;{direction}>"
+    parameters:
+      target: {type: "string", source: "state:get_device_id.mac", description: "The device's MAC."}
+      direction:
+        type: "string"
+        required: true
+        values:
+          "FWD": "forward (summer, downdraft)"
+          "REV": "reverse (winter, updraft)"
+        description: "FWD or REV, as the wire spells them."
+    example_body: "<20:F8:5E:AA:BB:CC;FAN;DIR;SET;REV>"
+    verification: "reported"
+
+  fan_whoosh_on:
+    description: "Turn Whoosh on (speed varies around the current setting)."
+    body: "<{target};FAN;WHOOSH;ON>"
+    parameters:
+      target: {type: "string", source: "state:get_device_id.mac", description: "The device's MAC."}
+    example_body: "<20:F8:5E:AA:BB:CC;FAN;WHOOSH;ON>"
+    notes: "The reply and push key is FAN;WHOOSH;STATUS."
+    verification: "reported"
+
+  fan_whoosh_off:
+    description: "Turn Whoosh off."
+    body: "<{target};FAN;WHOOSH;OFF>"
+    parameters:
+      target: {type: "string", source: "state:get_device_id.mac", description: "The device's MAC."}
+    example_body: "<20:F8:5E:AA:BB:CC;FAN;WHOOSH;OFF>"
+    verification: "reported"
+
+  fan_motion_auto_on:
+    description: "Let the occupancy sensor switch the fan on."
+    body: "<{target};FAN;AUTO;ON>"
+    parameters:
+      target: {type: "string", source: "state:get_device_id.mac", description: "The device's MAC."}
+    example_body: "<20:F8:5E:AA:BB:CC;FAN;AUTO;ON>"
+    notes: "Spelling shared by aiosenseme and Indigo; TomFaulkner sends FAN;AUTO;SET;ON."
+    verification: "reported"
+
+  fan_motion_auto_off:
+    description: "Stop the occupancy sensor switching the fan on."
+    body: "<{target};FAN;AUTO;OFF>"
+    parameters:
+      target: {type: "string", source: "state:get_device_id.mac", description: "The device's MAC."}
+    example_body: "<20:F8:5E:AA:BB:CC;FAN;AUTO;OFF>"
+    verification: "reported"
+
+  fan_set_room_speed_limits:
+    description: >
+      Set the room-level speed limits (FAN;BOOKENDS). The fan keeps the same
+      number of steps but maps them inside min..max.
+    body: "<{target};FAN;BOOKENDS;SET;{min};{max}>"
+    parameters:
+      target: {type: "string", source: "state:get_device_id.mac", description: "The device's MAC."}
+      min:
+        type: "integer"
+        required: true
+        min: 1
+        max: 6
+        description: "Lowest speed step. Must be below max; aiosenseme refuses to send otherwise."
+      max:
+        type: "integer"
+        required: true
+        min: 2
+        max: 7
+        description: "Highest speed step, at most FAN;SPD;MAX."
+    example_body: "<20:F8:5E:AA:BB:CC;FAN;BOOKENDS;SET;2;6>"
+    notes: "Single source (aiosenseme). Not bound to an entity: a two-value write has no control shape yet."
+    verification: "reported"
+
+  smartmode_set:
+    description: "Choose the Smart Mode (the vendor's Auto Comfort)."
+    body: "<{target};SMARTMODE;STATE;SET;{mode}>"
+    parameters:
+      target: {type: "string", source: "state:get_device_id.mac", description: "The device's MAC."}
+      mode:
+        type: "string"
+        required: true
+        values:
+          "OFF": "no automatic adjustment"
+          "COOLING": "speed rises with room temperature above LEARN;ZEROTEMP"
+          "HEATING": "slow mixing while occupied, faster mixing while unoccupied (aiosenseme's description)"
+          "FOLLOWTSTAT": "follow a linked thermostat between cooling and heating"
+        description: "One of OFF, COOLING, HEATING, FOLLOWTSTAT."
+    example_body: "<20:F8:5E:AA:BB:CC;SMARTMODE;STATE;SET;COOLING>"
+    notes: >
+      aiosenseme and Indigo write this key. SMARTMODE;ACTUAL reports what is
+      in effect. BigAssFansAPI and TomFaulkner drive an older LEARN;STATE key
+      instead (on = LEARN); not declared.
+    verification: "reported"
+
+  cooling_set_ideal_temp:
+    description: "Set the Smart cooling target temperature (LEARN;ZEROTEMP)."
+    body: "<{target};LEARN;ZEROTEMP;SET;{temp}>"
+    parameters:
+      target: {type: "string", source: "state:get_device_id.mac", description: "The device's MAC."}
+      temp:
+        type: "integer"
+        required: true
+        unit: "C"
+        scale: 0.01
+        min: 1000
+        max: 3150
+        description: >
+          Hundredths of a degree Celsius on the wire, whatever unit the app
+          displays: raw = round(celsius / 0.01). 10.00-31.50 C is
+          aiosenseme's clamp. TomFaulkner clamps 50-90 F, about the same
+          range. The legacy vendor app's own limits are not held.
+    example_body: "<20:F8:5E:AA:BB:CC;LEARN;ZEROTEMP;SET;2250>"
+    example_notes: "22.5 C."
+    verification: "reported"
+
+  cooling_set_min_speed:
+    description: "Set the lowest speed Smart cooling may use."
+    body: "<{target};LEARN;MINSPEED;SET;{speed}>"
+    parameters:
+      target: {type: "string", source: "state:get_device_id.mac", description: "The device's MAC."}
+      speed:
+        type: "integer"
+        required: true
+        min: 0
+        max: 6
+        description: "0 = no minimum. Range as the Indigo plugin validates it and aiosenseme clamps it."
+    example_body: "<20:F8:5E:AA:BB:CC;LEARN;MINSPEED;SET;1>"
+    verification: "reported"
+
+  cooling_set_max_speed:
+    description: "Set the highest speed Smart cooling may use."
+    body: "<{target};LEARN;MAXSPEED;SET;{speed}>"
+    parameters:
+      target: {type: "string", source: "state:get_device_id.mac", description: "The device's MAC."}
+      speed:
+        type: "integer"
+        required: true
+        min: 1
+        max: 7
+        description: "7 = no maximum. Range as the Indigo plugin validates it and aiosenseme clamps it."
+    example_body: "<20:F8:5E:AA:BB:CC;LEARN;MAXSPEED;SET;5>"
+    verification: "reported"
+
+  sleep_on:
+    description: "Turn sleep mode on."
+    body: "<{target};SLEEP;STATE;ON>"
+    parameters:
+      target: {type: "string", source: "state:get_device_id.mac", description: "The device's MAC."}
+    example_body: "<20:F8:5E:AA:BB:CC;SLEEP;STATE;ON>"
+    verification: "reported"
+
+  sleep_off:
+    description: "Turn sleep mode off."
+    body: "<{target};SLEEP;STATE;OFF>"
+    parameters:
+      target: {type: "string", source: "state:get_device_id.mac", description: "The device's MAC."}
+    example_body: "<20:F8:5E:AA:BB:CC;SLEEP;STATE;OFF>"
+    verification: "reported"
+
+  sleep_set_ideal_temp:
+    description: "Set the sleep-mode target temperature (SMARTSLEEP;IDEALTEMP)."
+    body: "<{target};SMARTSLEEP;IDEALTEMP;SET;{temp}>"
+    parameters:
+      target: {type: "string", source: "state:get_device_id.mac", description: "The device's MAC."}
+      temp:
+        type: "integer"
+        required: true
+        unit: "C"
+        scale: 0.01
+        min: 1000
+        max: 3200
+        description: "Hundredths of a degree Celsius. 10-32 C is the range the Indigo plugin validates."
+    example_body: "<20:F8:5E:AA:BB:CC;SMARTSLEEP;IDEALTEMP;SET;2111>"
+    example_notes: "21.11 C (70 F)."
+    verification: "reported"
+
+  sleep_set_min_speed:
+    description: "Set the lowest speed sleep mode may use."
+    body: "<{target};SMARTSLEEP;MINSPEED;SET;{speed}>"
+    parameters:
+      target: {type: "string", source: "state:get_device_id.mac", description: "The device's MAC."}
+      speed:
+        type: "integer"
+        required: true
+        min: 0
+        max: 7
+        description: "0 = no minimum. 0-7 per haiku-senseme; TomFaulkner sends the same key."
+    example_body: "<20:F8:5E:AA:BB:CC;SMARTSLEEP;MINSPEED;SET;0>"
+    verification: "reported"
+
+  sleep_set_max_speed:
+    description: "Set the highest speed sleep mode may use."
+    body: "<{target};SMARTSLEEP;MAXSPEED;SET;{speed}>"
+    parameters:
+      target: {type: "string", source: "state:get_device_id.mac", description: "The device's MAC."}
+      speed:
+        type: "integer"
+        required: true
+        min: 0
+        max: 7
+        description: "0-7 per haiku-senseme. The dumps show 2 and 7."
+    example_body: "<20:F8:5E:AA:BB:CC;SMARTSLEEP;MAXSPEED;SET;2>"
+    verification: "reported"
+
+  light_turn_on:
+    description: "Switch the light on at its last level."
+    body: "<{target};LIGHT;PWR;ON>"
+    parameters:
+      target: {type: "string", source: "state:get_device_id.mac", description: "The device's MAC."}
+    example_body: "<20:F8:5E:AA:BB:CC;LIGHT;PWR;ON>"
+    verification: "reported"
+
+  light_turn_off:
+    description: "Switch the light off."
+    body: "<{target};LIGHT;PWR;OFF>"
+    parameters:
+      target: {type: "string", source: "state:get_device_id.mac", description: "The device's MAC."}
+    example_body: "<20:F8:5E:AA:BB:CC;LIGHT;PWR;OFF>"
+    verification: "reported"
+
+  light_set_level:
+    description: "Set the light's brightness step."
+    body: "<{target};LIGHT;LEVEL;SET;{level}>"
+    parameters:
+      target: {type: "string", source: "state:get_device_id.mac", description: "The device's MAC."}
+      level:
+        type: "integer"
+        required: true
+        min: 0
+        max: 16
+        description: >
+          Brightness step. The device reports LIGHT;LEVEL;MIN 1 and MAX 16.
+          aiosenseme, Indigo and BigAssFansAPI all accept 0-16. Prefer
+          light_turn_off to 0 for off. Current-firmware apps show a
+          percentage; on this protocol it is sixteen steps.
+    example_body: "<20:F8:5E:AA:BB:CC;LIGHT;LEVEL;SET;8>"
+    verification: "reported"
+
+  light_set_color_temp:
+    description: "Set the Haiku Light's white colour temperature."
+    body: "<{target};LIGHT;COLOR;TEMP;VALUE;SET;{kelvin}>"
+    parameters:
+      target: {type: "string", source: "state:get_device_id.mac", description: "The device's MAC."}
+      kelvin:
+        type: "integer"
+        required: true
+        unit: "K"
+        min: 2200
+        max: 5000
+        description: >
+          Kelvin. The bounds are the device's own LIGHT;COLOR;TEMP;MIN/MAX
+          in the one published dump. aiosenseme clamps to those keys and
+          rounds to the nearest 100 K.
+    example_body: "<20:F8:5E:AA:BB:CC;LIGHT;COLOR;TEMP;VALUE;SET;2700>"
+    notes: "Haiku Light only. Fan light kits report no colour keys."
+    verification: "reported"
+
+  light_motion_auto_on:
+    description: "Let the occupancy sensor switch the light on."
+    body: "<{target};LIGHT;AUTO;ON>"
+    parameters:
+      target: {type: "string", source: "state:get_device_id.mac", description: "The device's MAC."}
+    example_body: "<20:F8:5E:AA:BB:CC;LIGHT;AUTO;ON>"
+    verification: "reported"
+
+  light_motion_auto_off:
+    description: "Stop the occupancy sensor switching the light on."
+    body: "<{target};LIGHT;AUTO;OFF>"
+    parameters:
+      target: {type: "string", source: "state:get_device_id.mac", description: "The device's MAC."}
+    example_body: "<20:F8:5E:AA:BB:CC;LIGHT;AUTO;OFF>"
+    verification: "reported"
+
+  occupancy_set_timeout:
+    description: "Set how long after the last motion the fan and light switch off."
+    body: "<{target};SNSROCC;TIMEOUT;SET;{timeout}>"
+    parameters:
+      target: {type: "string", source: "state:get_device_id.mac", description: "The device's MAC."}
+      timeout:
+        type: "integer"
+        required: true
+        unit: "s"
+        scale: 0.001
+        min: 60000
+        max: 86400000
+        description: >
+          Milliseconds on the wire: raw = seconds / 0.001. The bounds are the
+          device's own SNSROCC;TIMEOUT;MIN and MAX (1 min to 24 h).
+          TomFaulkner sends whole minutes x 60000.
+    example_body: "<20:F8:5E:AA:BB:CC;SNSROCC;TIMEOUT;SET;900000>"
+    example_notes: "15 minutes."
+    notes: "Single source (TomFaulkner/SenseMe)."
+    verification: "reported"
+
+  beeper_on:
+    description: "Enable the fan's audible confirmation beeps."
+    body: "<{target};DEVICE;BEEPER;ON>"
+    parameters:
+      target: {type: "string", source: "state:get_device_id.mac", description: "The device's MAC."}
+    example_body: "<20:F8:5E:AA:BB:CC;DEVICE;BEEPER;ON>"
+    verification: "reported"
+
+  beeper_off:
+    description: "Silence the fan's confirmation beeps."
+    body: "<{target};DEVICE;BEEPER;OFF>"
+    parameters:
+      target: {type: "string", source: "state:get_device_id.mac", description: "The device's MAC."}
+    example_body: "<20:F8:5E:AA:BB:CC;DEVICE;BEEPER;OFF>"
+    verification: "reported"
+
+  indicators_on:
+    description: "Enable the LED indicators."
+    body: "<{target};DEVICE;INDICATORS;ON>"
+    parameters:
+      target: {type: "string", source: "state:get_device_id.mac", description: "The device's MAC."}
+    example_body: "<20:F8:5E:AA:BB:CC;DEVICE;INDICATORS;ON>"
+    verification: "reported"
+
+  indicators_off:
+    description: "Turn the LED indicators off."
+    body: "<{target};DEVICE;INDICATORS;OFF>"
+    parameters:
+      target: {type: "string", source: "state:get_device_id.mac", description: "The device's MAC."}
+    example_body: "<20:F8:5E:AA:BB:CC;DEVICE;INDICATORS;OFF>"
+    verification: "reported"
+
+  identify:
+    description: >
+      Make the device signal where it is. The current vendor app's
+      legacy-device handler sends this for its identify action.
+    body: "<{target};DEVICE;SIGNAL;SET;10000>"
+    parameters:
+      target: {type: "string", source: "state:get_device_id.mac", description: "The device's MAC."}
+    example_body: "<20:F8:5E:AA:BB:CC;DEVICE;SIGNAL;SET;10000>"
+    notes: >
+      10000 is the literal the app sends. Its unit is not established
+      (plausibly milliseconds, a 10 s signal). Whether the device beeps,
+      flashes or both is not established either. No open-source client
+      sends this.
+    verification: "reported"
+
+  set_name:
+    description: "Rename the device."
+    body: "<{target};NAME;VALUE;SET;{name}>"
+    parameters:
+      target: {type: "string", source: "state:get_device_id.mac", description: "The device's MAC."}
+      name:
+        type: "string"
+        required: true
+        min_length: 1
+        description: >
+          The new name, with < > ; ( ) + , and backslash each preceded by a
+          backslash (protocol_details.senseme.escaping). The maximum length
+          is not established.
+    example_body: "<20:F8:5E:AA:BB:CC;NAME;VALUE;SET;Den \\(East\\)>"
+    example_notes: "Renames the device to 'Den (East)'."
+    notes: "From the vendor app's legacy handler. Other clients read NAME;VALUE but do not write it."
+    verification: "reported"
+
+  wifi_scan:
+    description: "Ask the device to scan for Wi-Fi networks, as the vendor app does during setup."
+    body: "<{target};NW;SCAN>"
+    parameters:
+      target: {type: "string", source: "state:get_device_id.mac", description: "The device's MAC."}
+    example_body: "<20:F8:5E:AA:BB:CC;NW;SCAN>"
+    notes: "The reply format is not established."
+    verification: "reported"
+
+  wifi_join:
+    description: "Tell the device to leave its current network (or setup access point) and join another."
+    body: "<{target};NW;JOIN;{ssid};{passphrase}>"
+    parameters:
+      target: {type: "string", source: "state:get_device_id.mac", description: "The device's MAC."}
+      ssid:
+        type: "string"
+        required: true
+        min_length: 1
+        max_length: 32
+        description: "Network name, escaped as in protocol_details.senseme.escaping. 32 bytes is the 802.11 limit."
+      passphrase:
+        type: "string"
+        required: true
+        description: "Network passphrase, escaped the same way. Sent in plain text."
+    example_body: "<20:F8:5E:AA:BB:CC;NW;JOIN;HomeNet;correct horse battery staple>"
+    notes: >
+      From the vendor app's legacy handler, which sends it on its TCP
+      connection. The reply, if any, and how a failed join shows itself are
+      not established. How an open network is joined is not established
+      either.
+    advanced: true
+    advanced_reason: >
+      Moves the device off the network the client is on. A wrong SSID or
+      passphrase leaves it unreachable until it is factory reset and set up
+      again from its access point.
+    verification: "reported"
+
+features:
+  - type: "firmware_update"
+    dfu:
+      mechanisms: ["http_upload"]
+      transport: "http"
+      image:
+        signing: "unknown"
+        source: "vendor_cloud"
+        notes: >
+          The vendor app fetches images from the vendor cloud with a
+          token-gated download tied to an account and a claimed device, then
+          relays them to the device over the LAN. No image is held. For the
+          legacy firmware families (FW000004 to FW000007) the current app
+          asks the cloud for a "-GEN3" image, i.e. firmware 3.x. It has no
+          mapping for FW000003, the family on the Haiku fan in aiosenseme's
+          dump, and what it does for that family is not established.
+      enter:
+        how: "unknown"
+        notes: >
+          The app uploads to the running device. No separate bootloader
+          entry command is known.
+      recovery:
+        interrupted: "unknown"
+      verification: "reported"
+      notes: >
+        ONE-WAY FOR THIS PROTOCOL. Accepting an update from the current Big
+        Ass Fans app moves a legacy device to firmware 3.x, which no longer
+        speaks SenseME (openHAB, aiosenseme and owners' reviews all record
+        integrations breaking this way). The app also carries a
+        support-directed "Downgrade to Haiku App" path. Per the app's own
+        text, it reinstalls legacy firmware and factory-resets the device,
+        which then has to be set up again with the Haiku app. The upload
+        itself is plain HTTP to TCP port 31416 on the device (reported, from
+        the app). Its paths, bodies and framing are deliberately not
+        recorded here. A client that wants to keep a device on this
+        protocol should never trigger an update.
+
+entities:
+  - platform: "fan"
+    name: "Fan"
+    features: ["speed", "direction"]
+    variants: ["Haiku SenseME fan", "Haiku H fan", "Haiku L fan"]
+    state_command: "get_all"
+    state_mapping:
+      is_on: "FAN;PWR"
+      on_value: "ON"
+      speed: "FAN;SPD;ACTUAL"
+      direction: "FAN;DIR"
+    commands:
+      turn_on: "fan_turn_on"
+      turn_off: "fan_turn_off"
+      set_speed: "fan_set_speed"
+    notes: >
+      State paths in this file are SenseME reply keys: the tokens between the
+      device name and the value, joined with ';' (see
+      payload_formats.SenseMEReply). Speed is a step 0-7, not a percentage.
+      A consumer mapping a percentage slider should use FAN;SPD;MAX (7) and
+      round. Direction is its own select entity below.
+
+  - platform: "light"
+    name: "Light"
+    features: ["brightness"]
+    variants: ["Haiku SenseME fan", "Haiku H fan", "Haiku L fan"]
+    state_command: "get_all"
+    state_mapping:
+      is_on: "LIGHT;PWR"
+      on_value: "ON"
+      brightness: "LIGHT;LEVEL;ACTUAL"
+    commands:
+      turn_on: "light_turn_on"
+      turn_off: "light_turn_off"
+      set_brightness: "light_set_level"
+    notes: >
+      The fan's light kit. Draw it only when DEVICE;LIGHT reports PRESENT.
+      Brightness is a step 0-16 (LIGHT;LEVEL;MAX).
+
+  - platform: "light"
+    name: "Haiku Light"
+    features: ["brightness", "color_temp"]
+    variants: ["Haiku Light"]
+    state_command: "get_all"
+    state_mapping:
+      is_on: "LIGHT;PWR"
+      on_value: "ON"
+      brightness: "LIGHT;LEVEL;ACTUAL"
+      color_temp: "LIGHT;COLOR;TEMP;VALUE"
+    commands:
+      turn_on: "light_turn_on"
+      turn_off: "light_turn_off"
+      set_brightness: "light_set_level"
+      set_color_temperature: "light_set_color_temp"
+    notes: "Standalone Haiku Light. Colour temperature is in kelvin, 2200-5000."
+
+  - platform: "select"
+    name: "Direction"
+    variants: ["Haiku SenseME fan", "Haiku H fan", "Haiku L fan"]
+    state_command: "get_all"
+    state_mapping:
+      value: "FAN;DIR"
+      options: ["FWD", "REV"]
+    commands:
+      select_option: "fan_set_direction"
+    notes: "REV is the vendor's winter / Heat Assist direction."
+
+  - platform: "switch"
+    name: "Whoosh"
+    icon: "mdi:weather-windy"
+    variants: ["Haiku SenseME fan", "Haiku H fan", "Haiku L fan"]
+    state_command: "get_all"
+    state_mapping:
+      is_on: "FAN;WHOOSH;STATUS"
+      on_value: "ON"
+    commands:
+      turn_on: "fan_whoosh_on"
+      turn_off: "fan_whoosh_off"
+
+  - platform: "switch"
+    name: "Sleep Mode"
+    icon: "mdi:sleep"
+    variants: ["Haiku SenseME fan", "Haiku H fan", "Haiku L fan"]
+    state_command: "get_all"
+    state_mapping:
+      is_on: "SLEEP;STATE"
+      on_value: "ON"
+    commands:
+      turn_on: "sleep_on"
+      turn_off: "sleep_off"
+
+  - platform: "select"
+    name: "Smart Mode"
+    icon: "mdi:thermostat-auto"
+    variants: ["Haiku SenseME fan", "Haiku H fan", "Haiku L fan"]
+    state_command: "get_all"
+    state_mapping:
+      value: "SMARTMODE;STATE"
+      options: ["OFF", "COOLING", "HEATING", "FOLLOWTSTAT"]
+    commands:
+      select_option: "smartmode_set"
+    notes: "The configured mode. SMARTMODE;ACTUAL (read-only) is the one currently in effect."
+
+  - platform: "number"
+    name: "Smart Cooling Target"
+    device_class: "temperature"
+    unit: "C"
+    min: 10
+    max: 31.5
+    step: 0.01
+    variants: ["Haiku SenseME fan", "Haiku H fan", "Haiku L fan"]
+    state_command: "get_all"
+    state_mapping:
+      value: "LEARN;ZEROTEMP"
+      scale: 0.01
+    commands:
+      set_value: "cooling_set_ideal_temp"
+    notes: "Hundredths of a degree Celsius on the wire. Apps that show Fahrenheit write values like 2388 (75 F), which is why the step is 0.01."
+
+  - platform: "number"
+    name: "Smart Cooling Minimum Speed"
+    min: 0
+    max: 6
+    step: 1
+    variants: ["Haiku SenseME fan", "Haiku H fan", "Haiku L fan"]
+    state_command: "get_all"
+    state_mapping:
+      value: "LEARN;MINSPEED"
+    commands:
+      set_value: "cooling_set_min_speed"
+    notes: "0 = no minimum."
+
+  - platform: "number"
+    name: "Smart Cooling Maximum Speed"
+    min: 1
+    max: 7
+    step: 1
+    variants: ["Haiku SenseME fan", "Haiku H fan", "Haiku L fan"]
+    state_command: "get_all"
+    state_mapping:
+      value: "LEARN;MAXSPEED"
+    commands:
+      set_value: "cooling_set_max_speed"
+    notes: "7 = no maximum."
+
+  - platform: "number"
+    name: "Sleep Target Temperature"
+    device_class: "temperature"
+    unit: "C"
+    min: 10
+    max: 32
+    step: 0.01
+    variants: ["Haiku SenseME fan", "Haiku H fan", "Haiku L fan"]
+    state_command: "get_all"
+    state_mapping:
+      value: "SMARTSLEEP;IDEALTEMP"
+      scale: 0.01
+    commands:
+      set_value: "sleep_set_ideal_temp"
+
+  - platform: "number"
+    name: "Sleep Minimum Speed"
+    min: 0
+    max: 7
+    step: 1
+    variants: ["Haiku SenseME fan", "Haiku H fan", "Haiku L fan"]
+    state_command: "get_all"
+    state_mapping:
+      value: "SMARTSLEEP;MINSPEED"
+    commands:
+      set_value: "sleep_set_min_speed"
+
+  - platform: "number"
+    name: "Sleep Maximum Speed"
+    min: 0
+    max: 7
+    step: 1
+    variants: ["Haiku SenseME fan", "Haiku H fan", "Haiku L fan"]
+    state_command: "get_all"
+    state_mapping:
+      value: "SMARTSLEEP;MAXSPEED"
+    commands:
+      set_value: "sleep_set_max_speed"
+
+  - platform: "binary_sensor"
+    name: "Occupancy"
+    device_class: "occupancy"
+    state_command: "get_occupancy"
+    state_mapping:
+      value: "SNSROCC;STATUS"
+      on_value: "OCCUPIED"
+    notes: >
+      Not in GETALL: read with get_occupancy on connect, then follow pushes.
+      On the Haiku L, and apparently the Haiku Light, check
+      DEVICE;OPTION;SENSORS first. The Haiku Light dump reports NOT PRESENT
+      and still reports a status, so treat its reading with suspicion. The
+      wall control reports occupancy too.
+
+  - platform: "number"
+    name: "Occupancy Timeout"
+    unit: "s"
+    min: 60
+    max: 86400
+    step: 1
+    state_command: "get_all"
+    state_mapping:
+      value: "SNSROCC;TIMEOUT;CURR"
+      scale: 0.001
+    commands:
+      set_value: "occupancy_set_timeout"
+    notes: "Milliseconds on the wire. How long after the last motion the motion-triggered fan and light switch off."
+
+  - platform: "switch"
+    name: "Fan On With Motion"
+    icon: "mdi:motion-sensor"
+    variants: ["Haiku SenseME fan", "Haiku H fan", "Haiku L fan"]
+    state_command: "get_all"
+    state_mapping:
+      is_on: "FAN;AUTO"
+      on_value: "ON"
+    commands:
+      turn_on: "fan_motion_auto_on"
+      turn_off: "fan_motion_auto_off"
+
+  - platform: "switch"
+    name: "Light On With Motion"
+    icon: "mdi:motion-sensor"
+    variants: ["Haiku SenseME fan", "Haiku H fan", "Haiku L fan", "Haiku Light"]
+    state_command: "get_all"
+    state_mapping:
+      is_on: "LIGHT;AUTO"
+      on_value: "ON"
+    commands:
+      turn_on: "light_motion_auto_on"
+      turn_off: "light_motion_auto_off"
+
+  - platform: "switch"
+    name: "Beeper"
+    icon: "mdi:volume-high"
+    variants: ["Haiku SenseME fan", "Haiku H fan", "Haiku L fan"]
+    state_command: "get_all"
+    state_mapping:
+      is_on: "DEVICE;BEEPER"
+      on_value: "ON"
+    commands:
+      turn_on: "beeper_on"
+      turn_off: "beeper_off"
+
+  - platform: "switch"
+    name: "Indicator LEDs"
+    icon: "mdi:led-on"
+    variants: ["Haiku SenseME fan", "Haiku H fan", "Haiku L fan", "Haiku Wall Control"]
+    state_command: "get_all"
+    state_mapping:
+      is_on: "DEVICE;INDICATORS"
+      on_value: "ON"
+    commands:
+      turn_on: "indicators_on"
+      turn_off: "indicators_off"
+
+  - platform: "button"
+    name: "Identify"
+    icon: "mdi:map-marker-radius"
+    commands:
+      press: "identify"
+    notes: "Vendor-app message only; the signal it produces on legacy firmware is not established."
+
+  - platform: "sensor"
+    name: "Room"
+    icon: "mdi:sofa"
+    state_command: "get_all"
+    state_mapping:
+      value: "GROUP;LIST"
+    notes: "Room name, or EMPTY when the device is not in a room. Devices sharing a name here are one vendor-app room."
+
+evidence:
+  public_implementations: >
+    aiosenseme (archived 2023-06-09 at commit a48d4db) is the most complete
+    client. Its discovery.py and device.py give the probe, the reply filter,
+    the TCP lifecycle, the reply splitter with its per-key value counts and
+    the set vocabulary with client-side clamps. Its data/ directory holds
+    GETALL dumps from a Haiku fan, a Haiku L fan with and without the
+    wireless wall switch, a Haiku Light and a wall control, all on 2.5.x
+    firmware. The Indigo plugin (commit 038b581) is the original
+    traffic-derived client: TCP for state, a UDP datagram per set command,
+    and explicit validation ranges (speed 0-7, light 0-16, Smart cooling
+    minimum 0-6 and maximum 1-7, sleep temperature 10-32 C). TomFaulkner/
+    SenseMe adds the GET-with-qualifier spelling, the occupancy-timeout
+    unit (ms) and the fan-height write. BigAssFansAPI documents the height
+    unit and the older LEARN;STATE key. haiku-senseme's commands.json is an
+    independent key catalogue. The openHAB binding documents the TIME;VALUE
+    format and three device MACs sharing the 20:F8:5E OUI. All of these were
+    written against real fans. None of their captures is held here.
+  app_static_analysis: >
+    Big Ass Fans for Android 3.3.4 and 3.4.0 (listing updated 2025-12-01), read
+    statically. The app still has a handler for legacy SenseME devices. It
+    builds requests as <target;category;attribute;args...> (GETALL as
+    <target;GETALL>), broadcasts <ALL;DEVICE;ID;GET> on UDP 31415 to the
+    subnet-directed address every 5 s from a socket bound to local port
+    31415, and talks to a found device over a TCP connection to port 31415
+    with a 10 s connect timeout. It knows the model strings
+    FAN,HAIKU,SENSEME, FAN,HAIKU,HSERIES, FAN,LSERIES, LIGHT,HAIKU,
+    SWITCH,SENSEME and "Speakeasy". Beyond the community vocabulary, it
+    sends NW;SCAN, NW;JOIN;ssid;passphrase, NAME;VALUE;SET;name,
+    DEVICE;SIGNAL;SET;10000, FW;NAME;GET, FW;<family>;GET and a bare
+    GROUP;LIST. It escapes < > ; ( ) + , and backslash in free text. Its
+    firmware path for legacy devices requests "-GEN3" (3.x) images and
+    uploads over plain HTTP to port 31416. Its strings include a
+    support-only downgrade to the Haiku app, which factory-resets the
+    device. NEGATIVE FINDING: the *CLUSTERMESSAGE, *COMMAND, FANMAXSPEED
+    and SLEEPFANSPEED names listed in the research notes are protobuf field
+    and payload-case names of the 3.x protocol. They are not SenseME
+    tokens.
+  open_questions: >
+    Setup access point SSID, security and address. The reply to NW;JOIN
+    and NW;SCAN. A factory reset that is known to work on legacy firmware.
+    Whether the device checks the request's target token on a unicast
+    connection. Whether discovery replies are unicast to the probe's source
+    port. The unit of FAN;TIMER and of the identify duration. The schedule
+    event format. The WINTERMODE;STATE write spelling. Whether a legacy
+    room-temperature or humidity GET exists. What the "Speakeasy" model is.
+    Whether a 3.x device also answers the ASCII UDP probe.
+  artifacts:
+    - type: "static_analysis"
+      artifact: "Big Ass Fans for Android (com.baf.i6) 3.3.4 and 3.4.0 (3.4.0 SHA-256 2d5985ef7cb9b29b2e0543fba0312766343c70e7be1293001c54e02a768a382b)"
+      obtained_via: "third-party APK mirror, 2026-09"
+      description: >
+        Established that the current app still speaks SenseME to legacy
+        devices, and supplied the join, scan, rename and identify messages,
+        the escaping rule and the firmware path. Protocol facts only; no
+        vendor code, symbols or strings beyond short paraphrase.
+    - type: "public_implementation"
+      artifact: "bdraco/aiosenseme @ a48d4db (2023-06-09, archived)"
+      description: "Discovery, framing, reply parsing, set vocabulary, GETALL dumps from five models."
+    - type: "public_implementation"
+      artifact: "bpennypacker/SenseME-Indigo-Plugin @ 038b581 (2023-07-09)"
+      description: "Original traffic-derived client; UDP set datagrams; validation ranges."
+    - type: "public_implementation"
+      artifact: "TomFaulkner/SenseMe, sean9keenan/BigAssFansAPI, forty2/haiku-senseme, openHAB bigassfan binding"
+      description: "Cross-checks: GET-with-qualifier spelling, units for occupancy timeout and height, TIME;VALUE format, OUI."
+
+remaining_unknowns:
+  - "The setup access point: SSID pattern, open or secured, the device's address on it, and how a factory-fresh or reset device indicates it is in setup mode."
+  - "Replies to NW;JOIN and NW;SCAN, and how a failed join shows itself."
+  - "A factory reset procedure verified on legacy firmware (the candidate here is the current app's remote sequence)."
+  - "Whether the target token is checked on a unicast connection (aiosenseme sends the IP address there once and gets an answer)."
+  - "Whether discovery replies go to the probe's source port, to 31415, or to broadcast."
+  - "The unit of FAN;TIMER (MIN 1, MAX 7) and of DEVICE;SIGNAL's 10000."
+  - "The schedule event format behind SCHEDULE;EVENT;LIST (up to 29 events)."
+  - "The WINTERMODE;STATE write spelling (openHAB and BigAssFansAPI disagree)."
+  - "Whether any legacy key reports room temperature or humidity. No published client reads one."
+  - "What LIGHT;COLOR;LEVEL, LIGHT;MODE, SLEEP;EVENT and WALLCONTROL;CONFIGURE;FANSPEED control."
+  - "The ERROR reply's value vocabulary."
+  - "Which hardware reports the 'Speakeasy' model string, and whether 3.x devices answer the ASCII UDP probe at all."
+  - "Whether the current app's missing firmware mapping for FW000003 (Haiku fan) means those fans are updated some other way or not at all."
+
+helpful_urls:
+  - title: "bdraco/aiosenseme"
+    url: "https://github.com/bdraco/aiosenseme"
+    kind: "implementation"
+    description: "The most complete SenseME client (GPL-3.0, archived 2023). discovery.py and device.py are the grammar source for this spec; data/ holds GETALL dumps per model."
+  - title: "aiosenseme GETALL dumps per model"
+    url: "https://github.com/bdraco/aiosenseme/tree/master/data"
+    kind: "protocol_writeup"
+    description: "Parameter dumps from a Haiku fan, Haiku L fans, a Haiku Light and a wall control, with identifiers already scrubbed."
+  - title: "bpennypacker/SenseME-Indigo-Plugin"
+    url: "https://github.com/bpennypacker/SenseME-Indigo-Plugin"
+    kind: "implementation"
+    description: "The original traffic-derived SenseME client (GPL-2.0). plugin.py shows UDP set datagrams and the validated ranges."
+  - title: "Bruce Pennypacker: Indigo Plugin for SenseME Fans"
+    url: "http://bruce.pennypacker.org/tag/senseme-plugin/"
+    kind: "protocol_writeup"
+    description: "The plugin author's write-up: how the protocol was found by watching the Haiku Home app, tested on firmware 2.5."
+  - title: "TomFaulkner/SenseMe"
+    url: "https://github.com/TomFaulkner/SenseMe"
+    kind: "implementation"
+    description: "Python client. Source of the GET-with-qualifier spelling and the occupancy-timeout and fan-height writes."
+  - title: "sean9keenan/BigAssFansAPI"
+    url: "https://github.com/sean9keenan/BigAssFansAPI"
+    kind: "implementation"
+    description: "Node.js client over UDP. Documents the height unit and the older LEARN;STATE key."
+  - title: "forty2/haiku-senseme"
+    url: "https://github.com/forty2/haiku-senseme"
+    kind: "implementation"
+    description: "Node.js client whose commands.json is an independent SenseME key catalogue."
+  - title: "openHAB Big Ass Fan binding"
+    url: "https://www.openhab.org/addons/bindings/bigassfan/"
+    kind: "implementation"
+    description: "SenseME binding documentation. States that firmware 3.0.0 and later is not supported; shows device MACs in the 20:F8:5E block."
+  - title: "Big Ass Fans Haiku L installation guide (PDF, vendor-hosted)"
+    url: "https://bigassfans.widen.net/view/pdf/zq0muwn7zn/haiku-l-install-guide.pdf"
+    kind: "manual"
+    description: >
+      Current edition of the Haiku L guide (models FR112C-U1H, FR127C-U1H/J,
+      FR150C-U1H/J). Covers the remote's reboot sequence and notes that app
+      control needs the Wi-Fi module. It describes the current app, not the
+      legacy protocol.
+  - title: "jfroy/aiobafi6"
+    url: "https://github.com/jfroy/aiobafi6"
+    kind: "implementation"
+    description: "Client for the firmware 3.x / i6 / es6 protobuf protocol that replaced SenseME; the other generation, out of scope here."

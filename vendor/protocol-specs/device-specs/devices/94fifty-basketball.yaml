@@ -1,0 +1,1268 @@
+# 94Fifty Smart Sensor Basketball — Device Specification
+# Status: Spec Available. Every byte layout below was recovered by static analysis
+#         of the vendor Android app (94Fifty Basketball 1.4, the last build that
+#         survives, read 2026-09). Nothing has been run against a ball or seen in
+#         a capture of real traffic, so every fact is `reported` at best.
+#         Worked frames and the CRC check value were recomputed from an
+#         independent standard-library transcription of the framing. Opcode
+#         table, packet layouts, CRC parameters and every fixed frame and
+#         test vector re-checked against the decompile on 2026-09-28.
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+
+device:
+  name: "94Fifty Smart Sensor Basketball"
+  manufacturer: "InfoMotion Sports Technologies Inc."
+  manufacturer_status: "shutdown"
+  openness:
+    status: "undocumented"
+    reverse_engineered: true
+    notes: >
+      Nothing was ever published. Everything here comes from reading the
+      vendor's Android app, whose protocol layer is unobfuscated, plus the
+      user guide and test report filed with the FCC grant. The company filed
+      for Chapter 11 and the product, app and web service are gone.
+  testing:
+    status: untested
+  protocol: "bluetooth_classic"
+  transport: "rfcomm"
+  category: "fitness"
+  type: "smart-basketball"
+  notes: >
+    A regulation-size basketball with a sensor puck suspended inside: a
+    motion-sensor stack (the app's hardware self-test names an InvenSense
+    MPU-9150 nine-axis IMU and a Honeywell HMC5983 magnetometer), a small
+    16-bit MCU (judging by the bundled firmware images), a dual-mode
+    Bluetooth 4.0 radio (launch-era coverage says Texas Instruments; the FCC
+    photo markings are illegible), a 3.7 V 240 mAh lithium-polymer cell and
+    a Qi receive coil. It charges on a Qi
+    pad. Hypothesis, not established: the modulation and test-pattern
+    choices in the radio test-mode requests (continuous carrier, GFSK, EDR
+    2 and 3 Mbit/s, LE; PN9, PN15 and fixed patterns; BR/EDR ACL packet
+    types DM1 to 3-DH5) line up with TI's published CC256x vendor-specific
+    radio tester commands, which, with the 16-bit host images, suggests a
+    CC256x-class dual-mode controller beside a separate 16-bit host MCU. The ball itself classifies dribbles and shots and streams finished
+    metrics (shot arc, backspin, release time, dribble counts and intensity)
+    to the phone; the app is a display and coaching shell. Sold 2013-2016 by
+    InfoMotion Sports Technologies (package com.spectrumdt.ist; Spectrum
+    Design Technologies wrote the app). FCC ID 2AARZ-TBBX001, test model
+    TBBX001.
+
+    TRANSPORT. Bluetooth Classic RFCOMM, not BLE GATT. The Android app opens
+    an INSECURE RFCOMM socket to a vendor SDP service record,
+    32e5fcfc-52ee-41b0-827a-f18929716fef: no pairing, no PIN, no bond. It
+    FINDS the ball with a 5-second BLE scan for adverts carrying the vendor
+    service UUID b69bc590-59d9-4920-9552-defcc31651fe, then connects RFCOMM
+    to the address the scan returned; on a phone that cannot scan BLE it
+    falls back to a Classic inquiry and keeps names starting "IST-".
+
+    WAKE. The ball is asleep until it is bounced about four times in a row;
+    it sleeps again after a period of inactivity. It ships in Travel Mode, a
+    locked radio-off state that only a few seconds on the Qi charging pad
+    releases. See device.pairing.enter_pairing_mode and device.setup.
+    Earlier research notes give a range of about 30 m; no primary source
+    for that figure was found (the user guide and FCC report are silent;
+    the report gives 1.38 mW conducted into a -0.5 dBi chip antenna).
+
+    FRAMES. HDLC-style: every frame is wrapped in 0x7e flags and the bytes
+    0x7d and 0x7e inside it are escaped as 0x7d followed by the byte XOR
+    0x20. The de-stuffed packet is big-endian throughout: type u16, token
+    u16, (on replies an error u16), payload, then a CRC-32/BZIP2 over
+    everything before it. Packet length is always a multiple of 4. A reply's
+    type is the request's type with bit 15 set, and it echoes the request's
+    token; token 0 marks an unsolicited frame (live activity records). Every
+    `prefix` and `format` offset in this spec is counted on the DE-STUFFED
+    packet, flags removed, so offset 0 is the high byte of the type. See
+    bluetooth_classic.serial.framing and protocol_details.framing.
+
+    COMMANDS. The `commands` block carries only fixed frames, pre-framed and
+    pre-CRC'd with token 0x0001 so they can be written to the socket as-is.
+    Requests that take a value (set the clock, set the stored name, fetch a
+    stored record, a custom activity) need a CRC-32/BZIP2 the schema's
+    encoder vocabulary cannot compute yet, so they are documented byte by
+    byte, with worked frames, under protocol_details.parameterised_requests.
+
+    SCOPE. Both hardware revisions (hw1, hw2) speaking protocol v1, as the
+    Android app v1.4 drives them. Out of scope: the SmartNet instrumented net
+    and the shooting-machine integration (the only trace of either in the
+    protocol is a SmartNet-detected flag in shot records), the dead cloud
+    account and sync service, factory and FCC test modes (named, not
+    specified, under protocol_details.advanced_opcodes), and firmware image
+    contents.
+
+    CLOUD. None of the ball's function needs the vendor's server. The app's
+    login screen has an offline guest path, and a diagnostic screen reachable
+    without an account; see protocol_details.vendor_app_behaviour.
+
+  identification:
+    service_uuids:
+      - "b69bc590-59d9-4920-9552-defcc31651fe"
+    notes: >
+      The BLE advertisement carries the 128-bit vendor service UUID
+      b69bc590-59d9-4920-9552-defcc31651fe; the vendor app accepts any scan
+      record that contains its bytes (little-endian, as a 128-bit UUID sits
+      in an AD structure) and checks nothing else. What name the ball
+      advertises over BLE is not recorded, so no BLE name matcher is given.
+      The Classic inquiry name starts "IST-" (the app strips that prefix to
+      show the ball's name), which is the bt_classic_inquiry method below.
+      No OUI is recorded. The vendor app derives a "ball ID" from the last
+      six hex digits of the Bluetooth address, lower-case.
+
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          service_uuids:
+            - "b69bc590-59d9-4920-9552-defcc31651fe"
+        verification: "reported"
+        notes: >
+          The vendor app's default path: a BLE scan (no filter passed to the
+          stack) in 5 s windows, keeping every scan record that contains the
+          vendor service UUID. It lists the balls it finds (and balls it has
+          connected to before), restarts the scan after each window, and when
+          the user picks one it stops scanning and opens RFCOMM to that
+          address. The ball must be awake.
+      - type: "bt_classic_inquiry"
+        bt_classic:
+          name:
+            match: "prefix"
+            value: "IST-"
+          service_uuids:
+            - "32e5fcfc-52ee-41b0-827a-f18929716fef"
+          requires_discoverable_mode: true
+        verification: "reported"
+        notes: >
+          The vendor app's fallback when a BLE scan cannot start: an ordinary
+          Classic inquiry, keeping devices whose name starts "IST-". The app
+          itself matches the name only; the vendor SDP record is added here
+          to narrow the match and is what the socket is opened to. The ball
+          answers only while awake (bounced), which is what
+          `requires_discoverable_mode` records.
+    identity:
+      stable_keys: ["address"]
+      display: "local_name"
+      notes: >
+        The Bluetooth address is the vendor app's key for a ball (it keeps
+        rename and history against it). Display the name with the "IST-"
+        prefix removed, as the app does.
+
+  setup:
+    required: false
+    confidence: "medium"
+    notes: >
+      Nothing to provision: no network, no credentials, no bond. A new ball
+      has to be taken out of Travel Mode once, on its Qi charging pad, and
+      then woken by bouncing before every session. Confidence is medium: the
+      activation and wake steps are from the vendor user guide, and the
+      connect sequence is from the vendor app's code; none of it has been
+      run against a ball.
+    methods:
+      - type: "none"
+        verified: false
+        description: >
+          Activate from Travel Mode on the charging pad (first use only), wake
+          the ball by bouncing it, find it by BLE service UUID, open an
+          insecure RFCOMM socket to the vendor SDP record at the same
+          address, and send get_system_info. This is the vendor app's own
+          connect sequence.
+        steps:
+          - action: "First use only: place the ball on the powered Qi charging pad with the ball logo over the pad logo."
+            actor: "user"
+            expect: "The pad's blue light turns solid when activation is complete (user guide)."
+            notes: >
+              Balls ship in Travel Mode, and a ball put into Travel Mode from
+              the app is locked the same way. Nothing but the pad releases
+              it.
+          - action: "Bounce the ball four or more times in a row."
+            actor: "user"
+            expect: "The ball wakes and becomes visible to a scan."
+          - action: "BLE scan for an advert carrying service b69bc590-59d9-4920-9552-defcc31651fe; keep the address."
+            actor: "client"
+            timeout_seconds: 5
+          - action: "Open an insecure RFCOMM socket to 32e5fcfc-52ee-41b0-827a-f18929716fef at that address."
+            actor: "client"
+            notes: >
+              Insecure, not secure: the vendor app never bonds. It makes two
+              attempts 250 ms apart and sets no connect timeout of its own.
+          - action: "Send get_system_info and wait up to 5 s for the 0x8001 reply."
+            actor: "client"
+            request:
+              command: "get_system_info"
+            expect: >
+              A reply of type 0x8001 carrying release type, protocol,
+              bootloader and firmware versions, hardware revision and serial
+              number. The vendor app treats the link as open only once this
+              arrives.
+    factory_reset:
+      applicable: "unknown"
+      confidence: "low"
+      effect: >
+        No factory reset is known. The ball holds no bond and no credential;
+        what it keeps (clock, stored name, stored activity records) is
+        overwritten or ignored by the next client.
+      description: >
+        Basis: the vendor user guide documents activation, charging and
+        Travel Mode but no reset, and the vendor app sends no reset-to-defaults
+        command. Power-control mode 1 ("reset") is a reboot, not a return to
+        defaults. The closest thing to a reset for a user is Travel Mode plus
+        re-activation on the pad, which only locks and unlocks the radio.
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        Nothing to rejoin: a new phone or client wakes the ball, scans and
+        connects. The vendor app kept renames and history in its own storage
+        and its cloud, not on the ball.
+    credentials:
+      wifi_passphrase_protection: "not_applicable"
+      stored_on_device: []
+      issued_to_client: []
+      notes: >
+        No Wi-Fi, no bond, no key. The RFCOMM link is unauthenticated and
+        unencrypted, so anyone in range of an awake ball can connect to it.
+        The app carries no crypto of its own; the only AES in the build is
+        inside a bundled Google library.
+
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "none"
+    bonding: "none"
+    exclusivity:
+      single_connection: "unknown"
+      recovery: >
+        Close the vendor app (or turn Bluetooth off on the phone running it)
+        before connecting from another client: the vendor app keeps one
+        socket and the ball is not known to take two. Before connecting to a
+        new ball the app itself sends power-control "disconnect" to the old
+        one.
+    enter_pairing_mode:
+      required: true
+      notes: >
+        Not pairing in the link-layer sense (nothing pairs); this is the wake
+        step the ball needs before it can be found or connected. How long it
+        stays awake without a connection is not established; the user guide
+        says only that it sleeps after inactivity.
+      procedures:
+        - name: "Bounce to wake"
+          verified: false
+          basis: >
+            Vendor user guide (FCC exhibit for 2AARZ-TBBX001): "the ball turns
+            on after bouncing it four times in a row", and the troubleshooting
+            section's "bounce the ball until the ball connects". Not tried on
+            hardware.
+          power_state: "on"
+          description: >
+            Dribble the ball four or more times in a row. A ball in Travel Mode
+            will not wake this way; put it on the charging pad first.
+          steps:
+            - action: "Bounce the ball at least four times in a row."
+              actor: "user"
+              expect: "The ball appears in a BLE scan (service b69bc590-59d9-4920-9552-defcc31651fe) and accepts the RFCOMM socket."
+    unpair:
+      supported: false
+      requires_factory_reset: false
+      notes: "Nothing to unpair: no bond is ever created on either side."
+    notes: >
+      Basis: static analysis of the vendor Android app, whose connect path
+      opens the socket with Android's insecure RFCOMM constructor to the
+      vendor SDP UUID (two attempts, 250 ms apart) and never bonds. Its
+      diagnostic connection-test screen has a switch between a secure and an
+      insecure socket to the same UUID, so the developers tried both; the
+      shipped path is insecure. Not confirmed on hardware. A client that
+      opens a SECURE socket makes the host start pairing, and whether the
+      ball completes it (and with what PIN, if any) is unknown.
+
+  host_compatibility:
+    - stack: "android"
+      status: "compatible"
+      verification: "reported"
+      basis: >
+        Static analysis of the vendor Android app: an insecure RFCOMM socket
+        by SDP UUID through the platform Bluetooth stack, with no special
+        handling. Not run by this project.
+    - stack: "corebluetooth"
+      link: "br_edr"
+      status: "incompatible"
+      symptom: "no_transport"
+      cause:
+        missing_api: "rfcomm"
+      workaround: "none_known"
+      verification: "reported"
+      basis: >
+        CoreBluetooth has no RFCOMM API, and the whole control surface in
+        this spec is an RFCOMM stream. Nothing in the app, the user guide or
+        the FCC filing suggests the ball is MFi, so iAP2 is not a way in
+        either. Not run by this project.
+      notes: >
+        An iPhone or iPad cannot open the socket this spec documents. macOS
+        is not covered by this verdict: IOBluetooth does expose RFCOMM.
+    - stack: "corebluetooth"
+      link: "ble"
+      status: "unknown"
+      verification: "hypothesis"
+      basis: >
+        The vendor's user guide lists iOS devices "that support Bluetooth
+        4.0" as compatible, the FCC test report describes a Bluetooth 4.0
+        radio on the 40-channel LE plan, and the ball advertises a vendor BLE
+        service. That points to the iOS app driving the ball over BLE GATT.
+        The iOS app was not examined and no GATT table is known.
+      notes: >
+        If the iOS app did use GATT, the ball has a BLE control surface the
+        Android app never touches, `ble_role` becomes secondary_control, and
+        this verdict becomes compatible or degraded. Until someone records
+        that GATT table, nothing in this spec is reachable from an iPhone.
+
+  variants:
+    - model: "hw1"
+      notes: >
+        First hardware revision. Reports hardware_revision 1 in the
+        get_system_info reply. The vendor app's newest OEM firmware for it is
+        0.73. Nothing in the protocol differs from hw2 as far as the app
+        shows; the revision only selects the firmware image.
+    - model: "hw2"
+      notes: >
+        Second hardware revision. Reports hardware_revision 2. The vendor app's
+        newest OEM firmware for it is 0.130 (manufacture build 0.106).
+
+bluetooth_classic:
+  dual_mode: true
+  ble_role: "unknown"
+  address_shared_with_ble: "unknown"
+  wake_required: true
+  profiles:
+    - profile: "vendor"
+      uuid: "32e5fcfc-52ee-41b0-827a-f18929716fef"
+      role: "control"
+      secure: false
+      verification: "reported"
+      notes: >
+        A vendor RFCOMM service under its own 128-bit UUID (the ball does not
+        use the SPP UUID). The vendor app opens it with Android's insecure
+        constructor, so the channel is resolved through SDP and is not known.
+        On Linux, `sdptool browse aa:bb:cc:dd:ee:ff` finds it and
+        `rfcomm connect 0 aa:bb:cc:dd:ee:ff <channel>` opens it.
+  serial:
+    profile_uuid: "32e5fcfc-52ee-41b0-827a-f18929716fef"
+    encoding: "binary"
+    correlation: "prefix"
+    framing:
+      length_prefix: false
+      checksum: "other"
+      tx_start_bytes: "7e"
+      rx_start_bytes: ["7e"]
+      resync: "scan_to_start_bytes"
+      max_frame_bytes: 2048
+      notes: >
+        Flag-delimited, not length-prefixed. Each frame is 0x7e, the packet
+        with 0x7d and 0x7e escaped as 0x7d, (byte XOR 0x20), then 0x7e. The
+        checksum is CRC-32/BZIP2 (poly 0x04c11db7, init 0xffffffff, not
+        reflected, xorout 0xffffffff; check value 0xfc891918 for the ASCII
+        "123456789"), computed over every packet byte before it BEFORE
+        stuffing and appended big-endian. It is not the zlib CRC-32. A reader
+        splits on 0x7e, undoes the escapes, drops empty frames, and then
+        checks that the packet is at least 8 bytes, a multiple of 4 and
+        CRC-clean. The vendor reader aborts a frame (and waits for the next
+        0x7e) on 0x7d followed by 0x7d or 0x7e, or on more than 2048 buffered
+        bytes, and after a closing flag it needs a fresh opening flag before
+        the next frame; a client should also accept a flag shared between two
+        frames. Every `prefix` and `format` offset in this spec counts on the
+        de-stuffed packet with the flags removed. `correlation: prefix`
+        because a reply names its request by type (request | 0x8000) and
+        echoes the request's 16-bit token in bytes 2-3.
+    read_chunk_bytes: 2048
+    response_timeout_ms: 1000
+    unsolicited:
+      - name: "shooting_record"
+        prefix: "83 21"
+        format:
+          - {offset: 2, length: 2, name: "token", type: "uint16", endianness: "big", values: {0: "unsolicited live record"}, notes: "0 for a live record during an activity; the request's token when the record answers a stored-record fetch (opcode 0x0321)."}
+          - {offset: 4, length: 2, name: "error", type: "uint16", endianness: "big", values: {0: "no error"}, notes: "Non-zero codes as in protocol_details.error_codes; the fields below are then absent."}
+          - {offset: 6, length: 2, name: "is_last", type: "uint16", endianness: "big", values: {0: "record", 1: "end of activity"}, notes: "Any non-zero value marks the activity's closing frame. The vendor app does not use the metrics in a frame with this set; it ends the activity on it."}
+          - {offset: 8, length: 4, name: "activity_id", type: "uint32", endianness: "big", notes: "Opaque handle from the start reply. Match it before using the record."}
+          - {offset: 12, length: 2, name: "record_id", type: "uint16", endianness: "big", notes: "Sequence number of the shot within the activity. The vendor app de-duplicates on it."}
+          - {offset: 16, length: 4, name: "samples_to_first_shot", type: "uint32", endianness: "big", notes: "Position in the ball's sample buffer. The sample rate is not established, so no time unit is given."}
+          - {offset: 20, length: 4, name: "samples_to_last_shot", type: "uint32", endianness: "big", notes: "Sample-buffer position, as above."}
+          - {offset: 24, length: 4, name: "samples_to_buffer_end", type: "uint32", endianness: "big", notes: "Sample-buffer position, as above."}
+          - {offset: 28, length: 2, name: "shot_made", type: "int16", endianness: "big", values: {-1: "missed", 0: "undetermined", 1: "made"}, notes: "Signed; the vendor app tests only the sign (negative missed, zero unknown, positive made)."}
+          - {offset: 32, length: 4, name: "samples_to_release", type: "uint32", endianness: "big", notes: "Sample-buffer position of the release."}
+          - {offset: 36, length: 4, name: "samples_to_rim", type: "uint32", endianness: "big", notes: "Sample-buffer position of the rim detection."}
+          - {offset: 40, length: 2, name: "release_time", type: "uint16", endianness: "big", unit: "s", scale: 0.001, notes: "Milliseconds on the wire; the app shows raw / 1000 as seconds and grades 850 ms or less as quick."}
+          - {offset: 42, length: 2, name: "average_release_time", type: "uint16", endianness: "big", unit: "s", scale: 0.001, notes: "Running average for the activity, same scaling."}
+          - {offset: 44, length: 2, name: "shot_arc", type: "uint16", endianness: "big", unit: "°", scale: 0.0054931640625, notes: "Binary angle: 65536 counts per full turn, so degrees = raw * 360 / 65536 (the app divides by 182.0444). 45 degrees is 0x2000."}
+          - {offset: 46, length: 2, name: "average_shot_arc", type: "uint16", endianness: "big", unit: "°", scale: 0.0054931640625, notes: "Running average, same scaling."}
+          - {offset: 48, length: 2, name: "shot_spin", type: "int16", endianness: "big", unit: "rpm", scale: 0.04065040650406504, notes: "Signed. The app shows raw / 24.6 as rpm; what the raw unit is, and which sign is backspin, is not established."}
+          - {offset: 50, length: 2, name: "average_shot_spin", type: "int16", endianness: "big", unit: "rpm", scale: 0.04065040650406504, notes: "Running average, same scaling."}
+          - {offset: 52, length: 2, name: "launch_height", type: "uint16", endianness: "big", notes: "Unit not established; the app only prints it raw on its diagnostic screen."}
+          - {offset: 54, length: 2, name: "smartnet_detected", type: "uint16", endianness: "big", values: {0: "no SmartNet", 1: "SmartNet detected"}, notes: "Any non-zero value is true. The SmartNet accessory is out of scope."}
+          - {offset: 56, length: 2, name: "shot_distance", type: "uint16", endianness: "big", notes: "Unit not established, probably inches like the shot_distance a start request carries; the app only prints it raw."}
+        notes: >
+          Opcode 0x8321, 64-byte packet (60 + CRC). Sent once per shot, token
+          0, while a shooting activity runs with an event trigger; also the
+          reply to a stored-record fetch. Bytes 14-15, 30-31 and 58-59 are
+          zero padding; 60-63 the CRC.
+        verification: "reported"
+      - name: "dribbling_record"
+        prefix: "83 20"
+        format:
+          - {offset: 2, length: 2, name: "token", type: "uint16", endianness: "big", values: {0: "unsolicited live record"}, notes: "0 for a live record; the request's token when answering a stored-record fetch (opcode 0x0320)."}
+          - {offset: 4, length: 2, name: "error", type: "uint16", endianness: "big", values: {0: "no error"}, notes: "Non-zero codes as in protocol_details.error_codes."}
+          - {offset: 6, length: 2, name: "is_last", type: "uint16", endianness: "big", values: {0: "record", 1: "end of activity"}, notes: "Any non-zero value marks the closing frame; the app ignores its metrics."}
+          - {offset: 8, length: 4, name: "activity_id", type: "uint32", endianness: "big", notes: "Opaque handle from the start reply."}
+          - {offset: 12, length: 2, name: "record_id", type: "uint16", endianness: "big", notes: "Sequence number within the activity."}
+          - {offset: 16, length: 4, name: "samples_to_first_dribble", type: "uint32", endianness: "big", notes: "Sample-buffer position; sample rate not established."}
+          - {offset: 20, length: 4, name: "samples_to_last_dribble", type: "uint32", endianness: "big", notes: "Sample-buffer position."}
+          - {offset: 24, length: 4, name: "samples_to_buffer_end", type: "uint32", endianness: "big", notes: "Sample-buffer position."}
+          - {offset: 28, length: 4, name: "samples_in_control", type: "uint32", endianness: "big", notes: "Samples counted as ball-in-control; the app turns it into a control percentage (protocol_details.control_percentage)."}
+          - {offset: 32, length: 4, name: "total_dribbles", type: "uint32", endianness: "big", scale: 0.1, notes: "Tenths of a dribble: the app shows raw / 10."}
+          - {offset: 36, length: 2, name: "max_consecutive_dribbles", type: "uint16", endianness: "big", scale: 0.1, notes: "Best streak, tenths (the app divides by 10)."}
+          - {offset: 38, length: 2, name: "consecutive_dribbles", type: "uint16", endianness: "big", scale: 0.1, notes: "Current streak, tenths (the app divides by 10)."}
+          - {offset: 40, length: 2, name: "average_consecutive_dribbles", type: "uint16", endianness: "big", scale: 0.1, notes: "Presumably tenths like its siblings; the app only prints it raw."}
+          - {offset: 42, length: 2, name: "average_dribble_speed", type: "uint16", endianness: "big", notes: "The app compares it with ten times a sample count, so it reads as a dribble period in tenths of a sample interval. Not established."}
+          - {offset: 44, length: 2, name: "dribble_intensity", type: "uint16", endianness: "big", unit: "m/s²", scale: 0.009576806640625, notes: "Moving average. The app shows raw / 1024 as G; scale here is 9.80665 / 1024."}
+          - {offset: 46, length: 2, name: "average_dribble_intensity", type: "uint16", endianness: "big", unit: "m/s²", scale: 0.009576806640625, notes: "Whole-activity average, same scaling."}
+          - {offset: 48, length: 2, name: "dribble_restart_count", type: "uint16", endianness: "big", notes: "Increments when a streak is broken; the app starts a new streak when it changes."}
+        notes: >
+          Opcode 0x8320, 56-byte packet (52 + CRC). Sent every notification
+          interval (200 ms in the vendor drills), token 0, while a dribbling
+          activity runs; also the reply to a stored-record fetch. Bytes 14-15
+          and 50-51 are zero padding; 52-55 the CRC.
+        verification: "reported"
+      - name: "orientation_data"
+        prefix: "83 02"
+        format:
+          - {offset: 6, length: 2, name: "is_last", type: "uint16", endianness: "big", values: {0: "data", 1: "end of stream"}, notes: "Non-zero marks the last frame."}
+          - {offset: 12, length: 2, name: "notification_id", type: "uint16", endianness: "big", notes: "Sequence number."}
+          - {offset: 16, length: 8, name: "orientation", type: "bytes", notes: "Opaque to the vendor app, which only counts and saves the bytes. Layout not established (8 bytes suggests four 16-bit components)."}
+        notes: "28-byte packet. Bytes 8-11 and 14-15 are not read by the app. Only during an orientation stream (protocol_details.streams)."
+        verification: "reported"
+      - name: "raw_data"
+        prefix: "83 01"
+        format:
+          - {offset: 6, length: 2, name: "is_last", type: "uint16", endianness: "big", values: {0: "data", 1: "end of stream"}, notes: "Non-zero marks the last frame."}
+          - {offset: 12, length: 2, name: "notification_id", type: "uint16", endianness: "big", notes: "Sequence number."}
+          - {offset: 16, length: 1324, name: "samples", type: "bytes", notes: "Raw sensor samples, opaque to the vendor app (it writes them to a file). Layout not established."}
+        notes: "1344-byte packet. Bytes 8-11 and 14-15 are not read by the app. Only during a raw stream (protocol_details.streams)."
+        verification: "reported"
+    verification: "reported"
+    notes: >
+      The vendor app runs one reader and one writer thread on the socket and
+      queues up to 25 packets without waiting for replies; it matches replies
+      by token and times each request out on its own (1000 ms by default,
+      2500 ms for a shooting start, 15000 ms for the hardware self-test,
+      5000 ms for the opening get_system_info). It leaves no pause between
+      writes, except 50 ms between firmware segments. During the diagnostic
+      raw stream and bandwidth test it sends get_status every 3 s as a
+      keepalive; whether the ball needs traffic to keep the link up at other
+      times is not established (drills send nothing while records flow).
+  verification: "reported"
+  notes: >
+    The ball is dual-mode: it advertises over BLE and serves RFCOMM on the
+    same radio. `ble_role` is unknown rather than discovery_only because the
+    iOS app almost certainly controlled it over BLE (device.host_compatibility)
+    even though the Android app uses BLE only to find it.
+    `address_shared_with_ble` is unknown only because nobody has checked it on
+    hardware; the vendor app depends on it being true.
+
+initialization:
+  - command: "get_system_info"
+    expect_response: true
+    notes: >
+      The vendor app's whole handshake: straight after the socket opens it
+      sends system info with token 1 and sends nothing else until the 0x8001
+      reply arrives, giving up after 5000 ms. It reads the protocol version
+      but builds the same v1 codec whatever the ball reports; the hardware
+      revision and release type only pick the firmware image the app would
+      offer. There is no key exchange, no login and no clock sync at connect.
+
+commands:
+  # Fixed frames, token 0x0001, flags and CRC included: write them as-is.
+  get_system_info:
+    description: "Versions, hardware revision and serial number. The vendor app's connect handshake: nothing else is sent until this answers."
+    transport: "rfcomm"
+    value: [0x7E, 0x00, 0x01, 0x00, 0x01, 0x3D, 0xE2, 0x93, 0xB4, 0x7E]
+    notes: "Packet 00 01 00 01 + CRC 3d e2 93 b4 (opcode 0x0001, token 0x0001, no payload). The vendor app sends it with token 1 as soon as the socket opens."
+    response:
+      prefix: "80 01"
+      timeout_ms: 5000
+      format:
+        - {offset: 4, length: 2, name: "error", type: "uint16", endianness: "big", values: {0: "no error"}, notes: "Non-zero: see protocol_details.error_codes; the payload is then 2 zero bytes."}
+        - {offset: 8, length: 2, name: "release_type", type: "uint16", endianness: "big", values: {1: "OEM", 2: "Debug", 3: "Manufacture"}, notes: "The app shows any other value as unknown."}
+        - {offset: 10, length: 1, name: "protocol_version_major", type: "uint8", notes: "Each version is a u16 whose high byte is the major and low byte the minor number, shown as major.minor."}
+        - {offset: 11, length: 1, name: "protocol_version_minor", type: "uint8"}
+        - {offset: 12, length: 1, name: "bootloader_version_major", type: "uint8"}
+        - {offset: 13, length: 1, name: "bootloader_version_minor", type: "uint8"}
+        - {offset: 14, length: 1, name: "firmware_version_major", type: "uint8", notes: "00 82 at offsets 14-15 is firmware 0.130. The app offers no update to a ball whose major is 72."}
+        - {offset: 15, length: 1, name: "firmware_version_minor", type: "uint8"}
+        - {offset: 16, length: 4, name: "hardware_revision", type: "uint32", endianness: "big", values: {1: "hw1", 2: "hw2"}}
+        - {offset: 20, length: 4, name: "serial_number", type: "uint32", endianness: "big", notes: "The app prints it in decimal."}
+      notes: >
+        28-byte packet (24 + CRC). An older, 24-byte form without the release
+        type exists for protocol revisions 3 and below: protocol, bootloader
+        and firmware versions at 6, 8 and 10, hardware revision at 12,
+        serial at 16. Tell them apart by length. Bytes 6-7 of the 28-byte
+        form are zero padding.
+      verification: "reported"
+    verification: "reported"
+  get_status:
+    description: "Battery voltage, what the ball is running, and link byte counters."
+    transport: "rfcomm"
+    value: [0x7E, 0x00, 0x05, 0x00, 0x01, 0x3A, 0x80, 0x21, 0xA8, 0x7E]
+    notes: "Packet 00 05 00 01 + CRC 3a 80 21 a8. The vendor app polls it for the battery gauge, sends it every 3 s as a keepalive on its diagnostic raw-stream and bandwidth-test screens, and sends it after a reconnect to see whether a drill is still running."
+    response:
+      prefix: "80 05"
+      format:
+        - {offset: 4, length: 2, name: "error", type: "uint16", endianness: "big", values: {0: "no error"}, notes: "Non-zero: see protocol_details.error_codes."}
+        - {offset: 8, length: 1, name: "activity_state_high", type: "uint8", values: {0: "idle", 1: "raw stream", 2: "orientation stream", 3: "bandwidth test", 32: "dribbling", 33: "shooting"}, notes: "High byte of a u16 state word with one activity code per byte. The app decodes both bytes the same way (any unlisted value counts as idle), low byte first, and keeps each distinct value."}
+        - {offset: 9, length: 1, name: "activity_state_low", type: "uint8", values: {0: "idle", 1: "raw stream", 2: "orientation stream", 3: "bandwidth test", 32: "dribbling", 33: "shooting"}, notes: "Low byte of the state word: the slot the vendor app treats as the ball's current activity."}
+        - {offset: 10, length: 2, name: "battery_voltage", type: "uint16", endianness: "big", unit: "mV", device_class: "voltage", notes: "Cell voltage. The app's percentage curve is in protocol_details.battery_percentage."}
+        - {offset: 12, length: 4, name: "bytes_sent", type: "uint32", endianness: "big", unit: "B", notes: "Link counter kept by the ball; the app does not use it."}
+        - {offset: 16, length: 4, name: "bytes_received", type: "uint32", endianness: "big", unit: "B", notes: "Link counter kept by the ball; the app does not use it."}
+      notes: "24-byte packet (20 + CRC). Bytes 6-7 are zero padding. Example reply, idle at 3900 mV: 7e 80 05 00 01 00 00 00 00 00 00 0f 3c 00 00 00 00 00 00 00 00 1c 5e 47 2d 7e."
+      verification: "reported"
+    verification: "reported"
+  get_rtc:
+    description: "The ball's clock, in seconds since the Unix epoch (UTC)."
+    transport: "rfcomm"
+    value: [0x7E, 0x00, 0x06, 0x00, 0x01, 0x38, 0xE9, 0xD4, 0x21, 0x7E]
+    notes: "Packet 00 06 00 01 + CRC 38 e9 d4 21. Setting the clock takes a value, so it is under protocol_details.parameterised_requests.set_rtc."
+    response:
+      prefix: "80 06"
+      format:
+        - {offset: 4, length: 2, name: "error", type: "uint16", endianness: "big", values: {0: "no error"}}
+        - {offset: 8, length: 4, name: "utc_seconds", type: "uint32", endianness: "big", unit: "s", notes: "Seconds since 1970-01-01T00:00:00Z. The app reads it as a signed 32-bit value."}
+      notes: "16-byte packet (12 + CRC). Bytes 6-7 are zero padding."
+      verification: "reported"
+    verification: "reported"
+  get_ball_name:
+    description: "The name stored on the ball (up to 48 bytes of UTF-8)."
+    transport: "rfcomm"
+    value: [0x7E, 0x00, 0x0B, 0x00, 0x01, 0x30, 0x96, 0xAE, 0x82, 0x7E]
+    notes: >
+      Packet 00 0b 00 01 + CRC 30 96 ae 82. The Android app v1.4 never sends
+      this or its setter: it renames a ball only in its own storage and
+      cloud. The stored name may therefore be empty or whatever an iOS or
+      factory tool wrote. The user guide says a ball's name is "displayed
+      across any device"; on Android that came from the cloud record, and
+      whether the iOS app wrote it to the ball is unknown.
+    response:
+      prefix: "80 0b"
+      format:
+        - {offset: 4, length: 2, name: "error", type: "uint16", endianness: "big", values: {0: "no error"}}
+        - {offset: 8, length: 48, name: "ball_name", type: "string", notes: "UTF-8, NUL-padded; read up to the first 00. An empty name is shown as a default by the app."}
+      notes: "60-byte packet (56 + CRC). Bytes 6-7 are zero padding."
+      verification: "reported"
+    verification: "reported"
+  get_hardware_diag:
+    description: "Hardware self-test: a bit set per failed check. Takes several seconds."
+    transport: "rfcomm"
+    value: [0x7E, 0x00, 0x0D, 0x00, 0x01, 0x34, 0x45, 0x45, 0x90, 0x7E]
+    notes: "Packet 00 0d 00 01 + CRC 34 45 45 90. The vendor app waits up to 15 s. Only its device-validator screens use it, never the consumer flow."
+    response:
+      prefix: "80 0d"
+      timeout_ms: 15000
+      format:
+        - {offset: 4, length: 2, name: "error", type: "uint16", endianness: "big", values: {0: "no error"}}
+        - {offset: 6, length: 2, name: "diag_result", type: "uint16", endianness: "big", values: {0: "all checks passed", 32767: "no self-test result"}, notes: "Read the whole word first. 0x7fff is the vendor app's own 'diagnostics unavailable' sentinel: it substitutes it when no self-test reply arrives, and shows a reply carrying it the same way. Whether a ball ever sends it is not established. Never read it as five failed bits."}
+        - {offset: 6, length: 2, name: "bounce_check", type: "uint16", endianness: "big", mask: 1, values: {0: "pass", 1: "fail"}}
+        - {offset: 6, length: 2, name: "imu_i2c", type: "uint16", endianness: "big", mask: 2, values: {0: "pass", 1: "fail"}, notes: "MPU-9150 bus check."}
+        - {offset: 6, length: 2, name: "imu_self_test", type: "uint16", endianness: "big", mask: 4, values: {0: "pass", 1: "fail"}, notes: "MPU-9150; the app reports it not applicable when the bus check failed."}
+        - {offset: 6, length: 2, name: "magnetometer", type: "uint16", endianness: "big", mask: 8, values: {0: "pass", 1: "fail"}, notes: "HMC5983."}
+        - {offset: 6, length: 2, name: "power_off_check", type: "uint16", endianness: "big", mask: 16, values: {0: "pass", 1: "fail"}, notes: "The app labels this bit as the sensor's power-off check; what the ball tests is not established."}
+      notes: "12-byte packet (8 + CRC). Unlike the other replies there is no padding: the result word sits at 6. 0 means every check passed. 0x7fff means no usable result (see diag_result). The app does not interpret bits above 0x10."
+      verification: "reported"
+    verification: "reported"
+  abort_activity:
+    description: "Stop whatever activity or stream is running."
+    transport: "rfcomm"
+    value: [0x7E, 0x00, 0x08, 0x00, 0x01, 0x32, 0xFF, 0x5B, 0x0B, 0x7E]
+    notes: "Packet 00 08 00 01 + CRC 32 ff 5b 0b. The vendor app's diagnostic activity screens send it on cancel; its drills use the end commands instead."
+    response:
+      prefix: "80 08"
+      format:
+        - {offset: 4, length: 2, name: "error", type: "uint16", endianness: "big", values: {0: "no error", 12: "activity not running"}}
+      notes: "12-byte packet expected (a reply with no payload carries 2 zero bytes after the error); the app does not check the length."
+      verification: "reported"
+    verification: "reported"
+  start_dribbling_drill:
+    description: "Start a dribbling activity exactly as the vendor app's drills do: 10 minutes, a record every 200 ms."
+    transport: "rfcomm"
+    value: [0x7E, 0x01, 0x20, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x09, 0x27, 0xC0, 0x00, 0x00, 0x00, 0xC8, 0x00, 0x00, 0x00, 0x05, 0xFD, 0xB1, 0x07, 0x9D, 0x7E]
+    notes: >
+      Opcode 0x0120. Payload: user id 0, start time 0 (the app always sends
+      zeros), padding, notify method 0 (time-limited, time-triggered),
+      activity limit 600000 ms, notify interval 200 ms, DSP algorithm 0,
+      dribble window 5. Records then arrive as dribbling_record frames.
+      Other limits and intervals are protocol_details.parameterised_requests.start_activity.
+    response:
+      prefix: "81 20"
+      format:
+        - {offset: 4, length: 2, name: "error", type: "uint16", endianness: "big", values: {0: "no error", 2: "system busy", 8: "low battery", 9: "invalid state"}}
+        - {offset: 8, length: 4, name: "activity_id", type: "uint32", endianness: "big", notes: "Opaque handle; every record of the activity carries it."}
+      notes: "16-byte packet (12 + CRC). Bytes 6-7 are zero padding."
+      verification: "reported"
+    verification: "reported"
+  end_dribbling_activity:
+    description: "End the running dribbling activity."
+    transport: "rfcomm"
+    value: [0x7E, 0x02, 0x20, 0x00, 0x01, 0xBB, 0x35, 0x87, 0x0A, 0x7E]
+    notes: "Packet 02 20 00 01 + CRC bb 35 87 0a (opcode 0x0220)."
+    response:
+      prefix: "82 20"
+      format:
+        - {offset: 4, length: 2, name: "error", type: "uint16", endianness: "big", values: {0: "no error", 12: "activity not running"}}
+        - {offset: 6, length: 2, name: "highest_record_id", type: "uint16", endianness: "big", notes: "Last record id the activity produced; the stored-record fetch takes ids up to it."}
+      notes: "12-byte packet (8 + CRC)."
+      verification: "reported"
+    verification: "reported"
+  start_shooting_drill_pass:
+    description: "Start a 20-shot shooting activity with a chest pass to the shooter, at 15 ft, for a 70 in player: the vendor app's skill-training default."
+    transport: "rfcomm"
+    value: [0x7E, 0x01, 0x21, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00, 0x14, 0x00, 0x00, 0x00, 0x01, 0x00, 0x46, 0x00, 0xB4, 0x00, 0x01, 0x00, 0x00, 0x9D, 0x68, 0xC5, 0xE9, 0x7E]
+    notes: >
+      Opcode 0x0121. Payload: user id 0, start time 0, padding, notify method
+      3 (event-limited, event-triggered), activity limit 20 shots, notify
+      every 1 shot, player height 70 in, shot distance 180 in (15 ft),
+      shooting algorithm 1 (with a pass), padding. One shooting_record per
+      shot follows; the 21st frame has is_last set. The user guide: for the
+      ball to recognise the shot it must be a chest pass to the shooter.
+    response:
+      prefix: "81 21"
+      timeout_ms: 2500
+      format:
+        - {offset: 4, length: 2, name: "error", type: "uint16", endianness: "big", values: {0: "no error", 2: "system busy", 8: "low battery", 9: "invalid state"}}
+        - {offset: 8, length: 4, name: "activity_id", type: "uint32", endianness: "big", notes: "Opaque handle; every record of the activity carries it."}
+      notes: "16-byte packet (12 + CRC). Bytes 6-7 are zero padding."
+      verification: "reported"
+    verification: "reported"
+  start_shooting_drill_solo:
+    description: "Start a 20-shot solo shooting activity (spin the ball up, catch, shoot) at 15 ft for a 70 in player."
+    transport: "rfcomm"
+    value: [0x7E, 0x01, 0x21, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00, 0x14, 0x00, 0x00, 0x00, 0x01, 0x00, 0x46, 0x00, 0xB4, 0x00, 0x02, 0x00, 0x00, 0x9F, 0x01, 0x30, 0x60, 0x7E]
+    notes: >
+      Same as start_shooting_drill_pass with shooting algorithm 2 (solo). The
+      user guide's solo tip: spin the ball into the air, catch it and shoot,
+      without letting it hit the ground first.
+    response:
+      prefix: "81 21"
+      timeout_ms: 2500
+      format:
+        - {offset: 4, length: 2, name: "error", type: "uint16", endianness: "big", values: {0: "no error", 2: "system busy", 8: "low battery", 9: "invalid state"}}
+        - {offset: 8, length: 4, name: "activity_id", type: "uint32", endianness: "big", notes: "Opaque handle; every record of the activity carries it."}
+      notes: "16-byte packet (12 + CRC). Bytes 6-7 are zero padding."
+      verification: "reported"
+    verification: "reported"
+  end_shooting_activity:
+    description: "End the running shooting activity."
+    transport: "rfcomm"
+    value: [0x7E, 0x02, 0x21, 0x00, 0x01, 0xBA, 0xED, 0x2B, 0x8D, 0x7E]
+    notes: "Packet 02 21 00 01 + CRC ba ed 2b 8d (opcode 0x0221)."
+    response:
+      prefix: "82 21"
+      format:
+        - {offset: 4, length: 2, name: "error", type: "uint16", endianness: "big", values: {0: "no error", 12: "activity not running"}}
+        - {offset: 6, length: 2, name: "highest_record_id", type: "uint16", endianness: "big", notes: "Last record id the activity produced."}
+      notes: "12-byte packet (8 + CRC)."
+      verification: "reported"
+    verification: "reported"
+  power_off:
+    description: "Turn the ball off (it sleeps until bounced again). The vendor app sends this when it disconnects."
+    transport: "rfcomm"
+    value: [0x7E, 0x00, 0x04, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0xE6, 0x6A, 0x9E, 0xD8, 0x7E]
+    notes: "Opcode 0x0004 power control, mode 0 (off), delay 0 ms. Packet 00 04 00 01 00 00 00 00 + CRC e6 6a 9e d8."
+    response:
+      prefix: "80 04"
+      expected: "unknown"
+      notes: >
+        0x8004 is defined, but the vendor app tears its side of the link
+        down right after sending and never waits for it. Whether it arrives
+        before the ball drops the link is unknown; expect a 12-byte packet or
+        a closed socket.
+      verification: "reported"
+    verification: "reported"
+  power_reset:
+    description: "Reboot the ball. The link drops."
+    transport: "rfcomm"
+    value: [0x7E, 0x00, 0x04, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0xE7, 0xB2, 0x32, 0x5F, 0x7E]
+    notes: "Power-control mode 1, delay 0 ms. Packet 00 04 00 01 00 01 00 00 + CRC e7 b2 32 5f. The vendor app sends it after a firmware update. Not a factory reset."
+    response:
+      prefix: "80 04"
+      expected: "unknown"
+      notes: "As power_off: the app does not wait for 0x8004."
+      verification: "reported"
+    verification: "reported"
+  power_disconnect:
+    description: "Ask the ball to drop the Bluetooth link and stay awake."
+    transport: "rfcomm"
+    value: [0x7E, 0x00, 0x04, 0x00, 0x01, 0x00, 0x03, 0x00, 0x00, 0xE4, 0x03, 0x6B, 0x51, 0x7E]
+    notes: "Power-control mode 3, delay 0 ms. Packet 00 04 00 01 00 03 00 00 + CRC e4 03 6b 51. The vendor app sends it to the current ball before connecting to another."
+    response:
+      prefix: "80 04"
+      expected: "unknown"
+      notes: "As power_off: the app does not wait for 0x8004."
+      verification: "reported"
+    verification: "reported"
+  power_travel_mode:
+    description: "Travel Mode: radio off and the ball locked until it sits on its charging pad."
+    transport: "rfcomm"
+    value: [0x7E, 0x00, 0x04, 0x00, 0x01, 0x00, 0x02, 0x00, 0x00, 0xE5, 0xDB, 0xC7, 0xD6, 0x7E]
+    advanced: true
+    advanced_reason: >
+      Locks the ball with its radio off. Bouncing will not wake it; only a few
+      seconds on its Qi charging pad does, so without the pad the ball stays
+      unusable. Have the pad at hand before sending.
+    notes: "Power-control mode 2 ('airplane' in the app, Travel Mode in the user guide), delay 0 ms. Packet 00 04 00 01 00 02 00 00 + CRC e5 db c7 d6. Sent from the app's ball settings."
+    response:
+      prefix: "80 04"
+      expected: "unknown"
+      notes: "As power_off: the app does not wait for 0x8004."
+      verification: "reported"
+    verification: "reported"
+  power_disable_bluetooth:
+    description: "Turn the ball's Bluetooth off."
+    transport: "rfcomm"
+    value: [0x7E, 0x00, 0x04, 0x00, 0x01, 0x00, 0x04, 0x00, 0x00, 0xE1, 0x08, 0x2C, 0xC4, 0x7E]
+    advanced: true
+    advanced_reason: >
+      Switches the radio off. The vendor app uses it only in its factory
+      validator, and how the ball comes back (bounce, pad or timeout) is not
+      established; the pad is the likely way out, as for Travel Mode.
+    notes: "Power-control mode 4, delay 0 ms. Packet 00 04 00 01 00 04 00 00 + CRC e1 08 2c c4."
+    response:
+      prefix: "80 04"
+      expected: "unknown"
+      notes: "As power_off: the app does not wait for 0x8004."
+      verification: "reported"
+    verification: "reported"
+
+features:
+  - type: "firmware_update"
+    dfu:
+      mechanisms: ["vendor_serial"]
+      transport: "rfcomm"
+      image:
+        signing: "unknown"
+        algorithm: "unknown"
+        source: "bundled_in_app"
+        format: "Raw binary image for the ball's 16-bit MCU, about 150-250 kB, one per hardware revision and release type; sent verbatim."
+        notes: >
+          The app ships its images as assets and picks one by the
+          hardware_revision and release_type get_system_info reports: hw1 OEM
+          0.73, hw2 OEM 0.130 and hw2 manufacture 0.106 are the newest, with
+          older builds and a deliberately corrupted image kept for its
+          factory validator. The ball has an "image corrupted" error code
+          (5), so it checks something; whether that is a signature or only an
+          integrity check is not established. Image contents are out of scope
+          here.
+      enter:
+        how: "in_place"
+        notes: >
+          No bootloader-entry command: the running firmware takes segments
+          directly. The two DFU opcodes are described by role only, in
+          protocol_details.advanced_opcodes, and are deliberately not declared
+          as commands.
+      recovery:
+        interrupted: "unknown"
+        notes: >
+          The app reports a timeout (2 s per segment) or an error and stops;
+          it has no resume path. What an interrupted update leaves on the ball
+          is not established.
+      verification: "reported"
+      notes: >
+        Role of the exchange, from the vendor app: a firmware-segment request (opcode
+        0x0002) carries a sequence number counting from 0, a segment length
+        and up to 1012 image bytes, one per request with incrementing tokens;
+        the ball answers 0x8002, and "system busy" means send the same segment
+        again after 50 ms. The vendor app flashes without asking whenever the
+        ball's version differs from its bundled image, downgrades included
+        (protocol_details.vendor_app_behaviour.firmware_policy). After the last segment, a firmware-finalize request (0x0003)
+        commits; 0x8003 with no error is success. The app then reboots the
+        ball with power_reset. Flashing byte sequences are intentionally not
+        given here.
+
+entities:
+  - platform: "sensor"
+    name: "Battery Voltage"
+    device_class: "voltage"
+    unit: "mV"
+    state_command: "get_status"
+    state_field: "get_status.battery_voltage"
+    notes: "Cell voltage. The vendor app's percentage curve is protocol_details.battery_percentage."
+  - platform: "sensor"
+    name: "Shot Arc"
+    unit: "°"
+    precision: 0.1
+    state_field: "shooting_record.shot_arc"
+    notes: "Live, one value per shot while a shooting activity runs. Ignore a frame whose is_last is set."
+  - platform: "sensor"
+    name: "Shot Backspin"
+    unit: "rpm"
+    precision: 1.0
+    state_field: "shooting_record.shot_spin"
+    notes: "Live, per shot. The app's rpm scaling (raw / 24.6) is its display rule; the sign convention is not established."
+  - platform: "sensor"
+    name: "Shot Release Time"
+    unit: "s"
+    precision: 0.01
+    state_field: "shooting_record.release_time"
+    notes: "Live, per shot."
+  - platform: "sensor"
+    name: "Last Shot Result"
+    state_field: "shooting_record.shot_made"
+    notes: "Negative missed, zero undetermined, positive made. Without the SmartNet accessory most shots are expected to read undetermined."
+  - platform: "sensor"
+    name: "Total Dribbles"
+    precision: 1.0
+    state_field: "dribbling_record.total_dribbles"
+    notes: "Live, every notification interval while a dribbling activity runs."
+  - platform: "sensor"
+    name: "Consecutive Dribbles"
+    precision: 1.0
+    state_field: "dribbling_record.consecutive_dribbles"
+  - platform: "sensor"
+    name: "Dribble Intensity"
+    unit: "m/s²"
+    precision: 0.1
+    state_field: "dribbling_record.dribble_intensity"
+    notes: "Moving average. The vendor app shows it in G (raw / 1024)."
+  - platform: "button"
+    name: "Start Dribbling Drill"
+    commands:
+      press: "start_dribbling_drill"
+  - platform: "button"
+    name: "End Dribbling Drill"
+    commands:
+      press: "end_dribbling_activity"
+  - platform: "button"
+    name: "Start Shooting Drill (with pass)"
+    commands:
+      press: "start_shooting_drill_pass"
+  - platform: "button"
+    name: "Start Shooting Drill (solo)"
+    commands:
+      press: "start_shooting_drill_solo"
+  - platform: "button"
+    name: "End Shooting Drill"
+    commands:
+      press: "end_shooting_activity"
+  - platform: "button"
+    name: "Abort Activity"
+    commands:
+      press: "abort_activity"
+  - platform: "button"
+    name: "Power Off"
+    commands:
+      press: "power_off"
+  - platform: "button"
+    name: "Reboot"
+    commands:
+      press: "power_reset"
+
+protocol_details:
+  framing:
+    wire: "7e <packet with 7d and 7e escaped> 7e"
+    escape: "A packet byte 0x7d or 0x7e is sent as 0x7d followed by (byte XOR 0x20): 7d -> 7d 5d, 7e -> 7d 5e. No other byte is escaped."
+    request_packet: "type u16 BE | token u16 BE | payload | crc u32 BE"
+    reply_packet: "type u16 BE (request type | 0x8000) | token u16 BE (echoed) | error u16 BE | payload | crc u32 BE"
+    alignment: >
+      The whole packet, CRC included, is a multiple of 4 bytes, so a request
+      payload is a multiple of 4 and a reply payload is 2 more than a
+      multiple of 4. Most reply payloads therefore start with 2 zero bytes of
+      padding at offset 6. A reply with a non-zero error carries a 2-byte
+      zero payload: 12 bytes in all.
+    crc:
+      name: "CRC-32/BZIP2"
+      width: 32
+      polynomial: "0x04c11db7"
+      init: "0xffffffff"
+      reflect_in: false
+      reflect_out: false
+      xor_out: "0xffffffff"
+      check_ascii_123456789: "0xfc891918"
+      covers: "Every packet byte before the CRC, on the de-stuffed packet."
+      byte_order: "big-endian on the wire"
+      notes: "Table-driven, MSB first. Not the reflected zlib/Ethernet CRC-32, which gives 0xcbf43926 on the same check string."
+    receive: >
+      Split on 0x7e. Undo escapes. Drop empty frames. Drop a frame on 0x7d
+      followed by 0x7d or 0x7e, on more than 2048 buffered bytes, on a length
+      under 8 or not a multiple of 4, or on a CRC mismatch. Unknown types are
+      dropped silently by the vendor app.
+    verification: "reported"
+  tokens: >
+    The requester picks a 16-bit token and the reply echoes it. Token 0 is
+    reserved for unsolicited frames (live dribbling and shooting records,
+    stream data). The vendor app uses 1 for its opening get_system_info and
+    otherwise the low 15 bits of the current time in ms, never 0; its
+    firmware updater counts up from 1. This spec's fixed commands all use
+    0x0001, which is harmless because replies are also distinguished by type.
+  session:
+    - "Open the insecure RFCOMM socket to 32e5fcfc-52ee-41b0-827a-f18929716fef."
+    - "Send get_system_info (token 1). Wait up to 5000 ms for type 0x8001; nothing else is sent before it."
+    - "Use the protocol, bootloader and firmware versions and hardware revision it reports; the vendor app offers a firmware update when its bundled image for that revision is newer."
+    - "Run requests; each has its own timeout (1000 ms by default)."
+    - "To finish, send power_off (the vendor app's disconnect) or power_disconnect, or just close the socket."
+  opcodes:
+    description: >
+      Every request type the protocol library defines, with its reply. u16
+      values; replies are request | 0x8000. The declared commands cover the
+      fixed ones; parameterised ones are in parameterised_requests; the rest
+      are in advanced_opcodes.
+    table:
+      "0x0001": {name: "system info", reply: "0x8001", declared: "get_system_info"}
+      "0x0002": {name: "firmware segment", reply: "0x8002", see: "advanced_opcodes"}
+      "0x0003": {name: "firmware finalize", reply: "0x8003", see: "advanced_opcodes"}
+      "0x0004": {name: "power control", reply: "0x8004", declared: "power_off, power_reset, power_disconnect, power_travel_mode, power_disable_bluetooth", payload: "mode u16 (0 off, 1 reset, 2 travel/airplane, 3 disconnect, 4 Bluetooth off) | delay u16 ms before acting"}
+      "0x0005": {name: "status", reply: "0x8005", declared: "get_status"}
+      "0x0006": {name: "get clock", reply: "0x8006", declared: "get_rtc"}
+      "0x0007": {name: "set clock", reply: "0x8007", see: "parameterised_requests.set_rtc"}
+      "0x0008": {name: "abort", reply: "0x8008", declared: "abort_activity"}
+      "0x0009": {name: "start bandwidth test", reply: "0x8009", see: "advanced_opcodes"}
+      "0x000a": {name: "end bandwidth test", reply: "0x800a", see: "advanced_opcodes"}
+      "0x000b": {name: "get ball name", reply: "0x800b", declared: "get_ball_name"}
+      "0x000c": {name: "set ball name", reply: "0x800c", see: "parameterised_requests.set_ball_name"}
+      "0x000d": {name: "hardware self-test", reply: "0x800d", declared: "get_hardware_diag"}
+      "0x0055": {name: "echo (dummy payload)", reply: "0x8055", see: "advanced_opcodes"}
+      "0x0101": {name: "start raw stream", reply: "0x8101", data: "0x8301", see: "streams"}
+      "0x0102": {name: "start orientation stream", reply: "0x8102", data: "0x8302", see: "streams"}
+      "0x0120": {name: "start dribbling activity", reply: "0x8120", data: "0x8320", declared: "start_dribbling_drill", see: "parameterised_requests.start_activity"}
+      "0x0121": {name: "start shooting activity", reply: "0x8121", data: "0x8321", declared: "start_shooting_drill_pass, start_shooting_drill_solo", see: "parameterised_requests.start_activity"}
+      "0x0201": {name: "end raw stream", reply: "0x8201", see: "streams"}
+      "0x0202": {name: "end orientation stream", reply: "0x8202", see: "streams"}
+      "0x0220": {name: "end dribbling activity", reply: "0x8220", declared: "end_dribbling_activity"}
+      "0x0221": {name: "end shooting activity", reply: "0x8221", declared: "end_shooting_activity"}
+      "0x0320": {name: "get stored dribbling record", reply: "0x8320", see: "parameterised_requests.get_stored_record"}
+      "0x0321": {name: "get stored shooting record", reply: "0x8321", see: "parameterised_requests.get_stored_record"}
+      "0x0401-0x0406": {name: "factory and FCC test modes", see: "advanced_opcodes"}
+      "0x8080": {name: "bandwidth test data", direction: "ball to phone", see: "advanced_opcodes"}
+    not_defined: >
+      There is no opcode 0x0200 (512). Earlier notes on this ball listed 512
+      as the raw-stream start; the app's type table has start raw stream at
+      0x0101 (257), end raw stream at 0x0201 (513) and end orientation stream
+      at 0x0202 (514). The pattern: starts 0x01xx, ends 0x02xx, data frames
+      0x83xx, stored-record fetches 0x03xx, test modes 0x04xx.
+    verification: "reported"
+  error_codes:
+    0: "no error"
+    1: "unknown packet type"
+    2: "system busy (retry)"
+    3: "in progress (the firmware updater treats it as success)"
+    4: "firmware segment out of sequence"
+    5: "firmware image corrupted"
+    6: "invalid packet size"
+    7: "invalid packet field"
+    8: "low battery"
+    9: "invalid state"
+    10: "invalid activity id"
+    11: "invalid record id"
+    12: "activity not running"
+    13: "scoring engine failed"
+    14: "out of resources"
+    65535: "unspecified failure (also what the app maps any unlisted value to)"
+  parameterised_requests:
+    description: >
+      Requests that take a caller value. Each needs its CRC-32/BZIP2 computed
+      and its packet byte-stuffed, which the schema's command encoder cannot
+      do yet, so they are not in `commands`. Layouts are of the de-stuffed
+      packet; every integer is big-endian. Worked frames use token 0x1234 and
+      are computed, not captured.
+    set_rtc:
+      opcode: "0x0007"
+      packet: "00 07 | token u16 | utc_seconds u32 | crc u32 (12 bytes)"
+      utc_seconds: "Seconds since 1970-01-01T00:00:00Z, u32 big-endian. The vendor app sends the phone's current time."
+      reply: "0x8007, 12 bytes, error only."
+      example: {meaning: "2026-01-01T00:00:00Z (1767225600), token 0x1234", wire: "7e 00 07 12 34 69 55 b9 00 c7 85 c9 90 7e"}
+    set_ball_name:
+      opcode: "0x000c"
+      packet: "00 0c | token u16 | name 48 bytes | crc u32 (56 bytes)"
+      name: "UTF-8, NUL-padded to 48 bytes; a 48-byte name has no terminator. The Android app never sends this; its own rename UI allowed 1-20 ASCII characters and kept the name off the ball."
+      reply: "0x800c, 12 bytes, error only."
+      example: {meaning: "name 'Court 1', token 0x1234", wire: "7e 00 0c 12 34 43 6f 75 72 74 20 31 (41 x 00) c8 e1 b3 73 7e"}
+    get_stored_record:
+      opcodes: {dribbling: "0x0320", shooting: "0x0321"}
+      packet: "03 2x | token u16 | activity_id u32 | record_id u16 | 00 00 | crc u32 (16 bytes)"
+      reply: "A dribbling_record (0x8320) or shooting_record (0x8321) frame carrying the request's token; errors 10 (invalid activity id) and 11 (invalid record id) are defined."
+      notes: "The vendor app v1.4 never sends these: it uses only the live records. Whether a ball keeps records after the activity ends, or across a power cycle, is not established."
+      example: {meaning: "shooting record 0 of activity 1, token 0x1234", wire: "7e 03 21 12 34 00 00 00 01 00 00 00 00 c8 7b e0 2d 7e"}
+    start_activity:
+      opcodes: {dribbling: "0x0120", shooting: "0x0121", raw_stream: "0x0101", orientation_stream: "0x0102"}
+      common_payload: "user_id u32 | start_time u32 | 00 00 | notify_method u16 | activity_limit u32 | notify_interval u32 (20 bytes)"
+      user_id: "Always 0 from the vendor app."
+      start_time: "Always 0 from the vendor app."
+      notify_method: "Bit 0: the limit counts events (1) or milliseconds (0). Bit 1: a record is sent every notify_interval events (1) or milliseconds (0). 0 = time/time, 3 = event/event."
+      activity_limit: "Milliseconds (bit 0 clear) or events (bit 0 set). Minimum 100 ms or 1 event per the protocol library."
+      notify_interval: "Milliseconds (bit 1 clear) or events (bit 1 set). Minimum 100 ms or 1 event."
+      dribbling_extra: "dsp_algorithm u16 (0 from the app) | dribble_window u16 (5 from the app). Payload 24 bytes, packet 32."
+      shooting_extra: "player_height u16 in inches (the app sends the player's height, 70 if unknown) | shot_distance u16 in inches (165 free throw, 180 for 15 ft and shoot-around, 216 for 18 ft, 240 for 20 ft, 276 for 23 ft) | shooting_algorithm u16 (1 with a pass, 2 solo; the protocol library also names 1 'with magnetometer' and 2 'without magnetometer', and 3 and up are debug values) | 00 00. Payload 28 bytes, packet 36."
+      vendor_presets:
+        dribbling_drill: "notify_method 0, limit 600000 ms, interval 200 ms, algorithm 0, window 5 (start_dribbling_drill)"
+        dribbling_self_test: "notify_method 0, limit 3000 ms, interval 200 ms, window 5 (factory validator)"
+        shooting_drill: "notify_method 3, limit N shots (20 by default), interval 1 shot (start_shooting_drill_*)"
+      reply: "0x8120 or 0x8121: error, 00 00, activity_id u32 (16 bytes)."
+  streams:
+    description: >
+      Diagnostic data streams. Not bound to any entity: the vendor app treats
+      the data as opaque and only saves it to a file.
+    raw_stream: "Start 0x0101 with the common start payload, notify_method 2, activity_limit = duration in ms, notify_interval 1. Data frames 0x8301 (1344 bytes, 1324 sample bytes each; see bluetooth_classic.serial.unsolicited raw_data). End with 0x0201; the reply 0x8201 carries the notification count u16 at offset 6."
+    orientation_stream: "Start 0x0102, notify_method 2, activity_limit in ms, notify_interval in events (the app's validator uses 4000 ms and 5). Data frames 0x8302 (28 bytes, 8 data bytes). End with 0x0202; reply 0x8202 carries the notification count u16 at offset 6."
+    start_reply: "0x8101 / 0x8102 with an error code; the app does not check the payload length (its own encoder writes 6 zero bytes, a 16-byte packet)."
+  battery_percentage:
+    description: "The vendor app's gauge, from the status battery_voltage v in mV. Presentation only; clamp the result to 1-100."
+    formula: >
+      t = 40 if v >= 4000; (4071.9 - v) / 1.9131 if v > 3900; (3982.2 - v) /
+      1.0776 if v > 3550; else (13394 - v) / 26.018. percent = floor((1 -
+      (t - 40) / 360) * 100).
+    indicator: "The app's ball-battery icon is green above 30 %, yellow above 15 %, red at 15 % or below. Its factory validator fails a ball at 10 % or below."
+  control_percentage:
+    description: "How the vendor app turns a dribbling_record into its ball-control percentage (presentation only)."
+    formula: >
+      If 10 * samples_to_buffer_end - 10 * samples_to_last_dribble < 2 *
+      average_dribble_speed, control = ceil(100 * samples_in_control /
+      (samples_to_last_dribble - samples_to_first_dribble)); otherwise ceil(100
+      * samples_in_control / (samples_to_buffer_end - samples_to_first_dribble)).
+      A zero denominator gives 0. Clamp to 0-100.
+  advanced_opcodes:
+    firmware_segment:
+      opcode: "0x0002"
+      role: "Carries one chunk of a firmware image (sequence number, length, up to 1012 bytes). Writes flash on the running ball."
+      advanced: true
+      advanced_reason: "Replaces the ball's firmware; a wrong or interrupted image may leave it unable to boot, and nothing here documents recovery."
+    firmware_finalize:
+      opcode: "0x0003"
+      role: "Commits the uploaded image."
+      advanced: true
+      advanced_reason: "Commits whatever was uploaded as the ball's firmware; same risk as firmware_segment."
+    factory_test_modes:
+      opcodes: "0x0401 FCC test mode (modulation, test pattern, channel, power), 0x0402 RF signalling test, 0x0403 set maximum output power, 0x0404 FCC TX/RX mode, 0x0405 BLE directed-advertising test, 0x0406 BLE undirected-advertising test"
+      role: "Radio certification and production-line tests. Payloads intentionally not given."
+      advanced: true
+      advanced_reason: "Puts the radio into a regulatory test mode (continuous carriers, fixed channels, raised output power) that leaves normal operation and may transmit outside what the grant allows; the way back is not documented."
+    bandwidth_test:
+      opcodes: "0x0009 start, 0x000a end (the app waits up to 15 s for its reply), 0x8080 data frames of up to 2036 bytes"
+      role: "Throughput test that floods the link with dummy data."
+      advanced: true
+      advanced_reason: "Floods the RFCOMM link; a client that is not draining it will stall."
+    dummy_echo:
+      opcode: "0x0055"
+      role: "Loopback of up to 1260 bytes, reply 0x8055. Defined by the protocol library but never sent by the app; whether the firmware answers it, and the reply's padding, are unknown."
+  vendor_app_behaviour:
+    offline_use: >
+      The app's login screen offers a guest ("Just visiting") path that is
+      entirely local, so drills work without the dead server once the ball
+      connects. Typing the word diag into the sign-in screen's email field
+      opens the diagnostic screen (connect, status, clock, streams,
+      activities, firmware) without an account.
+    validators: >
+      The device-validator screens are production-line tools, not an
+      authenticity check. They open from the diagnostic screen's device-test
+      list, or at launch when the app's mode is set to factory in the
+      diagnostic settings. They never run in the consumer flow. They exercise
+      the battery, streams, a dribbling activity, the hardware self-test,
+      firmware and the power modes, and post their results to the dead
+      server. Nothing gates normal use on them.
+    firmware_policy: >
+      By default the app compares the ball's firmware with the one OEM image
+      it bundles for that hardware revision (hw1 0.73, hw2 0.130) and, if the
+      two differ in EITHER direction, goes straight from its ball-connection
+      screen into flashing that image, with no prompt. A ball carrying newer
+      firmware than the bundled image is therefore downgraded the first time
+      the Android app v1.4 connects to it. A ball reporting firmware major 72
+      is exempt. The diagnostic screen's settings page has a
+      firmware-validation-mode selector with four choices: fixed version (the
+      default, as above), upgrade only, downgrade only and disabled. The
+      release build exposes it, and it is reachable without an account
+      (offline_use). Set it to disabled or upgrade only BEFORE letting the app
+      connect to a ball whose firmware should be kept.
+    unused_opcodes: "The app never sends get or set ball name, the echo (0x0055) or the stored-record fetches, although its protocol library can encode all of them."
+    rename: "Renaming a ball in the app changes only the app's own record (and its cloud copy) and requires 1-20 ASCII characters; nothing is written to the ball."
+    reconnect: "Before connecting to a ball the app sends power-control disconnect to whichever ball it had; on disconnect it sends power-control off, so the ball sleeps and has to be bounced again. When the link comes back in the middle of a drill it sends get_status and starts a new activity if the ball reports idle in the state word's low byte (activity_state_low 0 or an unlisted value); it never resumes the old activity id."
+    reader_defect: >
+      As decompiled, the app's frame reader recognises a closing 0x7e but the
+      recovered code does not hand the frame on; this is most likely a
+      decompiler artefact rather than an app bug, since the app evidently
+      worked. Noted so nobody copies the reader verbatim.
+  entity_coverage: >
+    Not bound to any entity, and why. Setting the clock and the stored name,
+    fetching stored records and custom activity starts need a CRC the encoder
+    cannot compute (parameterised_requests). The raw and orientation streams
+    are opaque. Travel Mode and Bluetooth-off are advanced and left unbound.
+    Live records ARE bound, through `state_field` on
+    bluetooth_classic.serial.unsolicited.
+  test_vectors:
+    description: >
+      Computed from the vendor app's encoders and checked against an
+      independent standard-library transcription of the framing. None is a
+      capture.
+    crc32_bzip2:
+      - {input_ascii: "123456789", crc: "0xfc891918"}
+      - {input_hex: "00 01 00 01", crc: "0x3de293b4", meaning: "get_system_info packet, token 1"}
+    frames:
+      - {hex: "7e 00 01 00 01 3d e2 93 b4 7e", meaning: "get_system_info, token 1"}
+      - {hex: "7e 00 05 00 7d 5e e2 7b 81 f2 7e", meaning: "get_status with token 0x007e: the token's 7e is escaped as 7d 5e"}
+      - {hex: "7e 00 05 00 0b 15 0a f7 7d 5e 7e", meaning: "get_status with token 0x000b: the CRC's last byte 7e is escaped"}
+      - {hex: "7e 00 07 12 34 69 55 b9 00 c7 85 c9 90 7e", meaning: "set_rtc 2026-01-01T00:00:00Z, token 0x1234"}
+      - {hex: "7e 03 21 12 34 00 00 00 01 00 00 00 00 c8 7b e0 2d 7e", meaning: "fetch shooting record 0 of activity 1, token 0x1234"}
+      - {hex: "7e 80 05 00 01 00 00 00 00 00 00 0f 3c 00 00 00 00 00 00 00 00 1c 5e 47 2d 7e", meaning: "status reply: idle, 3900 mV"}
+      - {hex: "7e 80 01 00 01 00 00 00 00 00 01 00 01 00 01 00 82 00 00 00 02 00 00 30 39 99 fc 9b 62 7e", meaning: "system info reply: OEM, protocol 0.1, bootloader 0.1, firmware 0.130, hw2, serial 12345 (invented)"}
+      - {hex: "7e 83 21 00 00 00 00 00 00 00 00 00 07 00 03 00 00 00 00 04 b0 00 00 15 18 00 00 17 70 00 01 00 00 00 00 14 b4 00 00 15 0e 02 8a 02 bc 20 00 1f 4a 0e 6a 0d ac 00 54 00 00 00 b4 00 00 5c e2 f5 08 7e", meaning: "live shooting record (invented values): activity 7, record 3, made, release 0.650 s, arc 45.0 degrees, spin 150 rpm, distance 180"}
+      - {hex: "7e 83 20 00 00 00 00 00 00 00 00 00 07 00 0c 00 00 00 00 00 64 00 00 0b 54 00 00 0b b8 00 00 09 c4 00 00 00 78 00 3c 00 28 00 23 00 fa 08 00 07 6c 00 01 00 00 39 10 ce 66 7e", meaning: "live dribbling record (invented values): activity 7, record 12, 12 dribbles, streak 4, intensity 2.0 G"}
+  schema_gap: >
+    Proposed for docs/contributing/spec-evolution.md: an `auto: crc32_bzip2`
+    parameter role (CRC-32/BZIP2, big-endian u32) and a byte-stuffing framing
+    scheme for byte streams (`hdlc_7e`: 0x7e flags, 0x7d escape XOR 0x20).
+    With both, every request in parameterised_requests becomes a `template`
+    command and the fixed frames here could drop their precomputed CRCs.
+
+evidence:
+  artifacts:
+    - type: "static_analysis"
+      artifact: "94Fifty Basketball for Android, package com.spectrumdt.ist, version 1.4 (December 2014)"
+      obtained_via: "third-party APK mirror, 2026-09; delisted everywhere else"
+      description: >
+        Decompiled Java, protocol layer unobfuscated. Established the insecure
+        RFCOMM socket to the vendor SDP UUID, the BLE-scan and Classic-inquiry
+        discovery paths, the 0x7e framing and escaping, the CRC-32/BZIP2
+        parameters, every packet layout and opcode, the reply-token rule, the
+        connect handshake and timeouts, the drill presets, the display
+        scalings (arc, spin, release time, intensity, dribble counts), the
+        battery curve, the firmware-update exchange and the app's offline and
+        diagnostic paths. Negative findings: no pairing or crypto in the app
+        (the only AES is inside a bundled Google library), no use of the ball
+        name opcodes, the echo opcode or the stored-record fetches, and the
+        device-validator screens never run in the consumer flow.
+    - type: "fcc_filing"
+      artifact: "FCC ID 2AARZ-TBBX001, InfoMotion Sports Technologies Inc., granted 2013-09-30 (DTS, 2402-2480 MHz, 1.38 mW conducted)"
+      url: "https://fccid.co/fcc/2AARZ-TBBX001"
+      description: >
+        The test report describes a Bluetooth 4.0 radio, GFSK, on 40 channels
+        at 2 MHz spacing (the LE channel plan; the report nonetheless labels it
+        FHSS with adaptive hopping), 1.38 mW conducted into a -0.5 dBi
+        antenna, and the grant is DTS only. A
+        BR/EDR transmitter would normally carry a separate 79-channel
+        frequency-hopping grant, and none is filed under this grantee code,
+        although the Android app can only have reached the ball over BR/EDR
+        (RFCOMM does not run over LE). The app's own radio test-mode requests
+        do include BR/EDR modes (EDR modulations, frequency hopping, ACL
+        packet types up to 3-DH5), so the radio is BR/EDR-capable whatever the
+        filing says. The internal photos show the sensor puck, a
+        3.7 V 240 mAh lithium-polymer cell, a chip antenna and the Qi receive
+        coil. Chip markings are not legible. The grantee holds no other grant,
+        so the SmartNet and charging pad have none under this code.
+    - type: "vendor_documentation"
+      artifact: "94Fifty Smart Sensor Basketball user guide (FCC user-manual exhibit)"
+      url: "https://fccid.co/api/files/s1/2aarz_tbbx001_usersmanual_2089328_be3eadb87f.pdf"
+      description: >
+        Activation from Travel Mode on the charging pad, the four-bounce wake,
+        auto-sleep, Travel Mode needing the pad to recover, charging (about 3 h
+        from empty), the chest-pass and solo shooting technique, and iOS
+        compatibility for Bluetooth 4.0 devices.
+  app_static_analysis: >
+    Everything under `commands`, `bluetooth_classic` and `protocol_details`
+    is what the vendor app sends and parses, not what a ball was seen to do.
+    No hardware, no captures and no screenshots were available, so every fact
+    is `reported`.
+  open_questions:
+    - >
+      Is the ball still usable without the dead backend? The Android app has
+      a local guest path and an account-free diagnostic screen, and nothing
+      in the ball's protocol refers to an account, so the answer looks like
+      yes; nobody has confirmed it on a device running the app today (it
+      targets Android 4-era APIs).
+    - >
+      The CRC parameters are read off the app's CRC routine (MSB-first table,
+      polynomial 0x04c11db7, seed 0xffffffff, final inversion) and checked by
+      transcription; a single captured frame would confirm them.
+    - >
+      Does the iOS app talk to the ball over BLE GATT? If so there is a second
+      control surface with a GATT table nobody has recorded.
+    - >
+      Units of launch_height and shot_distance in shot records, the raw unit
+      and sign of spin, and the sample rate behind every sample count.
+      Launch-era press quoted nine sensors and 6,000 data points per second in
+      total, which does not by itself give the per-sample rate the counters
+      use.
+    - >
+      Whether the ball keeps activity records for later fetch (opcodes
+      0x0320/0x0321), and for how long.
+    - >
+      Why the FCC grant covers only the LE (DTS, 40-channel) mode when the
+      Android app talks to the ball over BR/EDR RFCOMM, and the app's own
+      radio test modes include BR/EDR packet types. An inquiry scan or an HCI
+      snoop log of the app answers it at once; until then the BR/EDR side
+      rests entirely on the app's code.
+
+remaining_unknowns:
+  - "Everything, on hardware: no capture and no session exists. Each byte here comes from the vendor app's encoders and parsers."
+  - "The BLE advertised name, whether the BR/EDR address equals the BLE address, and the RFCOMM channel number."
+  - "The BLE GATT surface, if any, that the iOS app used."
+  - "How long the ball stays awake and connectable after the bounce, and whether it accepts a second connection."
+  - "Whether power-control replies arrive before the link drops, and exactly how power-control mode 4 (Bluetooth off) is undone."
+  - "Units of launch_height and shot_distance; the raw unit and sign of spin; the sample rate; whether average_consecutive_dribbles is in tenths."
+  - "The layouts of the raw-sensor and orientation stream data."
+  - "Whether the echo opcode (0x0055) is implemented by the firmware."
+  - "Whether stored activity records survive the activity's end or a power cycle."
+  - "Whether the ball verifies a signature on firmware images, and what an interrupted update leaves behind."
+  - "Whether any ball in the field runs firmware newer than the Android app's bundled images (an iOS build could have shipped one); the Android app would silently downgrade it."
+  - "Whether hw1 and hw2 differ in anything but the firmware image they take."
+  - "The exact MCU and Bluetooth part numbers; FCC photo markings are illegible. A TI CC256x-class controller beside a 16-bit host is hypothesised from the radio test-mode enumerations, not seen."
+
+helpful_urls:
+  - title: "94Fifty Smart Sensor Basketball user guide (PDF, FCC exhibit)"
+    url: "https://fccid.co/api/files/s1/2aarz_tbbx001_usersmanual_2089328_be3eadb87f.pdf"
+    kind: "manual"
+    description: >
+      The 13-page user guide for the 94Fifty Smart Sensor Basketball (FCC ID
+      2AARZ-TBBX001), as filed with the grant: activation from Travel Mode on
+      the charging pad, the four-bounce wake, charging, and troubleshooting.
+  - title: "FCC ID 2AARZ-TBBX001 grant and exhibits"
+    url: "https://fccid.co/fcc/2AARZ-TBBX001"
+    kind: "other"
+    description: "The ball's FCC grant (InfoMotion Sports Technologies, 2013) with its user guide, photos and test report."
+  - title: "FCC 2AARZ-TBBX001 test report (PDF)"
+    url: "https://fccid.co/api/files/s1/2aarz_tbbx001_testreport_2089326_7e539edeeb.pdf"
+    kind: "other"
+    description: "Radio test report: Bluetooth 4.0, GFSK, 40 channels, 2402-2480 MHz."
+  - title: "FCC 2AARZ-TBBX001 internal photos (PDF)"
+    url: "https://fccid.co/api/files/s1/2aarz_tbbx001_internalphotos_2089321_e4c3575cb8.pdf"
+    kind: "teardown"
+    description: "The sensor puck, its 240 mAh cell, chip antenna and Qi coil."
+  - title: "FCC 2AARZ-TBBX001 external photos (PDF)"
+    url: "https://fccid.co/api/files/s1/2aarz_tbbx001_externalphotos_2089320_10138157d9.pdf"
+    kind: "other"
+    description: "The ball as submitted for test (model TBBX001), for identifying a unit."
+  - title: "Design News: Smart Basketball Analyzes Shooting, Dribbling (2013, archived)"
+    url: "https://web.archive.org/web/20250125061603/https://www.designnews.com/gadget-freak/smart-basketball-analyzes-shooting-dribbling"
+    kind: "other"
+    description: >
+      Launch coverage: nine sensors (accelerometers, gyroscopes, a
+      magnetometer), an on-ball DSP doing the event recognition, a Bluetooth
+      system-on-chip and an inductive charging coil. Internet Archive replay;
+      the live page refuses non-browser clients.
+  - title: "Engineering.com: 94Fifty Basketball Uses Sensors to Measure Basketball Skills (2013)"
+    url: "https://web.archive.org/web/20250909111054/https://www.engineering.com/fire-the-coach-94fifty-basketball-uses-sensors-to-measure-basketball-skills/"
+    kind: "other"
+    description: "Launch-era press overview of the ball's in-ball sensors and the shooting and dribbling metrics it reports. Internet Archive replay; the live page refuses non-browser clients."
+  - title: "Maker of 'Smart' Basketball Files for Bankruptcy Protection (ABI)"
+    url: "https://www.abi.org/feed-item/maker-of-%E2%80%98smart%E2%80%99-basketball-files-for-bankruptcy-protection"
+    kind: "other"
+    description: "Summary of InfoMotion Sports Technologies' Chapter 11 filing, the reason the product is orphaned."
+  - title: "CRC RevEng catalogue: CRC-32/BZIP2"
+    url: "https://reveng.sourceforge.io/crc-catalogue/17plus.htm"
+    kind: "standard"
+    description: "Parameters and check value of CRC-32/BZIP2, the checksum on every frame."
+  - title: "TI CC256x vendor-specific HCI commands (archived TI wiki)"
+    url: "https://web.archive.org/web/20210114141655/https://processors.wiki.ti.com/index.php/CC256x_VS_HCI_Commands"
+    kind: "other"
+    description: >
+      TI's reference for the CC256x radio tester commands. Their modulation,
+      test-pattern and ACL packet-type tables match the ball's radio
+      test-mode requests value for value, which is the basis for the
+      CC256x-class controller hypothesis in device.notes. Internet Archive
+      replay of the retired TI processors wiki.
+  - title: "Android: Bluetooth verifying and debugging (HCI snoop log)"
+    url: "https://source.android.com/docs/core/connect/bluetooth/verifying_debugging"
+    kind: "other"
+    description: "How to capture the vendor app's RFCOMM traffic, which would confirm every reported byte here in one session."
+  - title: "Wireshark display filter reference: btrfcomm"
+    url: "https://www.wireshark.org/docs/dfref/b/btrfcomm.html"
+    kind: "other"
+    description: "The filter for reading the RFCOMM payloads out of an HCI snoop log."

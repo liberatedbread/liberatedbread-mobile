@@ -22,6 +22,7 @@ device:
       python-yeelight.
   protocol: "wifi"
   category: "light"
+  category_hierarchy: ["light", "led"]
   transport: "tcp"
   notes: >
     Yeelight's Wi-Fi smart lights (bulbs, light strips, ceiling lights, bedside

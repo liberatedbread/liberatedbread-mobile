@@ -19,6 +19,43 @@ Smart thermometer hub (CQ60) with wireless probes. Uses BLE for probe communicat
 | FCC ID | Hub: 2AC7Z-ESP32WROVERE (Espressif modular approval); probes: 2A2YP-CQ60QPROBE (earlier v1 grant 2A2YP-CQ60PROBE; ISED IC 27740-CQ60QPROBE) |
 | Components | TS5A3159 analog switches, TCA9534 I2C port expander, NS4168 speaker |
 
+## Pairing, registration and reset are different operations
+
+The hub's power button is not a probe-pairing button, and a probe has no off
+switch. Do not factory-reset a hub merely because a phone or probe is already
+paired.
+
+- **Passive temperature reading:** remove the probe from its dock and listen
+  for manufacturer `0x05CD` advertisements. Home Assistant uses this path with
+  no hub, cloud account, Bluetooth bond or GATT connection. Existing vendor
+  registration does not prevent it. It is read-only and currently models only
+  the CQ60 probe, not the hub, oven or cooker.
+- **Existing hub on another phone:** disconnect other phones, sign in with the
+  owner or accepted shared account and select the existing appliance. Reuse a
+  valid bond; if it is stale, forget only the phone's Bluetooth entry. The
+  vendor app can also double-tap the hub's power button and create a bond. Its
+  online registration check distinguishes owner/shared access from another
+  manager's appliance, so a successful bond alone does not prove offline app
+  setup.
+- **Add or replace a probe:** put that probe in the charging nest and use the
+  new-probe prompt or **More → Manage Probes**. Command 16 registers, 17
+  deregisters, and attributes 24/25 report registration/dock. On failure,
+  reseat the probe and check contacts. Gen 2 supports three probes and Gen 3
+  four. Resetting the hub would erase names/favorites and force every probe
+  to be registered again.
+- **Used hub from another account:** request access from the existing manager
+  first. If ownership cannot be recovered, hold a pin in the reset hole beside
+  the power button for 3 seconds until the hub beeps and connection lights
+  blink, then wait for reboot. Cross-account probe transfer without the old
+  owner is not proven; a hub reset is not a universal release from a
+  different hub's registration.
+
+The iQ MiniOven has a separate direct **Probe Cook** flow: select it on the
+oven, remove the probe from its Smart Hub, let the oven detect it, then tap to
+connect. The documentation does not require deregistration first or prove
+simultaneous hub/oven monitoring. The iQ Cooker accepts a Sense probe except
+**during pressure cooking**; its WiFi Reset and Factory Reset are distinct.
+
 ## Protocol Summary
 
 ### BLE Discovery
@@ -333,6 +370,9 @@ The device also exposes standard Device Information Service (`0x180A`):
 ## References
 
 - [Google Play: Chef iQ](https://play.google.com/store/apps/details?id=com.chefman.chefiq.prod)
+- [Official CHEF iQ Sense FAQ](https://chefiq.com/pages/new-iq-sense-faq)
+- [Official probe compatibility and MiniOven Probe Cook flow](https://chefiq.com/pages/iq-sense-compatibility)
+- [Home Assistant CHEF iQ integration](https://www.home-assistant.io/integrations/chef_iq/)
 - [HA Community Thread](https://community.home-assistant.io/t/chef-iq-smart-wireless-meat-thermometer/654248)
 
 ## Contributors

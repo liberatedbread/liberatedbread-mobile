@@ -10,6 +10,7 @@ device:
     status: untested
   protocol: "ble"
   category: "light"
+  category_hierarchy: ["light", "led"]
   notes: >
     Programmable LED flow props (hula hoops, wands, fans) sold by Astral Hoops,
     driven by the "Astral" app (Android package com.astral.astral, v2.0.16 /

@@ -10,6 +10,7 @@ device:
     status: untested
   protocol: "ble"
   category: "light"
+  category_hierarchy: ["light", "led"]
   notes: >
     White-label BLE module used by LEDGlow Motorcycle, LEDGlow V2, and other
     Seeblue-powered brands. SEEBlue transport envelope: [0x95, len, index,

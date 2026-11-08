@@ -1,6 +1,6 @@
 # Beurer PO60 Pulse Oximeter
 
-> **Status**: In Progress (protocol fully mapped from two decompiled apps; not yet replayed against hardware by this project)
+> **Status**: Capture verified (existing Android HCI capture; not driven end to end by this project)
 > **Protocol**: BLE (custom GATT service — *not* the standard PLX profile)
 > **Manufacturer**: Beurer GmbH (Ulm, Germany)
 > **Manufacturer Status**: Active (no cloud dependency at all — the device is phone-to-device over BLE only)
@@ -35,7 +35,11 @@ reference client.
 | Property | Value |
 |----------|-------|
 | Model Number | Beurer PO60 |
-| Chipset | Unknown — firmware is built on the "ilink" BLE SDK (`com.ilink.bleapi`) shared across the Beurer/Sanitas medical line, pointing at Beurer's usual Chinese ODM |
+| Aliases | PO60, PO 60 |
+| Category / hierarchy | `health` + `["measurement", "health", "pulse_oximetry"]` |
+| Manufacturer | Beurer GmbH |
+| Companion app | Current: beurer HealthManager Pro (`com.beurer.healthmanager`); older manuals name regional/historical apps |
+| Chipset | Unknown — firmware uses the "ilink" BLE SDK family shared across the Beurer/Sanitas medical line |
 | Radio | BLE 4.0 (Bluetooth Smart) only — no Wi-Fi, no other radio |
 | FCC ID | **Not found** — the US manual carries only a generic Part 15 statement; needs a label photo / fccid.io visual search |
 
@@ -47,31 +51,38 @@ path exists in either app, and no firmware image is public.
 | Property | Value |
 |----------|-------|
 | Setup required | No — nothing to provision (no network, no account) |
-| Method | `ble_direct` (scan, connect, bond) |
+| Method | `ble_direct` (connect during `SYNC`, bond, download history) |
 | Setup AP / advertised name | Advertises with the exact local name `PO60` |
-| Passphrase protection | not_applicable (no Wi-Fi); BLE bonding uses a 6-digit passkey printed in the device manual |
-| Confidence | medium (read from both decompiled apps; not replayed here) |
+| Passphrase protection | not_applicable (no Wi-Fi); BLE bonding uses a random six-digit PIN shown on the PO60 display |
+| Confidence | medium (vendor workflow and SMP bonding confirmed; complete client flow not replayed here) |
 
-The flow, as both apps drive it:
+Enable Bluetooth on both devices and open a compatible app, or have a
+third-party client ready to connect. After a measurement, **remove your
+finger**: the PO60 enters `SYNC` and tries to connect for approximately ten
+seconds. To transfer stored measurements later, hold the function button for
+five seconds while the PO60 is switched off until `SYNC` appears. The
+device's Bluetooth setting must be `ON` for either route.
 
-1. Scan for the exact name `PO60`, connect.
-2. Complete BLE passkey bonding (the 6-digit PIN from the manual).
+1. Scan for the exact name `PO60` and connect during the `SYNC` window.
+2. On first pairing, enter the random six-digit PIN shown on the **PO60
+   display**, not a fixed PIN from the manual. Reuse a valid existing bond
+   on later transfers.
 3. Enable notifications on the FF02 characteristic.
-4. Set the clock (command `0x83`) — both apps do this immediately after
-   bonding; the device acks with `F3 00`.
+4. Set the clock (command `0x83`); the device acks with `F3 00`.
 5. Query the stored-record count (`90 05 15`), then page the history log
-   (see below).
+   (see below) through its end marker. The PO60 transfers all stored
+   measurements and switches off automatically.
 
-Open bonding questions (need hardware): whether some firmware revisions accept
-Just-Works instead of the passkey, and whether an *unbonded* client can
-already write the time-set command — that decides whether third-party clients
-need the PIN at all.
+Do not hold an idle connection expecting live SpO2 notifications. How reliably
+a third-party central can reuse the bond, and whether an unbonded client can
+write the time-set command, remain open.
 
-**Factory reset**: not established. No reset procedure exists in either app or
-in the US manual text examined; the device holds measurement history plus BLE
-bonding state. Don't guess one — if you need to move the device to a new
-phone, remove the old bond in the previous phone's OS Bluetooth settings and
-re-pair; measurement history survives.
+**Factory reset / memory clearing**: no owner-accessible procedure to clear
+the stored measurements is documented, and no reset procedure was found in
+either app or the examined manuals. The device holds measurement history plus
+BLE bonding state. Don't guess one — to move the device to a new phone,
+remove the old bond in the previous phone's OS Bluetooth settings and re-pair
+using the newly displayed PIN; measurement history survives.
 
 **Rebinding**: in place, no reset needed — ordinary BLE re-bonding.
 
@@ -88,9 +99,9 @@ base.
 | `0xFF01` | Command | Client writes all commands here |
 | `0xFF02` | Response / data | Acks and measurement data, as notifications |
 
-The device does **not** implement the standard BLE Pulse Oximeter profile
-(0x1822 PLX) — per both apps; confirm on-air before relying on it. No
-encryption anywhere: plain bonding is the only protection, and all numeric
+Full GATT discovery in the reviewed capture found no standard BLE Pulse
+Oximeter profile (0x1822 PLX), agreeing with both apps. No application-layer
+encryption was found: BLE bonding is the only protection, and all numeric
 fields are 7-bit-masked integers.
 
 ### Commands
@@ -164,37 +175,45 @@ only as optional sync storage inside the phone apps, both of which also run in
 guest mode — and Beurer is a healthy, actively-maintained vendor anyway. Any
 cloud shutdown, today or in ten years, changes nothing for this device.
 
-For Home Assistant: no HA/ESPHome integration exists yet, and none is needed
-beyond a small bleak script (or an ESPHome Bluetooth proxy driving one) that
-runs the five-step sync flow above on a schedule. The Shreyan1 repository is a
-working starting point. Note the interaction model is **history sync** — the
-protocol pulls stored sessions after the fact; no command to stream a live,
-in-progress measurement was found in either app, and whether the hardware
-supports that is unknown.
+For Home Assistant: no HA/ESPHome integration exists yet. A small bleak
+script (or an ESPHome Bluetooth proxy driving one) can use the Shreyan1
+repository as a starting point, but should connect during the device-initiated
+`SYNC` window rather than polling for continuous samples. The reviewed capture
+shows a clock write and a bounded history transfer, not live measurements;
+the record parser still needs validation against annotated real readings.
 
 ## Tools Used
 
-- [x] jadx (decompiles of HealthManager 2.17 and HealthManager Pro 1.17.1)
-- [x] apk.cafe / filesincloud.com CDN (APK acquisition)
-- [ ] BLE sniffer / hardware unit — still needed for the open questions below
+- [x] App static analysis (HealthManager 2.17 and HealthManager Pro 1.17.1)
+- [x] Vendor manuals and PLUX PO60 workflow guide
+- [x] Existing Android HCI capture, reviewed 2026-11-07: SMP/MITM bonding,
+  full GATT discovery, `0x83` clock write, `99 00 19` history start and
+  20/20/8-byte notification chunks; no PLX service or live stream observed
+- [ ] Annotated hardware run for record parsing and the open questions below
+
+The capture contains no physical finger-state signal, so the finger-removal
+trigger comes from the vendor/PLUX workflow, not from the capture.
 
 ## Open Questions (need hardware)
 
-- Does the PO60 also expose standard PLX (0x1822) or a battery service
-  alongside FF12? (Decompile says no; confirm on-air.)
+- Does the PO60 expose a battery service alongside FF12? Full GATT discovery
+  in the reviewed capture found no PLX service, agreeing with the app analysis.
 - Exact format of the storage-info response to `90 05 15`, and the real page
   size of the `99` command (12 records/page is inferred).
-- Bonding: fixed per-device passkey, or Just-Works on some firmware
-  revisions? Can an unbonded client write time-set?
+- How reliably can a third-party central reuse the bond? Can an unbonded
+  client write time-set?
+- Behavior of other firmware/app versions, including any live-streaming path.
 - FCC ID from the device label.
 - Record bytes 15, 16 and 23.
 
 ## References
 
+- [Official Beurer PO60 instructions (2020 international edition)](https://pim.beurer.com/images/attribut/454.20-PO60_2020-04-24_04_IM1a_BEU_DE-EN.pdf) — device-display random PIN, both transfer methods, approximately ten-second connection window and automatic shutdown
+- [PLUX: Getting Started with the Beurer PO60](https://support.pluxbiosignals.com/knowledge-base/getting-started-beurer-pulse-oximeter-po-60/) — finger removal enters Sync Mode
 - [Shreyan1/Beurer-PO60-PulseOximeter-Bluetooth-Integration](https://github.com/Shreyan1/Beurer-PO60-PulseOximeter-Bluetooth-Integration) — hardware-tested bleak reference client
 - [beurer HealthManager Pro on Google Play](https://play.google.com/store/apps/details?id=com.beurer.healthmanager) — the maintained vendor app
 - [openScale](https://github.com/oliexdev/openScale) — open-source sibling Beurer/Sanitas BLE protocols (same ilink SDK family)
-- [Bluetooth SIG Pulse Oximeter service (0x1822)](https://www.bluetooth.com/specifications/specs/pulse-oximeter-service-1-0/) — the standard profile the PO60 notably does *not* implement
+- [Bluetooth SIG Pulse Oximeter service (0x1822)](https://www.bluetooth.com/specifications/specs/pulse-oximeter-service-1-0/) — the standard profile absent from the reviewed PO60 GATT discovery
 - Analysis APKs: `com.beurer.healthmanager` v1.17.1, sha256 `52f1810278f181bda7e89f8d78f6349e2b77af3295692129610e7210873c0e30`; `com.beurer.connect.healthmanager` v2.17, sha256 `ea3ec53ef9f9a6bc2eaf56237d7383af90f4e99b778036b4a2034d0ea4468a51`
 
 ## Contributors

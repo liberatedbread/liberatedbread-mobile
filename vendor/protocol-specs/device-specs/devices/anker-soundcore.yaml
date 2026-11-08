@@ -1,0 +1,2127 @@
+# Anker soundcore earbuds, headphones and speakers — Device Specification
+# Status: Spec Available. The frame format, the checksum rule and the command
+#         IDs listed as `confirmed` were read out of two public Android HCI
+#         snoop logs of the vendor app driving real units: a Liberty 4 NC
+#         (A3947, SoundcoreManager issue #162) and a Motion+ (A3116, OpenSCQ30
+#         issue #215). Payload meanings, and everything about the Life Q30 /
+#         Life Tune (A3028 / A3029), come from two independent open-source
+#         clients (OpenSCQ30 and SoundcoreManager) and are `reported`. The
+#         per-model UUID table comes from static analysis of an older build of
+#         the vendor Android app, also `reported`. Written 2026-09-28.
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+
+device:
+  name: "Anker soundcore Earbuds, Headphones and Speakers"
+  manufacturer: "Anker Innovations Limited (soundcore brand)"
+  manufacturer_status: "active"
+  openness:
+    status: "undocumented"
+    reverse_engineered: true
+    notes: >
+      Anker publishes nothing about the protocol. Two independent open-source
+      clients implement it: OpenSCQ30 (Rust; Linux, Windows and Android, over
+      RFCOMM) and SoundcoreManager (Rust/Tauri; Windows, over BLE GATT). Both
+      were used as sources here and are cited by file. Neither is affiliated
+      with Anker.
+  testing:
+    status: untested
+    detail: capture-verified
+    notes: >
+      Nobody in this project has driven a soundcore device from this document.
+      It was checked against two public Android HCI snoop logs of the vendor
+      app. The first is a Liberty 4 NC (A3947), attached to
+      https://github.com/gmallios/SoundcoreManager/issues/162: 7 frames each
+      way on the vendor RFCOMM channel (state request, LDAC query, five
+      sound-mode sets and their acknowledgements). The second is a Motion+
+      (A3116), attached to https://github.com/Oppzippy/OpenSCQ30/issues/215:
+      22 frames to the speaker and 31 back (state, voice prompt, a 05 01
+      query, seven EQ presets, custom EQ, volume and auto-power-off). The
+      checksum on every A3947 frame was recomputed. So were the length field
+      and the absent checksum on every A3116 frame, the SDP records of both
+      units, and the A3947's BLE advertisement. Those facts are marked
+      `confirmed`. Everything else is `reported`.
+  protocol: "bluetooth_classic"
+  transport: "rfcomm"
+  category: "earbuds"
+  type: "bluetooth-audio"
+  notes: >
+    Anker's soundcore range covers true-wireless earbuds (Liberty, Life,
+    Space), over-ear headphones (Life Q, Space Q) and portable speakers
+    (Motion, and others). The "soundcore" app adjusts the settings the hardware
+    keeps itself: ambient-sound mode (noise cancelling, transparency, normal),
+    equaliser, button mapping, volume limits, auto power-off and firmware.
+    Audio itself is plain A2DP/HFP and needs no app. Everything in this spec is
+    optional to using the product. The spec exists so the settings stay
+    reachable without the vendor app, which now asks for an account and shows
+    advertising and an AI assistant (see evidence.open_questions).
+
+    TRANSPORT. The app talks to the device over an RFCOMM (Serial Port style)
+    socket, opened insecure (no bond needed for the socket itself), to a
+    per-model service UUID. On most models (every speaker and most earbuds
+    in the vendor app's table) that is a VENDOR UUID, 0cf12d31-fac3-4553-bd80-d6832e7b followed by the four
+    digits of the SKU (A3947 -> 0cf12d31-fac3-4553-bd80-d6832e7b3947). Older
+    earbuds and headphones (Liberty 2 family, Liberty Air 2 / Air 2 Pro, Life
+    Q30/Q35/Tune, Life A2 NC, Life Dot 2 NC) use the standard SPP UUID
+    00001101-0000-1000-8000-00805f9b34fb instead. Open the vendor UUID when
+    the SDP record has one: on the A3947 the SPP class belongs to a
+    different, chip-vendor service (see bluetooth_classic.profiles). The
+    Motion+ publishes no SPP-class record at all.
+
+    FRAMES. Phone to device: 08 ee 00 00 00, a two-byte command, a u16
+    little-endian length counting the WHOLE frame, the payload, and on most
+    models a checksum byte (sum of every preceding byte, mod 256). Device to
+    phone: 09 ff 00 00 01 and the same layout. A reply echoes the command
+    bytes. A set is acknowledged with an empty-payload frame carrying the same
+    command. The Motion+ (A3116) sends and expects NO checksum byte, so its
+    length field counts header + payload only (a bare request is 9 bytes, not
+    10). OpenSCQ30 treats this as a per-model setting and the A3116 is the
+    only model it knows of without the checksum. See
+    bluetooth_classic.serial.framing and protocol_details.frame_grammar.
+
+    MODELS. The protocol is a FAMILY keyed by SKU, not one command set.
+    Command IDs overlap with different meanings: 01 81 is volume on the
+    Motion+ and auto play/pause on earbuds; 01 83 is auto power-off on the
+    Motion+ and touch tones on earbuds. The state reply (01 01) has a
+    different layout on every model. This spec declares four variants with
+    full detail: A3947 and A3116 (captured) and A3028/A3029 (reported). The
+    SKU-to-UUID table for 60-odd more is protocol_details.model_table. For
+    any model not declared here, take its command set from OpenSCQ30's
+    per-model module (lib/src/devices/soundcore/<sku>.rs) before sending
+    anything.
+
+    BLE. Many models also advertise over BLE, and the vendor app can find a
+    device that way: the advertisement carries a model-coded service UUID
+    and the device's BR/EDR address in its manufacturer data, and the app
+    then opens RFCOMM to that address. On some models a GATT service tunnels
+    the same frames. SoundcoreManager drives the A3951, A3027, A3028, A3029
+    and A3935 that way, which is presumably how the iOS app reaches them. That
+    GATT layout is out of scope here (remaining_unknowns).
+
+    OUT OF SCOPE, deliberately: firmware transfer (OTA over BES, Qualcomm
+    GAIA or per-model updaters; only its existence is recorded, under
+    features), party-mode speaker linking, the charging-case display and
+    recording on newer cases, HearID hearing-profile upload, the Anka AI and
+    translation features, and the Anker account cloud. Anker SOLIX power
+    stations and eufy cameras use unrelated protocols and are not covered.
+
+  identification:
+    service_uuids:
+      - "daf54e01-0000-1000-8000-00805f9b34fb"
+      - "010af5da-0000-1000-8000-00805f9b34fb"
+      - "0112f5da-0000-1000-8000-00805f9b34fb"
+    mac_prefixes:
+      - prefix: "E8:EE:CC"
+        confidence: "low"
+        notes: >
+          Seen as the public BR/EDR address of the Liberty 4 NC (A3947) in
+          the SoundcoreManager #162 capture. IEEE assigns it to Fantasia
+          Trading LLC, Anker's US trading company. One unit only. The BLE
+          advertisement of the same unit used a random resolvable address,
+          so this prefix matches only the Classic address.
+      - prefix: "7C:96:D2"
+        confidence: "low"
+        notes: >
+          Seen as the BR/EDR address of the Motion+ (A3116) in the OpenSCQ30
+          #215 capture. IEEE assigns it to Fihonest Communication Co., Ltd,
+          not to Anker. One unit only.
+    notes: >
+      The BLE service UUIDs are model codes, not GATT services a client can
+      open. daf54e01-0000-1000-8000-00805f9b34fb is what the Liberty 4 NC
+      advertises, as a 32-bit UUID (AD type 0x05, raw bytes 01 4e f5 da),
+      seen in the capture (confirmed). The other two are the vendor app's
+      expected codes for the Motion+ and for the Life Q30/Tune (and most other
+      earbuds): 128-bit, AD type 0x07, raw little-endian bytes
+      fb 34 9b 5f 80 00 00 80 00 10 00 00 da f5 <code> 01 (reported, not seen
+      on air). The two encodings put the four significant bytes in opposite
+      order. The whole per-SKU list is protocol_details.model_table. The
+      Classic inquiry name is in the bt_classic_inquiry method: the A3947
+      answered "soundcore Liberty 4 NC". Older models use "Soundcore <name>"
+      (the Motion+ manual says "Soundcore Motion+").
+
+  discovery:
+    methods:
+      - type: "bt_classic_inquiry"
+        bt_classic:
+          name:
+            match: "prefix"
+            values: ["soundcore ", "Soundcore "]
+          requires_discoverable_mode: true
+        verification: "reported"
+        notes: >
+          The name the A3947 gave to a remote-name request in the capture was
+          "soundcore Liberty 4 NC" (lower-case brand, the current styling).
+          Older products say "Soundcore ..." (the Motion+ manual's own
+          spelling). Anker's conference speakers ("Anker PowerConf") appear in
+          the vendor app's model table but match neither needle; their command
+          set is not documented here. Earbuds and headphones answer an
+          inquiry only while in pairing mode (device.pairing.enter_pairing_mode).
+          Most users will already have the device bonded to the host, in which
+          case a client lists bonded devices instead of running an inquiry,
+          which is what both open-source clients do.
+      - type: "ble_scan"
+        ble:
+          service_uuids: ["daf54e01-0000-1000-8000-00805f9b34fb"]
+        verification: "confirmed"
+        notes: >
+          The Liberty 4 NC (A3947) as seen in the SoundcoreManager #162
+          capture, advertising from a random resolvable address before the
+          phone connected. Its advertisement carried three AD structures. The
+          first is Google Fast Pair service data (0xfe2c), which holds per-user
+          account-key data and is not reproduced here. The second is a 32-bit
+          service UUID list, 01 4e f5 da. The third is manufacturer-specific
+          data (AD type 0xff) of eight bytes: the device's PUBLIC BR/EDR
+          address, most significant byte first, then 00 00. Those bytes do NOT
+          start with a Bluetooth SIG company ID; a parser that reads the first
+          two as one gets a meaningless 0xeee8. A client scans, reads the
+          BR/EDR address out of the manufacturer data, and opens RFCOMM to
+          THAT address, not the advertiser's. For an unknown unit
+          aa:bb:cc:dd:ee:ff the structure is 09 ff aa bb cc dd ee ff 00 00.
+      - type: "ble_scan"
+        ble:
+          service_uuids:
+            - "010af5da-0000-1000-8000-00805f9b34fb"
+            - "0112f5da-0000-1000-8000-00805f9b34fb"
+        verification: "reported"
+        notes: >
+          What an older vendor app build (2.9.9, which predates the Liberty 4
+          NC) looks for: a complete 128-bit service UUID list whose one entry
+          is the model's code (010af5da-... for the Motion+, 0112f5da-... for
+          the Life Q30/Tune and most earbuds; protocol_details.model_table has
+          the rest). Next to it, manufacturer data of seven bytes whose first
+          six are the BR/EDR address LEAST significant byte first (the
+          opposite order to the A3947 above). The app keeps the BLE address
+          separately and connects RFCOMM to the address from the manufacturer
+          data. Not seen on air: the Motion+ capture contains no advertisement
+          from the speaker.
+    identity:
+      stable_keys: ["address"]
+      display: "local_name"
+
+  setup:
+    required: true
+    confidence: "medium"
+    notes: >
+      The only setup is ordinary Bluetooth pairing from the host's own
+      Bluetooth settings, the same step every manual gives. The vendor app
+      does not provision anything. It lists already-bonded devices, recognises
+      the model from the SDP record or the name, and opens the control socket.
+      Its account sign-up is for the vendor cloud, which the device never
+      talks to. Confidence is medium: the steps come from the FCC-filed
+      manuals, and the capture sessions started with the devices already
+      bonded, so the pairing itself was not observed.
+    methods:
+      - name: "Pair from the host's Bluetooth settings, then open the control socket"
+        role: "primary"
+        type: "bt_classic_pairing"
+        verified: false
+        description: >
+          Put the device in pairing mode, pair it as an audio device from the
+          phone or computer, then open an insecure RFCOMM socket to the model's
+          control UUID and send the state request.
+        steps:
+          - action: "Put the device into pairing mode (see device.pairing.enter_pairing_mode for each model)."
+            actor: "user"
+            expect: "The pairing indicator flashes (white on A3947 case LEDs; blue on the A3028/A3029 and A3116)."
+          - action: "Select the device in the host's Bluetooth settings and accept the pairing."
+            actor: "user"
+            expect: "The host bonds and connects A2DP/HFP."
+            notes: "Secure Simple Pairing with no PIN is expected for hardware with no display or keypad; not observed in either capture."
+          - action: "Browse SDP and pick the control record: the vendor UUID 0cf12d31-fac3-4553-bd80-d6832e7b<sku> if present, otherwise 00001101-0000-1000-8000-00805f9b34fb."
+            actor: "client"
+            notes: >
+              OpenSCQ30's default rule (lib/src/devices/soundcore/common/device.rs):
+              any UUID matching 0cf12d31-fac3-4553-bd80-d6832e7 in its first 108
+              bits wins, SPP is the fallback. On an A3947 the SPP record is the
+              wrong one (BES test service, channel 12).
+          - action: "Open an insecure RFCOMM socket to that UUID."
+            actor: "client"
+            expect: "Channel 15 on the A3947 and channel 1 on the A3116 in the captures; resolve by SDP rather than hard-coding."
+          - action: "Send the model's state request (a3947_request_state, a3116_request_state or a3028_request_state) and parse the reply."
+            actor: "client"
+            expect: "A 09 ff 00 00 01 01 01 frame. Its length field says how many bytes to read."
+    factory_reset:
+      applicable: true
+      confidence: "medium"
+      effect: >
+        Returns the earbuds or headphones to their shipped state. The manuals
+        do not list what is cleared. On Bluetooth audio products this usually
+        means the paired-device list and app settings (EQ, controls), but that
+        is not established here.
+      procedures:
+        - name: "Reset a Liberty 4 NC (A3947)"
+          applies_to: ["A3947"]
+          verified: false
+          basis: >
+            The A3947 quick guide filed with FCC ID 2AOKB-A3947, panel 13
+            (RESET): earbuds in the case, lid open, hold the case button all
+            the way down for 10 seconds until the LEDs flash white rapidly three
+            times. Not tried by this project.
+          power_state: "any"
+          hold_seconds: 10
+          indicator: "The case LEDs flash white rapidly three times."
+          steps:
+            - action: "Put both earbuds in the charging case and leave the lid open."
+              actor: "user"
+            - action: "Press and hold the case button all the way down for 10 seconds."
+              actor: "user"
+              expect: "The case LEDs flash white rapidly three times."
+        - name: "Reset a Life Q30 or Life Tune (A3028, A3029)"
+          applies_to: ["A3028", "A3029"]
+          verified: false
+          basis: >
+            The Life Q30 and Life Tune manuals filed with FCC ID 2AOKB-A3028,
+            RESET panel: press the power button and volume-up button together
+            for 5 seconds. The manuals give no power state and no indicator.
+            Not tried by this project.
+          hold_seconds: 5
+          steps:
+            - action: "Press and hold the power button and the volume-up button together for 5 seconds."
+              actor: "user"
+        - name: "Reset a Motion+ (A3116)"
+          applies_to: ["A3116"]
+          verified: false
+          basis: >
+            None found. The vendor-hosted Motion+ manual (2020-11 revision)
+            has no reset section; it says only to remove the speaker from the
+            phone's Bluetooth list and pair again if connecting fails.
+          description: "No procedure is documented. The steps below are the manual's own recovery advice, which is not a reset."
+          steps:
+            - action: "Remove the Motion+ from the host's Bluetooth device list, hold the phone within about 1 m, and pair again."
+              actor: "user"
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        A new phone pairs like any other host: enter pairing mode and pair. The
+        A3947 and A3028/A3029 remember more than one host (dual connection),
+        and the A3116 reconnects to the last host at power-on and re-enters
+        pairing mode on its Bluetooth button. Nothing in the control protocol
+        is tied to a host or an account.
+    credentials:
+      wifi_passphrase_protection: "not_applicable"
+      stored_on_device: ["Bluetooth link keys for each paired host (the standard BR/EDR bond)"]
+      issued_to_client: []
+      notes: >
+        No application-layer key and no login. The control socket needs no
+        authentication beyond what the Bluetooth link already has. Whether
+        newer models add an app-layer handshake is not known. Neither capture
+        shows one, and OpenSCQ30 sends none (remaining_unknowns).
+
+  pairing:
+    required: true
+    confidence: "medium"
+    security_mode: "just_works"
+    bonding: "required"
+    exclusivity:
+      single_connection: "unknown"
+      single_bond: false
+      recovery: >
+        Close the vendor app (or turn its phone's Bluetooth off) before
+        connecting from another client: both captures show the app holding the
+        control channel for the whole session, and whether the device takes a
+        second control connection is unknown. If the device will not appear,
+        remove it from the host's Bluetooth list and pair again, as the
+        Motion+ manual advises.
+    enter_pairing_mode:
+      required: true
+      notes: >
+        Earbuds enter pairing mode on their own the first time the case is
+        opened. Headphones and speakers enter it from a power or Bluetooth
+        button. Outside pairing mode the device reconnects to known hosts and
+        answers no inquiry.
+      procedures:
+        - name: "Liberty 4 NC (A3947), first time"
+          applies_to: ["A3947"]
+          verified: false
+          basis: >
+            A3947 quick guide (FCC ID 2AOKB-A3947), panel "Powering on &
+            pairing": opening the charging case powers the earbuds on and
+            enters pairing mode; select "soundcore Liberty 4 NC" on the phone.
+          indicator: "Case LEDs flash white."
+          steps:
+            - action: "Open the charging case with both earbuds inside."
+              actor: "user"
+              expect: "The earbuds power on and appear as \"soundcore Liberty 4 NC\"."
+        - name: "Liberty 4 NC (A3947), manual pairing"
+          applies_to: ["A3947"]
+          verified: false
+          basis: >
+            A3947 quick guide (FCC ID 2AOKB-A3947), panel "Manual pairing":
+            earbuds in the case, lid open, hold the case button all the way
+            down for 3 seconds until the LEDs flash white rapidly.
+          hold_seconds: 3
+          indicator: "Case LEDs flash white rapidly."
+          steps:
+            - action: "Put the earbuds in the case, leave the lid open, and hold the case button down for 3 seconds."
+              actor: "user"
+              expect: "The case LEDs flash white rapidly."
+        - name: "Liberty 4 NC (A3947), add a second host"
+          applies_to: ["A3947"]
+          verified: false
+          basis: >
+            A3947 quick guide (FCC ID 2AOKB-A3947), panel "Dual connections":
+            while wearing the earbuds, press and hold both touchpads for 3
+            seconds at the same time.
+          hold_seconds: 3
+          steps:
+            - action: "Wearing both earbuds, press and hold the touchpad on each for 3 seconds at the same time."
+              actor: "user"
+        - name: "Life Q30 / Life Tune (A3028, A3029)"
+          applies_to: ["A3028", "A3029"]
+          verified: false
+          basis: >
+            Life Q30 and Life Tune manuals (FCC ID 2AOKB-A3028): from off,
+            hold the power button for 5 seconds until the LED flashes blue.
+            To add a second host after the first connects, press the power
+            button twice. Android phones can also pair by NFC on the right ear
+            cup.
+          power_state: "off"
+          hold_seconds: 5
+          indicator: "The LED flashes blue."
+          steps:
+            - action: "With the headphones off, hold the power button for 5 seconds."
+              actor: "user"
+              expect: "The LED flashes blue."
+        - name: "Motion+ (A3116)"
+          applies_to: ["A3116"]
+          verified: false
+          basis: >
+            Vendor-hosted Motion+ manual (2020-11 revision): at power-on the
+            speaker reconnects to the last host, or else enters pairing mode.
+            Pressing the Bluetooth button re-enters pairing mode. The Bluetooth
+            indicator fades blue in and out while pairable and is solid blue
+            once connected.
+          indicator: "Bluetooth indicator slowly flashing blue (fading in and out)."
+          steps:
+            - action: "Power the speaker on (press the power button once), then press the Bluetooth button."
+              actor: "user"
+              expect: "The Bluetooth indicator fades blue in and out."
+    unpair:
+      supported: false
+      requires_factory_reset: true
+      notes: >
+        No button, command or app action is known that removes one host from
+        the device's own pairing list. Removing the device on the host side
+        (forget it in Bluetooth settings) is always possible. The factory reset
+        presumably clears the device side, but the manuals do not say so.
+    notes: >
+      This is a Bluetooth audio device, and it bonds for A2DP/HFP like any
+      headset. Both open-source clients list only BONDED devices, so bonding is
+      in practice required. The CONTROL socket, however, is opened insecure by
+      the vendor Android app (bluetooth_classic.profiles[].secure: false),
+      which is normal for a headset. Just Works is inferred from the hardware
+      having no display or keypad; both captures begin with an existing bond,
+      so the pairing exchange was not seen.
+
+  host_compatibility:
+    - stack: "android"
+      status: "compatible"
+      verification: "confirmed"
+      basis: >
+        Both captures are Android HCI snoop logs of the vendor app driving a
+        device over RFCOMM: an A3947 on the vendor UUID record (channel 15)
+        and an A3116 on its vendor UUID record (channel 1).
+    - stack: "bluez"
+      status: "compatible"
+      verification: "reported"
+      basis: >
+        OpenSCQ30's Linux backend opens the same RFCOMM service through BlueZ
+        (lib/src/connection_backend/linux/rfcomm.rs), selecting the vendor
+        UUID from the SDP record. Not run by this project.
+    - stack: "windows"
+      status: "compatible"
+      verification: "reported"
+      basis: >
+        OpenSCQ30 ships a Windows RFCOMM backend
+        (lib/src/connection_backend/windows/rfcomm.rs). SoundcoreManager reaches
+        its supported models from Windows over BLE GATT instead. Not run by this
+        project.
+    - stack: "corebluetooth"
+      link: "br_edr"
+      status: "incompatible"
+      symptom: "no_transport"
+      cause:
+        missing_api: "rfcomm"
+      workaround: "none_known"
+      verification: "reported"
+      basis: >
+        CoreBluetooth has no RFCOMM API, and the control channel this spec
+        documents is RFCOMM. No MFi (iAP2) record appears in either captured
+        SDP browse.
+      notes: >
+        The vendor ships an iOS app, so iPhones reach these devices somehow,
+        most plausibly over the BLE GATT path SoundcoreManager uses; see the
+        `ble` verdict below. macOS is outside this verdict: IOBluetooth exposes
+        RFCOMM.
+    - stack: "corebluetooth"
+      link: "ble"
+      status: "unknown"
+      verification: "hypothesis"
+      basis: >
+        SoundcoreManager drives the A3951, A3027, A3028, A3029 and A3935 over
+        a GATT service that carries the same 08 ee / 09 ff frames
+        (soundcore-lib/src/ble/btleplug/connection.rs), so for those models a
+        CoreBluetooth client can probably do the same. Whether the A3947 and
+        A3116 expose such a service is unknown, and the iOS app was not
+        examined.
+
+  variants:
+    - model: "A3947"
+      identification:
+        service_uuids: ["daf54e01-0000-1000-8000-00805f9b34fb"]
+      notes: >
+        soundcore Liberty 4 NC, true-wireless earbuds with adaptive ANC, LDAC
+        and a charging case with a button. FCC ID 2AOKB-A3947. Control on the
+        vendor RFCOMM record 0cf12d31-fac3-4553-bd80-d6832e7b3947 ("Spp1",
+        channel 15 in the capture). Frames carry the checksum. SoC family:
+        Bestechnic (BES), going by the SDP records "TOTA" and "BESOTA" (BES
+        test and OTA services). Captured firmware 04.88 on both buds.
+        OpenSCQ30 module: lib/src/devices/soundcore/a3947.rs.
+    - model: "A3116"
+      identification:
+        service_uuids: ["010af5da-0000-1000-8000-00805f9b34fb"]
+      notes: >
+        Soundcore Motion+, a 30 W portable speaker (Bluetooth 5.0, aptX, AUX
+        in, True Wireless Stereo pairing with a second Motion+). FCC ID
+        2AOKB-A3116. Control on the vendor RFCOMM record
+        0cf12d31-fac3-4553-bd80-d6832e7b3116 (channel 1 in the capture), whose
+        SDP service name is "CSR GAIA" (the record a Qualcomm/CSR audio SoC
+        reserves for its GAIA control protocol), yet it carries the soundcore
+        08 ee frames, not GAIA. Frames have NO checksum. Captured firmware
+        80.01. OpenSCQ30 module: lib/src/devices/soundcore/a3116.rs.
+    - model: "A3028"
+      identification:
+        service_uuids: ["0112f5da-0000-1000-8000-00805f9b34fb"]
+      notes: >
+        Soundcore Life Q30, over-ear ANC headphones. FCC ID 2AOKB-A3028
+        (shared with the Life Tune). Control on SPP
+        00001101-0000-1000-8000-00805f9b34fb according to the vendor app's
+        model table. Frames carry the checksum. Everything about this model is
+        from OpenSCQ30 (lib/src/devices/soundcore/a3028.rs) and
+        SoundcoreManager; nothing was captured.
+    - model: "A3029"
+      identification:
+        service_uuids: ["0112f5da-0000-1000-8000-00805f9b34fb"]
+      notes: >
+        Soundcore Life Tune, over-ear ANC headphones on the same FCC grant as
+        the Life Q30 (2AOKB-A3028). OpenSCQ30 drives it with the A3028 module
+        unchanged, so every a3028_* command applies. Reported only.
+
+bluetooth_classic:
+  dual_mode: true
+  ble_role: "secondary_control"
+  address_shared_with_ble: false
+  profiles:
+    - profile: "vendor"
+      uuid: "0cf12d31-fac3-4553-bd80-d6832e7b3947"
+      channel: 15
+      role: "control"
+      secure: false
+      variants: ["A3947"]
+      verification: "confirmed"
+      notes: >
+        SDP service name "Spp1", profile descriptor SPP 1.2. Every soundcore
+        frame in the A3947 capture travels on this channel. Channel 15 is what
+        that unit's SDP record said; resolve it by UUID. Secure false: the
+        vendor Android app opens every control socket with the insecure
+        constructor (static analysis), on a link that is already bonded for
+        audio.
+    - profile: "vendor"
+      uuid: "0cf12d31-fac3-4553-bd80-d6832e7b3116"
+      channel: 1
+      role: "control"
+      secure: false
+      variants: ["A3116"]
+      verification: "confirmed"
+      notes: >
+        SDP service name "CSR GAIA" with an SPP profile descriptor. Every
+        soundcore frame in the Motion+ capture travels on this channel. The
+        browse showed no record with the SPP service class
+        00001101-0000-1000-8000-00805f9b34fb, so a client that asks SDP for
+        SPP finds nothing. OpenSCQ30 pins this UUID for the A3116, and its
+        changelog records repeated fixes for Motion+ connection problems.
+    - profile: "spp"
+      uuid: "00001101-0000-1000-8000-00805f9b34fb"
+      role: "control"
+      secure: false
+      variants: ["A3028", "A3029"]
+      verification: "reported"
+      notes: >
+        The vendor app's model table gives SPP, not a vendor UUID, for the
+        Life Q30, Life Tune and Life Q35, the Liberty 2 family, Liberty Air 2
+        and Air 2 Pro, Life A2 NC and Life Dot 2 NC. The channel was not
+        observed.
+    - profile: "spp"
+      uuid: "00001101-0000-1000-8000-00805f9b34fb"
+      channel: 12
+      role: "undocumented"
+      variants: ["A3947"]
+      verification: "confirmed"
+      notes: >
+        SDP service name "TOTA", Bestechnic's test-over-the-air service. NOT
+        the soundcore control channel, although it carries the SPP class. A
+        client that opens "SPP by UUID" on an A3947 lands here and gets no
+        answer to 08 ee frames. Its protocol is not documented here.
+    - profile: "vendor"
+      uuid: "66666666-6666-6666-6666-666666666666"
+      channel: 13
+      role: "firmware"
+      variants: ["A3947"]
+      verification: "confirmed"
+      notes: >
+        SDP service name "BESOTA": the Bestechnic firmware-update channel. The
+        vendor app bundles a BES updater that opens an insecure RFCOMM socket
+        to this UUID (static analysis). Firmware transfer is out of scope;
+        see features.
+    - profile: "vendor"
+      uuid: "df21fe2c-2515-4fdb-8886-f12c4d67927c"
+      channel: 17
+      role: "undocumented"
+      variants: ["A3947"]
+      verification: "confirmed"
+      notes: >
+        SDP service name "RFCOMM COM". This UUID is Google Fast Pair's Message
+        Stream, which the Android system (not the soundcore app) opens. In the
+        capture it carried the Fast Pair model ID of the Liberty 4 NC, D1E4E3,
+        a battery report for left, right and case, the device's BLE address,
+        and the phone's platform message. It is a public Google protocol and
+        a read-only source of battery data; see helpful_urls.
+    - profile: "a2dp"
+      uuid: "0000110b-0000-1000-8000-00805f9b34fb"
+      role: "audio"
+      verification: "confirmed"
+      notes: "Audio Sink, AVDTP on L2CAP PSM 25, in both captured SDP records."
+    - profile: "avrcp"
+      uuid: "0000110e-0000-1000-8000-00805f9b34fb"
+      role: "media_control"
+      verification: "confirmed"
+      notes: "Controller and Target records, AVCTP on PSM 23, in both captures."
+    - profile: "hfp"
+      uuid: "0000111e-0000-1000-8000-00805f9b34fb"
+      role: "telephony"
+      verification: "confirmed"
+      notes: "Hands-Free unit: RFCOMM channel 3 on the A3947, channel 12 on the A3116, in the captures."
+    - profile: "hsp"
+      uuid: "00001108-0000-1000-8000-00805f9b34fb"
+      role: "telephony"
+      verification: "confirmed"
+      notes: "Headset: RFCOMM channel 1 on the A3947, channel 11 on the A3116, in the captures."
+  serial:
+    encoding: "binary"
+    correlation: "prefix"
+    max_in_flight: 1
+    read_chunk_bytes: 1024
+    framing:
+      length_prefix: true
+      length_offset: 7
+      length_size: 2
+      length_endianness: "little"
+      length_adjust: 0
+      checksum: "other"
+      tx_start_bytes: "08 ee 00 00 00"
+      rx_start_bytes: ["09 ff 00 00 01"]
+      resync: "scan_to_start_bytes"
+      notes: >
+        Frame: five direction bytes (08 ee 00 00 00 phone to device, 09 ff 00
+        00 01 device to phone), two command bytes, a u16 little-endian length
+        at offset 7 that counts the WHOLE frame from the first direction byte
+        to the last byte, the payload, then (on most models) one checksum byte.
+        Split the stream by the length field alone, which works whether or not
+        a checksum is present.
+
+        Checksum is "other" only because it is per model. On models that have
+        it (A3947 and A3028/A3029 here, and every model OpenSCQ30 supports
+        except the A3116) it is sum8 over every preceding byte of the frame,
+        starting with the first direction byte, i.e. `auto: checksum` with
+        checksum_start 0. Example, confirmed on the A3947: 08 ee 00 00 00 01 01
+        0a 00 sums to 0x102, so the checksum is 02. The A3116 appends none: its
+        state request is 08 ee 00 00 00 01 01 09 00 and every reply's length
+        field equals header plus payload. A client that must support unknown
+        models can tell the two apart from the first reply: recompute the sum
+        over all but the last byte and compare. OpenSCQ30 instead fixes it per
+        model (ChecksumKind in lib/src/devices/soundcore/common/packet.rs).
+
+        On a sync loss, scan to the next 09 ff 00 00 01 and read its length.
+    verification: "confirmed"
+    notes: >
+      Correlation: a reply's bytes 5-6 repeat the command it answers, and an
+      acknowledgement is that frame with an empty payload. OpenSCQ30 matches
+      replies to requests by those two bytes. max_in_flight 1 is what the
+      captures show: the vendor app sent each frame only after the previous
+      one was answered. read_chunk_bytes is the vendor app's read buffer
+      (static analysis). The app's generic serial link waits 50 or 500 ms
+      after a reply before sending the next queued frame. The captured
+      sessions show 20-100 ms gaps, so the delay depends on the model's
+      manager and is not stated as a requirement.
+    unsolicited:
+      - name: "a3116_eq_preset_update"
+        prefix: "09 ff 00 00 01 02 01"
+        length: 10
+        format:
+          - offset: 9
+            length: 1
+            name: "eq_preset"
+            type: "uint8"
+            values:
+              0: "BassUp"
+              1: "BassOff"
+              2: "Voice"
+              3: "Heavy"
+              4: "Classic"
+              5: "Original"
+              255: "Custom (as the vendor app sends it)"
+            notes: "Single byte. Same code table as a3116_set_eq_preset."
+        notes: >
+          A3116. Sent right after the acknowledgement of every a3116_set_eq_preset
+          in the capture (seven times), echoing the new preset. No checksum, like
+          every A3116 frame.
+        verification: "confirmed"
+      - name: "a3116_auto_power_off_update"
+        prefix: "09 ff 00 00 01 01 05"
+        length: 10
+        format:
+          - offset: 9
+            length: 1
+            name: "auto_power_off"
+            type: "uint8"
+            values:
+              1: "5 min"
+              2: "10 min"
+              3: "30 min"
+              4: "60 min"
+            notes: "Single byte. The value just set, as far as two samples show."
+        notes: >
+          A3116. Sent after the acknowledgement of each a3116_set_auto_power_off
+          in the capture (values 02 and 03, echoed). That it is an
+          auto-power-off report is inferred from the echo. The vendor app also
+          has a bare 01 05 query for this model, never seen sent. On earbuds,
+          01 05 is instead the serial-number/firmware reply (OpenSCQ30), so
+          read this prefix per model.
+        verification: "confirmed"
+      - name: "battery_level_update"
+        prefix: "09 ff 00 00 01 01 03"
+        format:
+          - offset: 9
+            length: 1
+            name: "level_left_or_single"
+            type: "uint8"
+            notes: "0-5 steps. On single-battery models the only payload byte."
+          - offset: 10
+            length: 1
+            name: "level_right"
+            type: "uint8"
+            notes: "0-5 steps. Earbuds only; absent on single-battery models."
+        notes: >
+          Reported (OpenSCQ30 lib/src/devices/soundcore/common/packet/inbound/battery_level.rs).
+          Pushed when a level changes. The payload is one byte on headphones
+          and speakers, and two to four on earbuds (left, right and, on some
+          models, two more bytes whose meaning OpenSCQ30 does not decode). Use
+          the length field to find the end. Checksum present on checksummed
+          models. Not seen in either capture.
+        verification: "reported"
+      - name: "charging_update"
+        prefix: "09 ff 00 00 01 01 04"
+        format:
+          - offset: 9
+            length: 1
+            name: "charging_left_or_single"
+            type: "uint8"
+            values:
+              0: "not charging"
+              1: "charging"
+            notes: "Single byte."
+        notes: >
+          Reported (OpenSCQ30 lib/src/devices/soundcore/common/packet/inbound/battery_charging.rs).
+          One byte per battery, in the same order as battery_level_update. Not
+          seen in either capture.
+        verification: "reported"
+      - name: "sound_modes_update"
+        prefix: "09 ff 00 00 01 06 01"
+        notes: >
+          Reported (OpenSCQ30 lib/src/devices/soundcore/common/packet/inbound/sound_modes.rs).
+          Pushed when the ambient-sound mode changes on the device itself
+          (a long press on an earbud or the NC button). The payload has the
+          same layout as the model's 06 81 set command: seven bytes on the
+          A3947, four on the A3028/A3029. Not seen in either capture: the
+          A3947 sent no push after the app's own sets.
+        verification: "reported"
+  wake_required: false
+  verification: "confirmed"
+  notes: >
+    ble_role is secondary_control on the strength of SoundcoreManager, which
+    sends these frames over GATT to the A3951, A3027, A3028, A3029 and A3935
+    (reported). For the A3947 and A3116 BLE is only known to be used for
+    discovery. The vendor Android app uses BLE only to find devices and, on
+    party speakers, for speaker linking. This spec declares no GATT service.
+    address_shared_with_ble is false as confirmed on the A3947: its
+    advertisement came from a random resolvable address and carried the
+    public BR/EDR address in its manufacturer data. The older vendor app
+    also stores the two addresses separately. wake_required is false:
+    earbuds power on when taken out of or opened in the case, and headphones
+    and speakers from their power button, which is ordinary power-on rather
+    than a wake gesture.
+
+commands:
+  # ---- Liberty 4 NC (A3947): checksummed frames ------------------------------
+  a3947_request_state:
+    description: "A3947. Request the full state: link, batteries, firmware, serial, EQ, sound modes and flags."
+    transport: "rfcomm"
+    value: [0x08, 0xee, 0x00, 0x00, 0x00, 0x01, 0x01, 0x0a, 0x00, 0x02]
+    response:
+      prefix: "09 ff 00 00 01 01 01"
+      format:
+        - offset: 7
+          length: 2
+          name: "frame_length"
+          type: "uint16"
+          endianness: "little"
+          unit: "B"
+          notes: "Whole frame, header to checksum. 169 (a9 00) on the captured firmware 04.88."
+        - offset: 9
+          length: 1
+          name: "host_device"
+          type: "uint8"
+          values:
+            0: "left earbud"
+            1: "right earbud"
+          notes: "Which earbud holds the phone link. Single byte."
+        - offset: 10
+          length: 1
+          name: "tws_connected"
+          type: "uint8"
+          values:
+            0: "earbuds not linked"
+            1: "earbuds linked"
+          notes: "Single byte."
+        - offset: 11
+          length: 1
+          name: "battery_left"
+          type: "uint8"
+          notes: >
+            0-5 steps, 5 is full; not a percentage. The capture showed 5 while
+            the same unit's Fast Pair report said 100 %. Single byte.
+        - offset: 12
+          length: 1
+          name: "battery_right"
+          type: "uint8"
+          notes: "0-5 steps. The capture showed 5 while Fast Pair reported 90 %. Single byte."
+        - offset: 13
+          length: 1
+          name: "charging_left"
+          type: "uint8"
+          values:
+            0: "not charging"
+            1: "charging"
+          notes: "Single byte."
+        - offset: 14
+          length: 1
+          name: "charging_right"
+          type: "uint8"
+          values:
+            0: "not charging"
+            1: "charging"
+          notes: "Single byte."
+        - offset: 15
+          length: 5
+          name: "firmware_left"
+          type: "string"
+          notes: "ASCII \"NN.NN\", e.g. \"04.88\"."
+        - offset: 20
+          length: 5
+          name: "firmware_right"
+          type: "string"
+          notes: "ASCII \"NN.NN\"."
+        - offset: 25
+          length: 16
+          name: "serial_number"
+          type: "string"
+          notes: >
+            16 ASCII characters. On the captured unit it was "3947" followed
+            by the unit's own BR/EDR address, byte-reversed, in upper-case
+            hex: a unit at aa:bb:cc:dd:ee:ff would read "3947FFEEDDCCBBAA".
+            Treat it as identifying. Whether every A3947 follows this pattern
+            is not known.
+        - offset: 41
+          length: 5
+          name: "unknown_version"
+          type: "string"
+          notes: "ASCII \"NN.NN\" (\"01.29\" in the capture). OpenSCQ30 calls it an unknown version number; perhaps the case firmware."
+        - offset: 46
+          length: 2
+          name: "eq_preset_id"
+          type: "uint16"
+          endianness: "little"
+          notes: "Preset code; 0 is Soundcore Signature. The code table is OpenSCQ30's common_settings list (lib/src/devices/soundcore/common/modules/equalizer.rs)."
+        - offset: 48
+          length: 10
+          name: "eq_bands_left"
+          type: "bytes"
+          notes: >
+            Ten band bytes, each gain in tenths of a dB plus 120 (0x78 = 0.0
+            dB, 0x3c = -6.0 dB, 0xb4 = +6.0 dB). 0xff in the first byte means
+            the channel is absent. All 0x78 in the capture.
+        - offset: 58
+          length: 10
+          name: "eq_bands_right"
+          type: "bytes"
+          notes: "Same encoding; all 0xff (absent) in the capture."
+        - offset: 134
+          length: 1
+          name: "sound_mode_cycle"
+          type: "uint8"
+          notes: "Bit mask of the modes a long press cycles through (OpenSCQ30: noise cancelling, transparency, normal). 0x33 in the capture; exact bit assignment not established here."
+        - offset: 135
+          length: 1
+          name: "ambient_sound_mode"
+          type: "uint8"
+          values:
+            0: "noise cancelling"
+            1: "transparency"
+            2: "normal"
+          notes: "Single byte. 00 in the capture; the app's first set then sent 02, and the mode changed as the user asked."
+        - offset: 136
+          length: 1
+          name: "noise_canceling_levels"
+          type: "uint8"
+          notes: "High nibble: manual ANC strength 0-5. Low nibble: adaptive ANC value 0-5. 0x50 in the capture."
+        - offset: 137
+          length: 1
+          name: "transparency_mode"
+          type: "uint8"
+          values:
+            0: "fully transparent"
+            1: "vocal"
+          notes: "Single byte."
+        - offset: 138
+          length: 1
+          name: "noise_canceling_mode"
+          type: "uint8"
+          values:
+            0: "manual"
+            1: "adaptive"
+            2: "transportation"
+          notes: "Single byte. 01 (adaptive) in the capture."
+        - offset: 139
+          length: 1
+          name: "wind_noise"
+          type: "uint8"
+          notes: "Bit 0: wind-noise suppression enabled. Bit 1: wind detected."
+        - offset: 140
+          length: 1
+          name: "environment_detection"
+          type: "uint8"
+          values:
+            0: "off"
+            1: "on"
+          notes: "Single byte."
+        - offset: 141
+          length: 1
+          name: "transportation_mode"
+          type: "uint8"
+          values:
+            0: "plane"
+            1: "train"
+            2: "bus"
+            3: "car"
+          notes: "Single byte."
+        - offset: 148
+          length: 1
+          name: "case_battery"
+          type: "uint8"
+          notes: "0-5 steps. 2 in the capture, while Fast Pair reported the case at 40 %. Single byte."
+        - offset: 153
+          length: 1
+          name: "touch_tone"
+          type: "uint8"
+          values:
+            0: "off"
+            1: "on"
+          notes: "Single byte."
+        - offset: 163
+          length: 1
+          name: "auto_power_off_enabled"
+          type: "uint8"
+          values:
+            0: "off"
+            1: "on"
+          notes: "Single byte."
+        - offset: 164
+          length: 1
+          name: "auto_power_off_duration"
+          type: "uint8"
+          values:
+            0: "10 min"
+            1: "20 min"
+            2: "30 min"
+            3: "60 min"
+          notes: "Index. 02 (30 min) in the capture, matching the manual's stated default."
+      notes: >
+        The capture confirms the frame, its length and checksum, and the ASCII
+        fields. The other offsets follow OpenSCQ30's A3947 parser
+        (lib/src/devices/soundcore/a3947/packets/state_update.rs), which lays
+        out further fields between 68 and 168: HearID, button mapping, sound
+        leak compensation, gaming mode, surround, volume limit, auto play/pause,
+        wearing tone, touch lock and low-battery prompt. Every one of them
+        decoded to a plausible value on the captured frame. Offsets are fixed
+        only as long as the firmware keeps the layout; always bound the parse
+        by the length field.
+      verification: "confirmed"
+    verification: "confirmed"
+  a3947_request_ldac:
+    description: "A3947. Query whether LDAC is enabled. The vendor app sends it right after the state request."
+    transport: "rfcomm"
+    value: [0x08, 0xee, 0x00, 0x00, 0x00, 0x01, 0x7f, 0x0a, 0x00, 0x80]
+    response:
+      prefix: "09 ff 00 00 01 01 7f"
+      length: 11
+      format:
+        - offset: 9
+          length: 1
+          name: "ldac"
+          type: "uint8"
+          values:
+            0: "off"
+            1: "on"
+          notes: "Single byte. 00 in the capture (09 ff 00 00 01 01 7f 0b 00 00 94)."
+      verification: "confirmed"
+    notes: >
+      The exchange is captured. That the byte is the LDAC switch comes from
+      OpenSCQ30's flag table (lib/src/devices/soundcore/common/modules/flag.rs,
+      query 01 7f, set 01 ff), which uses it on other models and does not
+      enable it for the A3947. The set is not declared here: LDAC changes the
+      audio link, and nothing shows what the A3947 does with it.
+    verification: "confirmed"
+  a3947_set_ambient_sound_mode:
+    description: "A3947. Switch between noise cancelling, transparency and normal, carrying the other sound-mode bytes unchanged."
+    transport: "rfcomm"
+    template: [0x08, 0xee, 0x00, 0x00, 0x00, 0x06, 0x81, 0x11, 0x00, "{ambient_sound_mode}", "{noise_canceling_levels}", "{transparency_mode}", "{noise_canceling_mode}", "{wind_noise}", "{environment_detection}", "{transportation_mode}", "{checksum}"]
+    parameters:
+      ambient_sound_mode:
+        type: "uint8"
+        required: true
+        min: 0
+        max: 2
+        labels: ["noise cancelling", "transparency", "normal"]
+      noise_canceling_levels:
+        type: "uint8"
+        source: "state:a3947_request_state.noise_canceling_levels"
+        description: "Read back so the ANC strengths are not reset."
+      transparency_mode:
+        type: "uint8"
+        source: "state:a3947_request_state.transparency_mode"
+      noise_canceling_mode:
+        type: "uint8"
+        source: "state:a3947_request_state.noise_canceling_mode"
+      wind_noise:
+        type: "uint8"
+        source: "state:a3947_request_state.wind_noise"
+      environment_detection:
+        type: "uint8"
+        source: "state:a3947_request_state.environment_detection"
+      transportation_mode:
+        type: "uint8"
+        source: "state:a3947_request_state.transportation_mode"
+      checksum:
+        type: "uint8"
+        auto: "checksum"
+        checksum_start: 0
+    example_body: "08 ee 00 00 00 06 81 11 00 02 50 00 01 00 00 00 e1"
+    example_notes: >
+      Captured: normal mode, manual ANC 5, adaptive 0, fully transparent,
+      adaptive NC mode, no wind suppression, no environment detection,
+      plane. The same capture has 01 ... e0 (transparency) and 00 ... df
+      (noise cancelling). Seven payload bytes; frame length 0x11 = 17.
+    response:
+      prefix: "09 ff 00 00 01 06 81"
+      length: 10
+      notes: "Acknowledgement with an empty payload: 09 ff 00 00 01 06 81 0a 00 9a, five times in the capture."
+      verification: "confirmed"
+    notes: >
+      Byte order from OpenSCQ30's A3947 SoundModes (lib/src/devices/soundcore/a3947/structures.rs),
+      which matches the captured frames. The vendor app sent every byte
+      after the first unchanged from the state reply, as this command does.
+    verification: "confirmed"
+  a3947_set_noise_canceling_mode:
+    description: "A3947. Choose manual, adaptive or transportation noise cancelling, carrying the other sound-mode bytes unchanged."
+    transport: "rfcomm"
+    template: [0x08, 0xee, 0x00, 0x00, 0x00, 0x06, 0x81, 0x11, 0x00, "{ambient_sound_mode}", "{noise_canceling_levels}", "{transparency_mode}", "{noise_canceling_mode}", "{wind_noise}", "{environment_detection}", "{transportation_mode}", "{checksum}"]
+    parameters:
+      ambient_sound_mode:
+        type: "uint8"
+        source: "state:a3947_request_state.ambient_sound_mode"
+      noise_canceling_levels:
+        type: "uint8"
+        source: "state:a3947_request_state.noise_canceling_levels"
+      transparency_mode:
+        type: "uint8"
+        source: "state:a3947_request_state.transparency_mode"
+      noise_canceling_mode:
+        type: "uint8"
+        required: true
+        min: 0
+        max: 2
+        labels: ["manual", "adaptive", "transportation"]
+      wind_noise:
+        type: "uint8"
+        source: "state:a3947_request_state.wind_noise"
+      environment_detection:
+        type: "uint8"
+        source: "state:a3947_request_state.environment_detection"
+      transportation_mode:
+        type: "uint8"
+        source: "state:a3947_request_state.transportation_mode"
+      checksum:
+        type: "uint8"
+        auto: "checksum"
+        checksum_start: 0
+    example_body: "08 ee 00 00 00 06 81 11 00 00 50 00 00 00 00 00 de"
+    example_notes: "Computed, not captured: noise cancelling on, manual mode, manual strength 5. The checksum is the byte sum of the first 16 bytes, mod 256."
+    response:
+      prefix: "09 ff 00 00 01 06 81"
+      length: 10
+      notes: "Acknowledgement with an empty payload, as for a3947_set_ambient_sound_mode."
+      verification: "reported"
+    notes: "Same frame as a3947_set_ambient_sound_mode, with a different byte owned by the control. Only noise_canceling_mode 01 appears in the capture."
+    verification: "reported"
+
+  # ---- Motion+ (A3116): frames WITHOUT a checksum ----------------------------
+  a3116_request_state:
+    description: "A3116. Request the state: battery, volume, auto power-off, firmware, serial and EQ."
+    transport: "rfcomm"
+    value: [0x08, 0xee, 0x00, 0x00, 0x00, 0x01, 0x01, 0x09, 0x00]
+    response:
+      prefix: "09 ff 00 00 01 01 01"
+      length: 45
+      format:
+        - offset: 9
+          length: 1
+          name: "charging"
+          type: "uint8"
+          values:
+            0: "not charging"
+            1: "charging"
+          notes: "Single byte. 00 in the capture."
+        - offset: 10
+          length: 1
+          name: "battery_level"
+          type: "uint8"
+          notes: "0-5 steps, 5 is full; not a percentage. Single byte. 05 in the capture."
+        - offset: 11
+          length: 1
+          name: "volume"
+          type: "uint8"
+          notes: "0-16 steps. Single byte. 03 in the capture."
+        - offset: 12
+          length: 1
+          name: "unknown"
+          type: "uint8"
+          notes: "Not decoded by OpenSCQ30. 00 in the capture."
+        - offset: 13
+          length: 1
+          name: "auto_power_off"
+          type: "uint8"
+          values:
+            1: "5 min"
+            2: "10 min"
+            3: "30 min"
+            4: "60 min"
+          notes: "Single byte. 03 in the capture."
+        - offset: 14
+          length: 5
+          name: "firmware_version"
+          type: "string"
+          notes: "ASCII \"NN.NN\"; \"80.01\" in the capture. OpenSCQ30 offers the voice-prompt setting only from 38.39 up."
+        - offset: 19
+          length: 16
+          name: "serial_number"
+          type: "string"
+          notes: "16 ASCII letters and digits. Identifying; the captured value is not reproduced."
+        - offset: 35
+          length: 1
+          name: "eq_preset"
+          type: "uint8"
+          values:
+            0: "BassUp"
+            1: "BassOff"
+            2: "Voice"
+            3: "Heavy"
+            4: "Classic"
+            5: "Original"
+            15: "Custom (as OpenSCQ30 sends it)"
+            255: "Custom (as the vendor app sends it)"
+          notes: "Single byte. ff in the capture."
+        - offset: 36
+          length: 9
+          name: "eq_bands"
+          type: "bytes"
+          notes: >
+            Nine bands, 80 Hz, 150 Hz, 300 Hz, 500 Hz, 700 Hz, 1 kHz, 5 kHz,
+            8 kHz, 12 kHz (OpenSCQ30's labels), each gain in whole dB plus 6:
+            0x06 = 0 dB, 0x00 = -6 dB, 0x0c = +6 dB. 09 06 07 06 06 06 06 05 06
+            in the capture (+3, 0, +1, 0, 0, 0, 0, -1, 0 dB).
+      notes: >
+        45 bytes, no checksum: 09 ff 00 00 01 01 01 2d 00 then 36 payload
+        bytes. Layout from OpenSCQ30 (lib/src/devices/soundcore/a3116/packets/inbound.rs);
+        the captured frame decodes cleanly with it. The vendor app sent this
+        request twice at connect, 1.3 s apart, and again 40 s later.
+      verification: "confirmed"
+    verification: "confirmed"
+  a3116_request_voice_prompt:
+    description: "A3116. Query whether the speaker's voice prompts are on."
+    transport: "rfcomm"
+    value: [0x08, 0xee, 0x00, 0x00, 0x00, 0x01, 0x10, 0x09, 0x00]
+    response:
+      prefix: "09 ff 00 00 01 01 10"
+      length: 10
+      format:
+        - offset: 9
+          length: 1
+          name: "voice_prompt"
+          type: "uint8"
+          values:
+            0: "off"
+            1: "on"
+          notes: "Single byte. 01 in the capture."
+      verification: "confirmed"
+    notes: "Meaning from OpenSCQ30's flag table (VoicePrompt: query 01 10, set 01 90)."
+    verification: "confirmed"
+  a3116_set_voice_prompt:
+    description: "A3116. Turn the speaker's voice prompts on or off."
+    transport: "rfcomm"
+    template: [0x08, 0xee, 0x00, 0x00, 0x00, 0x01, 0x90, 0x0a, 0x00, "{enabled}"]
+    parameters:
+      enabled:
+        type: "uint8"
+        required: true
+        min: 0
+        max: 1
+        labels: ["off", "on"]
+    example_body: "08 ee 00 00 00 01 90 0a 00 00"
+    example_notes: "Captured: voice prompts off. The capture also has 01 (on)."
+    response:
+      prefix: "09 ff 00 00 01 01 90"
+      length: 9
+      notes: "Acknowledgement with an empty payload and no checksum."
+      verification: "confirmed"
+    verification: "confirmed"
+  a3116_set_volume:
+    description: "A3116. Set the speaker volume, 0-16."
+    transport: "rfcomm"
+    template: [0x08, 0xee, 0x00, 0x00, 0x00, 0x01, 0x81, 0x0a, 0x00, "{volume}"]
+    parameters:
+      volume:
+        type: "uint8"
+        required: true
+        min: 0
+        max: 16
+        description: "Volume step. 16 steps is OpenSCQ30's range for this model; the capture sent 07 and 0a."
+    example_body: "08 ee 00 00 00 01 81 0a 00 07"
+    example_notes: "Captured: volume 7."
+    response:
+      prefix: "09 ff 00 00 01 01 81"
+      length: 9
+      notes: "Acknowledgement with an empty payload."
+      verification: "confirmed"
+    notes: "On earbuds 01 81 means something else (auto play/pause). Never send this to another model."
+    verification: "confirmed"
+  a3116_set_auto_power_off:
+    description: "A3116. Set how long the idle speaker waits before switching itself off."
+    transport: "rfcomm"
+    template: [0x08, 0xee, 0x00, 0x00, 0x00, 0x01, 0x83, 0x0a, 0x00, "{duration}"]
+    parameters:
+      duration:
+        type: "uint8"
+        required: true
+        min: 1
+        max: 4
+        labels: ["5 min", "10 min", "30 min", "60 min"]
+    example_body: "08 ee 00 00 00 01 83 0a 00 02"
+    example_notes: "Captured: 10 minutes. The capture also has 03 (30 minutes)."
+    response:
+      prefix: "09 ff 00 00 01 01 83"
+      length: 9
+      notes: "Acknowledgement with an empty payload, then the unsolicited a3116_auto_power_off_update echoing the value."
+      verification: "confirmed"
+    notes: "Code table from OpenSCQ30 (lib/src/devices/soundcore/a3116/structures.rs). On earbuds 01 83 is the touch-tone switch."
+    verification: "confirmed"
+  a3116_set_eq_preset:
+    description: "A3116. Select an EQ preset, or the custom curve."
+    transport: "rfcomm"
+    template: [0x08, 0xee, 0x00, 0x00, 0x00, 0x02, 0x81, 0x0a, 0x00, "{preset}"]
+    parameters:
+      preset:
+        type: "uint8"
+        required: true
+        allowed: [0, 1, 2, 3, 4, 5, 255]
+        labels: ["BassUp", "BassOff", "Voice", "Heavy", "Classic", "Original", "Custom"]
+        notes: "Names from OpenSCQ30. The vendor app sent 00-05 and ff in the capture; OpenSCQ30 sends 0f for custom instead of ff."
+    example_body: "08 ee 00 00 00 02 81 0a 00 00"
+    example_notes: "Captured: BassUp."
+    response:
+      prefix: "09 ff 00 00 01 02 81"
+      length: 9
+      notes: "Acknowledgement (09 ff 00 00 01 02 81 09 00), then the unsolicited a3116_eq_preset_update echoing the preset."
+      verification: "confirmed"
+    verification: "confirmed"
+  a3116_set_custom_eq:
+    description: "A3116. Write the nine-band custom EQ curve."
+    transport: "rfcomm"
+    template: [0x08, 0xee, 0x00, 0x00, 0x00, 0x02, 0x83, 0x12, 0x00, "{band_80hz}", "{band_150hz}", "{band_300hz}", "{band_500hz}", "{band_700hz}", "{band_1khz}", "{band_5khz}", "{band_8khz}", "{band_12khz}"]
+    parameters:
+      band_80hz: {type: "uint8", required: true, min: -6, max: 6, value_offset: -6, unit: "dB", description: "Gain in whole dB; raw byte = gain + 6."}
+      band_150hz: {type: "uint8", required: true, min: -6, max: 6, value_offset: -6, unit: "dB"}
+      band_300hz: {type: "uint8", required: true, min: -6, max: 6, value_offset: -6, unit: "dB"}
+      band_500hz: {type: "uint8", required: true, min: -6, max: 6, value_offset: -6, unit: "dB"}
+      band_700hz: {type: "uint8", required: true, min: -6, max: 6, value_offset: -6, unit: "dB"}
+      band_1khz: {type: "uint8", required: true, min: -6, max: 6, value_offset: -6, unit: "dB"}
+      band_5khz: {type: "uint8", required: true, min: -6, max: 6, value_offset: -6, unit: "dB"}
+      band_8khz: {type: "uint8", required: true, min: -6, max: 6, value_offset: -6, unit: "dB"}
+      band_12khz: {type: "uint8", required: true, min: -6, max: 6, value_offset: -6, unit: "dB"}
+    example_body: "08 ee 00 00 00 02 83 12 00 09 06 07 06 06 06 06 05 07"
+    example_notes: "Captured: +3, 0, +1, 0, 0, 0, 0, -1, +1 dB. Nine payload bytes, frame length 0x12 = 18, no checksum."
+    response:
+      prefix: "09 ff 00 00 01 02 83"
+      length: 9
+      notes: "Acknowledgement with an empty payload."
+      verification: "confirmed"
+    notes: >
+      Band frequencies are OpenSCQ30's labels. Both clients select the custom
+      preset (a3116_set_eq_preset) before or after writing the curve: the
+      vendor app sent preset ff earlier in the session, OpenSCQ30 sends 0f
+      then this frame (lib/src/devices/soundcore/a3116.rs tests).
+    verification: "confirmed"
+  a3116_power_off:
+    description: "A3116. Switch the speaker off."
+    transport: "rfcomm"
+    value: [0x08, 0xee, 0x00, 0x00, 0x00, 0x01, 0x85, 0x09, 0x00]
+    response:
+      expected: "unknown"
+      notes: "Not captured. OpenSCQ30 sends it and expects nothing specific; the link drops when the speaker powers off."
+    notes: >
+      Reported (OpenSCQ30 lib/src/devices/soundcore/a3116/packets/outbound.rs).
+      The same 01 85 frame appears among the vendor app's A3116 constants.
+      Turning it back on needs the power button.
+    verification: "reported"
+  a3116_request_unknown_0501:
+    description: "A3116. An undocumented query the vendor app sends at connect; the 32-byte reply is not decoded."
+    transport: "rfcomm"
+    value: [0x08, 0xee, 0x00, 0x00, 0x00, 0x05, 0x01, 0x09, 0x00]
+    response:
+      prefix: "09 ff 00 00 01 05 01"
+      length: 41
+      format:
+        - offset: 9
+          length: 32
+          name: "payload"
+          type: "bytes"
+          notes: >
+            Reads naturally as sixteen u16 little-endian values (captured: 11,
+            2, 1, 44, 30, 7, 8, 13, 5, 15, 3, 2, 0, 3, 7, 3). Meaning unknown:
+            possibly usage counters. Neither open-source client sends it.
+      verification: "confirmed"
+    notes: "Declared so a client can recognise the reply. There is no known reason to send it."
+    verification: "confirmed"
+
+  # ---- Life Q30 / Life Tune (A3028, A3029): checksummed, reported ------------
+  a3028_request_state:
+    description: "A3028/A3029. Request the state: battery, EQ, HearID, sound modes, firmware and serial."
+    transport: "rfcomm"
+    value: [0x08, 0xee, 0x00, 0x00, 0x00, 0x01, 0x01, 0x0a, 0x00, 0x02]
+    response:
+      prefix: "09 ff 00 00 01 01 01"
+      format:
+        - offset: 9
+          length: 1
+          name: "battery_level"
+          type: "uint8"
+          notes: "0-5 steps; not a percentage. Single byte."
+        - offset: 10
+          length: 1
+          name: "charging"
+          type: "uint8"
+          values:
+            0: "not charging"
+            1: "charging"
+          notes: "Single byte."
+        - offset: 11
+          length: 2
+          name: "eq_preset_id"
+          type: "uint16"
+          endianness: "little"
+          notes: "0x0000-0x0015 are the named presets (Soundcore Signature, Acoustic, ...); 0xfefe is custom."
+        - offset: 13
+          length: 8
+          name: "eq_bands"
+          type: "bytes"
+          notes: "Eight bands, 100 Hz to 12.8 kHz in octaves, each gain in tenths of a dB plus 120 (0x78 = 0 dB)."
+        - offset: 21
+          length: 1
+          name: "gender"
+          type: "uint8"
+          notes: "HearID profile input. Single byte."
+        - offset: 22
+          length: 1
+          name: "age_range"
+          type: "uint8"
+          notes: "HearID profile input. Single byte."
+        - offset: 23
+          length: 1
+          name: "hear_id_enabled"
+          type: "uint8"
+          values:
+            0: "off"
+            1: "on"
+          notes: "Single byte."
+        - offset: 24
+          length: 16
+          name: "hear_id_bands"
+          type: "bytes"
+          notes: "Two channels of eight HearID band bytes, same encoding as eq_bands."
+        - offset: 40
+          length: 4
+          name: "hear_id_time"
+          type: "uint32"
+          endianness: "big"
+          notes: "A timestamp of the HearID test, big-endian (the one big-endian field in the frame). Unit not established."
+        - offset: 44
+          length: 1
+          name: "ambient_sound_mode"
+          type: "uint8"
+          values:
+            0: "noise cancelling"
+            1: "transparency"
+            2: "normal"
+          notes: "Single byte."
+        - offset: 45
+          length: 1
+          name: "noise_canceling_mode"
+          type: "uint8"
+          values:
+            0: "transport"
+            1: "outdoor"
+            2: "indoor"
+          notes: "Single byte."
+        - offset: 46
+          length: 1
+          name: "transparency_mode"
+          type: "uint8"
+          values:
+            0: "fully transparent"
+            1: "vocal"
+          notes: "Single byte. OpenSCQ30 offers no transparency choice on this model."
+        - offset: 47
+          length: 1
+          name: "custom_noise_canceling"
+          type: "uint8"
+          notes: "Custom ANC strength; not offered by OpenSCQ30 on this model. Single byte."
+        - offset: 48
+          length: 5
+          name: "firmware_version"
+          type: "string"
+          notes: "ASCII \"NN.NN\"."
+        - offset: 53
+          length: 16
+          name: "serial_number"
+          type: "string"
+          notes: "16 ASCII characters. Identifying."
+      notes: >
+        From OpenSCQ30 (lib/src/devices/soundcore/a3028/packets/state_update_packet.rs),
+        whose test frames are 70 bytes (length 0x46). Newer firmware appends
+        optional fields after the serial number (touch control, dual
+        connection, auto power-off, two prompt tones), so read to the length
+        field, not to a fixed 70.
+      verification: "reported"
+    verification: "reported"
+  a3028_set_ambient_sound_mode:
+    description: "A3028/A3029. Switch between noise cancelling, transparency and normal, carrying the other sound-mode bytes unchanged."
+    transport: "rfcomm"
+    template: [0x08, 0xee, 0x00, 0x00, 0x00, 0x06, 0x81, 0x0e, 0x00, "{ambient_sound_mode}", "{noise_canceling_mode}", "{transparency_mode}", "{custom_noise_canceling}", "{checksum}"]
+    parameters:
+      ambient_sound_mode:
+        type: "uint8"
+        required: true
+        min: 0
+        max: 2
+        labels: ["noise cancelling", "transparency", "normal"]
+      noise_canceling_mode:
+        type: "uint8"
+        source: "state:a3028_request_state.noise_canceling_mode"
+      transparency_mode:
+        type: "uint8"
+        source: "state:a3028_request_state.transparency_mode"
+      custom_noise_canceling:
+        type: "uint8"
+        source: "state:a3028_request_state.custom_noise_canceling"
+      checksum:
+        type: "uint8"
+        auto: "checksum"
+        checksum_start: 0
+    example_body: "08 ee 00 00 00 06 81 0e 00 02 00 01 00 8e"
+    example_notes: "Normal mode, transport NC, vocal transparency, custom 0: OpenSCQ30's own test vector (common/packet/outbound/set_sound_modes.rs), recomputed here."
+    response:
+      prefix: "09 ff 00 00 01 06 81"
+      length: 10
+      notes: "Acknowledgement with an empty payload (by analogy with the captured A3947 acknowledgement; not captured for this model)."
+      verification: "reported"
+    verification: "reported"
+  a3028_set_noise_canceling_mode:
+    description: "A3028/A3029. Choose the transport, outdoor or indoor ANC profile, carrying the other sound-mode bytes unchanged."
+    transport: "rfcomm"
+    template: [0x08, 0xee, 0x00, 0x00, 0x00, 0x06, 0x81, 0x0e, 0x00, "{ambient_sound_mode}", "{noise_canceling_mode}", "{transparency_mode}", "{custom_noise_canceling}", "{checksum}"]
+    parameters:
+      ambient_sound_mode:
+        type: "uint8"
+        source: "state:a3028_request_state.ambient_sound_mode"
+      noise_canceling_mode:
+        type: "uint8"
+        required: true
+        min: 0
+        max: 2
+        labels: ["transport", "outdoor", "indoor"]
+      transparency_mode:
+        type: "uint8"
+        source: "state:a3028_request_state.transparency_mode"
+      custom_noise_canceling:
+        type: "uint8"
+        source: "state:a3028_request_state.custom_noise_canceling"
+      checksum:
+        type: "uint8"
+        auto: "checksum"
+        checksum_start: 0
+    example_body: "08 ee 00 00 00 06 81 0e 00 00 02 01 00 8e"
+    example_notes: "Computed: noise cancelling on, indoor profile."
+    response:
+      prefix: "09 ff 00 00 01 06 81"
+      length: 10
+      notes: "Acknowledgement with an empty payload (not captured for this model)."
+      verification: "reported"
+    verification: "reported"
+  a3028_set_equalizer:
+    description: "A3028/A3029. Set the EQ: a preset ID and the eight band gains it stands for."
+    transport: "rfcomm"
+    template: [0x08, 0xee, 0x00, 0x00, 0x00, 0x02, 0x81, 0x14, 0x00, "{preset_id}", "{band_100hz}", "{band_200hz}", "{band_400hz}", "{band_800hz}", "{band_1600hz}", "{band_3200hz}", "{band_6400hz}", "{band_12800hz}", "{checksum}"]
+    parameters:
+      preset_id:
+        type: "uint16"
+        endianness: "little"
+        required: true
+        description: "0x0000-0x0015 for the named presets in OpenSCQ30's common list (0 Soundcore Signature, 1 Acoustic, 2 Bass Booster, ... 0x15 Treble Reducer); 0xfefe for a custom curve."
+      band_100hz: {type: "uint8", required: true, min: -12.0, max: 13.4, scale: 0.1, value_offset: -12.0, unit: "dB", description: "Gain in 0.1 dB steps; raw byte = gain x 10 + 120."}
+      band_200hz: {type: "uint8", required: true, min: -12.0, max: 13.4, scale: 0.1, value_offset: -12.0, unit: "dB"}
+      band_400hz: {type: "uint8", required: true, min: -12.0, max: 13.4, scale: 0.1, value_offset: -12.0, unit: "dB"}
+      band_800hz: {type: "uint8", required: true, min: -12.0, max: 13.4, scale: 0.1, value_offset: -12.0, unit: "dB"}
+      band_1600hz: {type: "uint8", required: true, min: -12.0, max: 13.4, scale: 0.1, value_offset: -12.0, unit: "dB"}
+      band_3200hz: {type: "uint8", required: true, min: -12.0, max: 13.4, scale: 0.1, value_offset: -12.0, unit: "dB"}
+      band_6400hz: {type: "uint8", required: true, min: -12.0, max: 13.4, scale: 0.1, value_offset: -12.0, unit: "dB"}
+      band_12800hz: {type: "uint8", required: true, min: -12.0, max: 13.4, scale: 0.1, value_offset: -12.0, unit: "dB"}
+      checksum:
+        type: "uint8"
+        auto: "checksum"
+        checksum_start: 0
+    example_body: "08 ee 00 00 00 02 81 14 00 fe fe 3c b4 8f a0 8e b4 74 88 e6"
+    example_notes: >
+      Custom curve -6.0, +6.0, +2.3, +4.0, +2.2, +6.0, -0.4, +1.6 dB:
+      OpenSCQ30's test vector (common/packet/outbound/set_equalizer.rs),
+      recomputed here. Ten payload bytes, frame length 0x14 = 20.
+    response:
+      prefix: "09 ff 00 00 01 02 81"
+      length: 10
+      notes: "Acknowledgement with an empty payload (not captured for this model)."
+      verification: "reported"
+    notes: >
+      When selecting a named preset, both open clients send that preset's
+      own band values with its ID. The values are listed per preset in
+      OpenSCQ30's common_settings (lib/src/devices/soundcore/common/modules/equalizer.rs).
+      Whether the headphones use the ID, the bands or both is not
+      established.
+    verification: "reported"
+
+features:
+  - type: "firmware_update"
+    variants: ["A3947"]
+    dfu:
+      mechanisms: ["vendor_serial"]
+      transport: "rfcomm"
+      image:
+        signing: "unknown"
+        source: "vendor_cloud"
+        format: "Unknown. Not examined, by design."
+      enter:
+        how: "unknown"
+      recovery:
+        interrupted: "unknown"
+      verification: "reported"
+      notes: >
+        Recorded only so a client knows it exists and leaves it alone. The
+        A3947 publishes a Bestechnic OTA record ("BESOTA",
+        66666666-6666-6666-6666-666666666666, RFCOMM channel 13 in the
+        capture; confirmed) and the vendor app bundles a BES updater that
+        opens that UUID (static analysis). No transfer was captured, and no
+        bytes are documented here: an interrupted or wrong image can leave
+        earbuds unbootable, with no known recovery path. Images come from the
+        vendor cloud through the app.
+  - type: "firmware_update"
+    variants: ["A3116", "A3028", "A3029"]
+    dfu:
+      mechanisms: ["unknown"]
+      image:
+        signing: "unknown"
+        source: "vendor_cloud"
+        format: "Unknown. Not examined, by design."
+      enter:
+        how: "unknown"
+      recovery:
+        interrupted: "unknown"
+      verification: "hypothesis"
+      notes: >
+        The vendor app has a firmware-update screen for the Motion+ and ships
+        a bundled Qualcomm GAIA BR/EDR service. The Motion+'s control record
+        is named "CSR GAIA", which suggests GAIA is its update path. Neither
+        is verified: the captured record carried soundcore frames, not GAIA,
+        and no update was captured. Some speaker models (Soundcore 3, Mini 3,
+        Motion Boom, Select 2 and others) instead have a per-model OTA UUID in
+        the vendor app: the control UUID with 7c in place of 7b
+        (0cf12d31-fac3-4553-bd80-d6832e7c<sku>). Out of scope; no bytes are
+        documented.
+
+entities:
+  # ---- A3947 --------------------------------------------------------------------
+  - platform: "sensor"
+    name: "Left Earbud Battery"
+    variants: ["A3947"]
+    state_command: "a3947_request_state"
+    state_field: "a3947_request_state.battery_left"
+    icon: "mdi:battery"
+    notes: "0-5 steps (5 = full), not a percentage; shown raw."
+  - platform: "sensor"
+    name: "Right Earbud Battery"
+    variants: ["A3947"]
+    state_command: "a3947_request_state"
+    state_field: "a3947_request_state.battery_right"
+    icon: "mdi:battery"
+    notes: "0-5 steps (5 = full), not a percentage; shown raw."
+  - platform: "sensor"
+    name: "Case Battery"
+    variants: ["A3947"]
+    state_command: "a3947_request_state"
+    state_field: "a3947_request_state.case_battery"
+    icon: "mdi:battery"
+    notes: "0-5 steps. Offset from OpenSCQ30; the captured value agreed with the Fast Pair report."
+  - platform: "binary_sensor"
+    name: "Left Earbud Charging"
+    variants: ["A3947"]
+    device_class: "battery_charging"
+    state_command: "a3947_request_state"
+    state_field: "a3947_request_state.charging_left"
+    state_mapping:
+      on_value: 1
+  - platform: "binary_sensor"
+    name: "Right Earbud Charging"
+    variants: ["A3947"]
+    device_class: "battery_charging"
+    state_command: "a3947_request_state"
+    state_field: "a3947_request_state.charging_right"
+    state_mapping:
+      on_value: 1
+  - platform: "select"
+    name: "Sound Mode"
+    variants: ["A3947"]
+    state_command: "a3947_request_state"
+    state_field: "a3947_request_state.ambient_sound_mode"
+    state_mapping:
+      options:
+        "0": "Noise cancelling"
+        "1": "Transparency"
+        "2": "Normal"
+    commands:
+      select_option: "a3947_set_ambient_sound_mode"
+    notes: "The captured control: the vendor app switched this three ways and each set was acknowledged."
+  - platform: "select"
+    name: "Noise Cancelling Mode"
+    variants: ["A3947"]
+    state_command: "a3947_request_state"
+    state_field: "a3947_request_state.noise_canceling_mode"
+    state_mapping:
+      options:
+        "0": "Manual"
+        "1": "Adaptive"
+        "2": "Transportation"
+    commands:
+      select_option: "a3947_set_noise_canceling_mode"
+  - platform: "sensor"
+    name: "Firmware"
+    variants: ["A3947"]
+    state_command: "a3947_request_state"
+    state_field: "a3947_request_state.firmware_left"
+    icon: "mdi:chip"
+    notes: "Left earbud; the right is firmware_right. Both read 04.88 in the capture."
+
+  # ---- A3116 --------------------------------------------------------------------
+  - platform: "sensor"
+    name: "Battery"
+    variants: ["A3116"]
+    state_command: "a3116_request_state"
+    state_field: "a3116_request_state.battery_level"
+    icon: "mdi:battery"
+    notes: "0-5 steps (5 = full), not a percentage; shown raw."
+  - platform: "binary_sensor"
+    name: "Charging"
+    variants: ["A3116"]
+    device_class: "battery_charging"
+    state_command: "a3116_request_state"
+    state_field: "a3116_request_state.charging"
+    state_mapping:
+      on_value: 1
+  - platform: "number"
+    name: "Volume"
+    variants: ["A3116"]
+    min: 0
+    max: 16
+    step: 1
+    icon: "mdi:volume-high"
+    state_command: "a3116_request_state"
+    state_field: "a3116_request_state.volume"
+    commands:
+      set_value: "a3116_set_volume"
+  - platform: "select"
+    name: "EQ Preset"
+    variants: ["A3116"]
+    state_command: "a3116_request_state"
+    state_field: "a3116_request_state.eq_preset"
+    state_mapping:
+      options:
+        "0": "BassUp"
+        "1": "BassOff"
+        "2": "Voice"
+        "3": "Heavy"
+        "4": "Classic"
+        "5": "Original"
+        "255": "Custom"
+    commands:
+      select_option: "a3116_set_eq_preset"
+    notes: "A state of 15 is also custom (as OpenSCQ30 writes it)."
+  - platform: "select"
+    name: "Auto Power Off"
+    variants: ["A3116"]
+    state_command: "a3116_request_state"
+    state_field: "a3116_request_state.auto_power_off"
+    state_mapping:
+      options:
+        "1": "5 min"
+        "2": "10 min"
+        "3": "30 min"
+        "4": "60 min"
+    commands:
+      select_option: "a3116_set_auto_power_off"
+  - platform: "switch"
+    name: "Voice Prompts"
+    variants: ["A3116"]
+    state_command: "a3116_request_voice_prompt"
+    state_field: "a3116_request_voice_prompt.voice_prompt"
+    state_mapping:
+      on_value: 1
+    commands:
+      turn_on:
+        command: "a3116_set_voice_prompt"
+        values:
+          enabled: 1
+      turn_off:
+        command: "a3116_set_voice_prompt"
+        values:
+          enabled: 0
+    notes: "OpenSCQ30 offers this only on firmware 38.39 and later."
+  - platform: "button"
+    name: "Power Off"
+    variants: ["A3116"]
+    icon: "mdi:power"
+    commands:
+      press: "a3116_power_off"
+    notes: "The speaker can only be turned back on at its power button."
+  - platform: "sensor"
+    name: "Firmware"
+    variants: ["A3116"]
+    state_command: "a3116_request_state"
+    state_field: "a3116_request_state.firmware_version"
+    icon: "mdi:chip"
+
+  # ---- A3028 / A3029 ----------------------------------------------------------
+  - platform: "sensor"
+    name: "Battery"
+    variants: ["A3028", "A3029"]
+    state_command: "a3028_request_state"
+    state_field: "a3028_request_state.battery_level"
+    icon: "mdi:battery"
+    notes: "0-5 steps (5 = full), not a percentage; shown raw."
+  - platform: "binary_sensor"
+    name: "Charging"
+    variants: ["A3028", "A3029"]
+    device_class: "battery_charging"
+    state_command: "a3028_request_state"
+    state_field: "a3028_request_state.charging"
+    state_mapping:
+      on_value: 1
+  - platform: "select"
+    name: "Sound Mode"
+    variants: ["A3028", "A3029"]
+    state_command: "a3028_request_state"
+    state_field: "a3028_request_state.ambient_sound_mode"
+    state_mapping:
+      options:
+        "0": "Noise cancelling"
+        "1": "Transparency"
+        "2": "Normal"
+    commands:
+      select_option: "a3028_set_ambient_sound_mode"
+  - platform: "select"
+    name: "Noise Cancelling Mode"
+    variants: ["A3028", "A3029"]
+    state_command: "a3028_request_state"
+    state_field: "a3028_request_state.noise_canceling_mode"
+    state_mapping:
+      options:
+        "0": "Transport"
+        "1": "Outdoor"
+        "2": "Indoor"
+    commands:
+      select_option: "a3028_set_noise_canceling_mode"
+  - platform: "sensor"
+    name: "Firmware"
+    variants: ["A3028", "A3029"]
+    state_command: "a3028_request_state"
+    state_field: "a3028_request_state.firmware_version"
+    icon: "mdi:chip"
+
+protocol_details:
+  entity_coverage: >
+    Not bound to any entity, and why. The EQ curves (a3116_set_custom_eq,
+    a3028_set_equalizer) take eight or nine caller-chosen gains at once and
+    no entity platform holds a curve. a3028_set_equalizer's named presets
+    also need that preset's band values sent along, which lives in
+    OpenSCQ30's preset list rather than in a state field. a3947_request_ldac
+    is a reading with no matching set declared. a3116_request_unknown_0501's
+    reply is not understood. The battery levels are bound raw (0-5) because
+    the device reports steps, not percent.
+  frame_grammar:
+    phone_to_device: "08 ee 00 00 00 | cmd[0] cmd[1] | len (u16 LE, whole frame) | payload | [checksum]"
+    device_to_phone: "09 ff 00 00 01 | cmd[0] cmd[1] | len (u16 LE, whole frame) | payload | [checksum]"
+    checksum: "sum8 of every preceding byte of the frame, starting with 08/09. Present on the A3947, A3028/A3029 and every OpenSCQ30 model except the A3116, which has none."
+    acknowledgement: "The device answers a set with a frame carrying the same two command bytes and an empty payload (length 10 with a checksum, 9 without)."
+    replies: "A query's reply carries the same two command bytes as the query."
+    command_bytes: >
+      The first command byte groups functions (01 device and general, 02 EQ,
+      03 EQ with HearID, 04 buttons, 05 A3116 statistics(?), 06 sound modes,
+      0b multipoint, 10 and 20 hearing-related flags on newer earbuds). The
+      second has its top bit set for a set or change (0x81, 0x83, ...) and
+      clear for a query or report (0x01, 0x03, ...). The meaning of a given
+      pair still varies by model; this is a pattern, not a rule to send by.
+  checksum_examples:
+    - {hex: "08 ee 00 00 00 01 01 0a 00 02", note: "A3947 state request; captured"}
+    - {hex: "08 ee 00 00 00 01 7f 0a 00 80", note: "A3947 LDAC query; captured"}
+    - {hex: "09 ff 00 00 01 01 7f 0b 00 00 94", note: "A3947 LDAC reply, off; captured"}
+    - {hex: "09 ff 00 00 01 06 81 0a 00 9a", note: "A3947 sound-mode acknowledgement; captured"}
+    - {hex: "08 ee 00 00 00 06 81 11 00 01 50 00 01 00 00 00 e0", note: "A3947 transparency; captured"}
+    - {hex: "08 ee 00 00 00 06 81 11 00 00 50 00 01 00 00 00 df", note: "A3947 noise cancelling; captured"}
+  no_checksum_examples:
+    - {hex: "08 ee 00 00 00 01 01 09 00", note: "A3116 state request; captured"}
+    - {hex: "09 ff 00 00 01 01 10 0a 00 01", note: "A3116 voice prompt reply, on; captured"}
+    - {hex: "08 ee 00 00 00 02 81 0a 00 ff", note: "A3116 EQ preset custom, as the vendor app sends it; captured"}
+    - {hex: "09 ff 00 00 01 02 01 0a 00 00", note: "A3116 EQ preset push after a BassUp set; captured"}
+    - {hex: "09 ff 00 00 01 01 05 0a 00 02", note: "A3116 auto-power-off push after a 10-minute set; captured"}
+  connect_sequence:
+    A3947:
+      - "Open an insecure RFCOMM socket to 0cf12d31-fac3-4553-bd80-d6832e7b3947 (channel 15 in the capture)."
+      - "Send 08 ee 00 00 00 01 01 0a 00 02 (state); the 169-byte reply arrived in 50 ms."
+      - "The vendor app then sent 08 ee 00 00 00 01 7f 0a 00 80 (LDAC query). No other handshake, no authentication."
+    A3116:
+      - "Open an insecure RFCOMM socket to 0cf12d31-fac3-4553-bd80-d6832e7b3116 (channel 1 in the capture)."
+      - "Send 08 ee 00 00 00 01 01 09 00 (state, no checksum); the 45-byte reply arrived in 20 ms. The vendor app sent it a second time 1.3 s later."
+      - "The vendor app then sent 01 10 (voice prompt) and 05 01 (undecoded). OpenSCQ30 sends 01 10 only on firmware 38.39 or later."
+    A3028:
+      - "Open an insecure RFCOMM socket to SPP 00001101-0000-1000-8000-00805f9b34fb (from the vendor app's model table)."
+      - "Send 08 ee 00 00 00 01 01 0a 00 02 (state). That is all OpenSCQ30 sends before normal use."
+    notes: >
+      No `initialization` block is declared: there is no handshake to gate
+      the link, and the first request differs by model (with or without a
+      checksum), which a model-independent step list cannot express.
+  model_table:
+    description: >
+      SKU to control channel, from static analysis of an older vendor Android
+      build (2.9.9, which predates the Liberty 4 NC and the Space range) and
+      normalised here: rows sorted by SKU, UUIDs lower-cased. `control` is
+      `vendor` for 0cf12d31-fac3-4553-bd80-d6832e7b<code>, or `spp` for
+      00001101-0000-1000-8000-00805f9b34fb. `ble_code` is the byte XX of the
+      BLE advertisement code 01XXf5da-0000-1000-8000-00805f9b34fb that build
+      matches (empty where it uses none or something else). `ota_7c` marks
+      models for which it also carries the 7c-sibling OTA UUID. Names are
+      the retail names SoundcoreManager uses. Codes ending in a letter (302b,
+      339a, 339b, 339c, 392b, 393b, 393c) are regional or hardware revisions
+      of the base SKU and have their own UUID tail. A3947 was added from the
+      capture. A SKU missing from the table is NOT unsupported: the app has
+      gained models since this build, and its vendor UUID follows the same
+      rule (the A3947's did).
+    verification: "reported"
+    rows:
+      - {code: "3025", name: "Life Q20+", control: "vendor", ble_code: "12"}
+      - {code: "3027", name: "Life Q35", control: "spp", ble_code: "12"}
+      - {code: "3028", name: "Life Q30", control: "spp", ble_code: "12"}
+      - {code: "3029", name: "Life Tune", control: "spp", ble_code: "12"}
+      - {code: "302b", name: "Life Tune revision", control: "spp", ble_code: "12"}
+      - {code: "3030", name: "Life Tune Pro", control: "spp", ble_code: "12"}
+      - {code: "3033", name: "Life 2 Neo", control: "vendor", ble_code: "12"}
+      - {code: "3116", name: "Motion+", control: "vendor", ble_code: "0a", note: "no checksum; record named CSR GAIA (captured)"}
+      - {code: "3117", name: "Soundcore 3", control: "vendor", ble_code: "12", ota_7c: true}
+      - {code: "3118", name: "Motion Boom", control: "vendor", ble_code: "22", ota_7c: true}
+      - {code: "3119", name: "Mini 3", control: "vendor", ble_code: "12", ota_7c: true}
+      - {code: "3123", name: "Icon+", control: "vendor", ble_code: "0b"}
+      - {code: "3125", name: "Select 2", control: "vendor", ble_code: "12", ota_7c: true}
+      - {code: "3126", name: "Select Pro", control: "vendor", ble_code: "22", ota_7c: true}
+      - {code: "3127", name: "Mini 3 Pro", control: "vendor", ble_code: "22", ota_7c: true}
+      - {code: "3129", name: "Motion Boom Plus", control: "vendor", ble_code: "43", ota_7c: true}
+      - {code: "3145", name: "Boost", control: "vendor", ble_code: "16", ota_7c: true}
+      - {code: "3161", name: "Flare", control: "vendor", ble_code: "", note: "party speaker; BLE matched by its own manufacturer data"}
+      - {code: "3162", name: "Flare+", control: "vendor", ble_code: "", note: "party speaker; BLE matched by its own manufacturer data"}
+      - {code: "3163", name: "Flare S+", control: "vendor", ble_code: "", note: "advertises 16-bit service 0xfe03 instead"}
+      - {code: "3165", name: "Flare 2", control: "vendor", ble_code: "0d"}
+      - {code: "3167", name: "Flare Mini", control: "vendor", ble_code: "22", ota_7c: true}
+      - {code: "3201", name: "Life NC", control: "vendor", ble_code: "04"}
+      - {code: "3300", name: "Wakey", control: "vendor", ble_code: "09"}
+      - {code: "3301", name: "PowerConf", control: "vendor", ble_code: "12"}
+      - {code: "3302", name: "PowerConf S3", control: "vendor", ble_code: "19"}
+      - {code: "3372", name: "Infini Pro", control: "vendor", ble_code: "08"}
+      - {code: "3390", name: "Rave Mini", control: "vendor", ble_code: "06"}
+      - {code: "3391", name: "Rave", control: "vendor", ble_code: "05"}
+      - {code: "3392", name: "Mega", control: "vendor", ble_code: "10"}
+      - {code: "3393", name: "Trance", control: "vendor", ble_code: "11"}
+      - {code: "3395", name: "Rave Neo", control: "vendor", ble_code: "14", ota_7c: true}
+      - {code: "3396", name: "Trance Go", control: "vendor", ble_code: "15", ota_7c: true}
+      - {code: "339a", name: "Rave Mini revision", control: "vendor", ble_code: "18", ota_7c: true}
+      - {code: "339b", name: "Rave revision", control: "vendor", ble_code: "18", ota_7c: true}
+      - {code: "339c", name: "Rave Mini revision", control: "vendor", ble_code: "18", ota_7c: true}
+      - {code: "33a0", name: "(unnamed speaker)", control: "vendor", ble_code: "33", ota_7c: true}
+      - {code: "3600", name: "Frames (audio glasses)", control: "vendor", ble_code: "32"}
+      - {code: "3909", name: "Liberty 2 Pro", control: "spp", ble_code: "0c"}
+      - {code: "3910", name: "Liberty Air 2", control: "spp", ble_code: "0e"}
+      - {code: "3913", name: "Liberty 2", control: "spp", ble_code: "0f"}
+      - {code: "3926", name: "Liberty Neo 2", control: "vendor", ble_code: "12"}
+      - {code: "3927", name: "Life A1", control: "vendor", ble_code: "12"}
+      - {code: "392b", name: "Liberty Neo 2 revision", control: "vendor", ble_code: "12"}
+      - {code: "3930", name: "Liberty 2 Pro+", control: "spp", ble_code: "12"}
+      - {code: "3931", name: "Life Dot 2 NC", control: "spp", ble_code: "12"}
+      - {code: "3933", name: "Life Note 3", control: "vendor", ble_code: "12"}
+      - {code: "3935", name: "Life A2 NC", control: "spp", ble_code: "12"}
+      - {code: "3939", name: "Life P3", control: "vendor", ble_code: "31"}
+      - {code: "393b", name: "Life Dot 2 NC revision", control: "spp", ble_code: "12"}
+      - {code: "393c", name: "Life A2 NC revision", control: "vendor", ble_code: "12"}
+      - {code: "3945", name: "Life Note 3S", control: "vendor", ble_code: "12"}
+      - {code: "3947", name: "Liberty 4 NC", control: "vendor", ble_code: "", note: "not in that build; vendor UUID and a 32-bit advert code 0xdaf54e01 seen in the capture"}
+      - {code: "3951", name: "Liberty Air 2 Pro", control: "spp", ble_code: "12"}
+      - {code: "3952", name: "Liberty 3 Pro", control: "vendor", ble_code: "12"}
+      - {code: "3982", name: "Life Dot 3i", control: "vendor", ble_code: "12"}
+      - {code: "3983", name: "Life Note 3i", control: "vendor", ble_code: "12"}
+      - {code: "3992", name: "Life A3i", control: "vendor", ble_code: "12"}
+      - {code: "3993", name: "Life P3i", control: "vendor", ble_code: "12"}
+      - {code: "5180", name: "(non-A code, unnamed)", control: "vendor", ble_code: "03"}
+  openscq30_models:
+    description: >
+      Models OpenSCQ30 (commit bc77a293, 2026-09-26) drives, each with its
+      own module under lib/src/devices/soundcore/. Only the A3116 is
+      configured without a checksum. Only the A3930 pins SPP; every other
+      model picks the vendor UUID from SDP when there is one and falls back
+      to SPP. The A3028 module also drives the A3029, the A3027 module the
+      A3030, the A3931 module the A3935, and the A3933 module the A3939.
+    skus: ["A3004", "A3005", "A3027", "A3028", "A3029", "A3030", "A3031", "A3033", "A3035", "A3040", "A3062", "A3116", "A3330", "A3388", "A3876", "A3909", "A3926", "A3930", "A3931", "A3933", "A3935", "A3936", "A3939", "A3944", "A3945", "A3947", "A3948", "A3949", "A3951", "A3952", "A3954", "A3955", "A3957", "A3959", "A3968", "D1101", "D1202", "D1301"]
+  fast_pair_stream:
+    note: >
+      On the A3947 the Android system opened Google's Fast Pair Message
+      Stream (RFCOMM, df21fe2c-2515-4fdb-8886-f12c4d67927c) before the
+      soundcore app connected. It carried group 03 messages: model ID (code
+      01, D1E4E3, the Liberty 4 NC's Fast Pair model), the device's current
+      BLE address (code 02; the captured value is not reproduced), battery
+      (code 03: left, right and case, one byte each, percent in bits 0-6,
+      bit 7 charging) and, from the phone, platform type (code 08). A
+      client that only wants battery can read it here without the vendor
+      protocol. Format per Google's published specification.
+    verification: "confirmed"
+
+evidence:
+  artifacts:
+    - type: "hci_capture"
+      artifact: "Android btsnoop log, soundcore Liberty 4 NC (A3947) and the vendor app, attached to SoundcoreManager issue #162 (2024-05-01)"
+      url: "https://github.com/gmallios/SoundcoreManager/issues/162"
+      description: >
+        SDP browse of the earbuds (vendor record on channel 15, TOTA on 12,
+        BESOTA on 13, Fast Pair stream on 17), the BLE advertisement, the Fast
+        Pair message stream, and the vendor app's session: state request and
+        reply, LDAC query and reply, five sound-mode sets and their
+        acknowledgements. Every checksum recomputed. The unit's address,
+        serial number and Fast Pair account data are not reproduced.
+    - type: "hci_capture"
+      artifact: "Android btsnoop log, Soundcore Motion+ (A3116) and the vendor app, attached to OpenSCQ30 issue #215 (2026-01-15)"
+      url: "https://github.com/Oppzippy/OpenSCQ30/issues/215"
+      description: >
+        SDP browse of the speaker (vendor record "CSR GAIA" on channel 1, no
+        SPP-class record) and 53 soundcore frames with no checksum byte:
+        state, voice prompt, 05 01, EQ presets and pushes, custom EQ, volume,
+        auto power-off and its push. The unit's address and serial number are
+        not reproduced.
+    - type: "public_implementation"
+      artifact: "OpenSCQ30, commit bc77a293278092e0e3bd39ea2612371054ecb1be (2026-09-26)"
+      url: "https://github.com/Oppzippy/OpenSCQ30"
+      description: >
+        Framing and checksum (lib/src/devices/soundcore/common/packet.rs,
+        packet/checksum.rs), the vendor RFCOMM UUID rule (lib/src/devices/soundcore.rs,
+        common/device.rs), per-model modules a3947, a3116 and a3028 (state
+        layouts, sound modes, EQ encodings, command IDs), and the shared flag
+        table (common/modules/flag.rs). Source of every `reported` payload
+        meaning.
+    - type: "public_implementation"
+      artifact: "SoundcoreManager, commit 131ac405a1a372c689e6952e3b1b11f89ba4e54d (2024-10-03)"
+      url: "https://github.com/gmallios/SoundcoreManager"
+      description: >
+        An independent implementation of the same frames
+        (soundcore-lib/src/packets/request.rs, parsers/checksum.rs) sent over
+        BLE GATT (soundcore-lib/src/ble/btleplug/connection.rs), which picks
+        the first non-generic service holding a notify+read and a
+        write+write-without-response characteristic. The evidence for
+        ble_role secondary_control.
+    - type: "static_analysis"
+      artifact: "soundcore for Android (com.oceanwing.soundcore), version 2.9.9"
+      obtained_via: "third-party APK mirror"
+      description: >
+        Per-model control UUIDs, BLE advertisement codes and OTA UUIDs (the
+        model_table), the insecure RFCOMM socket, the 1024-byte read buffer,
+        the BLE advertisement parser that reads the BR/EDR address from
+        manufacturer data, the A3116 frame constants (9-byte frames, no
+        checksum), and the bundled BES and Qualcomm GAIA updaters. An old
+        build: it predates the A3947.
+    - type: "fcc_filing"
+      artifact: "FCC IDs 2AOKB-A3947 (Liberty 4 NC, granted 2023-03-28) and 2AOKB-A3028 (Life Q30 and Life Tune, granted 2020-08-12), Anker Innovations Limited"
+      url: "https://fccid.co/fcc/2AOKB-A3947"
+      description: "User-manual exhibits: pairing, dual connection and reset steps for those models. Both grants are 2402-2480 MHz."
+    - type: "vendor_documentation"
+      artifact: "Soundcore Motion+ user manual, multilingual, revision 2020-11"
+      url: "https://dix7fd4yse9rd.cloudfront.net/s/Soundcore/product/6109030547646/files/1608603719981_soundcorea3116manualmulti20201125v02.pdf"
+      description: "Pairing, TWS and indicator behaviour for the A3116; aptX support; no reset procedure."
+  capture_analysis: >
+    Captures were decoded with Wireshark's btrfcomm and btsdp dissectors and
+    a small SDP reassembler for continuation responses. Both logs start with
+    the device already bonded, so no pairing exchange appears. Neither shows
+    GATT traffic to a soundcore service.
+  open_questions:
+    - >
+      The vendor app now requires an account (reviews from 2026-09 describe
+      forced sign-up with v5.0.x) and shows full-screen advertising before
+      its device screen. Nothing on the device side needs either: the
+      control socket is unauthenticated in both captures. This spec is the
+      way around both.
+    - >
+      "The app says not connected, but the earbuds play fine" (a recurring
+      review, e.g. Liberty 4 NC in 2023). Audio and control are separate
+      links: A2DP can be up while the RFCOMM control channel is not.
+      Candidate causes on the A3947: another client (or the app's own
+      background service) still holding the control channel, or a client
+      opening the SPP-class record (TOTA, channel 12) instead of the vendor
+      record. Not reproduced.
+    - >
+      The Motion+ publishes no SPP-class SDP record. A client that opens "the
+      serial port" by 00001101 finds nothing. OpenSCQ30's A3116 module pins
+      the vendor UUID, and its changelog lists several Motion+ connection
+      fixes; #215 is one such report. Whether this was the cause is not
+      established.
+    - >
+      Gaming mode on the Liberty 4 NC "appears enabled but does nothing"
+      (a 2026-09 review). OpenSCQ30 has a model-specific gaming-mode module
+      for the A3947 (builder a3947_gaming_mode). Not examined here.
+    - >
+      Why the vendor app sent the A3116 state request twice, 1.3 s apart, at
+      connect: a timeout-and-retry in its connect logic, or a deliberate
+      double read. Harmless either way.
+
+remaining_unknowns:
+  - "The BLE GATT service that SoundcoreManager tunnels frames over: its UUIDs, which models have it (the A3947 and A3116 are not known to), and whether iOS uses it. Deliberately not documented here."
+  - "Whether any model requires an application-layer handshake or key before accepting sets. None seen on the A3947 or A3116; newer models (Liberty 5, Space One, Sleep, AeroClip) were not examined."
+  - "The meaning of the A3116's 05 01 reply (sixteen u16 values) and of its state byte at offset 12."
+  - "The A3947 state bytes OpenSCQ30 marks unknown (offsets 41-45 version string, 68, 117, 142-147, 149, 151, 154-156, 167)."
+  - "Whether the auto-power-off meaning of the A3116's unsolicited 01 05 push is right; inferred from two echoes."
+  - "Whether custom EQ on the A3116 should be selected as preset 0xff (vendor app) or 0x0f (OpenSCQ30), and whether the difference matters to the speaker."
+  - "What the A3028/A3029 do with the band bytes when a named preset ID is sent, and whether the A3028 answers sets with the same empty acknowledgement the A3947 sends."
+  - "The RFCOMM channel of the A3028/A3029 control record, and whether they also carry a vendor-UUID record on newer firmware."
+  - "How many hosts a device remembers, whether two hosts can hold the control channel at once on multipoint models, and what the factory reset clears."
+  - "The firmware update paths (BES OTA on the A3947, possibly GAIA on the A3116, per-model 7c UUIDs on speakers): deliberately not examined. Brick risk."
+  - "Party-mode linking, case display and recording, HearID upload, and the Anka AI features: out of scope."
+  - "A Motion+ factory-reset procedure; its manual gives none."
+  - "Whether every A3947 serial number embeds the unit's BR/EDR address (one unit seen)."
+
+helpful_urls:
+  - title: "soundcore Liberty 4 NC (A3947) quick guide (PDF, FCC exhibit)"
+    url: "https://fccid.co/api/files/s1/2aokb_a3947_usersmanual_6445546_7382539816.pdf"
+    kind: "manual"
+    description: >
+      The two-sheet quick guide for the Liberty 4 NC (A3947) filed with FCC ID
+      2AOKB-A3947: pairing, manual pairing (3 s on the case button), dual
+      connection, controls and the 10-second case-button reset used in this
+      spec.
+  - title: "Soundcore Life Q30 manual (PDF, FCC exhibit)"
+    url: "https://fccid.co/api/files/s1/2aokb_a3028_usersmanual_4855093_b44fac2725.pdf"
+    kind: "manual"
+    description: >
+      Life Q30 (A3028) manual filed with FCC ID 2AOKB-A3028: power, pairing
+      (5 s on the power button), dual pairing, NFC and the power + volume-up
+      reset.
+  - title: "Soundcore Life Tune manual (PDF, FCC exhibit)"
+    url: "https://fccid.co/api/files/s1/2aokb_a3028_usersmanual_4855095_d45c23a20f.pdf"
+    kind: "manual"
+    description: "Life Tune (A3029) manual on the same FCC grant, 2AOKB-A3028: the same pairing and reset steps as the Life Q30."
+  - title: "Soundcore Motion+ user manual (PDF, vendor-hosted)"
+    url: "https://dix7fd4yse9rd.cloudfront.net/s/Soundcore/product/6109030547646/files/1608603719981_soundcorea3116manualmulti20201125v02.pdf"
+    kind: "manual"
+    description: "Multilingual manual for the Motion+ (A3116), 2020-11 revision: buttons, pairing and TWS indicators, specifications."
+  - title: "soundcore Motion+ user guide (A3116), soundcore support"
+    url: "https://service.soundcore.com/article-description/soundcore-Motion-User-Guide-A3116"
+    kind: "vendor_support"
+    description: "The vendor's support article for the Motion+ (A3116) user guide."
+  - title: "FCC ID 2AOKB-A3947 (soundcore Liberty 4 NC)"
+    url: "https://fccid.co/fcc/2AOKB-A3947"
+    kind: "other"
+    description: "Grant record and exhibits for the Liberty 4 NC (A3947): photos, test reports and manuals."
+  - title: "FCC ID 2AOKB-A3028 (Soundcore Life Q30, Life Tune)"
+    url: "https://fccid.co/fcc/2AOKB-A3028"
+    kind: "other"
+    description: "Grant record and exhibits for the Life Q30 and Life Tune (A3028/A3029)."
+  - title: "FCC ID 2AOKB-A3116 (Soundcore Motion+)"
+    url: "https://fccid.io/2AOKB-A3116"
+    kind: "other"
+    description: "Grant listing for the Motion+ (A3116), including its manual exhibit. The site refuses non-browser clients (HTTP 403)."
+  - title: "OpenSCQ30"
+    url: "https://github.com/Oppzippy/OpenSCQ30"
+    kind: "implementation"
+    description: "Open-source soundcore client over RFCOMM for Linux, Windows and Android, with a module per model. The main source for payload layouts here."
+  - title: "SoundcoreManager"
+    url: "https://github.com/gmallios/SoundcoreManager"
+    kind: "implementation"
+    description: "Independent open-source soundcore client for Windows that sends the same frames over BLE GATT."
+  - title: "SoundcoreManager issue #162: Liberty 4 NC logs"
+    url: "https://github.com/gmallios/SoundcoreManager/issues/162"
+    kind: "other"
+    description: "The A3947 HCI snoop log this spec's A3947 frames were checked against."
+  - title: "OpenSCQ30 issue #215: cannot connect to Soundcore Motion+"
+    url: "https://github.com/Oppzippy/OpenSCQ30/issues/215"
+    kind: "other"
+    description: "The A3116 HCI snoop log this spec's Motion+ frames (no checksum) were checked against."
+  - title: "Google Fast Pair: Message Stream"
+    url: "https://developers.google.com/nearby/fast-pair/specifications/extensions/messagestream"
+    kind: "standard"
+    description: "The public format of the Fast Pair RFCOMM stream the A3947 carries beside the soundcore channel (model ID and battery)."
+  - title: "soundcore on Google Play"
+    url: "https://play.google.com/store/apps/details?id=com.oceanwing.soundcore"
+    kind: "vendor_support"
+    description: "The vendor Android app (package com.oceanwing.soundcore)."
+  - title: "Android: Bluetooth verifying and debugging (HCI snoop log)"
+    url: "https://source.android.com/docs/core/connect/bluetooth/verifying_debugging"
+    kind: "other"
+    description: "How to capture the vendor app's RFCOMM traffic for a model not covered here."
+  - title: "Wireshark display filter reference: btrfcomm"
+    url: "https://www.wireshark.org/docs/dfref/b/btrfcomm.html"
+    kind: "other"
+    description: "The dissector filter for reading RFCOMM payloads out of an HCI snoop log."

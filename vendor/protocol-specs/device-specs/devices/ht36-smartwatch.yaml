@@ -1,0 +1,1378 @@
+# HT36 smartwatch (YC "nadal" SDK platform) device spec
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# A generic budget smartwatch that advertises the name "HT36" and is sold
+# for use with the GloryFitPro phone app. It speaks the command set of the
+# YC "nadal" vendor SDK that app bundles: frames of the form
+# 01 <group> <marker> <opcode> [<length> <payload>] written without response
+# to 000034f1-0000-1000-8000-00805f9b34fb and answered by notification on
+# 000034f2-0000-1000-8000-00805f9b34fb, with longer payloads split into
+# numbered chunks and closed by an XOR-8 trailer. No pairing, no bond, no
+# crypto, no cloud needed for anything documented here.
+#
+# Sources: the MIT-licensed open client tcsenpai/ht36 (TypeScript/noble),
+# whose author reports running every command marked verified in its
+# features.json against an HT36, and which was itself built from a decompile
+# of the vendor app; plus the sibling GATT table in Gadgetbridge issue #5541.
+# Every byte here is therefore `reported`. This project holds no capture,
+# no FCC grant and no manual for the watch, and has not connected to one.
+#
+# Out of scope, on purpose: firmware update (the OTA characteristic
+# e49a3002-f69a-11e8-8eb2-f2801f1b9fd1 is documented as do-not-write only,
+# with no bytes), watch-face upload bytes (the .bin format is described,
+# the transfer is not), AGPS almanac push, the health-measurement settings
+# group beyond a reference table, and YC-SDK watches sold under other names.
+
+device:
+  name: "HT36 Smartwatch"
+  manufacturer: "Unbranded (YC nadal SDK platform)"
+  manufacturer_status: "active"
+  model: "HT36"
+  openness:
+    status: "undocumented"
+    reverse_engineered: true
+    notes: >
+      Nothing about the protocol is published by the watch's maker or the
+      SDK vendor. Everything here comes from an open client that was written
+      from a decompile of the vendor app and then run against a watch by its
+      author.
+  testing:
+    status: untested
+  protocol: "ble"
+  category: "wearable"
+  type: "smartwatch"
+  notes: >
+    A budget colour-screen smartwatch sold unbranded as "HT36" for use with
+    the GloryFitPro app (Android package com.yc.gloryfitpro, still listed on
+    Google Play in 2026-09). The app bundles a vendor SDK from YC (the SDK's
+    own name is "nadal"), and the watch speaks that SDK's command set over a
+    plain BLE GATT link. There is no Wi-Fi and nothing documented here needs
+    the vendor cloud: the watch answers any central that connects and
+    subscribes, with no pairing and no application-layer login.
+
+
+    COMMAND CHANNEL. Service 000056ff-0000-1000-8000-00805f9b34fb. Write
+    commands without response to 000034f1-0000-1000-8000-00805f9b34fb;
+    replies and spontaneous frames arrive as notifications on
+    000034f2-0000-1000-8000-00805f9b34fb. The service UUID is stated by the
+    upstream README and by the nRF Connect GATT table in upstream's archived
+    hand-off notes, and a sibling GloryFitPro watch shows the same
+    service/characteristic pairing (Gadgetbridge issue #5541); upstream's own
+    live GATT dump lists characteristics only. The watch also exposes
+    service 0000ffd0-0000-1000-8000-00805f9b34fb (ffd1/ffd2/ffd3), service
+    000055ff-0000-1000-8000-00805f9b34fb (000035f1 write, 000035f2 notify),
+    the SIG Device Information service
+    0000180a-0000-1000-8000-00805f9b34fb, and two 128-bit services on the
+    e49aXXXX-f69a-11e8-8eb2-f2801f1b9fd1 base, one of which is the firmware
+    update path. Never write e49a3002-f69a-11e8-8eb2-f2801f1b9fd1.
+
+
+    FRAME. 01, a command group byte, a marker byte (AA query, AB set, AC
+    device push or acknowledgement), an opcode byte, then, when there is a
+    payload, a length byte and the payload. Bare queries carry no length
+    byte at all (battery is 01 a4 aa 16). Replies echo the request's first
+    four bytes and append length and payload (battery reply
+    01 a4 aa 16 06 01 01 58 02 01 00, level 0x58 = 88 % at byte 7).
+    Set-time (group A3) does not follow the marker pattern: its bytes after
+    the group read as tag-length-value entries (01 04 <time>, 10 02 <zone>).
+    No checksum on single frames.
+
+
+    CHUNKED TRANSFERS. A payload too long for one write is cut into slices
+    of at most 16 bytes, each sent as <head hi> <head lo> <flag hi>
+    <flag lo> <section index> <slice>, then a trailer <head> <flag> FD
+    <xor8>, where xor8 is the XOR of every byte of every chunk frame (headers
+    included, trailer excluded). Head is 01 plus the group, flag is the
+    marker/opcode pair: notification switches 01b2/abab, notification push
+    01b0/abab, weather 01e0/abab. The watch answers multi-frame replies
+    (device info, history) the same way. Notification and weather bodies
+    are tag-length-value lists, ABxx <len> <value>; notification text is
+    UTF-16BE. Full tables in protocol_details.
+
+
+    WHAT WORKS UPSTREAM (reported): battery, device info, vibrate/find,
+    find-state query, notification push (renders on the wrist once the
+    notification switches have been written that session and the AB08 type
+    tag is present), weather push, GPS position push, fitness history
+    (steps, calories, distance, heart rate, SpO2, blood pressure per minute)
+    and single-night sleep history. WHAT DOES NOT: set-time is acknowledged
+    but the watch's clock does not change; on-demand heart-rate measurement
+    is acknowledged but no result arrives; watch-face upload is refused once
+    the watch's face slots are full, and no delete command is known.
+
+
+    HARDWARE IDENTITY IS UNSETTLED. Upstream's early notes call the SoC a
+    Telink TLSR8232/8258 because of the e49a... UUID base, but Telink's
+    published OTA service is 00010203-0405-0607-0809-0a0b0c0d1912 and the
+    e49a base is in no DFU registry this project holds; upstream's later
+    watch-face notes instead name an Actions ATS3085-class part. The 240 x 296
+    colour screen and 400 kB watch-face slots fit the latter better. Treat the
+    SoC as not established. The firmware identifies itself as "AT364D"
+    followed by a V and a six-digit build (upstream's unit reported
+    AT364DV002716), and as device type "NAL-WB00" in its device-info reply.
+
+
+    Everything byte-level is `reported`: taken from the open client and its
+    notes, whose author ran it against one watch. No capture exists in this
+    project's research store and nothing here has been driven from this
+    document.
+
+  identification:
+    local_names: ["HT36"]
+    notes: >
+      Scan by the exact advertised local name "HT36", which is what the open
+      client matches. Whether the advertisement carries a service UUID or
+      manufacturer data is not recorded (upstream wrote an advertisement
+      dumper but published no output), so nothing here filters on either.
+      The service/characteristic set is shared with other GloryFitPro
+      watches sold under other names (Gadgetbridge issue #5541 shows the same
+      table on a "Stratos 2 Ultra"), and at least one GloryFit device writes
+      a different command dialect (frames starting eb 02) to 34f1
+      (Gadgetbridge issue #5505), so the GATT table alone does not identify
+      this protocol. The one unit's public address, as the device-info reply
+      reports it, sits in OUI 78:02:B7, registered to ShenZhen Ultra Easy
+      Technology Co., Ltd.; one unit is not enough to declare a prefix
+      matcher, and on macOS the address is not visible at all.
+
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          local_name:
+            match: "exact"
+            value: "HT36"
+        notes: >
+          The watch advertises while awake. After connecting, confirm the
+          protocol by finding 000034f1-0000-1000-8000-00805f9b34fb and
+          000034f2-0000-1000-8000-00805f9b34fb under
+          000056ff-0000-1000-8000-00805f9b34fb and getting a battery reply.
+    identity:
+      stable_keys: ["address"]
+      display: "local_name"
+      notes: >
+        CoreBluetooth hides the address and hands out a per-host peripheral
+        identifier instead; upstream resolves the watch by name on every run.
+        Whether the address is public or random is not recorded; the
+        device-info reply (tag 0x01) reports a six-byte MAC for the watch.
+    static_ip_required: false
+
+  setup:
+    required: false
+    confidence: "medium"
+    notes: >
+      Nothing to provision: no account, no network credentials, no bond. The
+      open client scans by name, connects, subscribes to 34f2 and writes.
+      Confidence is medium because one public implementation ran this against
+      a watch; this project has not.
+    methods:
+      - type: "ble_direct"
+        verified: false
+        description: >
+          Scan for "HT36", connect, subscribe to
+          000034f2-0000-1000-8000-00805f9b34fb, then write frames to
+          000034f1-0000-1000-8000-00805f9b34fb. Read a reply by matching its
+          first four bytes against the request.
+        ble:
+          pairing_required: false
+        steps:
+          - action: "Wake the watch (raise it or press its button) and make sure the GloryFitPro app is not connected to it."
+            actor: "user"
+          - action: "Scan for the exact local name HT36 and connect."
+            actor: "client"
+            request:
+              protocol: "ble_gatt"
+          - action: >
+              Discover services and enable notifications on
+              000034f2-0000-1000-8000-00805f9b34fb (service
+              000056ff-0000-1000-8000-00805f9b34fb).
+            actor: "client"
+          - action: "The watch shows a spinner and vibrates once, entering its connected-to-app state."
+            actor: "device"
+          - action: >
+              Wait about 500 ms, then write commands without response to
+              000034f1-0000-1000-8000-00805f9b34fb, for example the battery
+              query 01 a4 aa 16.
+            actor: "client"
+            expect: "A notification on 34f2 starting 01 a4 aa 16, with the battery percentage at byte 7."
+        timing:
+          settle_after_subscribe_ms: 500
+          gap_between_chunk_frames_ms: 150
+          gap_between_notification_switches_and_push_ms: 400
+          device_info_collect_window_ms: 3000
+          first_spontaneous_notification_s: 19
+          spontaneous_notification_interval_s: 10
+          notes: >
+            All from the open client, which waits these times rather than
+            gating on acknowledgements for the short transfers. The first
+            spontaneous 34f2 frame arrives about 19 s after subscribing and
+            then roughly every 10 s; a client listening for only a few seconds
+            sees nothing and should not conclude the link is dead. Command
+            replies arrive within a few hundred milliseconds.
+        troubleshooting:
+          - symptom: "A notification push is acknowledged but nothing appears on the watch."
+            causes:
+              - "The notification switches (enable_notifications, group B2) were not written earlier in this connection; upstream writes them before every push."
+              - "The AB08 message-type tag is missing. Without it the watch acknowledges the transfer and does not render it; upstream sends type 1."
+          - symptom: "Set-time is acknowledged but the watch's clock does not change."
+            causes:
+              - "Reported upstream after two tries with the A3 frame; the format this firmware wants has not been matched. The older A2 form has not been tried. Until it is, the clock is set by the vendor app."
+          - symptom: "Nothing arrives on 34f2 after subscribing."
+            causes:
+              - "Normal for about 19 s: spontaneous frames start late. Write a query (battery) to get an immediate answer."
+              - "The vendor app on a phone is connected and holding the watch; close it or turn the phone's Bluetooth off."
+          - symptom: "Writes to 0000ffd1 or queries written to 000035f1 get no reply."
+            causes:
+              - "Wrong channel. 0000ffd1-0000-1000-8000-00805f9b34fb answers nothing (upstream calls it a decoy). 000035f1-0000-1000-8000-00805f9b34fb executes some set commands (vibrate) and answers the single-byte a1 query, but query replies only come back for frames written to 000034f1-0000-1000-8000-00805f9b34fb."
+          - symptom: "Chunk writes fail or arrive truncated on Linux or Android but work on macOS."
+            causes:
+              - "A 16-byte slice makes a 21-byte write, one more than a default 23-byte ATT MTU allows. CoreBluetooth negotiates a larger MTU on its own; elsewhere request one (or use 15-byte slices, which is what the SDK's file transfers use; whether the watch reassembles 15-byte notification slices is not established)."
+          - symptom: "Decoded device info has no model string or battery field."
+            causes:
+              - "The open client's device-info decoder keys its labels by the decimal numbers 15 and 16, which are tags 0x0f and 0x10; the watch sends the model string as tag 0x15 and the battery block as tag 0x16 (upstream's own decode log). Key on 0x15/0x16."
+          - symptom: "A multi-night sleep pull decodes to nonsense records."
+            causes:
+              - "Known upstream limit: its sleep reassembly concatenates frames after a 5-byte header and misaligns after the first frame (it drops the bad records). See protocol_details.history.sleep for a likely cause."
+          - symptom: "Heart-rate or SpO2 measurement commands are acknowledged but no reading comes back."
+            causes:
+              - "Reported upstream after 90 s worn on every notify characteristic: on-demand measurement results are not pushed. Read the values from fitness history instead (see also protocol_details.spontaneous_stream)."
+          - symptom: "The watch freezes after an experiment."
+            causes:
+              - "Upstream's advice is to hold the button 10-15 s or let the battery run down. That is generic advice for this class of watch, not confirmed on the HT36."
+    factory_reset:
+      applicable: "unknown"
+      confidence: "low"
+      effect: >
+        Not established. No reset has been performed or documented for this
+        watch, and nothing is known about what one would clear.
+      description: >
+        The vendor SDK has a factory-reset call, but its bytes were not mapped
+        upstream and are not given here. No manual for the HT36 has been
+        found, so no on-watch menu route can be cited. The 10-15 s button
+        hold upstream mentions is for recovering a frozen watch (a forced
+        restart), not a reset, and is itself unconfirmed on this model.
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        Nothing a client does binds the watch. The vendor app registers the
+        watch against its cloud account, but the watch answered the open
+        client without being unbound. Moving to a new client only means
+        stopping the vendor app (or the phone's Bluetooth) from holding the
+        link.
+    credentials:
+      wifi_passphrase_protection: "not_applicable"
+      stored_on_device: []
+      issued_to_client: []
+      notes: >
+        No Wi-Fi and no issued secrets. Anything in radio range can connect,
+        read the stored health history and push notifications; physical
+        proximity is the only access control.
+
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "none"
+    bonding: "none"
+    enter_pairing_mode:
+      required: false
+      notes: "Connectable whenever it is awake and no other central holds it."
+    exclusivity:
+      single_connection: "unknown"
+      recovery: >
+        Close the GloryFitPro app, or turn Bluetooth off on the phone that
+        normally talks to the watch, then scan again.
+    notes: >
+      The open client connects with a plain GATT connection from macOS and
+      never pairs or bonds, and every command documented here worked for it
+      that way. The vendor SDK also carries application-layer
+      pairing-request and authorization-code calls; upstream never needed
+      them and their role on this watch is not known.
+
+  host_compatibility:
+    - stack: "corebluetooth"
+      status: "compatible"
+      verification: "reported"
+      basis: >
+        The open client (Bun + @stoprocent/noble) was built and run on macOS
+        on Apple Silicon, through CoreBluetooth. Not run by this project.
+      notes: >
+        Its README also names Linux as a target, but reports no Linux run, so
+        no BlueZ verdict is given. See the MTU note in troubleshooting before
+        sending 21-byte chunk frames from BlueZ or Android.
+
+services:
+  - uuid: "000056ff-0000-1000-8000-00805f9b34fb"
+    name: "YC SDK command service"
+    notes: >
+      The command channel. UUID from the upstream README and the nRF Connect
+      GATT table in upstream's archived hand-off notes; Gadgetbridge issue
+      #5541 shows the same pairing on a sibling watch. The reply parser in
+      the vendor SDK (as upstream describes it) treats bytes 2-3 of a frame as
+      one 16-bit operation, byte 4 as the length and the rest as payload.
+    initialization:
+      - characteristic: "000034f2-0000-1000-8000-00805f9b34fb"
+        subscribe: true
+        delay_ms: 500
+        notes: >
+          The only per-connection step. The open client subscribes, waits
+          about 500 ms and starts writing. No handshake frame is needed.
+    characteristics:
+      - uuid: "000034f1-0000-1000-8000-00805f9b34fb"
+        name: "Command write"
+        properties: ["write_without_response"]
+        role: "command"
+        notes: >
+          Write-without-response per upstream's live GATT dump (the archived
+          nRF Connect table also lists read). Every command below is written
+          here; replies come back on 000034f2. Single frames carry no
+          checksum. Multi-frame transfers use the chunk/trailer framing in
+          protocol_details.chunked_transfer, which no schema framing scheme
+          describes, so each transfer is declared as a chunk command plus an
+          end command and the client computes the XOR itself.
+        commands:
+          query_battery:
+            description: >
+              Battery query (group A4, marker AA, opcode 16, no length byte).
+              Reply 01 a4 aa 16 06 01 01 <level> 02 01 <x>: level in percent
+              at byte 7. See the 000034f2 format.
+            verification: "reported"
+            value: [0x01, 0xa4, 0xaa, 0x16]
+          query_device_info:
+            description: >
+              Device-information query (group A4, marker AA, opcode AA). The
+              watch answers with a chunked reply 01 a4 aa aa <section>
+              <slice>... closed by 01 a4 aa aa fd <xor8>; reassembled, it is a
+              list of AA <tag> <len> <value> entries: MAC, device type,
+              firmware and UI versions, model code, system version string,
+              battery. Tag table in protocol_details.device_info.
+            verification: "reported"
+            value: [0x01, 0xa4, 0xaa, 0xaa]
+          find_watch:
+            description: >
+              Buzz the watch so it can be found (group A5, marker AB, opcode
+              04, length 1, value 1). Upstream confirmed a physical buzz; the
+              acknowledgement it logged is 01 a5 ac 05 01 01. How long the
+              buzz lasts, and whether value 0 stops it, are not recorded.
+            verification: "reported"
+            locate: "both"
+            value: [0x01, 0xa5, 0xab, 0x04, 0x01, 0x01]
+          query_find_state:
+            description: >
+              Query in the find-device group (group A5, marker AA, opcode 07,
+              no length). Upstream calls it the wear state after the SDK's
+              name for it, which is about finding the wearable; whether the
+              answer means "on the wrist" or "find function enabled" is not
+              established. Reply observed: 01 a5 aa 07 01 01 (length 1, value
+              1).
+            verification: "reported"
+            value: [0x01, 0xa5, 0xaa, 0x07]
+          query_default_config:
+            description: >
+              Query the watch's default configuration (group A5, marker AA,
+              opcode 01). Upstream's reply held seven entries of <index> 01
+              <state> (only index 5 on); what each index switches is not
+              known.
+            verification: "reported"
+            value: [0x01, 0xa5, 0xaa, 0x01]
+          set_time:
+            description: >
+              The SDK's current set-time frame (group A3): 01 a3 01 04 <Unix
+              time, u32 BE> 10 02 <zone hours> <zone fraction>. The bytes
+              after the group read as two tag-length-value entries (tag 01,
+              4 bytes of time; tag 10, 2 bytes of zone). UPSTREAM REPORTS
+              THAT THE WATCH ACKNOWLEDGES THIS AND ITS CLOCK DOES NOT CHANGE
+              (tested twice), so this is the SDK's frame, not a working
+              command. Kept so the next person starts from it.
+            verification: "hypothesis"
+            template: [0x01, 0xa3, 0x01, 0x04, "{unix_time}", 0x10, 0x02, "{zone_hours}", "{zone_fraction}"]
+            parameters:
+              unix_time:
+                type: "uint32"
+                endianness: "big"
+                min: 0
+                max: 4294967295
+                unit: "s"
+                description: "Seconds since 1970-01-01 UTC, as the open client sends it. Whether the watch wants UTC or local seconds is part of what is unresolved."
+              zone_hours:
+                type: "uint8"
+                min: 0
+                max: 255
+                description: >
+                  Sign-magnitude whole hours of the UTC offset: 0x80 plus the
+                  hours for UTC+0 and east (UTC+1 = 0x81), the bare hours for
+                  west (UTC-8 = 0x08). Not linear, so no scale is declared.
+              zone_fraction:
+                type: "uint8"
+                min: 0
+                max: 99
+                default: 0
+                description: "Minutes past the whole hour as hundredths of an hour, per upstream's reading of the SDK (UTC+5:30 sends 50). The open client always sends 0."
+          set_time_legacy:
+            description: >
+              The SDK's older set-time frame (group A2, set, opcode 01, length
+              6): <Unix time u32 BE> <zone hours> <zone fraction>, same
+              encodings as set_time. Listed upstream as a fallback and never
+              sent to an HT36.
+            verification: "hypothesis"
+            template: [0x01, 0xa2, 0xab, 0x01, 0x06, "{unix_time}", "{zone_hours}", "{zone_fraction}"]
+            parameters:
+              unix_time:
+                type: "uint32"
+                endianness: "big"
+                min: 0
+                max: 4294967295
+                unit: "s"
+                description: "Seconds since 1970-01-01."
+              zone_hours:
+                type: "uint8"
+                min: 0
+                max: 255
+                description: "Sign-magnitude hours: 0x80 plus hours for UTC+0 and east, bare hours for west."
+              zone_fraction:
+                type: "uint8"
+                min: 0
+                max: 99
+                default: 0
+                description: "Hundredths of an hour past the whole hour."
+          push_gps_location:
+            description: >
+              Send the phone's position to the watch (group E9, set, opcode
+              02, length 12): time, latitude and longitude, all big-endian 32
+              bits. Upstream saw the watch echo the frame back, which it reads
+              as acceptance; nothing visible happens on the watch. Upstream
+              believes it seeds workout tracking.
+            verification: "reported"
+            template: [0x01, 0xe9, 0xab, 0x02, 0x0c, "{unix_time}", "{latitude}", "{longitude}"]
+            parameters:
+              unix_time:
+                type: "uint32"
+                endianness: "big"
+                min: 0
+                max: 4294967295
+                unit: "s"
+                description: "Seconds since 1970-01-01 UTC at which the fix was taken."
+              latitude:
+                type: "int32"
+                endianness: "big"
+                min: -900000000
+                max: 900000000
+                scale: 0.0000001
+                unit: "°"
+                description: "Degrees north times 10^7, two's complement (45.4642 N = 0x1b194950)."
+              longitude:
+                type: "int32"
+                endianness: "big"
+                min: -1800000000
+                max: 1800000000
+                scale: 0.0000001
+                unit: "°"
+                description: "Degrees east times 10^7, two's complement (9.19 E = 0x057a4860)."
+          query_ephemeris_params:
+            description: >
+              Ask the watch for its satellite-assistance parameters (group E9,
+              query, opcode 01). Upstream's reply carried status bytes and the
+              ASCII list "f1e1G3;f1e1C3;f1e1E3" (GPS, BeiDou, Galileo), which
+              it reads as an on-board multi-GNSS receiver. The status bytes are
+              not decoded.
+            verification: "reported"
+            value: [0x01, 0xe9, 0xaa, 0x01]
+          enable_notifications:
+            description: >
+              First of two writes that switch the watch's call and message
+              notifications on (chunked transfer, head 01b2, flag abab,
+              section 0): payload AB 01 01 <incoming call 1> AB 02 01
+              <messages 1>. Follow with enable_notifications_end. Upstream
+              writes this pair before every push; a push without it in the
+              same connection is acknowledged and not shown. The payload with
+              either switch 0 is in protocol_details.notification_switches.
+            verification: "reported"
+            value: [0x01, 0xb2, 0xab, 0xab, 0x00, 0xab, 0x01, 0x01, 0x01, 0xab, 0x02, 0x01, 0x01]
+          enable_notifications_end:
+            description: >
+              Trailer for enable_notifications: head, flag, FD, then the XOR
+              of every byte of the chunk frame (0xb0 for the both-on payload).
+              Write about 150 ms after the chunk.
+            verification: "reported"
+            value: [0x01, 0xb2, 0xab, 0xab, 0xfd, 0xb0]
+          push_notification_chunk:
+            description: >
+              One chunk of a notification push (head 01b0, flag abab). Build
+              the tag-length-value body (protocol_details.notification_tlv,
+              UTF-16BE text, the AB08 type and AB09 vibrate tags always
+              present), cut it into slices of at most 16 bytes, and send slice
+              n as this frame with section n, about 150 ms apart. Then send
+              push_notification_end.
+            verification: "reported"
+            template: [0x01, 0xb0, 0xab, 0xab, "{section}", "{slice}"]
+            parameters:
+              section:
+                type: "uint8"
+                min: 0
+                max: 252
+                description: "Zero-based chunk index. 0xfd marks the trailer, so stay below it."
+              slice:
+                type: "bytes"
+                min_length: 1
+                max_length: 16
+                description: "The next up-to-16 bytes of the notification body."
+          push_notification_end:
+            description: >
+              Trailer that closes a notification push. xor8 is the XOR of
+              every byte of every push_notification_chunk frame sent in this
+              transfer, headers and section bytes included.
+            verification: "reported"
+            template: [0x01, 0xb0, 0xab, 0xab, 0xfd, "{xor8}"]
+            parameters:
+              xor8:
+                type: "uint8"
+                min: 0
+                max: 255
+                description: >
+                  Computed by the client across several writes, which no
+                  `auto` role can express. Test vectors in
+                  protocol_details.test_vectors.
+          push_weather_chunk:
+            description: >
+              One chunk of a today's-weather push (head 01e0, flag abab). Body
+              is the tag-length-value list in protocol_details.weather_tlv
+              (unit, AQI, city, current/high/low temperature, icon, PM2.5,
+              time, wind, humidity and UV). Same slicing and pacing as the
+              notification push; close with push_weather_end.
+            verification: "reported"
+            template: [0x01, 0xe0, 0xab, 0xab, "{section}", "{slice}"]
+            parameters:
+              section:
+                type: "uint8"
+                min: 0
+                max: 252
+                description: "Zero-based chunk index."
+              slice:
+                type: "bytes"
+                min_length: 1
+                max_length: 16
+                description: "The next up-to-16 bytes of the weather body."
+          push_weather_end:
+            description: "Trailer that closes a weather push: FD then the XOR of every byte of every push_weather_chunk frame."
+            verification: "reported"
+            template: [0x01, 0xe0, 0xab, 0xab, 0xfd, "{xor8}"]
+            parameters:
+              xor8:
+                type: "uint8"
+                min: 0
+                max: 255
+                description: "XOR over all chunk frames of this transfer, computed by the client."
+          query_fitness_index:
+            description: >
+              Ask how many fitness-history frames cover a time window (group
+              C5, query, opcode 01, length 8). Reply 01 c5 aa 01 01 <count>.
+              Upstream's 24-hour window answered 9.
+            verification: "reported"
+            template: [0x01, 0xc5, 0xaa, 0x01, 0x08, "{start_time}", "{end_time}"]
+            parameters:
+              start_time:
+                type: "uint32"
+                endianness: "big"
+                min: 0
+                max: 4294967295
+                unit: "s"
+                description: "Window start, seconds since 1970-01-01."
+              end_time:
+                type: "uint32"
+                endianness: "big"
+                min: 0
+                max: 4294967295
+                unit: "s"
+                description: "Window end, seconds since 1970-01-01."
+          request_fitness_data:
+            description: >
+              Pull one fitness-history frame (group C6, query, opcode 01,
+              length 10). The watch streams 01 c6 aa 01 <section> <slice>...
+              and closes with 01 c6 aa 01 fd <xor8>; the reassembled bytes are
+              one per-minute record block (protocol_details.history.fitness).
+              Upstream only ever requests frame 0, which returned 60 per-minute
+              records from a 24-hour window, so a full sync probably walks
+              frame_index from 0 to the count query_fitness_index gave; not
+              verified.
+            verification: "reported"
+            template: [0x01, 0xc6, 0xaa, 0x01, 0x0a, "{start_time}", "{end_time}", "{frame_index}"]
+            parameters:
+              start_time:
+                type: "uint32"
+                endianness: "big"
+                min: 0
+                max: 4294967295
+                unit: "s"
+                description: "Window start, seconds since 1970-01-01 (same window as the index query)."
+              end_time:
+                type: "uint32"
+                endianness: "big"
+                min: 0
+                max: 4294967295
+                unit: "s"
+                description: "Window end, seconds since 1970-01-01."
+              frame_index:
+                type: "uint16"
+                endianness: "big"
+                min: 0
+                max: 65535
+                default: 0
+                description: "Which frame of the window to send; upstream always sends 0."
+          request_sleep_history:
+            description: >
+              Pull sleep history for a window (group C6, query, opcode 04,
+              length 8). Reply frames 01 c6 aa 04 ... carry a record count and
+              7-byte records (start time, minutes, stage), closed by a trailer
+              ending fd fd <xor8>. Single-night pulls decode cleanly upstream;
+              multi-night pulls do not yet (protocol_details.history.sleep).
+            verification: "reported"
+            template: [0x01, 0xc6, 0xaa, 0x04, 0x08, "{start_time}", "{end_time}"]
+            parameters:
+              start_time:
+                type: "uint32"
+                endianness: "big"
+                min: 0
+                max: 4294967295
+                unit: "s"
+                description: "Window start, seconds since 1970-01-01. Upstream asks for the last 7 days."
+              end_time:
+                type: "uint32"
+                endianness: "big"
+                min: 0
+                max: 4294967295
+                unit: "s"
+                description: "Window end, seconds since 1970-01-01."
+          request_workout_history:
+            description: >
+              Pull recorded workouts for a window (group E8, query, opcode 01,
+              length 8). Upstream's watch had none and answered 01 e8 aa 01
+              00 00 00 00 then an fd fd trailer; the record layout is not
+              decoded.
+            verification: "reported"
+            template: [0x01, 0xe8, 0xaa, 0x01, 0x08, "{start_time}", "{end_time}"]
+            parameters:
+              start_time:
+                type: "uint32"
+                endianness: "big"
+                min: 0
+                max: 4294967295
+                unit: "s"
+                description: "Window start, seconds since 1970-01-01."
+              end_time:
+                type: "uint32"
+                endianness: "big"
+                min: 0
+                max: 4294967295
+                unit: "s"
+                description: "Window end, seconds since 1970-01-01."
+
+      - uuid: "000034f2-0000-1000-8000-00805f9b34fb"
+        name: "Command replies and pushes (notify)"
+        properties: ["notify"]
+        role: "notify"
+        notes: >
+          Every reply to a 34f1 write, every chunk of a multi-frame reply, and
+          the watch's spontaneous frames (a pair every ~10 s, starting ~19 s
+          after subscribing; see protocol_details.spontaneous_stream) arrive
+          here. Match a reply on its first four bytes. The `format` below
+          describes the battery reply only: format_match selects byte 3 =
+          0x16, which the reply to the health-settings query E1/16 also has,
+          so check byte 1 = 0xa4 as well.
+        format_match:
+          offset: 3
+          value: 0x16
+          notes: "Battery reply (01 a4 aa 16 ...). Confirm byte 1 is 0xa4."
+        format:
+          - offset: 0
+            length: 1
+            name: "prefix"
+            type: "uint8"
+            notes: "Always 0x01."
+          - offset: 1
+            length: 1
+            name: "group"
+            type: "uint8"
+            values: {0xa4: "battery / device status"}
+          - offset: 2
+            length: 1
+            name: "marker"
+            type: "uint8"
+            values: {0xaa: "query (echoed)", 0xab: "set (echoed)", 0xac: "device push or acknowledgement"}
+          - offset: 3
+            length: 1
+            name: "opcode"
+            type: "uint8"
+          - offset: 4
+            length: 1
+            name: "payload_length"
+            type: "uint8"
+            unit: "bytes"
+            notes: "6 in every battery reply upstream logged."
+          - offset: 5
+            length: 1
+            name: "level_tag"
+            type: "uint8"
+            notes: "0x01. Bytes 5-10 read as two tag-length-value entries (01 01 <level>, 02 01 <x>); that reading is this project's, not upstream's."
+          - offset: 7
+            length: 1
+            name: "battery_level"
+            type: "uint8"
+            unit: "%"
+            device_class: "battery"
+            notes: "0x58 = 88 % in upstream's log; it ticks down live."
+          - offset: 10
+            length: 1
+            name: "battery_status"
+            type: "uint8"
+            notes: "Value of tag 02; 0x00 in every log. Possibly charging state; not established."
+
+  - uuid: "000055ff-0000-1000-8000-00805f9b34fb"
+    name: "Secondary config channel (35f1/35f2)"
+    notes: >
+      Service UUID from the archived nRF Connect table and the sibling watch
+      in Gadgetbridge issue #5541; upstream's reading of the SDK associates
+      the 35f1/35f2 pair with 0000ffe0 instead, so a client should find the
+      characteristics by UUID rather than under a fixed service. Upstream
+      calls it a JieLi config channel. Writing the single byte a1 to 35f1 is
+      answered on 35f2; set frames written here (vibrate) also take effect,
+      but query frames get no reply. The main protocol does not need this
+      service.
+    characteristics:
+      - uuid: "000035f1-0000-1000-8000-00805f9b34fb"
+        name: "Config write"
+        properties: ["read", "write"]
+        commands:
+          query_version_string:
+            description: >
+              Single raw byte a1, no envelope. The watch answers on 35f2 with
+              a1 followed by its ASCII system-version string ("AT364D", V, a
+              six-digit build). Upstream saw the same answer when a1 was
+              written to 34f1.
+            verification: "reported"
+            value: [0xa1]
+      - uuid: "000035f2-0000-1000-8000-00805f9b34fb"
+        name: "Config notify"
+        properties: ["notify"]
+        notes: "Reply to the a1 query: byte 0 echoes a1, the rest is the ASCII system-version string (13 bytes on upstream's unit)."
+        format_match:
+          offset: 0
+          value: 0xa1
+        format:
+          - offset: 0
+            length: 1
+            name: "opcode_echo"
+            type: "uint8"
+          - offset: 1
+            length: 13
+            name: "system_version"
+            type: "string"
+            notes: "ASCII, e.g. AT364DV002716: project code AT364D, then V and the firmware build. Length taken from one unit."
+
+  - uuid: "0000180a-0000-1000-8000-00805f9b34fb"
+    name: "Device Information"
+    notes: >
+      Standard SIG service, present per upstream's GATT dumps. The values
+      were never recorded, so nothing is said about them here.
+    characteristics:
+      - uuid: "00002a24-0000-1000-8000-00805f9b34fb"
+        name: "Model Number String"
+        properties: ["read"]
+      - uuid: "00002a29-0000-1000-8000-00805f9b34fb"
+        name: "Manufacturer Name String"
+        properties: ["read"]
+      - uuid: "00002a50-0000-1000-8000-00805f9b34fb"
+        name: "PnP ID"
+        properties: ["read"]
+
+  - uuid: "0000ffd0-0000-1000-8000-00805f9b34fb"
+    name: "FFD0 service (unused)"
+    notes: >
+      Present on the watch and on the sibling in Gadgetbridge issue #5541.
+      Upstream's first guess was that ffd1 is the command channel (the
+      FitCloud-family layout); writes to it produced no reply of any kind.
+      Its purpose on this watch is unknown. Leave it alone.
+    characteristics:
+      - uuid: "0000ffd1-0000-1000-8000-00805f9b34fb"
+        name: "FFD1"
+        properties: ["write", "write_without_response"]
+      - uuid: "0000ffd2-0000-1000-8000-00805f9b34fb"
+        name: "FFD2"
+        properties: ["notify"]
+      - uuid: "0000ffd3-0000-1000-8000-00805f9b34fb"
+        name: "FFD3"
+        properties: ["write", "write_without_response", "notify"]
+
+  - uuid: "e49a3001-f69a-11e8-8eb2-f2801f1b9fd1"
+    name: "Firmware update service (DO NOT WRITE)"
+    notes: >
+      The firmware-update path. Upstream calls it Telink OTA; see device.notes
+      for why the SoC is unsettled. NEVER WRITE
+      e49a3002-f69a-11e8-8eb2-f2801f1b9fd1: upstream warns that one stray byte
+      can put the watch into update mode and brick it, and its client never
+      touches it. No update bytes are documented here. (A research note in
+      circulation spells this characteristic as a 16-bit-base UUID with
+      e49a3002 in the first group; that form is wrong.)
+    characteristics:
+      - uuid: "e49a3002-f69a-11e8-8eb2-f2801f1b9fd1"
+        name: "Update write (never write)"
+        properties: ["write", "write_without_response"]
+      - uuid: "e49a3003-f69a-11e8-8eb2-f2801f1b9fd1"
+        name: "Update notify"
+        properties: ["notify"]
+
+  - uuid: "e49a25f8-f69a-11e8-8eb2-f2801f1b9fd1"
+    name: "Secondary data service (e49a25e0/e49a28e1)"
+    notes: >
+      A second write/notify pair on the same 128-bit base. Upstream subscribed
+      to e49a28e1 while listening and never wrote e49a25e0; its purpose is not
+      known.
+    characteristics:
+      - uuid: "e49a25e0-f69a-11e8-8eb2-f2801f1b9fd1"
+        name: "Data write"
+        properties: ["write", "write_without_response"]
+      - uuid: "e49a28e1-f69a-11e8-8eb2-f2801f1b9fd1"
+        name: "Data notify"
+        properties: ["notify"]
+
+features:
+  - type: "firmware_update"
+    dfu:
+      mechanisms: ["unknown"]
+      transport: "ble"
+      services: ["e49a3001-f69a-11e8-8eb2-f2801f1b9fd1"]
+      image:
+        signing: "unknown"
+        source: "vendor_cloud"
+        notes: >
+          The vendor app asks a vendor web service for a newer build, keyed
+          by the "AT364D" project code and the current build number.
+          Upstream replicated the check in 2026-07 and got "no new version"
+          for every build number it tried, so no image for this watch is
+          publicly obtainable; upstream concluded the only copy is the one in
+          the watch's flash.
+      enter:
+        how: "unknown"
+        notes: >
+          Not documented, deliberately. Writing the update characteristic
+          e49a3002-f69a-11e8-8eb2-f2801f1b9fd1 is the one action upstream
+          says can brick the watch, and no entry bytes are given here.
+      dfu_mode:
+        notes: "Not established: nothing records how the watch advertises or what it shows in update mode."
+      recovery:
+        interrupted: "unknown"
+        notes: >
+          Upstream names no recovery for a failed update; its hardware notes
+          suggest a flash dump over a debug pad would be needed, which
+          nobody has done.
+      verification: "reported"
+      notes: >
+        Recorded so a client lists the service read-only and never writes it.
+        The stack is not identified: upstream says Telink, but the UUIDs are
+        not Telink's published OTA service.
+
+entities:
+  - platform: "sensor"
+    name: "Battery"
+    device_class: "battery"
+    unit: "%"
+    state_characteristic: "000034f2-0000-1000-8000-00805f9b34fb"
+    state_command: "query_battery"
+    state_mapping:
+      value: "battery_level"
+    notes: "Poll with query_battery; the reply is the only 34f2 frame the declared format decodes."
+  - platform: "button"
+    name: "Find Watch"
+    command_characteristic: "000034f1-0000-1000-8000-00805f9b34fb"
+    commands:
+      press: "find_watch"
+
+protocol_details:
+  envelope:
+    description: >
+      Every frame on 000034f1/000034f2 starts with 01. Offsets from the start
+      of the frame.
+    layout:
+      - {offset: 0, length: 1, name: "prefix", value: 0x01}
+      - {offset: 1, length: 1, name: "group", notes: "Command domain; see groups."}
+      - {offset: 2, length: 1, name: "marker", notes: "AA query, AB set, AC device push or acknowledgement. Not a marker in group A3 (set-time), which carries tag-length-value entries from byte 2."}
+      - {offset: 3, length: 1, name: "opcode"}
+      - {offset: 4, length: 1, name: "length", notes: "Payload length in bytes. ABSENT on bare queries (01 a4 aa 16, 01 a5 aa 07, 01 a4 aa aa). In a chunked transfer this byte is the section index instead, and 0xfd marks the trailer."}
+      - {offset: 5, length: "length", name: "payload"}
+    observations:
+      - "Query replies echo the request's four bytes, marker AA included, then add length and payload (battery: 01 a4 aa 16 06 ...)."
+      - "Set commands are acknowledged in a mix of forms: vibrate with 01 a5 ac 05 01 01, the health settings with an echo of 01 e1 ab <op>, GPS with an echo of the whole frame."
+      - "Spontaneous frames from the watch use marker AC (01 c6 ac 01 ...)."
+      - "No checksum on single frames; the XOR-8 exists only on chunked transfers."
+      - "Upstream's reading of the SDK: the app's parser takes bytes 2-3 as one 16-bit operation, byte 4 as length, bytes 5.. as payload."
+    verification: "reported"
+
+  groups:
+    description: "Command groups (byte 1) seen upstream. Only the ones with commands above are in scope."
+    table:
+      - {group: 0xa2, domain: "time (older SDK set-time form)", in_scope: true}
+      - {group: 0xa3, domain: "time (current SDK set-time form; not working on this firmware)", in_scope: true}
+      - {group: 0xa4, domain: "battery and device information", in_scope: true}
+      - {group: 0xa5, domain: "device control: find/vibrate, find state, default configuration", in_scope: true}
+      - {group: 0xb0, domain: "notification push (chunked, flag abab)", in_scope: true}
+      - {group: 0xb2, domain: "notification switches (chunked, flag abab)", in_scope: true}
+      - {group: 0xb3, domain: "supported message types (query 01 b3 aa aa; mapped from the SDK, never sent)", in_scope: false}
+      - {group: 0xc5, domain: "history index", in_scope: true}
+      - {group: 0xc6, domain: "history data: opcode 01 fitness, 04 sleep; also the spontaneous stream", in_scope: true}
+      - {group: 0xe0, domain: "weather push (chunked, flag abab)", in_scope: true}
+      - {group: 0xe1, domain: "health measurement settings (see health_settings)", in_scope: false}
+      - {group: 0xe3, domain: "watch faces: parameters, list, reorder, upload, apply (see watchface_format)", in_scope: false}
+      - {group: 0xe8, domain: "workout history", in_scope: true}
+      - {group: 0xe9, domain: "GNSS: position push, ephemeris parameters, AGPS and route file transfers", in_scope: true, notes: "Only opcode 02 (position) and the 01 query are in scope; the file transfers are not."}
+
+  chunked_transfer:
+    description: >
+      How a payload longer than one write travels, in both directions.
+      Upstream calls it subpackaging. Head is two bytes (01 and the group),
+      flag is two bytes (the marker and opcode pair).
+    send:
+      - "Split the payload into slices of at most 16 bytes (the open client's size)."
+      - "Frame n = head(2) flag(2) n(1) slice. n counts from 0."
+      - "Trailer = head(2) flag(2) 0xfd xor8, where xor8 is the XOR of every byte of every chunk frame (head, flag and section bytes included; trailer not included)."
+      - "Write the frames in order without response. The open client leaves 150 ms between frames and does not wait for acknowledgements."
+    receive:
+      - "A multi-frame reply arrives the same way: frames carry the request's four header bytes, a section byte and a slice; a frame whose byte 4 is 0xfd is the trailer."
+      - "Strip five bytes from each non-trailer frame and concatenate in section order."
+      - "The sleep and workout replies close with fd fd <xor8>, not fd <xor8>; see history.sleep."
+    known_heads:
+      - {head: 0x01b2, flag: 0xabab, carries: "notification switches"}
+      - {head: 0x01b0, flag: 0xabab, carries: "notification push"}
+      - {head: 0x01e0, flag: 0xabab, carries: "weather push"}
+      - {head: 0x01a4, flag: 0xaaaa, carries: "device-info reply"}
+      - {head: 0x01c6, flag: 0xaa01, carries: "fitness-history reply"}
+      - {head: 0x01c6, flag: 0xaa04, carries: "sleep-history reply"}
+      - {head: 0x01c6, flag: 0xac01, carries: "spontaneous stream (see spontaneous_stream)"}
+    acknowledgements: >
+      Upstream reports that the watch acknowledges each chunk and answers the
+      trailer with an FD frame carrying the XOR, but published neither
+      layout. The watch-face and AGPS file transfers (out of scope) are
+      acknowledgement-driven; the short pushes above work without waiting.
+    limits: >
+      One section byte and the 0xfd trailer marker cap a transfer at 253
+      chunks, about 4 KB at 16 bytes. The watch truncates long notification
+      text rather than failing (upstream's fuzzing). A frame with a wrong XOR
+      did not crash the watch; whether it is rejected or shown is not
+      recorded.
+    schema_gap: >
+      framing.scheme has no value for this chunk/trailer layout and no `auto`
+      role spans several writes, so each transfer is declared as a chunk
+      command plus an end command whose xor8 the client computes.
+    verification: "reported"
+
+  notification_switches:
+    description: >
+      Body of the group B2 transfer (head 01b2, flag abab), always one chunk.
+      Writing it sets two switches on the watch.
+    body: "ab 01 01 <incoming_call> ab 02 01 <messages>"
+    fields:
+      - {tag: 0xab01, length: 1, name: "incoming_call", values: {0: "off", 1: "on"}, notes: "Upstream's name for it; call alerts themselves are out of scope."}
+      - {tag: 0xab02, length: 1, name: "messages", values: {0: "off", 1: "on"}, notes: "Must be on, in the same connection, before a notification push renders."}
+    xor8_rule: "For this single chunk the trailer XOR is 0xb0 ^ incoming_call ^ messages."
+
+  notification_tlv:
+    description: >
+      Body of the notification push (head 01b0, flag abab): tag (2 bytes),
+      length (1 byte, value length in bytes), value. Text is UTF-16BE; a
+      character outside the Basic Multilingual Plane is a surrogate pair.
+      The SDK has a two-byte length form it uses only when the watch reports
+      a capability bit; this watch uses one byte.
+    order: "The open client emits the tags in ascending order, as the vendor app does."
+    tags:
+      - {tag: 0xab01, name: "app_name", encoding: "utf16be", notes: "Shown as the source; the open client sends HT36."}
+      - {tag: 0xab02, name: "contact", encoding: "utf16be"}
+      - {tag: 0xab03, name: "content", encoding: "utf16be", notes: "Message body. The vendor app truncates to 244 or 432 bytes depending on the watch; the watch truncates long text on its own."}
+      - {tag: 0xab04, name: "id", length: 1, notes: "Message id modulo 255."}
+      - {tag: 0xab05, name: "phone_number", encoding: "utf16be"}
+      - {tag: 0xab06, name: "source_package", encoding: "utf16be", notes: "Android package of the originating app."}
+      - {tag: 0xab07, name: "title", encoding: "utf16be"}
+      - {tag: 0xab08, name: "type", length: 1, required: true, notes: "Message type. REQUIRED: without it the watch acknowledges and does not render. Upstream sends 1; the other values are not mapped."}
+      - {tag: 0xab09, name: "vibrate", length: 1, required: true, values: {0: "silent", 1: "vibrate"}, notes: "Always present."}
+      - {tag: 0xab0a, name: "message_id", length: 4, notes: "Big-endian; the SDK sends it only for types 7 and 52, and only when non-zero."}
+    verification: "reported"
+
+  weather_tlv:
+    description: >
+      Body of the today's-weather push (head 01e0, flag abab): tag (2 bytes),
+      length (1 byte), value, in this order. Multi-byte numbers are
+      big-endian. Tags AB01, AB03, AB0D and AB0E are not sent by the open
+      client and are not known.
+    tags:
+      - {tag: 0xab02, name: "unit", length: 1, values: {0: "Celsius", 1: "Fahrenheit"}, notes: "Unit of the three temperature tags."}
+      - {tag: 0xab04, name: "aqi", length: 2, type: "uint16", endianness: "big", notes: "Air-quality index."}
+      - {tag: 0xab05, name: "city", encoding: "utf16be", notes: "Length byte is the byte count of the UTF-16BE text."}
+      - {tag: 0xab06, name: "current_temperature", length: 2, type: "int16", endianness: "big", notes: "Whole degrees in the AB02 unit, two's complement."}
+      - {tag: 0xab07, name: "high_temperature", length: 2, type: "int16", endianness: "big"}
+      - {tag: 0xab08, name: "low_temperature", length: 2, type: "int16", endianness: "big"}
+      - {tag: 0xab09, name: "condition_icon", length: 1, notes: "Weather icon code. The table is not mapped; the open client defaults to 1."}
+      - {tag: 0xab0a, name: "pm25", length: 1, unit: "µg/m³", notes: "One byte, so capped at 255."}
+      - {tag: 0xab0b, name: "published_time", length: 4, type: "uint32", endianness: "big", unit: "s", notes: "Seconds since 1970-01-01; the open client sends the current time."}
+      - {tag: 0xab0c, name: "wind", length: 2, notes: "Byte 0 wind direction code, byte 1 wind force level. Code tables not mapped."}
+      - {tag: 0xab0f, name: "humidity_and_uv", length: 2, notes: "Byte 0 relative humidity in %, byte 1 UV index."}
+    verification: "reported"
+
+  device_info:
+    description: >
+      Reassembled body of the chunked reply to query_device_info: repeated
+      AA <tag> <len> <value>. Walk it by length; stop at the first entry that
+      does not start with AA. Tags from upstream's decode of one watch.
+    tags:
+      - {tag: 0x01, length: 6, name: "mac", notes: "The watch's Bluetooth address, most significant byte first."}
+      - {tag: 0x02, length: 8, name: "device_type", encoding: "ascii", notes: "NAL-WB00 on upstream's unit."}
+      - {tag: 0x03, length: 6, name: "hardware_revision", encoding: "ascii", notes: "Six ASCII digits."}
+      - {tag: 0x04, length: 1, name: "flag_04", notes: "Unknown."}
+      - {tag: 0x05, length: 1, name: "flag_05", notes: "Unknown; upstream guesses a bound flag."}
+      - {tag: 0x08, length: 4, name: "firmware_version", encoding: "ascii", notes: "V1.0 on upstream's unit."}
+      - {tag: 0x09, length: 4, name: "ui_version", encoding: "ascii"}
+      - {tag: 0x0d, length: 8, name: "model_code", encoding: "ascii", notes: "Same text as tag 02 on upstream's unit."}
+      - {tag: 0x0f, length: 1, name: "flag_0f", notes: "Unknown."}
+      - {tag: 0x12, length: 1, name: "flag_12", notes: "Unknown."}
+      - {tag: 0x13, length: 4, name: "version_13", encoding: "ascii", notes: "Unknown version string (V1.0)."}
+      - {tag: 0x14, length: 0, name: "empty_14"}
+      - {tag: 0x15, length: 13, name: "system_version", encoding: "ascii", notes: "Same string the a1 query returns (AT364D + V + build)."}
+      - {tag: 0x16, length: 6, name: "battery_block", notes: "01 01 <level %> 02 01 <x>, the same six bytes as the battery reply's payload."}
+    decoder_defect: >
+      The open client's decoder labels tags by the decimal numbers 15 and 16
+      (0x0f and 0x10), so it never reports the model string or battery. The
+      tags are 0x15 and 0x16.
+    verification: "reported"
+
+  battery_reply:
+    frame: "01 a4 aa 16 06 01 01 <level> 02 01 <x>"
+    decode: "level = byte 7, percent."
+    example: {frame: "01 a4 aa 16 06 01 01 58 02 01 00", level_percent: 88}
+
+  history:
+    fitness:
+      request: "query_fitness_index for the count, then request_fitness_data per frame index."
+      reply_frames: "01 c6 aa 01 <section> <slice>, trailer 01 c6 aa 01 fd <xor8>."
+      reassembly_quirk: >
+        Upstream found an extra leading 0x00 in some reassembled buffers and
+        drops it when the timestamp at bytes 2-5 is implausible but the one at
+        bytes 3-6 is plausible. Its origin is not known.
+      layout:
+        - {offset: 0, length: 2, name: "frame_index", type: "uint16", endianness: "big"}
+        - {offset: 2, length: 4, name: "start_time", type: "uint32", endianness: "big", unit: "s", notes: "Seconds since 1970-01-01 of the frame's minute 0."}
+        - {offset: 6, length: "rest", name: "slots", notes: "Repeated slot records until the buffer ends."}
+      slot:
+        - {name: "minute_offset", length: 2, type: "uint16", endianness: "big", unit: "min", notes: "Record time = start_time + minute_offset x 60."}
+        - {name: "function_mask", length: "1-4", notes: "Little-endian bytes; each byte with its top bit set is followed by another. Bit n-1 set means function n is present. Bits 7, 15, 23 (functions 8, 16, 24) are the continuation flags, not functions. If the fourth byte has its top bit set, a second mask follows for functions above 32; upstream skips it."}
+        - {name: "values", notes: "One value per present function, in ascending function order, sized per the table below."}
+      functions:
+        - {id: 1, name: "steps", bytes: 1}
+        - {id: 2, name: "calories", bytes: 1, notes: "Upstream sums these as kcal; unit not established."}
+        - {id: 3, name: "distance", bytes: 2, endianness: "big", unit: "m"}
+        - {id: 4, name: "resting_heart_rate", bytes: 1, unit: "bpm"}
+        - {id: 5, name: "heart_rate_max", bytes: 1, unit: "bpm"}
+        - {id: 6, name: "heart_rate_min", bytes: 1, unit: "bpm"}
+        - {id: 7, name: "dynamic_heart_rate", bytes: 1, unit: "bpm"}
+        - {id: 9, name: "spo2", bytes: 1, unit: "%"}
+        - {id: 10, name: "resting_heart_rate_v2", bytes: 1, unit: "bpm"}
+        - {id: 11, name: "height", bytes: 2, endianness: "big", notes: "Upstream's name; meaning in a per-minute record not established."}
+        - {id: 12, name: "heart_rate_average", bytes: 1, unit: "bpm"}
+        - {id: 13, name: "resting_heart_rate_v3", bytes: 1, unit: "bpm"}
+        - {id: 14, name: "unnamed_14", bytes: 2}
+        - {id: 15, name: "unnamed_15", bytes: 2}
+        - {id: 17, name: "blood_pressure", bytes: 2, unit: "mmHg", notes: "Byte 0 systolic, byte 1 diastolic."}
+        - {id: 18, name: "mood", bytes: 2, endianness: "big"}
+        - {id: 19, name: "pai_low", bytes: 2, endianness: "big"}
+        - {id: 20, name: "pai_medium", bytes: 2, endianness: "big"}
+        - {id: 21, name: "pai_high", bytes: 2, endianness: "big"}
+        - {id: 22, name: "pai_low_duration", bytes: 2, endianness: "big"}
+        - {id: 23, name: "pai_medium_duration", bytes: 2, endianness: "big"}
+        - {id: 25, name: "pai_high_duration", bytes: 2, endianness: "big"}
+        - {id: 26, name: "hrv", bytes: 2, endianness: "big"}
+        - {id: 27, name: "blood_sugar", bytes: 2, endianness: "big", scale: 0.1, notes: "Raw / 10; the unit (probably mmol/L) is not established."}
+      notes: >
+        Functions not listed are two bytes (upstream's rule). Only steps,
+        calories, distance, the heart-rate family and SpO2 have been seen in
+        a real sync; the rest are from the SDK's parser as upstream
+        transcribed it. A frame covering a 24-hour window returned 60 slots.
+      verification: "reported"
+    sleep:
+      request: "request_sleep_history."
+      layout_upstream: >
+        Upstream strips five bytes (01 c6 aa 04 <section>) from each frame,
+        then skips three bytes (00 00 <count>) and reads 7-byte records.
+      record:
+        - {offset: 0, length: 4, name: "start_time", type: "uint32", endianness: "big", unit: "s"}
+        - {offset: 4, length: 2, name: "minutes", type: "uint16", endianness: "big", unit: "min"}
+        - {offset: 6, length: 1, name: "stage", values: {1: "deep", 2: "light", 3: "REM", 4: "awake", 7: "session marker (start?)", 8: "session end"}}
+      notes: >
+        Stage codes follow the convention upstream expects across this SDK
+        family; a real night decoded coherently with them (each start plus
+        its minutes gives the next start). Stages 7 and 8 carry 0 minutes.
+      likely_cause_of_multi_night_failure: >
+        This project's reading, not verified: the sleep and workout replies
+        close with fd fd and the empty workout reply is 01 e8 aa 01 00 00 00
+        00, which both fit a TWO-byte section index (00 00, 00 01, ...)
+        followed, in the first frame, by a two-byte big-endian record count.
+        Stripping five bytes per frame then leaves the section's low byte in
+        the stream once per continuation frame, which would misalign every
+        multi-frame pull exactly as upstream reports. A client should strip
+        six bytes per frame and read the count from the first frame; check
+        against a capture.
+      verification: "reported"
+    workout:
+      notes: "request_workout_history. Pipeline only; no record has ever been seen, so no layout is given."
+
+  spontaneous_stream:
+    description: >
+      Frames the watch sends on 34f2 without being asked, in pairs about every
+      10 s, the first about 19 s after subscribing. Upstream calls them Type A
+      (16 bytes) and Type B (6 bytes) and ignores them.
+    type_a: "01 c6 ac 01 00 0a <u32 BE time> b8 08 <four bytes>"
+    type_b: "01 c6 ac 01 fd <xor8 of the Type A frame>"
+    established: >
+      Type B is the chunked-transfer trailer for Type A: its last byte is the
+      XOR of all 16 Type A bytes (upstream checked 4 of 4 complete pairs).
+    hypothesis: >
+      This project's reading, not verified: head 01c6 and flag ac01 make this
+      a device-pushed history record. Bytes 6-9 are a Unix time (upstream's
+      capture decodes to the minute it was taken, and the value advanced
+      about 10 per 10 s), and b8 08 is a function mask in the history
+      encoding meaning functions 4, 5, 6 and 12 (resting, maximum, minimum
+      and average heart rate), followed by four one-byte values that were
+      73-86 in the capture. If that holds, the watch does push live heart
+      rate, contrary to upstream's conclusion. Byte 5 (0x0a) is unexplained.
+      Upstream's hand-off notes also record 01 c5 ac ac 01 03 arriving on
+      subscribe in a different watch state; unexplained.
+    verification: "hypothesis"
+
+  time:
+    notes: >
+      Neither set-time frame is known to work (see the commands). The watch's
+      clock is normally set by the vendor app. Whether the history timestamps
+      are UTC or local seconds is not established; upstream treats them as UTC.
+
+  gnss:
+    notes: >
+      push_gps_location and query_ephemeris_params are the only group E9
+      commands in scope. The group also carries route/waypoint upload and
+      AGPS almanac upload as acknowledgement-driven file transfers; upstream
+      marks the almanac push as working in one place and unfinished in
+      another, and neither is documented here.
+
+  health_settings:
+    description: >
+      Group E1 queries (01 e1 aa <op>, reply 01 e1 aa <op> <len> <value>) as
+      upstream swept them. Reference only: no command is declared, because
+      the set forms (01 e1 ab <op> <len> <value>) change what the watch
+      measures and were acknowledged without a visible effect.
+    table:
+      - {op: 0x0b, meaning: "measurement interval (unnamed)", sample: 10}
+      - {op: 0x0c, meaning: "continuous heart-rate interval", sample: 10}
+      - {op: 0x0e, meaning: "mood interval", sample: 10}
+      - {op: 0x0f, meaning: "blood-pressure auto interval", sample: 0}
+      - {op: 0x10, meaning: "continuous heart rate on/off", sample: 1}
+      - {op: 0x11, meaning: "continuous SpO2 on/off", sample: 1}
+      - {op: 0x12, meaning: "stress auto on/off", sample: 1}
+      - {op: 0x13, meaning: "mood auto on/off", sample: 0}
+      - {op: 0x14, meaning: "unknown", sample: 0}
+      - {op: 0x15, meaning: "temperature parameters?", sample: "2 bytes, 150"}
+      - {op: 0x16, meaning: "unknown", sample: "2 bytes, 50"}
+    verification: "reported"
+
+  watchface_format:
+    description: >
+      Format of the watch-face .bin files the vendor catalogue serves, as
+      upstream decoded and re-encoded them (following the open editor
+      janaboy74/wfeditormk66). Described so a file can be recognised and
+      inspected. The upload transfer (group E3) is out of scope; upstream's
+      upload is blocked because the watch refuses new faces once its slots
+      are full and no delete command is known.
+    header:
+      - {offset: 0, length: 4, name: "dial_id", type: "uint32", endianness: "little", notes: "0x0005a871 (bytes 71 a8 05 00) on every face for this watch; upstream calls it the magic. 360 x 360 faces for other watches carry a different value."}
+      - {offset: 4, length: 4, name: "data_size", type: "uint32", endianness: "little", unit: "bytes", notes: "File size minus the 24-byte header."}
+      - {offset: 8, length: 4, name: "crc32", type: "uint32", endianness: "little", notes: "CRC-32 (reflected poly 0xedb88320, init and xorout 0xffffffff) over everything after the header."}
+      - {offset: 12, length: 2, name: "width", type: "uint16", endianness: "little", unit: "px", notes: "240."}
+      - {offset: 14, length: 2, name: "height", type: "uint16", endianness: "little", unit: "px", notes: "240; the screen itself reports 240 x 296."}
+      - {offset: 16, length: 8, name: "compression", notes: "Two u32 LE words; the first masked with 0xffffff00 equal to 0x02ff0100 selects the run-length codec. Upstream's encoder writes 0x02ff0100, 0xffffff15."}
+    items: >
+      From offset 24, 24-byte element records until a u16 of 0: type (u16),
+      width (u16), data position (u32, from file start), height (u16), x
+      (u16), y (u16), two unknown bytes, image count (u8 at +16), copy flag
+      (u8 at +17, black is transparent when 0), two unknown bytes, four
+      clock-hand bytes at +20. All little-endian.
+    pixels: >
+      RGB565, each pixel stored byte-swapped. Element types 4-42 and 47, 48,
+      71 use the run-length codec; others are raw pixels. Per image: a u32
+      offset to the next image, then one u32 row-start per row (relative to
+      just after the first u32), then per row repeated {u8 size, u8 count,
+      size pixels}, each of the size pixels repeated count times, until the
+      row is full.
+    limits: "Upstream's watch reports a 409 600-byte face slot and held nine faces, which was its maximum."
+    verification: "reported"
+
+  out_of_scope:
+    - "Firmware update. e49a3002-f69a-11e8-8eb2-f2801f1b9fd1 is do-not-write; no update bytes are documented."
+    - "Watch-face upload, reorder, apply and the E3 parameter queries."
+    - "AGPS almanac and route uploads (group E9 file transfers)."
+    - "Health-measurement setters (group E1) and on-demand measurement triggers."
+    - "Call alerts, camera remote, alarms, reminders, music and every other SDK feature upstream has not mapped."
+    - "YC-SDK watches sold under other names, until their advertised name and command set are shown to match."
+
+  test_vectors:
+    description: >
+      Built by transcribing the chunk, TLV and GPS rules above with nothing
+      but the Python standard library; the GPS coordinates are upstream's own
+      published example, and the four Type A/B pairs are from upstream's
+      published capture log. The time 0x6a4fa6a4 is 2026-07-09 13:48:20 UTC.
+      The device-info MAC is from the documentation range.
+    frames:
+      - name: "notification switches, both on"
+        frames: ["01 b2 ab ab 00 ab 01 01 01 ab 02 01 01", "01 b2 ab ab fd b0"]
+      - name: "notification switches, calls off, messages on"
+        frames: ["01 b2 ab ab 00 ab 01 01 00 ab 02 01 01", "01 b2 ab ab fd b1"]
+      - name: "notification: app X, content Hi, type 1, vibrate"
+        body: "ab 01 02 00 58 ab 03 04 00 48 00 69 ab 08 01 01 ab 09 01 01"
+        frames: ["01 b0 ab ab 00 ab 01 02 00 58 ab 03 04 00 48 00 69 ab 08 01 01", "01 b0 ab ab 01 ab 09 01 01", "01 b0 ab ab fd 7d"]
+      - name: "weather: Celsius, AQI 50, Oslo, -3 (high 2, low -7), icon 1, PM2.5 20, time 0x6a4fa6a4, wind 0/1, humidity 60, UV 3"
+        body: "ab 02 01 00 ab 04 02 00 32 ab 05 08 00 4f 00 73 00 6c 00 6f ab 06 02 ff fd ab 07 02 00 02 ab 08 02 ff f9 ab 09 01 01 ab 0a 01 14 ab 0b 04 6a 4f a6 a4 ab 0c 02 00 01 ab 0f 02 3c 03"
+        frames: ["01 e0 ab ab 00 ab 02 01 00 ab 04 02 00 32 ab 05 08 00 4f 00 73", "01 e0 ab ab 01 00 6c 00 6f ab 06 02 ff fd ab 07 02 00 02 ab 08", "01 e0 ab ab 02 02 ff f9 ab 09 01 01 ab 0a 01 14 ab 0b 04 6a 4f", "01 e0 ab ab 03 a6 a4 ab 0c 02 00 01 ab 0f 02 3c 03", "01 e0 ab ab fd a0"]
+      - name: "GPS: 45.4642 N, 9.19 E at 0x6a4fa6a4 (upstream's example)"
+        frames: ["01 e9 ab 02 0c 6a 4f a6 a4 1b 19 49 50 05 7a 48 60"]
+      - name: "GPS: 33.8688 S, 151.2093 E at 0x6a4fa6a4 (negative latitude)"
+        frames: ["01 e9 ab 02 0c 6a 4f a6 a4 eb d0 08 00 5a 20 b5 48"]
+      - name: "set_time (SDK form, not working on this firmware): 0x6a4fa6a4, UTC+5:30"
+        frames: ["01 a3 01 04 6a 4f a6 a4 10 02 85 32"]
+      - name: "fitness index, 24 h ending 0x6a4fa6a4"
+        frames: ["01 c5 aa 01 08 6a 4e 55 24 6a 4f a6 a4"]
+      - name: "fitness data, same window, frame 0"
+        frames: ["01 c6 aa 01 0a 6a 4e 55 24 6a 4f a6 a4 00 00"]
+    xor8_checks:
+      - {frame: "01 c6 ac 01 00 0a 6a 4f a6 ae b8 08 4f 56 4f 52", xor8: 0xf9}
+      - {frame: "01 c6 ac 01 00 0a 6a 4f a6 b8 b8 08 4b 56 4b 50", xor8: 0xed}
+      - {frame: "01 c6 ac 01 00 0a 6a 4f a6 c2 b8 08 49 56 49 4e", xor8: 0x89}
+      - {frame: "01 c6 ac 01 00 0a 6a 4f a6 cb b8 08 49 56 49 4e", xor8: 0x80}
+    decode:
+      - name: "battery reply"
+        frame: "01 a4 aa 16 06 01 01 58 02 01 00"
+        expect: "88 %"
+      - name: "device info, reassembled (constructed)"
+        body: "aa 01 06 00 00 5e 00 53 01 aa 08 04 56 31 2e 30 aa 15 0d 41 54 33 36 34 44 56 30 30 32 37 31 36 aa 16 06 01 01 57 02 01 00"
+        expect: "mac 00:00:5e:00:53:01, firmware V1.0, system_version AT364DV002716, battery 87 %"
+      - name: "fitness frame, reassembled (constructed)"
+        body: "00 00 6a 4e e4 80 00 00 03 2a 03 00 01 80 01 61 00 02 b8 08 48 52 44 4b 00 03 04 00 1e 00 04 80 80 01 76 4c"
+        expect: >
+          frame 0, start 2026-07-09 00:00 UTC; 00:00 steps 42, calories 3;
+          00:01 SpO2 97 %; 00:02 resting 72, max 82, min 68, average 75 bpm;
+          00:03 distance 30 m; 00:04 blood pressure 118/76 mmHg
+      - name: "sleep frame (constructed, upstream's single-frame layout)"
+        frame: "01 c6 aa 04 00 00 00 02 6a 4e dd 78 00 1e 02 6a 4e e4 80 00 2d 01"
+        expect: "2 records: 2026-07-08 23:30 UTC 30 min light; 2026-07-09 00:00 UTC 45 min deep"
+
+evidence:
+  public_implementation: >
+    tcsenpai/ht36 (MIT), read at commit
+    cbcfc4aa8cc031f84e844bfe1d786987b5e1890a: its BLE transport, frame
+    builders and decoders, fitness/sleep decoders, watch-face codec, CLI,
+    features.json status table, wiki and archived notes. Its author built it
+    from a decompile of the vendor app and reports running every command
+    marked verified there against one HT36 (notification rendered on the
+    wrist, physical buzz, battery and device info decoded, a day of fitness
+    and one night of sleep decoded, GPS echoed). Its own notes were used to
+    correct its code where they disagree (device-info tags 0x15/0x16).
+    Negative findings it records: set-time does not change the clock,
+    on-demand heart-rate results never arrive, ffd1 answers nothing, the
+    vendor cloud publishes no firmware for this watch, the watch-face
+    reorder command reorders but does not delete, and five rounds of BLE
+    fuzzing crashed nothing.
+  community_threads: >
+    Gadgetbridge issue #5541 shows the same GATT table (56ff/34f1/34f2,
+    55ff/35f1/35f2, ffd0, 180a, the two e49a services) on a sibling
+    GloryFitPro watch sold under another name, which corroborates the
+    service UUIDs. Gadgetbridge issue #5505 documents a GloryFit device that
+    writes 34f1 with a different dialect (frames starting eb 02).
+  negative_findings: >
+    Two public Gadgetbridge captures of other GloryFit-app devices (issues
+    #5505 and #6531) and one of a Kospet watch (issue #3343) were searched
+    for this spec's frames (01 a4 aa, 01 b0 ab ab, 01 a5 ab 04, 01 c6 ..):
+    none occur. They speak the eb 02 dialect and are not evidence for this
+    protocol.
+  this_project: >
+    No capture, FCC grant or manual for the HT36 is held, and nothing has
+    been run against a watch. Test vectors were computed from the rules in
+    this file with the Python standard library.
+  open_questions: >
+    The working set-time format; whether 15-byte slices reassemble; the
+    chunk acknowledgement layout; whether the spontaneous C6/AC01 stream is
+    live heart rate; the sleep/workout section width; how many fitness
+    frames a window holds and whether the index walk works; the notification
+    type and weather icon tables; the SoC.
+  artifacts:
+    - type: "public_implementation"
+      artifact: "tcsenpai/ht36 at cbcfc4aa8cc031f84e844bfe1d786987b5e1890a"
+      url: "https://github.com/tcsenpai/ht36"
+      description: >
+        Source of every command, layout and quirk in this spec. The vendor
+        app its author decompiled was GloryFitPro 1.8.5.2 for Android; this
+        project did not examine it.
+    - type: "community_thread"
+      artifact: "Gadgetbridge issue #5541"
+      url: "https://codeberg.org/Freeyourgadget/Gadgetbridge/issues/5541"
+      description: "Full GATT table of a sibling GloryFitPro watch; matches the HT36's."
+    - type: "community_thread"
+      artifact: "Gadgetbridge issue #5505"
+      url: "https://codeberg.org/Freeyourgadget/Gadgetbridge/issues/5505"
+      description: "A GloryFit device using 34f1 with a different (eb 02) dialect; a warning against identifying by UUID."
+    - type: "fcc_filing"
+      description: "None found. No FCC ID is known for the HT36."
+
+remaining_unknowns:
+  - "The set-time frame this firmware accepts: the SDK's A3 frame is acknowledged and ignored, and the older A2 frame has never been tried."
+  - "Whether the watch reassembles notification and weather chunks sliced smaller than 16 bytes, which a client on a default 23-byte ATT MTU needs."
+  - "The layout of the per-chunk acknowledgements and of the FD answer to a trailer, and whether a wrong XOR is rejected or accepted."
+  - "Whether the spontaneous 01 c6 ac 01 frames are live heart-rate records (function mask b8 08), and what their byte 5 means."
+  - "Whether sleep and workout replies use a two-byte section index, which would explain upstream's multi-night sleep failure."
+  - "How many fitness frames a window holds, and whether request_fitness_data with frame_index 1..count-1 returns the rest."
+  - "Whether history timestamps are UTC or local seconds."
+  - "The AB08 notification type values other than 1, and the AB09 weather icon and AB0C wind code tables."
+  - "What query_find_state (A5/07) reports, what the seven query_default_config entries switch, how long find_watch buzzes and whether value 0 stops it."
+  - "The meaning of battery-reply tag 02 and device-info flags 04, 05, 0f, 12 and 14."
+  - "Whether the advertisement carries a service UUID or manufacturer data, and whether the address is public."
+  - "Whether the watch accepts more than one central at a time."
+  - "The SoC (upstream says Telink TLSR8232/8258 and, later, an Actions ATS3085-class part) and so the firmware-update stack behind e49a3001-f69a-11e8-8eb2-f2801f1b9fd1."
+  - "What the e49a25f8 service and the ffd0 service are for."
+  - "Any factory-reset route, on the watch or over BLE, and what it clears."
+
+helpful_urls:
+  - title: "tcsenpai/ht36: open local-first BLE client for the HT36"
+    url: "https://github.com/tcsenpai/ht36"
+    kind: "implementation"
+    description: >
+      MIT-licensed TypeScript client (Bun + noble) whose author ran it against
+      an HT36: notifications, weather, GPS, battery, device info, vibrate and
+      history sync, plus a watch-face codec and a wiki of protocol notes. No
+      manual for the watch has been found, so this is the documentation.
+  - title: "tcsenpai/ht36: src/proto.ts (frame builders and decoders)"
+    url: "https://github.com/tcsenpai/ht36/blob/cbcfc4aa8cc031f84e844bfe1d786987b5e1890a/src/proto.ts"
+    kind: "implementation"
+    description: "The command bytes, chunked-transfer writer, notification and weather TLV builders, battery and device-info decoders, pinned at the commit read."
+  - title: "tcsenpai/ht36: src/fitness.ts (history decoders)"
+    url: "https://github.com/tcsenpai/ht36/blob/cbcfc4aa8cc031f84e844bfe1d786987b5e1890a/src/fitness.ts"
+    kind: "implementation"
+    description: "Per-minute fitness record and sleep record decoders, pinned at the commit read."
+  - title: "tcsenpai/ht36: src/face.ts (watch-face codec)"
+    url: "https://github.com/tcsenpai/ht36/blob/cbcfc4aa8cc031f84e844bfe1d786987b5e1890a/src/face.ts"
+    kind: "implementation"
+    description: "Decoder and encoder for the 240 x 240 watch-face .bin format, pinned at the commit read."
+  - title: "tcsenpai/ht36 wiki: command table"
+    url: "https://github.com/tcsenpai/ht36/blob/cbcfc4aa8cc031f84e844bfe1d786987b5e1890a/wiki/commands.md"
+    kind: "protocol_writeup"
+    description: "Upstream's frame envelope, notification recipe and group table, with the replies it saw on hardware."
+  - title: "Gadgetbridge issue #5541: Zeblade Stratos 2 Ultra (GloryFit Pro)"
+    url: "https://codeberg.org/Freeyourgadget/Gadgetbridge/issues/5541"
+    kind: "forum"
+    description: "GATT table of a sibling GloryFitPro watch, identical to the HT36's; not covered by this spec."
+  - title: "janaboy74/wfeditormk66"
+    url: "https://github.com/janaboy74/wfeditormk66"
+    kind: "implementation"
+    description: "Open watch-face editor for this .bin format; upstream's watch-face codec is a port of it."
+  - title: "GloryFitPro on Google Play"
+    url: "https://play.google.com/store/apps/details?id=com.yc.gloryfitpro"
+    kind: "other"
+    description: "The vendor app the HT36 is sold with, still listed."

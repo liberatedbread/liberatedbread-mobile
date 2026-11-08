@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://opengreeniot.pigscanfly.ca/device-spec.schema.json",
   "title": "Liberated Bread Device Spec",
-  "description": "Schema for Liberated Bread device specification files (BLE and WiFi). CLOSED at the top level and at `device`: every key a spec writes there must be declared here, and bespoke per-device material goes under `protocol_details`. Deeper objects remain open for now, so a spec can still annotate a service or an endpoint freely. Consumers (the Flutter+Rust mobile app, Home Assistant) parse the subset they understand and ignore the rest.",
+  "description": "Schema for Liberated Bread device specification files (BLE, Bluetooth Classic and WiFi/LAN). CLOSED at the top level and at `device`: every key a spec writes there must be declared here, and bespoke per-device material goes under `protocol_details`. Deeper objects remain open for now, so a spec can still annotate a service or an endpoint freely. Consumers (the Flutter+Rust mobile app, Home Assistant) parse the subset they understand and ignore the rest.",
   "type": "object",
   "required": [
     "device"
@@ -11,7 +11,7 @@
   "additionalProperties": false,
   "allOf": [
     {
-      "$comment": "A device spec must document at least one access surface, otherwise it says nothing a consumer can act on. Reference specs (device.type starting with 'reference-') are exempt: they document a published protocol — SAE J1979 PIDs, ISO 14229 UDS services, ISO 15765-2 framing — that other specs cite instead of restating, and so carry protocol tables rather than an access surface of their own. `websocket` counts, and for a device whose control path IS a persistent socket it is the only surface there is (LG webOS has no REST at all). `camera` counts too (a live feed is an access surface), and an `integration: identify_only` device counts when it carries a `discovery` block — for it the access surface IS 'find it and hand the user to its admin page', which is the whole point of an identify-only entry.",
+      "$comment": "A device spec must document at least one access surface, otherwise it says nothing a consumer can act on. Reference specs (device.type starting with 'reference-') are exempt: they document a published protocol — SAE J1979 PIDs, ISO 14229 UDS services, ISO 15765-2 framing — that other specs cite instead of restating, and so carry protocol tables rather than an access surface of their own. `websocket` counts, and for a device whose control path IS a persistent socket it is the only surface there is (LG webOS has no REST at all). `camera` counts too (a live feed is an access surface), and an `integration: identify_only` device counts when it carries a `discovery` block — for it the access surface IS 'find it and hand the user to its admin page', which is the whole point of an identify-only entry. `bluetooth_classic` counts: an SPP stream is the whole surface of a Classic serial device.",
       "if": {
         "required": [
           "device"
@@ -35,6 +35,11 @@
           {
             "required": [
               "services"
+            ]
+          },
+          {
+            "required": [
+              "bluetooth_classic"
             ]
           },
           {
@@ -152,7 +157,7 @@
     "hex_bytes": {
       "type": "string",
       "pattern": "^[0-9A-Fa-f?]{2}( [0-9A-Fa-f?]{2})*$",
-      "description": "Space-separated hex byte sequence, e.g. '22 F1 90'. A '??' byte is an unknown/placeholder position. Automotive traces are conventionally written this way, so OBD payloads use hex strings rather than the integer arrays used for BLE writes."
+      "description": "Space-separated hex byte sequence, e.g. '22 F1 90'. A '??' byte is an unknown/placeholder position. Automotive traces are conventionally written this way, so OBD payloads use hex strings rather than the integer arrays used for BLE writes. Bluetooth Classic reply and unsolicited-frame prefixes, terminators and start bytes use the same form; bytes a client WRITES stay integer arrays (`value`, `template`)."
     },
     "can_id": {
       "type": "string",
@@ -497,13 +502,10 @@
     },
     "initialization": {
       "type": "array",
-      "description": "Ordered handshake / setup steps executed after connecting and before normal commands. Allowed at the top level and per-service. A step is EXECUTABLE when it carries at least one of `write`, `read`, `subscribe`; a step with none of them is documentation of a handshake a client must implement itself (a per-session key exchange whose bytes no YAML can hold, say) and a consumer must report it as such rather than run it and believe it has handshaked. `when` states the cadence: once per connection by default, or before every command for the devices that demand it.",
+      "description": "Ordered handshake / setup steps executed after connecting and before normal commands. Allowed at the top level and per-service. A step is EXECUTABLE when it carries at least one of `write`, `read`, `subscribe`; a step with none of them is documentation of a handshake a client must implement itself (a per-session key exchange whose bytes no YAML can hold, say) and a consumer must report it as such rather than run it and believe it has handshaked. `when` states the cadence: once per connection by default, or before every command for the devices that demand it. On a Bluetooth Classic serial device a step names a top-level `command` instead of a `characteristic`: there is no GATT, and the handshake is a sequence of stream commands.",
       "$comment": "Closed (`additionalProperties: false`) because every key here changes what a step IS: an undeclared `subscribe: true` was silently a no-op to a consumer that only knew `write`/`read`, which for a device that needs its notify channels open before anything is sent means every later write is lost. Add a key here before using it in a spec.",
       "items": {
         "type": "object",
-        "required": [
-          "characteristic"
-        ],
         "additionalProperties": false,
         "properties": {
           "characteristic": {
@@ -546,8 +548,49 @@
             "type": "integer",
             "minimum": 0,
             "description": "Delay in milliseconds to wait after this step."
+          },
+          "command": {
+            "type": "string",
+            "description": "Key of a top-level `commands` entry to send in this step, for a device with no GATT: a Bluetooth Classic serial link's connect handshake (an ELM327's ATZ/ATE0, the Quin pill box's firmware and serial queries that must both be answered before the link counts as up). Exclusive with `characteristic`. The step waits for the command's `response` when `expect_response` is true."
+          },
+          "expect_response": {
+            "type": "boolean",
+            "description": "For a `command` step: true when the next step must not start until this command's `response` has been parsed -- the link is not up until it is."
+          },
+          "delay_after_ms": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Pause after this step before the next one, when the device needs it (the Quin app leaves 100 ms between its two connect queries)."
           }
-        }
+        },
+        "anyOf": [
+          {
+            "required": [
+              "characteristic"
+            ]
+          },
+          {
+            "required": [
+              "command"
+            ]
+          },
+          {
+            "required": [
+              "description"
+            ]
+          }
+        ],
+        "allOf": [
+          {
+            "$comment": "A step addresses a GATT characteristic or a top-level command, never both: the two are different transports.",
+            "not": {
+              "required": [
+                "characteristic",
+                "command"
+              ]
+            }
+          }
+        ]
       }
     },
     "encryption": {
@@ -576,6 +619,75 @@
           "type": "string",
           "pattern": "^[0-9a-fA-F]+$",
           "description": "Hex-encoded static key, present only when key_derivation is 'static'."
+        }
+      }
+    },
+    "category_hierarchy": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 3,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9_]*$"
+      },
+      "description": "Optional, finer-grained classification as an ordered domain/kind[/subtype] path, independent of the legacy flat `category` icon bucket. Current domains are `display`, `light`, and `measurement`; the allowed paths are enforced by scripts/test_taxonomy.py. Examples: ['display', 'led_matrix'] for a sign/panel rather than a lighting fixture, ['measurement', 'distance'] for a laser distance meter, and ['measurement', 'health', 'pulse_oximetry'] for a pulse oximeter."
+    },
+    "commercial_party": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "role"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Brand, retailer, distributor, OEM or manufacturer name as an owner would search for it."
+        },
+        "role": {
+          "type": "string",
+          "enum": ["brand", "retailer", "distributor", "manufacturer", "oem"],
+          "description": "The party's commercial relationship to the product; do not use this to change protocol identity."
+        },
+        "url": {
+          "type": "string",
+          "format": "uri"
+        },
+        "notes": {
+          "type": "string",
+          "description": "Product-line scope, collaboration or model-generation details, not unverified corporate history."
+        }
+      }
+    },
+    "companion_app": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Companion/design app name as shown in a store or vendor guide."
+        },
+        "package": {
+          "type": "string",
+          "description": "Android package or iOS bundle identifier when established."
+        },
+        "role": {
+          "type": "string",
+          "enum": ["primary", "alternative", "variant", "historical"],
+          "description": "Which app generation or route this is, matching setup-method roles."
+        },
+        "platform": {
+          "type": "string",
+          "enum": ["android", "ios", "cross_platform", "other"]
+        },
+        "url": {
+          "type": "string",
+          "format": "uri"
+        },
+        "notes": {
+          "type": "string",
+          "description": "Model/board generation, availability or protocol-selection guidance, not app UI copy."
         }
       }
     },
@@ -712,6 +824,8 @@
                 "soap",
                 "http",
                 "ble_gatt",
+                "rfcomm",
+                "l2cap",
                 "udp",
                 "mqtt",
                 "mdns",
@@ -750,8 +864,35 @@
                   }
                 }
               }
+            },
+            "command": {
+              "type": "string",
+              "description": "Key of a top-level `commands` entry this step sends, for a byte-stream step (`protocol: rfcomm` or `l2cap`), which has no service, path or GATT message name to put in `action`. Required for those two protocols; the step's reply is that command's `response`."
             }
-          }
+          },
+          "allOf": [
+            {
+              "$comment": "An rfcomm/l2cap setup step with no command names nothing a client can send.",
+              "if": {
+                "properties": {
+                  "protocol": {
+                    "enum": [
+                      "rfcomm",
+                      "l2cap"
+                    ]
+                  }
+                },
+                "required": [
+                  "protocol"
+                ]
+              },
+              "then": {
+                "required": [
+                  "command"
+                ]
+              }
+            }
+          ]
         },
         "expect": {
           "type": "string",
@@ -964,6 +1105,7 @@
             "softap_mqtt",
             "ble_provisioning",
             "ble_direct",
+            "bt_classic_pairing",
             "wps",
             "smartconfig",
             "wired",
@@ -972,7 +1114,7 @@
             "button_pairing",
             "cloud_account"
           ],
-          "description": "Onboarding model -- the mechanism, not the label. Two methods on the same device routinely share a `type` and are not remotely the same procedure, which is what `name` is for. 'none' = nothing to provision; 'softap_*' = device hosts a temporary AP and takes credentials over HTTP, SOAP, a UDP datagram protocol or MQTT; 'ble_provisioning' = credentials are pushed over a GATT/BLE protocol; 'ble_direct' = BLE device is usable by scanning and connecting, with no credential exchange; 'wps'/'smartconfig' = WiFi-layer provisioning; 'wired' = Ethernet/USB first-run; 'device_ui' = configured on the device's own screen/controls; 'hub_pairing' = joined to a bridge/hub rather than to WiFi; 'button_pairing' = physical link button authorizes a client; 'cloud_account' = onboarding only exists inside the vendor cloud/app."
+          "description": "Onboarding model -- the mechanism, not the label. Two methods on the same device routinely share a `type` and are not remotely the same procedure, which is what `name` is for. 'none' = nothing to provision; 'softap_*' = device hosts a temporary AP and takes credentials over HTTP, SOAP, a UDP datagram protocol or MQTT; 'ble_provisioning' = credentials are pushed over a GATT/BLE protocol; 'ble_direct' = BLE device is usable by scanning and connecting, with no credential exchange; 'wps'/'smartconfig' = WiFi-layer provisioning; 'wired' = Ethernet/USB first-run; 'device_ui' = configured on the device's own screen/controls; 'hub_pairing' = joined to a bridge/hub rather than to WiFi; 'button_pairing' = physical link button authorizes a client; 'cloud_account' = onboarding only exists inside the vendor cloud/app. 'bt_classic_pairing' = a Bluetooth Classic (BR/EDR) device that must be paired from the host's own Bluetooth settings -- a fixed or printed PIN, or an SSP just-works/numeric-comparison prompt -- before its RFCOMM, L2CAP or HID surface answers; the link-layer facts (security mode, PIN source, bonding, the button that opens the pairing window) live in `device.pairing`, and this method carries the user-facing steps. Not a no-provisioning type: there is a person and a button in the loop. A Classic device that takes an INSECURE RFCOMM socket with no pairing at all (the Quin pill box) has nothing to provision and says 'none'."
         },
         "name": {
           "type": "string",
@@ -1438,6 +1580,7 @@
           "type": "string",
           "enum": [
             "ble",
+            "bluetooth_classic",
             "wifi",
             "lan",
             "zigbee",
@@ -1446,7 +1589,7 @@
             "uart",
             "can"
           ],
-          "description": "Primary communication protocol. Enum kept aligned with the mobile Rust Protocol enum. NOTE: 'wifi' and 'lan' both mean IP on the local network and differ in how the device got there: 'lan' is a device that is wired Ethernet with no radio of its own -- a router, a switch, an NVR, a NAS -- and 'wifi' is one that joins a wireless network. The distinction is not pedantry at the consumer: 'wifi' is what tells an app to offer SoftAP provisioning, SSID prefixes and credential handling, none of which a box with an RJ45 and no radio can use. Four wired specs (mikrotik-routeros, ubiquiti-unifi-device, smartthings-hub-v2, synology-diskstation) still say 'wifi' and are retagged only once the mobile Protocol enum names 'lan'. NOTE: 'obd2' covers devices reached through a vehicle diagnostic connector (see the top-level `obd` block); 'uart' and 'can' cover devices on a plain wired local bus with no radio at all (see the top-level `bus` block) -- an e-bike motor talking to its display, for example. The mobile Rust Protocol enum does NOT yet consume any of these three, so such specs are documentation/tooling targets rather than mobile-app targets today; reaching one from a phone needs a bridge."
+          "description": "Primary communication protocol. Enum kept aligned with the mobile Rust Protocol enum. NOTE: 'wifi' and 'lan' both mean IP on the local network and differ in how the device got there: 'lan' is a device that is wired Ethernet with no radio of its own -- a router, a switch, an NVR, a NAS -- and 'wifi' is one that joins a wireless network. The distinction is not pedantry at the consumer: 'wifi' is what tells an app to offer SoftAP provisioning, SSID prefixes and credential handling, none of which a box with an RJ45 and no radio can use. Four wired specs (mikrotik-routeros, ubiquiti-unifi-device, smartthings-hub-v2, synology-diskstation) still say 'wifi' and are retagged only once the mobile Protocol enum names 'lan'. NOTE: 'obd2' covers devices reached through a vehicle diagnostic connector (see the top-level `obd` block); 'uart' and 'can' cover devices on a plain wired local bus with no radio at all (see the top-level `bus` block) -- an e-bike motor talking to its display, for example. The mobile Rust Protocol enum does NOT yet consume any of these three, so such specs are documentation/tooling targets rather than mobile-app targets today; reaching one from a phone needs a bridge. NOTE: 'bluetooth_classic' is a BR/EDR device -- one whose control surface is an RFCOMM channel (SPP and the vendor serial protocols built on it), an L2CAP channel or the HID profile, reached after a Classic inquiry rather than a BLE scan. The catalogue had nowhere to put these until 2026-09-27, and the OBD dongles, label printers, headphones and pill boxes that speak SPP were either filed as 'ble' with a paragraph of apology or not filed at all. A DUAL-MODE device -- one radio, one public address, BLE advertising plus a BR/EDR link -- declares the protocol of the link its control surface actually runs on: a pill box that is FOUND by a BLE scan and TALKED TO over an insecure SPP socket is 'bluetooth_classic', with the BLE half recorded as a `ble_scan` discovery method and `bluetooth_classic.ble_role: discovery_only`; an OBD adapter whose BLE GATT pipe carries the whole ELM command set on its own stays 'ble', with the Classic half recorded in the top-level `bluetooth_classic` block. Every 'bluetooth_classic' spec carries that block, a `device.pairing` block and a `host_compatibility` verdict for corebluetooth, because the first question every consumer asks about one of these is whether an iPhone can reach it (it cannot: CoreBluetooth exposes no RFCOMM, and the vendor's iOS path is MFi/iAP2 or nothing). The mobile Rust Protocol enum preserves the value verbatim rather than consuming it; the app does not open RFCOMM sockets yet."
         },
         "type": {
           "type": "string",
@@ -1488,6 +1631,32 @@
             "other"
           ],
           "description": "Broad device class from a CLOSED vocabulary, unlike free-form `type`. This is the field a consumer branches on: the mobile app picks the icon it draws beside a scan result from this value, so a device whose category is missing or unrecognised shows up as an anonymous Bluetooth address next to devices that announce what they are. That is the whole reason the vocabulary is closed -- 'smart-scale', 'kitchen-scale' and 'body-composition-scale' are three useful `type` values and one `category` ('scale'). Pick the category a person would use to describe the device across the room, not the most precise one: an LED strip controller is a 'light', an LED matrix panel is a 'display', an e-bike mid-drive is a 'motor', an IPL hair-removal handset or a microcurrent face toner is a 'personal_care' (cosmetic/grooming devices; 'health' is reserved for medical-adjacent ones like oximeters and blood-pressure monitors). Use 'reference' for published-protocol reference specs (the ones whose `type` starts with 'reference-'); they document a standard, not a device. Use 'other' only when nothing else fits, and treat it as a prompt to propose a new value rather than a resting place. Values not in this list are rejected on purpose: a typo'd or invented category is indistinguishable from an unknown one at the consumer, and silently degrades to the generic icon."
+        },
+        "category_hierarchy": {
+          "$ref": "#/$defs/category_hierarchy"
+        },
+        "aliases": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": "Alternative product, retail, board or model names that help an owner find this spec. Do not include internal vendor class names, secrets, or arbitrary advertising-name wildcards; discovery rules stay in identification/discovery."
+        },
+        "distributors": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/commercial_party"
+          },
+          "description": "Brands, retailers, distributors, OEMs and manufacturers associated with the product, separate from the original `manufacturer` field and from radio identity."
+        },
+        "companion_apps": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/companion_app"
+          },
+          "description": "Vendor or design apps that help an owner identify the product generation and intended protocol. These are discovery aids for humans, not a license to probe with each app."
         },
         "notes": {
           "type": "string",
@@ -1654,7 +1823,7 @@
           "properties": {
             "local_name_prefix": {
               "type": "string",
-              "description": "BLE advertisement local name prefix. Use `local_name_prefixes` instead when the family ships under several names."
+              "description": "BLE advertisement local name prefix. A dual-mode device that announces the same name over BLE belongs here; a Classic-only device's inquiry name lives only in a `bt_classic_inquiry` method's `bt_classic.name`, because this block is what a BLE scan matcher reads and a name here is a promise that a BLE scan will see it. Use `local_name_prefixes` instead when the family ships under several names."
             },
             "local_name_prefixes": {
               "type": "array",
@@ -1663,7 +1832,7 @@
                 "minLength": 1
               },
               "minItems": 1,
-              "description": "Every BLE local name prefix this device family advertises under, for families sold as several rebadged models with no shared prefix (inkbird-bbq-thermometer ships under eight). A match on any one of them means exactly what a `local_name_prefix` match means -- these are alternatives, not a conjunction. May be used together with `local_name_prefix`, in which case a consumer treats the union."
+              "description": "Every BLE local name prefix this device family advertises under, for families sold as several rebadged models with no shared prefix (inkbird-bbq-thermometer ships under eight). A match on any one of them means exactly what a `local_name_prefix` match means -- these are alternatives, not a conjunction. May be used together with `local_name_prefix`, in which case a consumer treats the union. BLE advertisement names only, as for `local_name_prefix`: a Classic-only inquiry name belongs in a `bt_classic_inquiry` method."
             },
             "local_names": {
               "type": "array",
@@ -1679,7 +1848,7 @@
               "items": {
                 "$ref": "#/$defs/uuid"
               },
-              "description": "BLE service UUIDs advertised by the device."
+              "description": "BLE service UUIDs advertised by the device. BLE-advertised services only; a Classic device's SDP service-class UUIDs go in a `bt_classic_inquiry` method's `service_uuids`."
             },
             "manufacturer_data": {
               "type": "object",
@@ -2066,7 +2235,7 @@
                           },
                           "service_uuids": {
                             "type": "array",
-                            "description": "Advertised GATT service UUIDs to match. OR-combined with local_name (see local_name.description): a scan result matches the method if it satisfies either.",
+                            "description": "Advertised GATT service UUIDs to match. OR-combined with local_name (see local_name.description): a scan result matches the method if it satisfies either. Never use 0000fff0-0000-1000-8000-00805f9b34fb in this field or identification.service_uuids: unrelated LED panels, thermometers, battery monitors, OBD adapters and treadmills share it, so a service-only match activates many false candidates. Keep that UUID in services and narrow with a name, characteristic layout or manufacturer data.",
                             "items": {
                               "$ref": "#/$defs/uuid"
                             }
@@ -2115,6 +2284,92 @@
                             ]
                           }
                         }
+                      }
+                    }
+                  },
+                  {
+                    "properties": {
+                      "type": {
+                        "const": "bt_classic_inquiry"
+                      },
+                      "bt_classic": {
+                        "type": "object",
+                        "description": "A Bluetooth Classic (BR/EDR) inquiry: the host scans for discoverable BR/EDR devices and reads each one's name, class of device and (on SSP devices) EIR service-class UUIDs. NOT a BLE scan: a BLE-only central never sees these devices, and a Classic device that is not in discoverable mode answers no inquiry at all -- most consumer hardware is discoverable only for a window after a button press, which `requires_discoverable_mode` and the `device.pairing.enter_pairing_mode` procedure record. A dual-mode device that advertises over BLE as well is usually FOUND more cheaply by a `ble_scan` method on the same spec; state both and let the consumer use whichever radio it has. Unlike a ble_scan method, the matchers are NOT OR-combined: `name` is the needle, and `service_uuids` and `class_of_device`, when present, NARROW a name match (all must hold). Either of those two may stand alone only when no name is given, and then only if it identifies something -- a generic profile UUID (SPP, A2DP, HFP, HID) or a masked major class matches half the devices in range. The reason is the SPP UUID: every serial module carries it, so an OR would make `name: X, service_uuids: [SPP]` match every one of them.",
+                        "properties": {
+                          "name": {
+                            "type": "object",
+                            "description": "Match the name a Classic inquiry returns (the remote name request / EIR complete local name), with the same `match`/`value`/`values` vocabulary as a ble_scan `local_name` matcher. A `value` or a non-empty `values` is required for the matcher to be able to match anything.",
+                            "properties": {
+                              "match": {
+                                "type": "string",
+                                "enum": [
+                                  "prefix",
+                                  "exact",
+                                  "contains",
+                                  "regex"
+                                ],
+                                "default": "prefix"
+                              },
+                              "value": {
+                                "type": "string"
+                              },
+                              "values": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string"
+                                },
+                                "minItems": 1,
+                                "description": "Alternative needles, ANY of which matching is a match — the plural of `value`, for a family sold under several names that one needle cannot cover (Inkbird's thermometer ships as IBT-*, BG-BT1X, IBBQ-4BW and Inkbird@*). Same `match` comparison applies to each. Give one form or the other; a matcher stating both is read as the union, which is almost certainly not what its author meant to say twice."
+                              }
+                            }
+                          },
+                          "class_of_device": {
+                            "type": "object",
+                            "required": [
+                              "value"
+                            ],
+                            "additionalProperties": false,
+                            "description": "The 24-bit Class of Device the inquiry response carries, as `0x` + six lowercase hex digits, with an optional `mask` for matching only some bits (0x001f00 is the major device class). Narrows a `name` match (AND). Informational for most specs -- cheap serial modules report 0x001f00 'uncategorized' -- but decisive for audio and HID devices, whose CoD is what the host stack keys its profile choice on. This is the only place a spec states the CoD.",
+                            "properties": {
+                              "value": {
+                                "type": "string",
+                                "pattern": "^0x[0-9a-f]{6}$"
+                              },
+                              "mask": {
+                                "type": "string",
+                                "pattern": "^0x[0-9a-f]{6}$"
+                              },
+                              "notes": {
+                                "type": "string"
+                              }
+                            }
+                          },
+                          "service_uuids": {
+                            "type": "array",
+                            "minItems": 1,
+                            "items": {
+                              "$ref": "#/$defs/uuid"
+                            },
+                            "description": "SDP service-class UUIDs the device advertises, canonical 128-bit lowercase (SPP is 00001101-0000-1000-8000-00805f9b34fb). Matched against EIR data when the device sends it, otherwise against an SDP service search after connecting. Narrows a `name` match (AND); a list made only of generic profile UUIDs identifies nothing on its own and must be paired with a `name`."
+                          },
+                          "requires_discoverable_mode": {
+                            "anyOf": [
+                              {
+                                "type": "boolean"
+                              },
+                              {
+                                "const": "unknown"
+                              }
+                            ],
+                            "description": "Whether the device has to be put into discoverable mode (a button press, a menu item) before an inquiry sees it. True is the norm for consumer BR/EDR hardware and is why a Classic device 'disappears' the moment its pairing window closes; a device that is always discoverable (most serial modules and OBD dongles) says false. The procedure that opens the window is `device.pairing.enter_pairing_mode`."
+                          }
+                        }
+                      },
+                      "notes": {
+                        "type": "string"
+                      },
+                      "verification": {
+                        "$ref": "#/$defs/verification"
                       }
                     }
                   },
@@ -2961,7 +3216,7 @@
                 "app_layer",
                 "unknown"
               ],
-              "description": "How the pairing is authenticated. 'none' — no link-layer pairing at all, the characteristics are readable and writable on a bare connection. 'just_works' — pairing happens but is unauthenticated (no MITM protection), which is what the overwhelming majority of consumer BLE hardware does. 'passkey_entry'/'numeric_comparison'/'out_of_band' — the authenticated LE Secure Connections methods. 'legacy_pin' — BR/EDR or LE legacy pairing with a fixed or printed PIN. 'app_layer' — the transport pairs trivially or not at all and the real authorisation is a key exchange or token above it, which belongs in top-level `initialization`; say it here so a reader who finds no link-layer security knows it was looked for and knows where the security actually lives. 'network_join' — the device is admitted to a mesh and handed a network key, which is what Zigbee inclusion and Z-Wave inclusion actually are: not a pairing between two peers but a join to a network the controller owns, and the reason those devices are excluded from one controller before being included on the next.",
+              "description": "How the pairing is authenticated. 'none' — no link-layer pairing at all, the characteristics are readable and writable on a bare connection. 'just_works' — pairing happens but is unauthenticated (no MITM protection), which is what the overwhelming majority of consumer BLE hardware does. 'passkey_entry'/'numeric_comparison'/'out_of_band' — the authenticated association models of LE Secure Connections or BR/EDR Secure Simple Pairing. 'legacy_pin' — BR/EDR or LE legacy pairing with a fixed or printed PIN. 'app_layer' — the transport pairs trivially or not at all and the real authorisation is a key exchange or token above it, which belongs in top-level `initialization`; say it here so a reader who finds no link-layer security knows it was looked for and knows where the security actually lives. 'network_join' — the device is admitted to a mesh and handed a network key, which is what Zigbee inclusion and Z-Wave inclusion actually are: not a pairing between two peers but a join to a network the controller owns, and the reason those devices are excluded from one controller before being included on the next.",
               "$comment": "'none' and 'just_works' are not the same fact and are constantly conflated. 'none' means a client never triggers pairing and nothing is stored on either side; 'just_works' means a bond IS established and persists, which is what makes the device stop answering a second client later. An implementer who reads one as the other ships something that works on a fresh device and fails on a used one."
             },
             "bonding": {
@@ -3235,7 +3490,7 @@
         "host_compatibility": {
           "type": "array",
           "minItems": 1,
-          "description": "Whether a host platform's own Bluetooth stack -- the GATT client every ordinary app on that platform talks through -- can drive this device, one verdict per stack (or per stack and variant). The question underneath `pairing`: a device can need no bond at all and still be unusable from a Linux desktop, because bluetoothd opens every connection with a request its firmware never answers. Absent means nobody has said, never 'compatible'. An `incompatible` verdict names the `symptom` a user sees and the `workaround` a client can take instead; the device-side fact underneath it, where known, is `cause`.",
+          "description": "Whether a host platform's own Bluetooth stack -- the GATT client every ordinary app on that platform talks through, or for a Classic device its RFCOMM/SDP client -- can drive this device, one verdict per stack (or per stack and variant). The question underneath `pairing`: a device can need no bond at all and still be unusable from a Linux desktop, because bluetoothd opens every connection with a request its firmware never answers. Absent means nobody has said, never 'compatible'. An `incompatible` verdict names the `symptom` a user sees and the `workaround` a client can take instead; the device-side fact underneath it, where known, is `cause`. For a `bluetooth_classic` spec the block is required and must carry a `corebluetooth` verdict, because 'can an iPhone reach it' is the first question asked about every SPP device and the answer is usually `incompatible` with `symptom: no_transport` and `cause: {missing_api: rfcomm}` -- CoreBluetooth exposes no RFCOMM -- unless the device is MFi, in which case the vendor's own app reaches it and `workaround: vendor_mfi` says so.",
           "$comment": "A consumer binds to this, which is why it is a declared key and not prose or `protocol_details`: the mobile app routes a device whose spec says `stack: bluez`, `status: incompatible`, `workaround: raw_att` (with no `variants`) over its own ATT channel from the FIRST connection, instead of handing the link to bluetoothd, waiting out a 32 s stall and only then learning to go direct. Until this block existed the only record of such a device was a BLUEZ QUIRK paragraph in `device.notes`, which nothing reads. It sits beside `pairing`, not under `setup.methods[].ble`, for the reason `pairing` does: most BLE specs have no provisioning method to hang it off. Absent is 'nobody has said' rather than 'compatible' because silence is the norm here -- nearly every spec was written on one platform -- and reading it as a clean bill of health would turn every untested stack into a claim. The vocabularies hold what the catalogue uses, plus the four stacks and an honest `unknown`, and grow when a spec needs a value; consumers compare strings, so an addition fails only the comparison looking for it. `symptom` shares its name with `troubleshooting[].symptom` on purpose: the same question, closed here so a consumer can branch on it.",
           "items": {
             "type": "object",
@@ -3252,9 +3507,10 @@
                   "bluez",
                   "android",
                   "corebluetooth",
+                  "iobluetooth",
                   "windows"
                 ],
-                "description": "The host stack the verdict is about. 'bluez' -- Linux's bluetoothd, and so everything layered on its GATT client (bleak, bluetoothctl, flutter_blue_plus's Linux backend). 'android' -- the Android Bluetooth stack. 'corebluetooth' -- iOS, iPadOS and macOS. 'windows' -- the Windows Bluetooth LE stack. A stack, not a library: every client on one stack inherits its GATT client's behaviour, which is what makes one verdict hold for all of them."
+                "description": "The host stack the verdict is about. 'bluez' -- Linux's bluetoothd, and so everything layered on its GATT client (bleak, bluetoothctl, flutter_blue_plus's Linux backend). 'android' -- the Android Bluetooth stack. 'corebluetooth' -- iOS, iPadOS and macOS for a BLE verdict; for a Classic (`link: br_edr`) verdict it means iOS and iPadOS only, because macOS reaches RFCOMM through IOBluetooth. 'iobluetooth' -- macOS's Classic stack (RFCOMM, L2CAP, SDP). 'windows' -- the Windows Bluetooth stack. For a Classic device each name means that platform's RFCOMM/SDP client instead of its GATT client: BlueZ's rfcomm and its socket API, Android's BluetoothSocket, CoreBluetooth (which has none -- see the block's description), WinRT's RFCOMM socket. A stack, not a library: every client on one stack inherits its GATT client's behaviour, which is what makes one verdict hold for all of them."
               },
               "status": {
                 "type": "string",
@@ -3273,49 +3529,73 @@
                   "partial_services",
                   "disconnect",
                   "pairing_failure",
+                  "no_transport",
                   "other"
                 ],
-                "description": "How the failure shows to a client on that stack, so a consumer can recognise it and a person can match it to what they see. 'stall_then_empty' -- discovery hangs for the stack's ATT timeout, then resolves with no services. 'partial_services' -- discovery ends quickly but exports only some services, usually just Generic Access and Generic Attribute. 'disconnect' -- the link drops during or right after discovery. 'pairing_failure' -- the stack starts pairing on its own (on an Insufficient Authentication error, say) and the attempt fails or ends the link. 'other' -- none of those; describe it in `notes`."
+                "description": "How the failure shows to a client on that stack, so a consumer can recognise it and a person can match it to what they see. 'stall_then_empty' -- discovery hangs for the stack's ATT timeout, then resolves with no services. 'partial_services' -- discovery ends quickly but exports only some services, usually just Generic Access and Generic Attribute. 'disconnect' -- the link drops during or right after discovery. 'pairing_failure' -- the stack starts pairing on its own (on an Insufficient Authentication error, say) and the attempt fails or ends the link. 'other' -- none of those; describe it in `notes`. 'no_transport' -- the stack exposes no API for the link this device needs (CoreBluetooth has no RFCOMM); the device is never listed or cannot be opened."
               },
               "cause": {
-                "type": "object",
-                "additionalProperties": false,
-                "required": [
-                  "att_opcode",
-                  "response"
-                ],
-                "description": "The device-side fact under the verdict, where it is known: which ATT request the stack sends and what the device does with it. It stays true whatever the stack does next, so it is what a reader reasons from about a stack not listed here.",
-                "properties": {
-                  "att_opcode": {
-                    "type": "string",
-                    "enum": [
-                      "exchange_mtu",
-                      "read_by_type"
+                "description": "The device-side fact under the verdict, where it is known: which ATT request the stack sends and what the device does with it. It stays true whatever the stack does next, so it is what a reader reasons from about a stack not listed here. For a Classic verdict it is instead the API the stack lacks.",
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "att_opcode",
+                      "response"
                     ],
-                    "description": "The request, named as the Core Specification's ATT PDU in snake_case (Vol 3, Part F, 3.4). Only the ones the catalogue has needed so far; spell the next one the same way (`read_by_group_type`, `find_information`)."
+                    "properties": {
+                      "att_opcode": {
+                        "type": "string",
+                        "enum": [
+                          "exchange_mtu",
+                          "read_by_type"
+                        ],
+                        "description": "The request, named as the Core Specification's ATT PDU in snake_case (Vol 3, Part F, 3.4). Only the ones the catalogue has needed so far; spell the next one the same way (`read_by_group_type`, `find_information`)."
+                      },
+                      "uuid": {
+                        "$ref": "#/$defs/uuid",
+                        "description": "The attribute type the request asks about, when it names one -- a by-type read of Server Supported Features is 00002b3a-0000-1000-8000-00805f9b34fb."
+                      },
+                      "response": {
+                        "type": "string",
+                        "enum": [
+                          "none",
+                          "duplicate"
+                        ],
+                        "description": "'none' -- never answered, neither a response nor an error, so the client waits out the 30 s ATT transaction timeout and must then treat the bearer as closed. 'duplicate' -- a second response arrives while the client waits on a later request, and a stack that pairs by arrival hands it to the wrong one."
+                      }
+                    }
                   },
-                  "uuid": {
-                    "$ref": "#/$defs/uuid",
-                    "description": "The attribute type the request asks about, when it names one -- a by-type read of Server Supported Features is 00002b3a-0000-1000-8000-00805f9b34fb."
-                  },
-                  "response": {
-                    "type": "string",
-                    "enum": [
-                      "none",
-                      "duplicate"
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "missing_api"
                     ],
-                    "description": "'none' -- never answered, neither a response nor an error, so the client waits out the 30 s ATT transaction timeout and must then treat the bearer as closed. 'duplicate' -- a second response arrives while the client waits on a later request, and a stack that pairs by arrival hands it to the wrong one."
+                    "properties": {
+                      "missing_api": {
+                        "type": "string",
+                        "enum": [
+                          "rfcomm",
+                          "l2cap",
+                          "hid"
+                        ],
+                        "description": "The socket API the host stack does not expose to applications."
+                      }
+                    }
                   }
-                }
+                ]
               },
               "workaround": {
                 "type": "string",
                 "enum": [
                   "raw_att",
                   "host_config",
+                  "vendor_mfi",
                   "none_known"
                 ],
-                "description": "What a client on that stack can do instead. 'raw_att' -- own the ATT fixed channel (L2CAP CID 4) itself instead of going through the stack's GATT client, and never send the request the device mishandles: on Linux, gatttool, or an app that opens CID 4 before the link comes up so bluetoothd's GATT client never attaches. 'host_config' -- a setting or service on the host fixes it (a registered pairing agent); say which in `notes`. 'none_known' -- nobody has found one."
+                "description": "What a client on that stack can do instead. 'raw_att' -- own the ATT fixed channel (L2CAP CID 4) itself instead of going through the stack's GATT client, and never send the request the device mishandles: on Linux, gatttool, or an app that opens CID 4 before the link comes up so bluetoothd's GATT client never attaches. 'host_config' -- a setting or service on the host fixes it (a registered pairing agent); say which in `notes`. 'none_known' -- nobody has found one. 'vendor_mfi' -- the device is an MFi accessory, so on iOS only an app that declares the vendor's accessory protocol (in practice the vendor's own) reaches it over iAP2."
               },
               "variants": {
                 "type": "array",
@@ -3347,6 +3627,14 @@
               "notes": {
                 "type": "string",
                 "description": "The long form: mechanism, evidence, what was tried."
+              },
+              "link": {
+                "type": "string",
+                "enum": [
+                  "ble",
+                  "br_edr"
+                ],
+                "description": "Which radio link the verdict is about, on a dual-mode device where the two differ: the OBDLink MX+ is fully reachable from CoreBluetooth over BLE and not at all over BR/EDR. Absent means the link `device.protocol` names. One verdict per (stack, link, variant)."
               }
             },
             "allOf": [
@@ -3510,6 +3798,9 @@
           "type": "string",
           "enum": [
             "ble-gatt",
+            "rfcomm",
+            "l2cap",
+            "hid",
             "http",
             "https",
             "tcp",
@@ -3524,7 +3815,7 @@
             "obd2",
             "can"
           ],
-          "description": "The concrete wire protocol a consumer speaks to this device, one level below `protocol`. `protocol: wifi` says the device is on the LAN; `transport` answers the question an implementer actually has, which is what client they need to write: an HTTP client, a TLS socket, a packet builder, a GATT session. Name the transport, not the payload it carries -- Kasa and Yeelight both put JSON on a raw socket and are both `tcp`; the encoding is described by the spec's commands and payload_formats. Name the transport, not the DISCOVERY method either: mDNS, SSDP and UDP broadcast find a device, and a spec that documents only discovery omits this field rather than filling it with the way it was found.",
+          "description": "The concrete wire protocol a consumer speaks to this device, one level below `protocol`. `protocol: wifi` says the device is on the LAN; `transport` answers the question an implementer actually has, which is what client they need to write: an HTTP client, a TLS socket, a packet builder, a GATT session. Name the transport, not the payload it carries -- Kasa and Yeelight both put JSON on a raw socket and are both `tcp`; the encoding is described by the spec's commands and payload_formats. Name the transport, not the DISCOVERY method either: mDNS, SSDP and UDP broadcast find a device, and a spec that documents only discovery omits this field rather than filling it with the way it was found. Bluetooth Classic adds three: 'rfcomm' -- a byte stream over an RFCOMM channel, which is SPP and every vendor serial protocol layered on it (OBD dongles, label printers, the Quin pill box, Bose BMAP); 'l2cap' -- a raw L2CAP connection to a PSM, which a few vendor control protocols use instead of RFCOMM; 'hid' -- the device is a standard Bluetooth Classic HID peripheral (a shutter remote, a gamepad) whose client is the host OS, and the spec documents the report map and key events rather than a socket protocol. HID over GATT on a BLE device is 'ble-gatt', not 'hid'. Until a declared key exists for it, a Classic HID device's report map and button-to-key events go in `protocol_details.hid`, and the controls a user sees in `entities`.",
           "$comment": "Fifty specs were writing this field with no enum behind it, and it had drifted to twenty-two spellings for fourteen things: `ble-gatt`, `ble_gatt` and `ble` for one GATT session; `tcp-json`, `tls-json` and `tls-protobuf` folding a payload encoding into a transport name; `tuya-ble` and `tuya-lan` naming a vendor rather than a wire; `upnp` where the spec's own block says SOAP; and `mdns` on three discovery-only entries that speak nothing at all. A field with no vocabulary is a field a consumer cannot branch on, which is the same as not having it."
         },
         "model": {
@@ -3953,21 +4244,23 @@
                     "beken_ota",
                     "huami_dfu",
                     "vendor_ble",
+                    "vendor_serial",
                     "http_upload",
                     "vendor_cloud",
                     "custom",
                     "unknown"
                   ]
                 },
-                "description": "The update stack(s). A list because some devices carry two (a Nordic MCU plus a Wi-Fi module, or a legacy and a current path). `vendor_ble` is a vendor-specific protocol over the device's own GATT service; `http_upload` a firmware file POSTed to a web endpoint (WLED /update, ESPHome web OTA); `vendor_cloud` an update the device fetches itself when the vendor cloud tells it to; `custom` anything else described in `notes`."
+                "description": "The update stack(s). A list because some devices carry two (a Nordic MCU plus a Wi-Fi module, or a legacy and a current path). `vendor_ble` is a vendor-specific protocol over the device's own GATT service; `http_upload` a firmware file POSTed to a web endpoint (WLED /update, ESPHome web OTA); `vendor_cloud` an update the device fetches itself when the vendor cloud tells it to; `custom` anything else described in `notes`. `vendor_serial` is a vendor update protocol over the device's own RFCOMM/SPP (or UART) serial channel."
               },
               "transport": {
-                "description": "What the image travels over. A list when the image can travel more than one way (a hub that pulls over Wi-Fi or takes a BLE write).",
+                "description": "What the image travels over. A list when the image can travel more than one way (a hub that pulls over Wi-Fi or takes a BLE write). 'rfcomm' is an image pushed over the device's Classic serial channel (the Quin pill box takes its firmware as one SPP frame).",
                 "anyOf": [
                   {
                     "type": "string",
                     "enum": [
                       "ble",
+                      "rfcomm",
                       "http",
                       "tcp",
                       "udp",
@@ -3985,6 +4278,7 @@
                       "type": "string",
                       "enum": [
                         "ble",
+                        "rfcomm",
                         "http",
                         "tcp",
                         "udp",
@@ -6772,6 +7066,90 @@
                 "body"
               ]
             }
+          },
+          {
+            "$comment": "A byte-stream command with nothing to write is documentation; the same rule `tcp-json` applies to `body`.",
+            "if": {
+              "properties": {
+                "transport": {
+                  "enum": [
+                    "rfcomm",
+                    "l2cap"
+                  ]
+                }
+              },
+              "required": [
+                "transport"
+              ]
+            },
+            "then": {
+              "anyOf": [
+                {
+                  "required": [
+                    "value"
+                  ]
+                },
+                {
+                  "required": [
+                    "template"
+                  ]
+                },
+                {
+                  "required": [
+                    "body"
+                  ]
+                }
+              ]
+            }
+          },
+          {
+            "$comment": "Same rule as on a characteristic command: `value` and `template` are two envelopes for one command and a command has one.",
+            "not": {
+              "required": [
+                "value",
+                "template"
+              ]
+            }
+          },
+          {
+            "$comment": "An rfcomm/l2cap command is written with the BLE byte envelope, so its parameters need the BLE width vocabulary: a free-text type on a `{len}` hole leaves its width and byte order undeclared.",
+            "if": {
+              "properties": {
+                "transport": {
+                  "enum": [
+                    "rfcomm",
+                    "l2cap"
+                  ]
+                }
+              },
+              "required": [
+                "transport"
+              ]
+            },
+            "then": {
+              "properties": {
+                "parameters": {
+                  "additionalProperties": {
+                    "properties": {
+                      "type": {
+                        "enum": [
+                          "uint8",
+                          "uint16",
+                          "uint24",
+                          "uint32",
+                          "int8",
+                          "int16",
+                          "int32",
+                          "bool",
+                          "bytes",
+                          "string"
+                        ]
+                      }
+                    }
+                  }
+                }
+              }
+            }
           }
         ],
         "properties": {
@@ -6796,10 +7174,12 @@
               "mqtt",
               "udp",
               "coap",
-              "tcp-json"
+              "tcp-json",
+              "rfcomm",
+              "l2cap"
             ],
-            "$comment": "'ble' is deliberately NOT a value here. A GATT write lives on the characteristic that carries it (`services[].characteristics[].commands`), where it has a `template`/`value` and a UUID to go to; a top-level command saying `transport: ble` names no characteristic and no transport arm handles it, so it validated and rendered nothing (tuya-bt-soil-tester's `pair`/`dp_query`, since moved). 'websocket' is likewise absent because a websocket spec's commands ride the `websocket` block by way of `device.transport: websocket` and name their socket with `channel`, not `transport`.",
-            "description": "How this command reaches the device. Says which of the spec's transport blocks supplies the request template and the address; absent means the spec's single declared transport. 'tcp-json' is a JSON document sent over a raw TCP socket -- the TP-Link Kasa smart-home protocol on port 9999 -- where the whole invocation is the JSON in `body`, obfuscated by the transport's cipher; there is no service, path or method to state."
+            "$comment": "'ble' is deliberately NOT a value here. A GATT write lives on the characteristic that carries it (`services[].characteristics[].commands`), where it has a `template`/`value` and a UUID to go to; a top-level command saying `transport: ble` names no characteristic and no transport arm handles it, so it validated and rendered nothing (tuya-bt-soil-tester's `pair`/`dp_query`, since moved). 'websocket' is likewise absent because a websocket spec's commands ride the `websocket` block by way of `device.transport: websocket` and name their socket with `channel`, not `transport`. 'rfcomm'/'l2cap' ARE values here, unlike 'ble', for the opposite reason: a Classic serial link has no per-characteristic address to hang a command on, so the top-level block is the only place one can live.",
+            "description": "How this command reaches the device. Says which of the spec's transport blocks supplies the request template and the address; absent means the spec's single declared transport. 'tcp-json' is a JSON document sent over a raw TCP socket -- the TP-Link Kasa smart-home protocol on port 9999 -- where the whole invocation is the JSON in `body`, obfuscated by the transport's cipher; there is no service, path or method to state. 'rfcomm' and 'l2cap' are Bluetooth Classic byte-stream commands: the invocation is a byte sequence written to the socket the spec's `bluetooth_classic.serial` block describes, spelled the way a BLE characteristic command is -- a fixed `value` or a `template` with `{name}` holes filled from `parameters` -- and answered, where the device answers at all, by the frame `response` describes. Declared here rather than on a characteristic because there is no characteristic: an SPP link is one stream."
           },
           "service": {
             "type": "string",
@@ -6877,7 +7257,7 @@
           },
           "body": {
             "type": "string",
-            "description": "The literal request body this command sends, for transports whose invocation IS a document rather than a service/action or a path -- a `tcp-json` command's JSON (`{\"system\":{\"set_relay_state\":{\"state\":1}}}`). May contain '{name}' placeholders substituted from `parameters`, exactly as `arguments` values and `path` segments are. What `arguments` is for SOAP and `path` is for HTTP, `body` is for a JSON-over-socket protocol: the one place an invocation's chosen value has to live."
+            "description": "The literal request body this command sends, for transports whose invocation IS a document rather than a service/action or a path -- a `tcp-json` command's JSON (`{\"system\":{\"set_relay_state\":{\"state\":1}}}`). May contain '{name}' placeholders substituted from `parameters`, exactly as `arguments` values and `path` segments are. What `arguments` is for SOAP and `path` is for HTTP, `body` is for a JSON-over-socket protocol: the one place an invocation's chosen value has to live. For an rfcomm/l2cap command on a text protocol (an ELM327 dongle, a Parrot Zik), `body` is the ASCII text written as-is, `{name}` placeholders rendered as text, followed by the serial block's `command_terminator`."
           },
           "parameters": {
             "type": "object",
@@ -6991,6 +7371,44 @@
                   "type": "integer",
                   "default": 0,
                   "description": "Value XORed into an `auto: checksum` result after the mod-256 sum, or the SEED an `auto: subtract_checksum` span is subtracted from -- exactly as the BLE parameter key. Absent means 0 (plain additive checksum). Not the reduction operator: an XOR-reduced frame is `auto: xor_checksum`."
+                },
+                "endianness": {
+                  "type": "string",
+                  "enum": [
+                    "little",
+                    "big"
+                  ],
+                  "default": "little",
+                  "description": "Byte order of a multi-byte numeric parameter written into a byte-stream `template` (rfcomm/l2cap). Required there on uint16/uint24/uint32/int16/int32; meaningless on a text protocol."
+                },
+                "min_length": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "description": "Shortest accepted value of a `bytes` or `string` parameter, in bytes. `min`/`max` bound a number; these bound a length."
+                },
+                "max_length": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "description": "Longest accepted value of a `bytes` or `string` parameter, in bytes."
+                },
+                "allowed": {
+                  "type": "array",
+                  "minItems": 1,
+                  "items": {
+                    "type": [
+                      "integer",
+                      "string"
+                    ]
+                  },
+                  "description": "The enumerated values a byte-stream parameter accepts, paired by index with `labels` -- the same spelling a BLE command parameter uses, because an rfcomm command is written with the BLE envelope."
+                },
+                "labels": {
+                  "type": "array",
+                  "minItems": 1,
+                  "items": {
+                    "type": "string"
+                  },
+                  "description": "Human names for `allowed`, paired by index."
                 }
               },
               "$comment": "Closed: an undeclared key here is a typo or a fact no consumer reads, never a harmless extra. `min`/`max` bound the value a client will send, so `mx: 100` used to validate while the bound silently vanished, leaving a consumer to offer the type's whole range. `unevaluatedProperties` rather than `additionalProperties` because `number_semantics` (scale, unit, ...) is declared through the allOf `$ref`, which `additionalProperties` cannot see.",
@@ -7048,6 +7466,74 @@
           },
           "verification": {
             "$ref": "#/$defs/verification"
+          },
+          "value": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 255
+            },
+            "description": "Fixed byte sequence this command writes, for a byte-stream transport ('rfcomm', 'l2cap'). The same envelope a BLE characteristic command uses, so an encoder handles both with one code path. Exclusive with `template`."
+          },
+          "template": {
+            "type": "array",
+            "items": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 255
+                },
+                {
+                  "type": "string",
+                  "pattern": "^\\{[A-Za-z_][A-Za-z0-9_]*\\}$"
+                }
+              ]
+            },
+            "description": "Parameterized byte sequence for a byte-stream transport: integers are literal bytes, '{name}' strings are holes filled from the like-named entry in `parameters`, exactly as on a BLE characteristic command (including the `auto` roles -- checksum, sequence, packet_length -- and multi-byte encodings). Exclusive with `value`. A checksum that covers bytes AFTER itself (the Quin firmware frame's image CRC) cannot be expressed with `auto`, which covers the span before the parameter; state it in the command's `notes` and, for firmware, in `features[].dfu`."
+          },
+          "response": {
+            "type": "object",
+            "additionalProperties": false,
+            "description": "The frame the device answers this command with, for a byte-stream transport whose replies are not self-describing. A serial protocol with no length field (the Quin pill box) is parseable ONLY because each command's reply has a known prefix and a fixed length, and that fact has to be here, per command, or a client cannot split the stream. `prefix` is the bytes a reply starts with, `length` the whole frame's byte count when fixed, `format` the fields inside it with offsets counted from the start of the frame (prefix included), in the same vocabulary a BLE characteristic's `format` uses -- units, endianness and scaling are stated on every multi-byte numeric field for the reasons docs/api/spec-format.md gives; a dimensionless single byte (a step index, a version digit) carries no unit, exactly as on a BLE format field.",
+            "properties": {
+              "prefix": {
+                "$ref": "#/$defs/hex_bytes",
+                "description": "Bytes every reply to this command starts with, as a space-separated hex string ('26 47 04'). A '??' byte matches any value."
+              },
+              "length": {
+                "type": "integer",
+                "minimum": 1,
+                "description": "Total frame length in bytes, prefix included, when fixed. Omit when the frame is length-prefixed or delimited and say how in `notes`."
+              },
+              "format": {
+                "$ref": "#/properties/services/items/properties/characteristics/items/properties/format"
+              },
+              "notes": {
+                "type": "string"
+              },
+              "verification": {
+                "$ref": "#/$defs/verification"
+              },
+              "expected": {
+                "anyOf": [
+                  {
+                    "type": "boolean"
+                  },
+                  {
+                    "const": "unknown"
+                  }
+                ],
+                "default": true,
+                "description": "Whether the device answers this command at all. false -- it writes nothing back, so a client must not wait. 'unknown' -- the vendor app ignores whatever comes back and nobody has looked; say so in `notes`. On an unframed stream the difference matters: an undocumented acknowledgement is bytes a client cannot split, and the next reply is lost with it."
+              },
+              "timeout_ms": {
+                "type": "integer",
+                "minimum": 1,
+                "description": "How long a client waits for the reply before treating the command as unanswered."
+              }
+            }
           }
         }
       }
@@ -7245,7 +7731,7 @@
           },
           "state_field": {
             "type": "string",
-            "description": "Source of this entity's state on a `bus` device, as 'message_name.field_name' (e.g. 'motor_status.speed'). The bus analogue of `state_characteristic`: bus devices have no GATT characteristic to point at, so an entity binds to a decoded field of a catalogued message instead.",
+            "description": "Source of this entity's state on a `bus` device, as 'message_name.field_name' (e.g. 'motor_status.speed'). The bus analogue of `state_characteristic`: bus devices have no GATT characteristic to point at, so an entity binds to a decoded field of a catalogued message instead. On a Bluetooth Classic serial device the same form names a decoded field of a stream frame: '<command>.<field>' for a field of that command's `response.format`, or '<unsolicited name>.<field>' for a frame the device sends unprompted.",
             "pattern": "^[A-Za-z0-9_]+\\.[A-Za-z0-9_]+$"
           },
           "state_topic": {
@@ -7287,7 +7773,7 @@
           },
           "state_mapping": {
             "type": "object",
-            "description": "How this entity's state is read out of what the transport returns. Deliberately open: the useful key set differs per platform and the vocabulary is still growing, so the keys below are the ones the catalogue uses rather than a closed list. Role keys name a field of the bound characteristic's `format:` block -- `value` (the reading itself), `is_on`, `brightness`, `color_rgb`, `state`, `effect`, `rgb`, and the climate quartet `current_temperature`/`target_temperature`/`hvac_mode`/`fan_mode`. On an HTTP entity the role values are dotted JSON paths into what `state_command` returns ('state.on', 'state.bri') -- resolved from the response root, or, when the entity declares `instances:`, from inside the current child's object. `scale` is an entity-level linear factor that REPLACES the bound field's own transform rather than compounding with it -- an entity-level scale is that layer's complete statement about its value. `on_when`/`on_value` say which raw value counts as on. `options`/`states` enumerate a `select`'s choices and a device's named states. A bare integer key is a code table mapping a raw value to a label. A `<role>_fallback` key -- `value_fallback` for `value` -- is a SECOND source for that same role, for a firmware or hardware revision that reports the identical reading under a different field name: an object with `path` (resolved exactly as the role's own value is) and an optional `scale` applied to whatever `path` yields. Read the role's primary source first and fall back only when that key is absent from the reply; a consumer that ignores the key still works on current firmware, which is why this is a fallback rather than a variant split -- splitting a renamed field across two entities makes a consumer that ignores `variants` draw the tile twice. NOTE: consumers vary in what they implement; an entity should still be identifiable from `platform`/`device_class`/`unit` when a consumer understands none of these."
+            "description": "How this entity's state is read out of what the transport returns. Deliberately open: the useful key set differs per platform and the vocabulary is still growing, so the keys below are the ones the catalogue uses rather than a closed list. Role keys name a field of the bound characteristic's `format:` block -- `value` (the reading itself), `is_on`, `brightness`, `color_rgb`, `state`, `effect`, `rgb`, and the climate quartet `current_temperature`/`target_temperature`/`hvac_mode`/`fan_mode`. On an HTTP entity the role values are dotted JSON paths into what `state_command` returns ('state.on', 'state.bri') -- resolved from the response root, or, when the entity declares `instances:`, from inside the current child's object. `scale` is an entity-level linear factor that REPLACES the bound field's own transform rather than compounding with it -- an entity-level scale is that layer's complete statement about its value. `on_when`/`on_value` say which raw value counts as on. `options`/`states` enumerate a `select`'s choices and a device's named states. A bare integer key is a code table mapping a raw value to a label. A `<role>_fallback` key -- `value_fallback` for `value` -- is a SECOND source for that same role, for a firmware or hardware revision that reports the identical reading under a different field name: an object with `path` (resolved exactly as the role's own value is) and an optional `scale` applied to whatever `path` yields. Read the role's primary source first and fall back only when that key is absent from the reply; a consumer that ignores the key still works on current firmware, which is why this is a fallback rather than a variant split -- splitting a renamed field across two entities makes a consumer that ignores `variants` draw the tile twice. NOTE: consumers vary in what they implement; an entity should still be identifiable from `platform`/`device_class`/`unit` when a consumer understands none of these. When `state_command` names a top-level command on a byte-stream transport (rfcomm/l2cap), role values name a field of that command's `response.format`; an entity fed by a frame the device sends on its own names the `bluetooth_classic.serial.unsolicited` entry in `state_field` instead."
           },
           "options_source": {
             "type": "object",
@@ -7513,6 +7999,400 @@
     "advertising": {
       "type": "object",
       "$comment": "Off-house-style advertisement description, the companion of the legacy top-level `ble:` block, and the more consequential of the two: what lives in it is MATCHING data -- company IDs, payload layouts, name patterns -- and `device.identification` is the only place a consumer looks for those. Seven specs left. Declared pending that migration; do not adopt it for anything new."
+    },
+    "bluetooth_classic": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "profiles"
+      ],
+      "description": "The Bluetooth Classic (BR/EDR) side of a device: which profiles its SDP record offers, which one carries the control surface, and the parameters of the serial link a client opens to it. Counts as an access surface. Required on every `protocol: bluetooth_classic` spec and welcome on a `ble` or `wifi` spec that ALSO speaks Classic (the OBDLink MX+, the Brother QL-1110NWB), where it records the second path a phone or a laptop can take. What is deliberately NOT here: the inquiry name (that is `device.identification` and a `bt_classic_inquiry` discovery method), the pairing story (`device.pairing` on a `bluetooth_classic` spec; this block's own `pairing` on a spec whose `device.protocol` names the other radio -- `legacy_pin` is the BR/EDR PIN mode, `just_works` covers SSP), the per-platform reachability verdict (`device.host_compatibility`, where a `corebluetooth: incompatible` entry is how a spec says an iPhone cannot open SPP) and the commands themselves (`commands` with `transport: rfcomm`).",
+      "$comment": "Added 2026-09-27 so that Classic devices stop being filed as 'ble' with an apology. The shape mirrors how a client actually reaches one: find it (inquiry or a BLE advert on a dual-mode unit), pick the SDP profile, open a socket with the right security flag, then deal with a stream that has no framing of its own. `profiles` is a list because a headset carries A2DP, AVRCP, HFP and a vendor RFCOMM control channel at once and the spec has to say which of them it is documenting. `serial` is singular because a spec documents one control stream; a device with two (a headset with SPP beside a vendor RFCOMM channel) puts the second in `profiles[].notes` and `protocol_details`. `secure` is per profile because it is the flag a client passes when opening the socket, and getting it wrong is the difference between 'connects instantly' and 'the OS throws up a pairing dialog the device never answers'. Second pass (same day, adversarial review): unsolicited frames, reply correlation, a real length-prefix description, hex terminators and the ELM327 prompt, per-variant scoping, a Classic pairing block for the second radio on a BLE or LAN spec, and `commands_from` so a dual-mode serial link reuses its GATT twin's commands.",
+      "properties": {
+        "dual_mode": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "const": "unknown"
+            }
+          ],
+          "description": "Whether the device also advertises over BLE. Usually one radio and one public address for both; `address_shared_with_ble` says whether that has been checked."
+        },
+        "ble_role": {
+          "type": "string",
+          "enum": [
+            "none",
+            "discovery_only",
+            "secondary_control",
+            "primary_control",
+            "unknown"
+          ],
+          "description": "What the BLE half of a dual-mode device is FOR. 'discovery_only': it advertises so a phone can find it without an inquiry, and exposes no usable GATT surface (the Quin pill box). 'secondary_control': a GATT pipe carries some or all of the same protocol, and a BLE-only client can drive part of the device (the OBDLink MX+). 'primary_control': the control surface is BLE and the Classic side is audio or legacy (a smartwatch with A2DP) -- such a spec is `protocol: ble`. 'none' for a Classic-only device. CONSUMER RULE: a client that matched this spec from a BLE advertisement must not open a GATT connection when `ble_role` is 'none' or 'discovery_only'. With `address_shared_with_ble: true` it opens the control profile's RFCOMM socket to the scanned address; otherwise it runs the spec's `bt_classic_inquiry` to find the BR/EDR address first."
+        },
+        "address_shared_with_ble": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "const": "unknown"
+            }
+          ],
+          "description": "Whether the BR/EDR address a client connects to is the same as the address seen in the BLE scan. True for nearly every dual-mode chip, and it is what lets a client skip the inquiry entirely: scan BLE, take the address, open RFCOMM to it. Say 'unknown' until someone has done exactly that."
+        },
+        "profiles": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "profile",
+              "role"
+            ],
+            "properties": {
+              "profile": {
+                "type": "string",
+                "enum": [
+                  "spp",
+                  "hid",
+                  "a2dp",
+                  "avrcp",
+                  "hfp",
+                  "hsp",
+                  "opp",
+                  "ftp",
+                  "pbap",
+                  "map",
+                  "pan",
+                  "bip",
+                  "hcrp",
+                  "iap2",
+                  "vendor"
+                ],
+                "description": "The Bluetooth profile, or 'vendor' for a vendor-defined RFCOMM/L2CAP service published under its own 128-bit UUID (Bose BMAP, Sony's headphone control channel)."
+              },
+              "uuid": {
+                "$ref": "#/$defs/uuid",
+                "description": "The SDP service-class UUID, canonical 128-bit lowercase: SPP is 00001101-0000-1000-8000-00805f9b34fb. Required in practice for 'spp' and 'vendor'; a client opens the socket by this UUID."
+              },
+              "channel": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 30,
+                "description": "RFCOMM server channel, when it is fixed and known. Most clients resolve it by SDP from `uuid` instead; state it for the `rfcomm bind` case on Linux and for devices whose SDP record is broken."
+              },
+              "psm": {
+                "type": "integer",
+                "minimum": 1,
+                "description": "L2CAP PSM, for a profile reached over raw L2CAP rather than RFCOMM."
+              },
+              "role": {
+                "type": "string",
+                "enum": [
+                  "control",
+                  "media_control",
+                  "audio",
+                  "telephony",
+                  "file_transfer",
+                  "input",
+                  "firmware",
+                  "undocumented",
+                  "unused"
+                ],
+                "description": "What this profile carries FOR THIS SPEC. 'control' is the one the commands ride on. 'media_control' is AVRCP's remote-control role. 'undocumented' is a profile the device offers whose protocol this spec does not describe (a printer's OPP, an MFi iAP2 session). 'unused' is one the SDP record lists that the vendor app never opens. Both are stated so a reader knows the profile was seen and not forgotten. The rest: 'audio' A2DP media; 'telephony' HFP/HSP; 'file_transfer' OPP/FTP/BIP/PBAP/MAP; 'input' a HID profile; 'firmware' the channel a DFU image travels over when it is not the control one."
+              },
+              "secure": {
+                "anyOf": [
+                  {
+                    "type": "boolean"
+                  },
+                  {
+                    "const": "unknown"
+                  }
+                ],
+                "description": "Whether the client opens this profile's socket authenticated and encrypted -- which needs a bond, and on Android the secure socket constructor -- or insecure, which needs no pairing. A property of this socket only: `device.pairing` (or this block's `pairing`) says whether the device as a whole needs a bond, and a headset bonds for A2DP/HFP whatever flag its control channel is opened with, so `secure: false` beside `pairing.required: true` is normal there. False is the consequential answer for a single-profile serial device: no dialog, no PIN, no bond, and a client that opens a secure socket anyway triggers a pairing the device may never complete. 'unknown': a client opens an insecure socket first and falls back to a secure one only after the host has bonded."
+              },
+              "verification": {
+                "$ref": "#/$defs/verification"
+              },
+              "notes": {
+                "type": "string"
+              },
+              "variants": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "description": "Which of `device.variants` carry this profile, for a family whose models differ (a different vendor control UUID per headset generation). Absent means every variant the block covers."
+              }
+            }
+          }
+        },
+        "serial": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "The stream a client reads and writes once the control profile's socket is open. RFCOMM delivers a byte stream with no message boundaries: a read returns whatever has arrived, a reply can be split across two reads or glued to the next one, and a protocol with no length field is parseable only because each reply's prefix and length are known (`commands[].response`). This block states the stream-level facts a client needs before the first byte: encoding, framing, chunk sizes and the timing the vendor app observes.",
+          "properties": {
+            "profile_uuid": {
+              "$ref": "#/$defs/uuid",
+              "description": "Which `profiles[]` entry this stream is, by its `uuid`. For a profile reached only by a fixed RFCOMM channel or an L2CAP PSM, use `profile_channel` or `profile_psm` instead."
+            },
+            "encoding": {
+              "type": "string",
+              "enum": [
+                "binary",
+                "ascii_lines",
+                "at_commands"
+              ],
+              "description": "'binary' -- framed or fixed-length byte messages; 'ascii_lines' -- text records ended by `line_terminator`, with a whole reply ended by `prompt` where the protocol has one (an ELM327 answers several CR-separated lines and then '>'); 'at_commands' -- an AT command set. 'at_commands' is a Hayes-style modem dialogue answered by OK/ERROR result codes (an HC-05 module in configuration mode). An ELM327 is 'ascii_lines' despite its AT-prefixed commands, because its replies end at a `prompt`, not a result code."
+            },
+            "line_terminator": {
+              "$ref": "#/$defs/hex_bytes",
+              "description": "For 'ascii_lines': the byte(s) that end one line of a reply, as hex ('0d', '0d 0a'). Hex rather than an escaped string because '\\r' and \"\\r\" are two characters and one byte respectively, and both validated."
+            },
+            "framing": {
+              "type": "object",
+              "additionalProperties": false,
+              "description": "How messages are delimited in the stream, or that they are not.",
+              "properties": {
+                "checksum": {
+                  "type": "string",
+                  "enum": [
+                    "none",
+                    "sum8",
+                    "xor",
+                    "crc8",
+                    "crc16_modbus",
+                    "crc16_xmodem",
+                    "crc32",
+                    "other",
+                    "unknown"
+                  ],
+                  "description": "A checksum on EVERY frame. A checksum that covers one command's payload rather than every frame (the Quin firmware image's CRC-16/XMODEM) belongs on that command, not here. 'other' -- described in `notes`. Spellings map to the `auto` parameter roles: 'sum8' is `auto: checksum`, 'xor' is `xor_checksum`, 'crc8' and 'crc16_modbus' are the same algorithms under the same names."
+                },
+                "resync": {
+                  "type": "string",
+                  "enum": [
+                    "scan_to_start_bytes",
+                    "drop_buffer",
+                    "reconnect"
+                  ],
+                  "description": "What a client does when it meets bytes it cannot split: scan forward to the next `rx_start_bytes`, discard everything buffered (what most vendor apps do), or close and reopen the socket."
+                },
+                "max_frame_bytes": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "notes": {
+                  "type": "string"
+                },
+                "length_prefix": {
+                  "anyOf": [
+                    {
+                      "type": "boolean"
+                    },
+                    {
+                      "const": "unknown"
+                    }
+                  ],
+                  "description": "Whether frames carry their own length (the same key `$defs/framing` uses on a BLE characteristic). False means the client must know each reply's length from `commands[].response` and `unsolicited`."
+                },
+                "length_offset": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "description": "Byte offset of the length field from the start of the frame."
+                },
+                "length_size": {
+                  "type": "integer",
+                  "enum": [
+                    1,
+                    2,
+                    4
+                  ],
+                  "description": "Width of the length field in bytes."
+                },
+                "length_endianness": {
+                  "type": "string",
+                  "enum": [
+                    "little",
+                    "big"
+                  ],
+                  "default": "little"
+                },
+                "length_adjust": {
+                  "type": "integer",
+                  "description": "Total frame bytes = the length field's value + this adjustment. A field that counts only the payload after a 4-byte header has adjust 4; one that counts the whole frame has 0."
+                },
+                "scheme": {
+                  "$ref": "#/$defs/framing/properties/scheme",
+                  "description": "A named framing scheme from the BLE vocabulary, when the stream uses one verbatim (`length_prefixed_le16` is LEGO NXT's SPP framing)."
+                },
+                "rx_start_bytes": {
+                  "type": "array",
+                  "minItems": 1,
+                  "items": {
+                    "$ref": "#/$defs/hex_bytes"
+                  },
+                  "description": "Alternative leading bytes of device-to-host frames (replies and unsolicited frames alike): the Quin pill box starts replies with 26 and pushes with 40, so both are listed."
+                },
+                "tx_start_bytes": {
+                  "$ref": "#/$defs/hex_bytes",
+                  "description": "Leading byte(s) of every host-to-device frame."
+                }
+              }
+            },
+            "read_chunk_bytes": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "The read buffer size the vendor client uses; a reply longer than this arrives in pieces."
+            },
+            "inter_write_delay_ms": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Pause the vendor client leaves between consecutive writes. Firmware with a small UART buffer drops back-to-back frames; replay the pause."
+            },
+            "response_timeout_ms": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "Default reply wait for commands that do not state their own `response.timeout_ms`."
+            },
+            "verification": {
+              "$ref": "#/$defs/verification"
+            },
+            "notes": {
+              "type": "string"
+            },
+            "profile_channel": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 30,
+              "description": "The RFCOMM channel of the `profiles[]` entry this stream is, for a profile a client reaches by a fixed channel rather than by SDP UUID."
+            },
+            "profile_psm": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "The L2CAP PSM of the `profiles[]` entry this stream is. L2CAP keeps message boundaries: each SDU is one frame, so `framing` does not apply."
+            },
+            "command_terminator": {
+              "$ref": "#/$defs/hex_bytes",
+              "description": "Byte(s) a client appends to every command on a text protocol ('0d' for an ELM327). Not part of any command's `body`."
+            },
+            "prompt": {
+              "$ref": "#/$defs/hex_bytes",
+              "description": "Byte(s) that end a COMPLETE reply, as opposed to one line: '3e' for the ELM327 '>' prompt. A client buffers across reads until it arrives."
+            },
+            "correlation": {
+              "type": "string",
+              "enum": [
+                "prefix",
+                "in_order",
+                "none"
+              ],
+              "description": "How a reply is matched to the command that caused it. 'prefix' -- by `commands[].response.prefix`, so several commands may be outstanding (the Quin app sends two queries 100 ms apart and sorts the replies by prefix). 'in_order' -- the next complete reply belongs to the oldest unanswered command (ELM327: one command, one prompt). 'none' -- the device sends nothing a client correlates."
+            },
+            "max_in_flight": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "How many commands may be outstanding at once. 1 for an ELM327; the vendor app's own behaviour is the evidence."
+            },
+            "connect_timeout_ms": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "How long the vendor client waits for the socket to open before giving up, in milliseconds."
+            },
+            "unsolicited": {
+              "type": "array",
+              "minItems": 1,
+              "description": "Frames the device sends without being asked -- a low-battery alarm, a charging change, a sensor stream. On an unframed stream these are as load-bearing as replies: a frame that matches no declared `commands[].response.prefix` and no entry here has no known length, and a client that meets one loses sync and applies `framing.resync`. Offsets in `format` count from the start of the frame, prefix included.",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "name",
+                  "prefix"
+                ],
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "pattern": "^[a-z][a-z0-9_]*$",
+                    "description": "Name an entity's `state_mapping` or `state_field` refers to."
+                  },
+                  "prefix": {
+                    "$ref": "#/$defs/hex_bytes",
+                    "description": "Bytes the frame starts with; '??' matches any byte."
+                  },
+                  "length": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "description": "Whole frame length in bytes, prefix included, when fixed."
+                  },
+                  "format": {
+                    "$ref": "#/properties/services/items/properties/characteristics/items/properties/format"
+                  },
+                  "notes": {
+                    "type": "string"
+                  },
+                  "verification": {
+                    "$ref": "#/$defs/verification"
+                  }
+                }
+              }
+            },
+            "commands_from": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "service",
+                "characteristic"
+              ],
+              "description": "On a dual-mode device whose stream carries exactly what a GATT characteristic carries (an OBD adapter's SPP link and its BLE serial pipe), the characteristic whose `commands` and `format` apply unchanged on this stream. Without it an RFCOMM transport built from the spec has no commands at all.",
+              "properties": {
+                "service": {
+                  "$ref": "#/$defs/uuid"
+                },
+                "characteristic": {
+                  "$ref": "#/$defs/uuid"
+                }
+              }
+            }
+          }
+        },
+        "verification": {
+          "$ref": "#/$defs/verification"
+        },
+        "notes": {
+          "type": "string"
+        },
+        "wake_required": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "const": "unknown"
+            }
+          ],
+          "description": "Whether the device sleeps and must be woken (a button, a lid, a shake) before it advertises over BLE or answers an inquiry at all. The procedure is in `device.notes` or `device.pairing.enter_pairing_mode`."
+        },
+        "pairing": {
+          "$ref": "#/properties/device/properties/pairing",
+          "description": "The Classic link's pairing story, on a spec whose `device.protocol` is NOT bluetooth_classic -- a BLE OBD adapter family with Classic members, a LAN printer with a Bluetooth path. `device.pairing` always describes the link `device.protocol` names; a second radio's bond, PIN and pairing button are a different fact and go here. Omit on a `bluetooth_classic` spec, where `device.pairing` already is the Classic story."
+        },
+        "variants": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": "Which of `device.variants` (by `model`) this block describes, when only some members of a family speak Classic. Absent means every variant. Same semantics as `host_compatibility[].variants`."
+        }
+      }
     }
   }
 }

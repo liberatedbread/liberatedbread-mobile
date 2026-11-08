@@ -10,6 +10,7 @@ device:
     status: untested
   protocol: "ble"
   category: "light"
+  category_hierarchy: ["light", "led"]
   notes: >
     SPI pixel / PWM LED strip controllers driven by the SceneX app
     (com.spled.scenex, analyzed at v3.3.2 — a Flutter app whose protocol logic

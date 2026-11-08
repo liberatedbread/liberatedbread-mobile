@@ -22,6 +22,7 @@ device:
   protocol: "ble"
   transport: "ble-gatt"
   category: "sensor"
+  category_hierarchy: ["measurement", "other"]
   type: "battery-monitor"
   notes: >
     Read-only BM2 / Battery Monitor 2 telemetry over BLE. Active monitoring
@@ -52,8 +53,6 @@ device:
 
   identification:
     local_name_prefixes: ["Battery Monitor", "Li Battery Monitor", "ZX-1689"]
-    service_uuids:
-      - "0000fff0-0000-1000-8000-00805f9b34fb"
     manufacturer_data:
       company_id: 76
       company_id_hex: "0x004c"
@@ -67,8 +66,6 @@ device:
     methods:
       - type: "ble_scan"
         ble:
-          service_uuids:
-            - "0000fff0-0000-1000-8000-00805f9b34fb"
           local_name:
             match: "regex"
             value: "^(Battery Monitor|Li Battery Monitor|ZX-1689)"

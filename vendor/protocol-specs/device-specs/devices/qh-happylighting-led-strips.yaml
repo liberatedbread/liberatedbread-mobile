@@ -16,6 +16,7 @@ device:
       from this spec, and no over-the-air capture exists in this project.
   protocol: "ble"
   category: "light"
+  category_hierarchy: ["light", "led"]
   type: "led-strip-controller"
   notes: >
     Cheap BLE RGB(W) LED controllers sold under many listings and driven by

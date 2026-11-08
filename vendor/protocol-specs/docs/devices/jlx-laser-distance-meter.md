@@ -18,18 +18,20 @@ rebadged meters. Four sibling APKs (iM2, Measure Mate, RonixMeasureBox,
 RonixTargetCam) were acquired and confirmed at the binary level to carry the
 same `f151`/`f154` UUIDs and frame literals.
 
-The BLE protocol was recovered entirely by static analysis of the Measure-Up
-APK — no hardware was in hand and no over-the-air capture exists. It is a
-simple ASCII serial-style exchange over two GATT characteristics and looks
-trivially implementable, but every byte here is untested against a real meter.
+The protocol was recovered from Measure-Up, then verified against a live
+LDM330 and a vendor-app capture: advertised identity, `f150`/`f151`/`f154`,
+init, keep-alives and measurement frames were all observed. It is minimally
+verified rather than complete: LDM130 has not been tested, the remote `m`
+command works only while the display is awake, and stock BlueZ cannot finish
+enumeration because of the separate `0x2b3a` stall described below.
 
 ## Hardware
 
 | Property | Value |
 |----------|-------|
 | Model Number | LDM330 (40-6013); sibling LDM130 |
-| Chipset | Unknown (BLE module not identified) |
-| Radio | BLE (GATT server) |
+| BLE module | Precaster `BT A8105`; hardware `A810501`, firmware `0001`, software `1000` |
+| Radio | BLE (GATT server), public address and advertised `f150` service |
 | FCC ID | Not found |
 
 ## Initial Setup
@@ -38,9 +40,9 @@ trivially implementable, but every byte here is untested against a real meter.
 |----------|-------|
 | Setup required | No |
 | Method | `ble_direct` |
-| Setup AP / advertised name | Unknown — the app scans unfiltered and the user picks the meter from a list |
+| Advertised name | `Laser Distance Meter` with service `0000f150-0000-1000-8000-00805f9b34fb`; the vendor app itself scans unfiltered |
 | Passphrase protection | not_applicable |
-| Confidence | medium (decompiled app flow + vendor quick-start guide; never run) |
+| Confidence | high for LDM330 (live + capture); low for LDM130 |
 
 **Factory reset**: none exists or is needed. The meter holds no bonds,
 credentials, or client state — the app connects without pairing. Removing the
@@ -57,11 +59,23 @@ the vendor quick-start guide), then select the meter from the app's scan list.
 
 ### BLE Services
 
-| UUID | Name | Description |
-|------|------|-------------|
-| `0000f150-0000-1000-8000-00805f9b34fb` | Precaster LDM Service (hypothesis) | Service UUID is not pinned by the app; `0xF150` is a numbering-convention guess. Match characteristics, not the service. |
-| `0000f151-0000-1000-8000-00805f9b34fb` | command_rx (write) | App → device commands (init, keep-alive, measure) |
-| `0000f154-0000-1000-8000-00805f9b34fb` | data_tx (notify) | Device → app handshake and measurement frames |
+| UUID | Role |
+|------|------|
+| `0000f150-0000-1000-8000-00805f9b34fb` | Confirmed primary LDM service; advertised and enumerated |
+| `0000f151-0000-1000-8000-00805f9b34fb` | command_rx (write/write-without-response): init, keep-alive, measure |
+| `0000f154-0000-1000-8000-00805f9b34fb` | data_tx (notify): handshake and measurement frames |
+| `0000fff3-0000-1000-8000-00805f9b34fb` | Secondary vendor service with `fff4` notify and `fff5` write/write-without-response; role and payload unknown, do not use |
+| `00001802-0000-1000-8000-00805f9b34fb` | Immediate Alert (`2a06`) |
+| `00001803-0000-1000-8000-00805f9b34fb` | Link Loss (`2a06`) |
+| `00001804-0000-1000-8000-00805f9b34fb` | Tx Power (`2a07`) |
+| `0000180d-0000-1000-8000-00805f9b34fb` | Stock Heart Rate service (`2a37`/`2a38`); no measurements observed, not a distance channel |
+| `0000180f-0000-1000-8000-00805f9b34fb` | Battery Level (`2a19`), read/notify |
+| `0000180a-0000-1000-8000-00805f9b34fb` | Device Information identifying the Precaster module |
+
+A 2026-11-07 independent GATT report confirms the `fff3` pair and standard
+services, with `responses: []`: those are property observations, not command
+or response evidence. Do not send the f150 init/measure frames or another
+product's protocol to `fff3`.
 
 ### Commands
 

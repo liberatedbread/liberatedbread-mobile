@@ -1,0 +1,1647 @@
+# Even Realities G1 smart glasses device spec
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Two BLE peripherals (one per temple), each a Nordic UART service, driven by
+# opcode-first binary frames. Scope: discovery and pairing of both temples,
+# GATT setup, framing and acks, and the command/event families the public
+# sources document (text, BMP, streaming text, navigation, dashboard, quick
+# notes, settings, readbacks, heartbeat, gestures, microphone audio).
+# Out of scope: firmware/OTA update, the vendor's cloud AI features, and the
+# Even G2 or later models.
+#
+# Evidence is entirely secondary: the vendor's own open-source demo app
+# (EvenDemoApp, BSD-2-Clause), the Cheddies1/even-g1-companion protocol
+# notes (built from that author's captures on firmware 1.6.6 and from a
+# third-party firmware decompilation), emingenc/even_glasses and Gadgetbridge.
+# Nothing here has been run against hardware by this project, so every
+# byte-level fact is `reported`. Upstream "Confirmed" labels are the upstream
+# author's captures, not ours; they are carried as "upstream-confirmed" in
+# notes and never promoted to `confirmed`.
+
+device:
+  name: "Even Realities G1 Smart Glasses"
+  manufacturer: "Even Realities"
+  manufacturer_status: "active"
+  openness:
+    status: "documented_api"
+    reverse_engineered: true
+    upstream_docs:
+      - url: "https://github.com/even-realities/EvenDemoApp/blob/main/README.md"
+        title: "EvenDemoApp README (Even Realities)"
+        covers: "Dual-temple send order, TouchBar events 0xF5, mic enable 0x0E, mic audio 0xF1, text/AI result 0x4E, BMP transfer 0x15/0x20/0x16"
+      - url: "https://github.com/even-realities/EvenDemoApp/blob/main/docs/G1_BLE_CONNECTION.en.md"
+        title: "EvenDemoApp G1 Bluetooth connection flow (Even Realities)"
+        covers: "Advertised-name shape, channel pairing of the two temples, Nordic UART UUIDs, per-temple connect sequence"
+    source_code: "https://github.com/even-realities/EvenDemoApp"
+    license: "BSD-2-Clause"
+    notes: >
+      The vendor publishes a small, partial protocol surface through its own
+      open-source demo app. Everything beyond it (navigation, streaming text,
+      dashboard, quick notes, settings, readbacks, most event codes) was
+      recovered by the community from captures of the official app and from a
+      decompiled firmware image, so the spec as a whole is reverse engineered.
+  testing:
+    status: untested
+    notes: >
+      No one on this project has driven a G1. The research store holds no
+      capture, firmware or hardware notes for this device, only the vendor
+      support pages and manuals. Upstream's captures (Cheddies1, firmware
+      1.6.6) were not re-parsed here.
+  protocol: "ble"
+  transport: "ble-gatt"
+  category: "wearable"
+  type: "smart-glasses"
+  notes: >
+    Even Realities G1: prescription-capable smart glasses with a monochrome
+    green waveguide display in each lens, TouchBars on both temple tips,
+    microphones, and an ambient light sensor on the right temple. They ship
+    with a charging case that has its own battery. Even Realities ended direct
+    sales of the G1 on 2026-09-15 and has stated that the security-support
+    period will not end before 2029-06-25, so the maker is still active. The
+    G2 and later models are different hardware and are not covered here.
+
+
+    TWO PERIPHERALS, ONE PRODUCT. Each temple is its own BLE peripheral with
+    its own address, name, bond and GATT table (a Nordic UART service), and
+    each takes and answers commands on its own link. The right temple is the
+    master; the left is the slave. The two temples also talk to each other
+    over a private radio link. A client pairs the two advertisements by the
+    channel number embedded in their names, connects both, and keeps both
+    alive with a heartbeat. Display content is not relayed from one temple
+    to the other, so anything drawn must be written to both. Some settings
+    are relayed. The per-opcode side rules are in
+    protocol_details.dual_link.
+
+
+    FRAMES. Every write and notification starts with an opcode byte. There
+    is no checksum or trailer. Some families carry a little-endian uint16
+    TOTAL length at bytes 1-2 (0x06, 0x08, 0x0A, 0x1E, 0x21, 0x22, 0x25, 0x26,
+    0x39, 0x50, 0x52), and the firmware drops a frame silently when that
+    length disagrees with the bytes received. Others have no length field at
+    all (0x01, 0x03, 0x04, 0x0B, 0x0E, 0x15, 0x16, 0x18, 0x20, 0x27, 0x29,
+    0x2C, 0x34, 0x4B, 0x4E, 0xF1, 0xF5). A reply echoes the opcode, and its
+    byte 1 is usually a status: 0xC9 success, 0xCA failure, 0xCB "chunk
+    accepted, send the next". Each command's template states its own layout.
+    protocol_details.framing has the rules.
+
+
+    CONFIDENCE. Vendor-published (the EvenDemoApp README): 0x0E, 0xF1, 0x4E,
+    0x15/0x20/0x16 and the 0xF5 gesture codes 0x00/0x01/0x04/0x05/0x17/0x18.
+    Captured by the upstream author on firmware 1.6.6: navigation 0x0A,
+    streaming text 0x52/0x53, dashboard slots 0x1E, dashboard lock 0x50, the
+    battery/wear/brightness events, head-up 0x08, double-tap 0x26 and the
+    QuickNote family. Read out of a third-party firmware decompilation, which
+    speaks to structure but not behaviour: the length rule, the ack codes, the
+    0x06 sub-commands and the readback range 0x29-0x3F. Every fact above is
+    `reported`: none is confirmed against hardware by this project, and
+    firmware-version dependence is unverified beyond upstream's 1.6.6.
+    Firmware-update commands exist but are deliberately left out of this
+    spec.
+  identification:
+    local_name_prefixes: ["G1_", "Even G1_"]
+    notes: >
+      Each temple advertises its own name: G1_<channel>_L_<id> for the left
+      temple and G1_<channel>_R_<id> for the right, for example the invented
+      pair G1_12_L_1A2B3 / G1_12_R_4C5D6. <channel> is a decimal number the
+      two temples of one pair share. <id> is a short per-unit alphanumeric
+      suffix; it differs between the temples and identifies a unit, so it is
+      never published here. The vendor demo's example uses the bare G1_
+      form, while Gadgetbridge's name pattern requires an "Even " prefix
+      (Even G1_<channel>_L_<id>), so both prefixes are declared. Which one a
+      given firmware advertises is not established. Nothing in the sources
+      says whether the Nordic UART service UUID is in the advertisement; the
+      vendor demo scans without a service filter and matches on the name
+      alone.
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          local_name:
+            match: "regex"
+            value: "^(Even )?G1_[0-9]+_[LR]_[0-9A-Za-z]+$"
+    identity:
+      stable_keys: ["address"]
+      display: "local_name"
+      notes: >
+        One product is two scan results. Split the name on underscores: the
+        channel number is the field after the model token, and the side
+        letter (L or R) is the field after that. Group a left and a right
+        result that share a channel into one pair, and only offer the pair
+        once both halves are present. The vendor demo shows nothing until
+        both are seen. Track each temple by its own address. Whether the
+        channel number is unique among nearby pairs is not established, so a
+        room with two G1 sets should let the user pick.
+    static_ip_required: false
+  setup:
+    required: false
+    confidence: "medium"
+    notes: >
+      There are no network credentials, no account and no key exchange on the
+      wire. A brand-new unit is woken from shipping state by the charging case
+      (vendor quick guide). After that, each temple is found by name, connected,
+      subscribed, given an MTU of 251 and bonded (see device.pairing). The
+      vendor app also runs an account onboarding, but none of it is visible in
+      the BLE protocol. Whether glasses that were never onboarded by the vendor
+      app accept a third-party client is not established: every public client
+      was run on glasses already set up with the official app. Confidence
+      medium: vendor documentation plus three independent public
+      implementations, none replayed here.
+    methods:
+      - type: "ble_direct"
+        name: "Wake from the case, then connect and bond both temples"
+        verified: false
+        description: >
+          Activate the glasses once in the charging case, then treat each
+          temple as its own peripheral: scan for the paired names, connect
+          both, and run the per-temple sequence in `initialization` (notify
+          CCCD, MTU 251, bond). The link is up only when both temples have
+          finished. Send the first heartbeat right away, because the glasses
+          drop an idle link after about 30 seconds.
+        ble:
+          pairing_required: true
+        steps:
+          - action: "First use only: fold the left temple first, place the glasses in the charging case and connect the case to power for 5-10 seconds to complete activation."
+            actor: "user"
+            expect: "The case indicator shows the glasses' charge level. A flashing orange light means the glasses are not seated or folded correctly."
+          - action: "Take the glasses out of the case (or open the lid) and close the vendor app on any phone that was driving them, so neither temple is held by another central."
+            actor: "user"
+          - action: "Scan for names matching ^(Even )?G1_<n>_[LR]_<id>$ and group a left and right result that share <n>."
+            actor: "client"
+            expect: "Two advertisements with the same channel number, one with _L_ and one with _R_."
+          - action: "Connect to both temples. On each, discover services, enable notifications on 6e400003-b5a3-f393-e0a9-e50e24dcca9e, request ATT MTU 251, then bond if the OS does not already hold a bond for that address."
+            actor: "client"
+            request:
+              protocol: "ble_gatt"
+            expect: "Both temples connected, subscribed and bonded."
+          - action: "Start a heartbeat (0x25) on each temple and keep it running at no more than 8 seconds between frames."
+            actor: "client"
+            expect: "Each temple answers every heartbeat with a 0x25 frame whose byte 4 is 0x04."
+        troubleshooting:
+          - symptom: "Only one temple appears in the scan."
+            causes:
+              - "The other temple is still connected to the phone that runs the vendor app."
+              - "The glasses are asleep in a closed case, or were never activated from the case."
+          - symptom: "Writes are accepted at the GATT layer but nothing appears on either lens."
+            causes:
+              - "A hand-built frame's length field at bytes 1-2 is wrong (length-bearing families only). The firmware drops it with no error."
+              - "The content was written to one temple only. Display content is not relayed."
+          - symptom: "One lens shows content and the other does not, or they show different notification counts."
+            causes:
+              - "One temple reconnected before the other and received content alone (vendor known-issue 014). Resend the current content to both temples after any reconnect."
+          - symptom: "The link drops about every 30 seconds."
+            causes:
+              - "No heartbeat. The glasses need traffic well within their ~30 s idle window."
+    factory_reset:
+      applicable: "unknown"
+      confidence: "low"
+      effect: >
+        No factory-reset procedure is documented in any source read for this
+        spec. The vendor documents a soft restart (TouchBar taps, or Quick
+        Restart in the app) that reboots the glasses in about 10 seconds. It is
+        not stated to clear bonds, notes or settings, and the restart listed
+        below should be read in that light. Clearing the pairing is done from
+        the host side (see device.pairing.unpair).
+      procedures:
+        - name: "Soft restart with the TouchBars (does not clear pairing)"
+          verified: false
+          basis: >
+            Even Realities help centre, "Resolving Even G1 Connection Issues"
+            (case 1): tap the left TouchBar five times quickly, then the right
+            TouchBar five times, and wait about ten seconds for the restart.
+          power_state: "on"
+          press_count: 5
+          description: >
+            Restarts both temples. Use it when the glasses show the dashboard
+            but will not reconnect. Nothing documents that it erases anything.
+          steps:
+            - action: "Quickly tap the left TouchBar five times."
+              actor: "user"
+            - action: "Quickly tap the right TouchBar five times."
+              actor: "user"
+              expect: "The glasses restart within about 10 seconds and advertise again."
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        Nothing ties the glasses to a network. Moving them to a new phone or
+        client means removing the old bond on both sides. In the vendor app use
+        My G1 > Device Info > Unpair G1, then forget both temples in the old
+        phone's Bluetooth settings, then pair from the new client. Whether the
+        glasses keep more than one bond per temple is not established.
+      steps:
+        - action: "In the vendor app on the old phone, unpair the glasses (My G1 > Device Info > Unpair G1)."
+          actor: "user"
+        - action: "Forget both temples in the old phone's Bluetooth settings."
+          actor: "user"
+        - action: "Scan, connect and bond both temples from the new client as in setup."
+          actor: "client"
+    credentials:
+      wifi_passphrase_protection: "not_applicable"
+      stored_on_device: ["BLE bonding keys, one bond per temple"]
+      issued_to_client: ["BLE bonding keys from Just Works pairing"]
+      notes: >
+        No application-layer secret is documented. Link-layer bonding is the
+        only protection, and any central that completes pairing can drive
+        the display, read the microphone stream and fetch stored voice notes.
+  pairing:
+    required: true
+    confidence: "medium"
+    security_mode: "just_works"
+    bonding: "required"
+    exclusivity:
+      single_connection: "unknown"
+      single_bond: "unknown"
+      recovery: >
+        Force-stop the Even Realities app, or turn Bluetooth off on the phone
+        that runs it, so it stops holding the temples. If the glasses refuse
+        a new client, unpair them in the vendor app, forget both temples in
+        that phone's Bluetooth settings, and pair again. The soft restart
+        (five left taps, then five right taps) is the vendor's first remedy
+        for a stuck connection.
+      notes: >
+        Each temple is a separate link and a separate bond, so a client can end
+        up bonded to one temple and not the other. Check both.
+    enter_pairing_mode:
+      required: false
+      notes: >
+        No button sequence puts the glasses into a pairing mode. Once activated
+        and out of the case, each temple advertises whenever no central holds
+        it and accepts pairing on connect. No PIN or passkey prompt appears in
+        any source, hence Just Works (an inference, not a capture).
+    unpair:
+      supported: true
+      requires_factory_reset: false
+      clears: "The bond between the glasses and one phone. Nothing documents what else it clears."
+      procedures:
+        - name: "Unpair in the vendor app, then forget in the OS"
+          verified: false
+          basis: >
+            Even Realities help centre, Known Issues (issue 004, manual
+            reconnection) and "Resolving Even G1 Connection Issues" (case 2).
+          steps:
+            - action: "In the Even Realities app open My G1 > Device Info and choose Unpair G1."
+              actor: "user"
+            - action: "In the phone's Bluetooth settings, forget both G1 temples."
+              actor: "user"
+              expect: "Both temples advertise again and can be paired from a new client."
+      notes: >
+        Gadgetbridge declares a dedicated unpair opcode (0x47) that is not
+        described anywhere else. It is listed in protocol_details only.
+    notes: >
+      Every public client bonds. The vendor demo (Android) and the
+      Cheddies1 companion call createBond() on each temple after the MTU
+      exchange. The companion's own comment says writes fail silently when
+      bonding fails, which implies the UART characteristics need an
+      encrypted link. Gadgetbridge bonds lazily. The vendor's troubleshooting
+      treats the phone's stored bond as part of the connection ("forget and
+      re-pair"). What no source shows is the glasses refusing an unbonded
+      write, so `required: true` rests on that consistent practice rather
+      than on an observed rejection. The vendor demo's iOS path never asks
+      to bond; CoreBluetooth pairs by itself on an insufficient-encryption
+      error, and that fits the same picture.
+  host_compatibility:
+    - stack: "android"
+      status: "compatible"
+      verification: "reported"
+      basis: >
+        Three independent Android clients drive both temples through the
+        stock Android GATT client: EvenDemoApp's Android layer, the
+        Cheddies1 companion (tested on a Samsung Galaxy S24 Ultra) and
+        Gadgetbridge. Not run here.
+      notes: "Each temple is a separate BluetoothGatt connection. The clients serialise writes per connection, one in flight at a time."
+    - stack: "corebluetooth"
+      status: "compatible"
+      verification: "reported"
+      basis: >
+        EvenDemoApp's iOS layer connects both temples with CoreBluetooth, and
+        the vendor's own app ships on iOS. Not run here.
+      notes: >
+        The vendor demo's iOS path reports "connected" as soon as both
+        peripherals connect, before notifications are enabled. A client
+        should gate on its own per-temple setup completing.
+
+initialization:
+  - characteristic: "6e400003-b5a3-f393-e0a9-e50e24dcca9e"
+    subscribe: true
+    description: >
+      Enable notifications on the notify characteristic (write 0x0001 to its
+      CCCD, 00002902-0000-1000-8000-00805f9b34fb). Do this on each temple
+      separately: every reply and event arrives on the temple it concerns.
+  - characteristic: "6e400002-b5a3-f393-e0a9-e50e24dcca9e"
+    description: >
+      Request ATT MTU 251 on each temple. Every public client does this. The
+      glasses carry at most about 180-200 payload bytes per frame whatever MTU
+      is negotiated (Gadgetbridge caps its payloads at 180), so the MTU is
+      what lets the 194-byte BMP chunks and 202-byte audio frames through.
+    notes: "Documentation step, not an executable write: the MTU exchange is done by the host stack, and the characteristic is named only because a step must name one."
+  - characteristic: "6e400002-b5a3-f393-e0a9-e50e24dcca9e"
+    description: >
+      Bond with the temple (Just Works) if the host does not already hold a
+      bond for that address. The companion and the vendor demo (Android) do
+      this after the MTU exchange and skip it when a bond already exists, so
+      a reconnect raises no new pairing prompt.
+    notes: "See device.pairing for why this is treated as required."
+  - characteristic: "6e400002-b5a3-f393-e0a9-e50e24dcca9e"
+    write: [0x25, 0x06, 0x00, 0x00, 0x04, 0x00]
+    description: >
+      First heartbeat (sequence 0). The temple answers with a 0x25 frame whose
+      byte 4 is 0x04. After this, keep the `heartbeat` command running on both
+      temples (see protocol_details.heartbeat). Clients also send one extra
+      first frame whose purpose is not established: the vendor demo sends
+      F4 01 on Android and 4D 01 on iOS, and Gadgetbridge sends
+      4D <negotiated MTU, capped at 251>. None of them is known to be
+      required.
+
+features:
+  - type: "image_upload"
+    format: "1bit-bitmap"
+    max_width: 576
+    max_height: 136
+    animation: false
+    max_palette_colors: 2
+    resolution_source: "fixed"
+  - type: "firmware_update"
+    dfu:
+      mechanisms: ["unknown"]
+      transport: "ble"
+      image:
+        signing: "unknown"
+        source: "unknown"
+        notes: >
+          The vendor app notifies the user when glasses firmware is available
+          and installs it (vendor FAQ). Where the images come from and how
+          they are packaged is not examined here.
+      enter:
+        how: "unknown"
+        notes: >
+          Out of scope. The public sources name a firmware-update opcode, and
+          this spec deliberately does not document it or any of its bytes: a
+          half-understood update path is the one way a client can brick these
+          glasses.
+      dfu_mode:
+        notes: "Not established."
+      recovery:
+        interrupted: "unknown"
+      verification: "reported"
+      notes: >
+        Upstream firmware notes describe an application core plus a network
+        core running a stock Nordic sample, which points to a Nordic nRF53-class
+        part. That is an inference from a third-party decompilation, not a
+        teardown. The charging case is updated separately with a desktop tool
+        from Even Realities.
+
+services:
+  - uuid: "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
+    name: "Nordic UART Service (one per temple)"
+    notes: >
+      Present on both temples. Every command and event in this spec travels
+      over it. Write to 6e400002 and listen on 6e400003 of the temple the
+      command is meant for. Where a command must go to both temples, the side
+      rules in protocol_details.dual_link say in what order.
+    characteristics:
+      - uuid: "6e400002-b5a3-f393-e0a9-e50e24dcca9e"
+        name: "UART write (host to glasses)"
+        properties: ["write"]
+        role: "command"
+        notes: >
+          The public clients write with response and keep one write in flight
+          per temple. The stock Nordic UART service normally also offers
+          write-without-response on this characteristic; that is not
+          established for the G1. Gadgetbridge keeps payloads to 180 bytes.
+          The vendor demo's text path uses up to 191-byte chunks and its BMP
+          path writes 194-byte chunks plus a 2-6 byte header.
+        commands:
+          heartbeat:
+            description: >
+              Keep-alive, sent to each temple on its own timer (vendor demo:
+              left, then right once the left answers). The reply is a 0x25 frame
+              with 0x04 at byte 4. Without traffic the glasses drop the link
+              after about 30 s and show a disconnected icon. Bytes 1-2 are the
+              fixed total length 6 (LE); the sequence byte appears twice.
+            verification: "reported"
+            template: [0x25, 0x06, 0x00, "{seq}", 0x04, "{seq}"]
+            parameters:
+              seq:
+                type: "uint8"
+                auto: "sequence"
+                description: "Per-heartbeat counter, 0-255 then wrapping. The same value goes in bytes 3 and 5."
+          exit_to_dashboard:
+            description: >
+              Close whatever feature or content is showing and return to the
+              idle/dashboard state. Replies 18 C9 on success. The vendor demo
+              sends it to the left temple and then to the right only after
+              the left answers C9. Upstream finds that it does not reset every
+              screen cleanly (see remaining_unknowns).
+            verification: "reported"
+            value: [0x18]
+          set_brightness:
+            description: >
+              Set display brightness and the auto-brightness flag. Send to
+              both temples. The official app fires it at both without waiting
+              for replies. The temple replies with the level, the auto flag
+              and C9, and later pushes F5 12 <level> with the level actually
+              applied.
+            verification: "reported"
+            template: [0x01, "{level}", "{auto}"]
+            parameters:
+              level:
+                type: "uint8"
+                min: 0
+                max: 42
+                default: 42
+                description: "Brightness step, 0 (dimmest) to 42 (brightest). even_glasses caps it at 41; the companion and Gadgetbridge use 42 as the top."
+              auto:
+                type: "uint8"
+                min: 0
+                max: 1
+                labels: ["manual level", "automatic (ambient light sensor on the right temple)"]
+                default: 0
+                description: "Auto-brightness flag. The glasses do not echo it in F5 12, so a client must remember what it last sent, or read it back with get_brightness."
+          get_brightness:
+            description: >
+              Read brightness settings. The reply is 29 65 <level> <auto>:
+              byte 2 is the level (0-42), and byte 3 is the auto flag
+              according to the firmware notes and Gadgetbridge. Two upstream
+              probes read byte 3 as 0x00 with auto on, which is still
+              unexplained.
+            verification: "reported"
+            value: [0x29]
+          silent_mode_on:
+            description: >
+              Enter silent mode, the same state a triple tap toggles. Gadgetbridge
+              sends the 2-byte form; even_glasses appends a trailing 0x00. Send
+              to both temples.
+            verification: "reported"
+            value: [0x03, 0x0C]
+          silent_mode_off:
+            description: "Leave silent mode (0x0A = off, 0x0C = on). Send to both temples."
+            verification: "reported"
+            value: [0x03, 0x0A]
+          set_wear_detection:
+            description: "Turn the wear sensor on or off (Gadgetbridge and even_glasses agree on the frame). Send to both temples."
+            verification: "reported"
+            template: [0x27, "{enabled}"]
+            parameters:
+              enabled:
+                type: "uint8"
+                min: 0
+                max: 1
+                labels: ["off", "on"]
+                default: 1
+                description: "1 enables wear detection, which drives the F5 06/07 worn/not-worn events."
+          set_head_up_angle:
+            description: >
+              Set how far the head must tilt up before the head-up display
+              (dashboard) triggers. Gadgetbridge sends it to the right temple
+              only, copying the official app. The trailing 0x01 is a constant
+              whose meaning is unknown. Read back with get_head_up_angle.
+            verification: "reported"
+            template: [0x0B, "{angle}", 0x01]
+            parameters:
+              angle:
+                type: "uint8"
+                min: 0
+                max: 60
+                unit: "°"
+                default: 40
+                description: "Activation angle in whole degrees above level, 0-60 (Gadgetbridge default 40)."
+          get_head_up_angle:
+            description: "Read the head-up activation angle (right temple). Reply layout beyond the echoed opcode is not documented."
+            verification: "reported"
+            value: [0x32]
+          set_head_up_action:
+            description: >
+              Choose what the glasses do on head-up, persisted on the glasses.
+              Captured from the official app writing it to both temples at
+              the same moment. The glasses emit F5 02 / F5 03 on head up/down
+              either way. A different sub-key (0x04 at byte 4) exists in the same
+              family and is unmapped.
+            verification: "reported"
+            template: [0x08, 0x06, 0x00, "{seq}", 0x03, "{action}"]
+            parameters:
+              seq:
+                type: "uint8"
+                default: 0
+                description: "Transaction counter. The companion sends 0 and the glasses appear to accept any value."
+              action:
+                type: "uint8"
+                allowed: [0, 2]
+                labels: ["show the glasses' own dashboard", "no overlay (host handles F5 02/03)"]
+                description: "Head-up behaviour. Other values are unmapped."
+          set_double_tap_action:
+            description: >
+              Choose what a double tap does, persisted on the glasses. Captured
+              from the official app cycling every option, written to both
+              temples. Host-handled actions (translate, teleprompter,
+              transcribe) make the glasses emit F5 20 so the host can react.
+              The dashboard action runs on the glasses and emits nothing.
+            verification: "reported"
+            template: [0x26, 0x06, 0x00, "{seq}", 0x05, "{action}"]
+            parameters:
+              seq:
+                type: "uint8"
+                default: 0
+                description: "Transaction counter the official app increments per change. The glasses appear to accept any value."
+              action:
+                type: "uint8"
+                allowed: [0, 2, 3, 4, 5]
+                labels: ["none (close the active feature)", "translate (host-handled)", "teleprompter (host-handled)", "open the glasses' dashboard", "transcribe (host-handled)"]
+                description: "Double-tap action code."
+          get_device_info:
+            description: >
+              Device information and battery. The request carries the host
+              platform, which the firmware stores and acts on (per the
+              firmware notes). The reply arrives on 6e400003 and is decoded by the
+              `format` declared there (0x2C frames): byte 1 is an ASCII frame-style letter,
+              'A' or 'B', and byte 2 is that temple's battery percent. The
+              firmware version is near bytes 7-9 (Gadgetbridge; exact positions
+              unconfirmed). Ask each temple, since each has its own battery.
+            verification: "reported"
+            template: [0x2C, "{host_platform}"]
+            parameters:
+              host_platform:
+                type: "uint8"
+                min: 1
+                max: 2
+                labels: ["Android", "iOS"]
+                default: 1
+                description: "Host platform the glasses should assume. Gadgetbridge sends 1. What the iOS branch changes (ANCS-style notification handling is suspected) is not established."
+          get_glasses_serial:
+            description: >
+              Read the glasses serial number. In the vendor demo the reply's
+              bytes 2-17 are 16 ASCII characters. A per-unit identifier: a
+              client may show it, never publish it. 0x33 reads a per-lens
+              serial in the same way (Gadgetbridge).
+            verification: "reported"
+            value: [0x34]
+          get_system_status:
+            description: >
+              Per-lens display state, answered by the temple that was asked
+              without consulting the other: the one way to check that content
+              actually reached a given lens. The reply is 6 bytes: bytes 0-3
+              echo the request, byte 4 is 0x00, and byte 5 is 0x00 when the lens
+              is idle, else the id of the screen/app running, or 0xFF when the
+              request length was wrong. Screen ids are not enumerated.
+            verification: "reported"
+            value: [0x39, 0x04, 0x00, 0x00]
+          set_microphone:
+            description: >
+              Turn the microphone on or off. Send to the right temple only
+              (vendor README). The reply is 0E C9 <enabled> on success or
+              0E CA <enabled> on failure. While on, LC3 audio arrives as 0xF1
+              frames (protocol_details.microphone_audio). The vendor flow
+              enables it on F5 17 (left long-press start) and disables it on
+              F5 18 (release). It records for at most 30 s.
+            verification: "reported"
+            template: [0x0E, "{enabled}"]
+            parameters:
+              enabled:
+                type: "uint8"
+                min: 0
+                max: 1
+                labels: ["microphone off", "microphone on"]
+                default: 1
+                description: "1 opens the right-temple microphone, 0 closes it. Upstream calls the clean-stop behaviour of 0 unproven."
+          send_text:
+            description: >
+              One chunk of a text screen (the vendor's "text sending" and "AI
+              result" frame). There is no length field: byte 1 is a sequence
+              number. Split UTF-8 text into chunks of at most 176 bytes (the
+              vendor demo uses up to 191), give every chunk of one screen the
+              same `seq`, and send all chunks to the left temple, then all to
+              the right once the left has answered (vendor order). A reply's
+              byte 1 is CB for "chunk accepted, more expected" and C9 for the
+              final chunk. On the final chunk the right (master) temple defers
+              and later sends 4E C9 <seq> <total_packages> <final_index>. An ack
+              means the text handler accepted the chunk, not that pixels
+              changed; use get_system_status to check a lens. Line-wrapping is
+              the host's job: the vendor demo wraps to 488 px at font size 21,
+              5 lines per screen.
+            verification: "reported"
+            template: [0x4E, "{seq}", "{total_packages}", "{package_index}", "{screen_status}", "{new_char_pos}", "{page}", "{total_pages}", "{text}"]
+            packet_layout:
+              "0": "opcode 0x4E"
+              "1": "seq, the same for every chunk of one screen"
+              "2": "total chunks for this screen (1-255)"
+              "3": "this chunk's index, 0-based"
+              "4": "screen status: low nibble 0x1 = new content, high nibble = mode"
+              "5": "new character position, high byte (vendor demo order)"
+              "6": "new character position, low byte"
+              "7": "current page, 0-based"
+              "8": "total pages"
+              "9": "UTF-8 text, up to 176 bytes"
+            parameters:
+              seq:
+                type: "uint8"
+                min: 0
+                max: 255
+                default: 0
+                description: "Screen sequence number. Increment it once per screen, not once per chunk."
+              total_packages:
+                type: "uint8"
+                min: 1
+                max: 255
+                default: 1
+                description: "Number of chunks this screen was split into."
+              package_index:
+                type: "uint8"
+                min: 0
+                max: 254
+                default: 0
+                description: "Index of this chunk, from 0."
+              screen_status:
+                type: "uint8"
+                allowed: [0x31, 0x41, 0x51, 0x61, 0x71]
+                labels: ["new content, Even AI auto-scrolling", "new content, Even AI last page", "new content, Even AI manual paging", "new content, Even AI network error", "new content, plain text"]
+                default: 0x71
+                description: "High nibble = mode, low nibble 0x1 = display new content. 0x71 is the plain-text value every third-party client uses. The Even AI values come from the vendor README."
+              new_char_pos:
+                type: "uint16"
+                endianness: "big"
+                min: 0
+                max: 65535
+                default: 0
+                description: "Position of the first new character, for incremental reveal. The vendor README and demo put the HIGH byte first. The Cheddies1 notes call byte 5 the low byte. Everyone sends 0, so the order is untested."
+              page:
+                type: "uint8"
+                min: 0
+                max: 255
+                default: 0
+                description: "Current page, 0 for a single-page send."
+              total_pages:
+                type: "uint8"
+                min: 1
+                max: 255
+                default: 1
+                description: "Total pages, 1 for a single-page send."
+              text:
+                type: "string"
+                max_length: 176
+                description: "UTF-8 text for this chunk. Embedded LF (0x0A) breaks lines."
+          bmp_first_packet:
+            description: >
+              First chunk of a BMP image transfer. Its sequence byte is 0 and it
+              carries the 4-byte on-glasses storage address 00 1C 00 00 ahead of
+              the data. The image is the complete .bmp file, header and palette
+              included (the vendor demo sends the file bytes as-is), 1 bit per
+              pixel, 576 x 136. Split the file into 194-byte chunks. The two
+              temples may be sent to independently and at the same time (vendor
+              README). No reply per chunk. The demo paces chunks 5 ms apart on
+              Android and 8 ms apart on iOS.
+            verification: "reported"
+            template: [0x15, 0x00, 0x00, 0x1C, 0x00, 0x00, "{data}"]
+            parameters:
+              data:
+                type: "bytes"
+                min_length: 1
+                max_length: 194
+                description: "Bytes 0-193 of the .bmp file."
+          bmp_packet:
+            description: >
+              Every later BMP chunk: the sequence byte then up to 194 file bytes,
+              with no address. Sequence = chunk index mod 256.
+            verification: "reported"
+            template: [0x15, "{seq}", "{data}"]
+            parameters:
+              seq:
+                type: "uint8"
+                min: 1
+                max: 255
+                description: "Chunk index mod 256 (a full image is about 51 chunks, so it does not wrap)."
+              data:
+                type: "bytes"
+                min_length: 1
+                max_length: 194
+                description: "The next 194 bytes of the file (fewer for the last chunk)."
+          bmp_end:
+            description: >
+              End of BMP data. Wait for 20 C9 before sending bmp_crc. The vendor
+              demo retries up to 10 times, 1 s apart, on a 3 s timeout.
+            verification: "reported"
+            value: [0x20, 0x0D, 0x0E]
+          bmp_crc:
+            description: >
+              Integrity check that also shows the image. CRC-32/XZ, the same
+              parameters as zlib CRC-32 (reflected polynomial 0xEDB88320, init
+              and xorout 0xFFFFFFFF; check value 0xCBF43926 for "123456789").
+              It is computed over the 4 address bytes 00 1C 00 00 followed by
+              the whole file, and sent BIG-endian. The reply is
+              16 <crc, 4 bytes> <status>, with C9 at byte 5 on success.
+            verification: "reported"
+            template: [0x16, "{crc32}"]
+            parameters:
+              crc32:
+                type: "uint32"
+                endianness: "big"
+                min: 0
+                max: 4294967295
+                description: "CRC-32/XZ of (00 1C 00 00 + file bytes), big-endian on the wire."
+          dashboard_lock:
+            description: >
+              The firmware calls this the dashboard lock. It is master-only: the
+              right temple takes it and the left refuses it. It does not clear
+              the display. The official app sends it before entering streaming
+              text or navigation, and upstream replay needs it before those
+              modes for reasons not understood. Repeat sends while the lock is
+              held do nothing, and the lock times out on its own. Byte 4 must be
+              0x01.
+            verification: "reported"
+            value: [0x50, 0x06, 0x00, 0x00, 0x01, 0x01]
+          stream_text_init:
+            description: >
+              Enter the live streaming-text surface (the official app's
+              transcription view). Send dashboard_lock first, then this frame,
+              to both temples. Then keep stream_text_keepalive going every 5 s.
+            verification: "reported"
+            value: [0x52, 0x06, 0x00, 0x00, 0x01, 0x01]
+          stream_text_line:
+            description: >
+              Replace one line of the streaming surface. The official app sends
+              two frames per update: line 1 with a lone LF as a cursor/status
+              marker, then line 2 with the whole visible text. The glasses show
+              3 rows of about 43 characters, wrap by character (not word),
+              honour embedded LF and never scroll, so the host keeps only the
+              last three wrapped lines. Each update resends the full line (not
+              a delta). Write to both temples.
+            verification: "reported"
+            template: [0x52, "{packet_length}", "{seq}", 0x02, 0x02, 0x00, "{line}", 0x00, "{flags}", 0x00, 0x00, "{text}", 0x0A]
+            parameters:
+              packet_length:
+                type: "uint16"
+                endianness: "little"
+                auto: "packet_length"
+                description: "Total frame length including the opcode and the trailing LF."
+              seq:
+                type: "uint8"
+                auto: "sequence"
+                description: "Per-frame counter across the streaming session."
+              line:
+                type: "uint8"
+                min: 1
+                max: 2
+                labels: ["line 1: cursor/status marker (send a lone LF as text)", "line 2: the visible text"]
+                default: 2
+                description: "Target line."
+              flags:
+                type: "uint8"
+                min: 0
+                max: 1
+                labels: ["normal update", "session start or paragraph change"]
+                default: 0
+                description: "The official app sets 1 at session start and at paragraph changes. Upstream found 0 works throughout."
+              text:
+                type: "string"
+                description: "UTF-8 content of the line, without the trailing LF (the template appends it)."
+          stream_text_keepalive:
+            description: "Keeps a streaming-text session alive. Send every 5 s while the session is open, or the glasses time it out."
+            verification: "reported"
+            value: [0x53]
+          nav_control:
+            description: >
+              Navigation control frame. The official app's order per update is
+              INIT, SYNC, TRIP_STATUS, 13 x direction-icon bands, 90 x route-map
+              rows, SYNC. SYNC must also be repeated every 1 s for the whole
+              session or the glasses time out. Send dashboard_lock before the
+              first INIT (capture replay says it is needed; why is unknown). The
+              glasses give no positive ack for 0x0A, so these are fire-and-forget
+              writes to both temples. A length mismatch or an oversize string
+              makes the parser post an error frame, which may not reach BLE.
+            verification: "reported"
+            template: [0x0A, 0x06, 0x00, "{seq}", "{subcommand}", 0x01]
+            parameters:
+              seq:
+                type: "uint8"
+                auto: "sequence"
+                description: "Counter shared by every 0x0A frame of the session."
+              subcommand:
+                type: "uint8"
+                allowed: [0, 4, 5, 6]
+                labels: ["INIT: enter navigation display", "SYNC: prepare/commit, and the 1 s keep-alive", "EXIT: leave navigation", "ARRIVED: navigation complete"]
+                description: "Control sub-command. 1, 2 and 3 are the data frames below."
+          nav_trip_status:
+            description: >
+              The text card: manoeuvre, marker position and five NUL-terminated
+              UTF-8 strings. The strings start right after y (offset 10) with no
+              separator. A string over its limit makes the glasses reject the
+              whole frame rather than truncate it. The glasses refuse to render
+              a card, and show a navigation-lost message instead, unless the
+              icon bands and route-map rows have also been sent.
+            verification: "reported"
+            template: [0x0A, "{packet_length}", "{seq}", 0x01, "{direction}", "{x}", "{y}", "{time_remaining}", 0x00, "{distance_remaining}", 0x00, "{road_name}", 0x00, "{turn_distance}", 0x00, "{speed}", 0x00]
+            parameters:
+              packet_length:
+                type: "uint16"
+                endianness: "little"
+                auto: "packet_length"
+                description: "Total frame length. The glasses drop the frame silently when it is wrong."
+              seq:
+                type: "uint8"
+                auto: "sequence"
+                description: "Counter shared by every 0x0A frame of the session."
+              direction:
+                type: "uint8"
+                min: 1
+                max: 35
+                description: "Manoeuvre code 0x01-0x23: 1 straight (dot), 2 straight, 3 right, 4 left, 5 slight right, 6 slight left, 7 sharp right, 8 sharp left, 9 U-turn left, 10 U-turn right, 11 merge, 12-35 roundabout variants (ayroblu/bazel-demo, via Cheddies1)."
+              x:
+                type: "uint16"
+                endianness: "little"
+                min: 0
+                max: 488
+                unit: "px"
+                description: "Marker x on the 488 x 136 map area. The companion sends 200."
+              y:
+                type: "uint16"
+                endianness: "little"
+                min: 0
+                max: 136
+                unit: "px"
+                description: "Marker y. The companion sends 18."
+              time_remaining:
+                type: "string"
+                max_length: 23
+                description: "Remaining time, e.g. '26 min' (24 bytes with its NUL)."
+              distance_remaining:
+                type: "string"
+                max_length: 23
+                description: "Distance to destination, e.g. '2.2km'."
+              road_name:
+                type: "string"
+                max_length: 63
+                description: "Current road name."
+              turn_distance:
+                type: "string"
+                max_length: 23
+                description: "Distance to the next manoeuvre, e.g. '46m'."
+              speed:
+                type: "string"
+                max_length: 23
+                description: "Current speed text, e.g. '0.0km/h'."
+          nav_direction_icon_band:
+            description: >
+              One band of the 136 x 136 direction icon (sub-command 2). The
+              image is two 1-bit layers (image, then an overlay that is all
+              zero for direction icons) of 17 bytes per row: 4624 bytes raw.
+              Row-major, LSB-first: pixel (x, y) is bit x%8 of byte y*17 + x/8.
+              The whole buffer is run-length encoded as <count><byte> pairs
+              (count 1-255) and split into bands of at most 185 bytes. The
+              official app sends 13 bands.
+            verification: "reported"
+            template: [0x0A, "{packet_length}", "{seq}", 0x02, "{band_count}", 0x00, "{band_index}", 0x00, "{rle_data}"]
+            parameters:
+              packet_length:
+                type: "uint16"
+                endianness: "little"
+                auto: "packet_length"
+                description: "Total frame length."
+              seq:
+                type: "uint8"
+                auto: "sequence"
+                description: "Counter shared by every 0x0A frame of the session."
+              band_count:
+                type: "uint8"
+                min: 1
+                max: 255
+                default: 13
+                description: "Number of bands in the icon. Whether it and the 0x00 after it are one little-endian uint16 is not established."
+              band_index:
+                type: "uint8"
+                min: 0
+                max: 255
+                description: "This band's number. The upstream notes do not say whether it counts from 0 or 1."
+              rle_data:
+                type: "bytes"
+                min_length: 1
+                max_length: 185
+                description: "The next slice of the RLE stream."
+          nav_route_map_row:
+            description: >
+              One slice of the 488 x 136 route map (sub-command 3). The data is
+              uncompressed and the official app sends 90 of these (0x5A) with
+              about 187 bytes each. Bit layout is assumed to match the icon but
+              is not documented. The companion replaces the data with zeros and
+              still gets a card.
+            verification: "reported"
+            template: [0x0A, "{packet_length}", "{seq}", 0x03, 0x5A, 0x00, "{row}", "{row_data}"]
+            parameters:
+              packet_length:
+                type: "uint16"
+                endianness: "little"
+                auto: "packet_length"
+                description: "Total frame length (0x00C3 = 195 for a full slice)."
+              seq:
+                type: "uint8"
+                auto: "sequence"
+                description: "Counter shared by every 0x0A frame of the session."
+              row:
+                type: "uint8"
+                min: 0
+                max: 89
+                description: "Slice index. Upstream does not say whether it counts from 0 or 1."
+              row_data:
+                type: "bytes"
+                min_length: 1
+                max_length: 187
+                description: "Raw map bytes for this slice."
+          dashboard_set_mode:
+            description: >
+              Dashboard information packet, sub-command 0x06: dashboard layout.
+              The companion sends 06 07 00 <seq> 06 00 00 (full layout, quick
+              notes pane) on every connect. Send to both temples.
+            verification: "reported"
+            template: [0x06, 0x07, 0x00, "{seq}", 0x06, "{mode}", "{secondary_pane}"]
+            parameters:
+              seq:
+                type: "uint8"
+                auto: "sequence"
+                description: "Sync id. Upstream increments one counter across all 0x06 frames."
+              mode:
+                type: "uint8"
+                min: 0
+                max: 2
+                labels: ["full", "dual", "minimal"]
+                default: 0
+                description: "Dashboard layout (Gadgetbridge's names)."
+              secondary_pane:
+                type: "uint8"
+                min: 0
+                max: 5
+                labels: ["quick notes", "stocks", "news", "calendar", "map", "empty"]
+                default: 0
+                description: "Content of the second pane (Gadgetbridge's names)."
+          dashboard_set_time_weather:
+            description: >
+              Dashboard information packet, sub-command 0x01: clock, weather and
+              display formats, sent to both temples on connect. Both timestamps
+              carry LOCAL wall-clock time encoded as if it were UTC (true UTC +
+              the zone offset). Sending true UTC makes the glasses show UTC. The
+              companion sends a 22-byte variant with one more byte at offset
+              0x15. The firmware reads that byte only when the frame is that long,
+              and redraws when it changes; its meaning is unknown. The 21-byte
+              form here is Gadgetbridge's.
+            verification: "reported"
+            template: [0x06, 0x15, 0x00, "{seq}", 0x01, "{epoch_seconds}", "{epoch_milliseconds}", "{weather_icon}", "{temperature}", "{temperature_unit}", "{time_format}"]
+            packet_layout:
+              "0": "opcode 0x06"
+              "1": "total length 0x15 (21), low byte"
+              "2": "total length, high byte 0x00"
+              "3": "sync id"
+              "4": "sub-command 0x01 time/weather"
+              "5": "local time, seconds, uint32 LE (bytes 5-8)"
+              "9": "local time, milliseconds, int64 LE (bytes 9-16)"
+              "17": "weather icon code"
+              "18": "temperature, int8, whole degrees C"
+              "19": "temperature unit shown: 0 C, 1 F"
+              "20": "time format: 0 12-hour, 1 24-hour"
+            parameters:
+              seq:
+                type: "uint8"
+                auto: "sequence"
+                description: "Sync id."
+              epoch_seconds:
+                type: "uint32"
+                endianness: "little"
+                min: 0
+                max: 4294967295
+                unit: "s"
+                description: "Local wall-clock seconds since 1970-01-01, as if local time were UTC."
+              epoch_milliseconds:
+                type: "bytes"
+                min_length: 8
+                max_length: 8
+                description: "The same instant in milliseconds, int64 little-endian (8 bytes). A bytes parameter because the parameter types stop at 32 bits."
+              weather_icon:
+                type: "uint8"
+                min: 0
+                max: 16
+                labels: ["none", "night", "clouds", "drizzle", "heavy drizzle", "rain", "heavy rain", "thunder", "thunderstorm", "snow", "mist", "fog", "sand", "squalls", "tornado", "freezing rain", "sunny"]
+                default: 0
+                description: "Glasses-native weather icon code (Gadgetbridge's table)."
+              temperature:
+                type: "int8"
+                min: -128
+                max: 127
+                unit: "C"
+                default: 0
+                description: "Current temperature in whole degrees Celsius. The glasses convert it for display when temperature_unit is 1."
+              temperature_unit:
+                type: "uint8"
+                min: 0
+                max: 1
+                labels: ["Celsius", "Fahrenheit"]
+                default: 0
+                description: "Unit the dashboard shows."
+              time_format:
+                type: "uint8"
+                min: 0
+                max: 1
+                labels: ["12-hour", "24-hour"]
+                default: 1
+                description: "Clock format the dashboard shows."
+          quick_note_set:
+            description: >
+              Write one of the four quick-note slots the dashboard shows
+              (title and body). A note with an empty body deletes the slot
+              (per the firmware notes). Chunked writes are order-checked. Send
+              to both temples. Captured from the official app, with even_glasses
+              building the same shape. even_glasses computes the length one byte
+              too long and sends a different fixed frame to delete; neither
+              variant has been checked against the firmware's length rule.
+            verification: "reported"
+            template: [0x1E, "{packet_length}", "{seq}", 0x03, 0x01, 0x00, 0x01, 0x00, "{slot}", 0x01, "{title_length}", "{title}", "{body_length}", "{body}"]
+            parameters:
+              packet_length:
+                type: "uint16"
+                endianness: "little"
+                auto: "packet_length"
+                description: "Total frame length."
+              seq:
+                type: "uint8"
+                auto: "sequence"
+                description: "Host sequence counter."
+              slot:
+                type: "uint8"
+                min: 1
+                max: 4
+                description: "Quick-note slot, 1-4."
+              title_length:
+                type: "uint8"
+                min: 0
+                max: 255
+                description: "Byte length of the UTF-8 title."
+              title:
+                type: "string"
+                description: "Note title, UTF-8."
+              body_length:
+                type: "uint16"
+                endianness: "little"
+                min: 0
+                max: 65535
+                description: "Byte length of the UTF-8 body. The byte after the low byte has only ever been seen as 0x00. Reading the two bytes as one little-endian length is an inference."
+              body:
+                type: "string"
+                description: "Note body, UTF-8. Empty deletes the slot."
+          quick_note_request_audio:
+            description: >
+              Ask the right temple for a recorded QuickNote's audio. The glasses
+              never send it unprompted. Send it straight after the 0x21 release
+              frame (the official app does so within about 11 ms). The audio
+              arrives as 0x1E chunks (protocol_details.quick_notes).
+            verification: "reported"
+            template: [0x1E, 0x06, 0x00, "{seq}", 0x02, "{note_index}"]
+            parameters:
+              seq:
+                type: "uint8"
+                auto: "sequence"
+                description: "Host sequence counter (the official app was seen at 0x41, 0x42 ...). The glasses appear to accept any value."
+              note_index:
+                type: "uint8"
+                min: 1
+                max: 4
+                default: 1
+                description: "Slot to fetch: 1 after a 15-byte 0x21. After a 42-byte 0x21, the slot whose 8-byte record changed since the previous one."
+          quick_note_audio_ack:
+            description: "Acknowledge that the QuickNote audio stream arrived. The right temple answers 1E 06 00 <seq> 04 00 to close the cycle."
+            verification: "reported"
+            template: [0x1E, 0x06, 0x00, "{seq}", 0x04, 0x01]
+            parameters:
+              seq:
+                type: "uint8"
+                auto: "sequence"
+                description: "Host sequence counter."
+          send_notification:
+            description: >
+              Push a phone notification to the dashboard. The payload is UTF-8
+              JSON, {"ncs_notification": {...}}, split into chunks of at most 176
+              bytes. Keys used by the vendor demo and Gadgetbridge: msg_id,
+              app_identifier, title, subtitle, message, time_s, display_name
+              (Gadgetbridge adds action: 0 and trims app_identifier to 31
+              characters). The vendor demo sends it to the LEFT temple only and
+              retries the whole list up to 6 times on a 1 s timeout. Each chunk is
+              answered C9 or CB. The glasses show only apps on the whitelist
+              (set_notification_whitelist).
+            verification: "reported"
+            template: [0x4B, "{msg_id}", "{total_chunks}", "{chunk_index}", "{json_chunk}"]
+            parameters:
+              msg_id:
+                type: "uint8"
+                min: 0
+                max: 255
+                description: "Notification id, the same in every chunk."
+              total_chunks:
+                type: "uint8"
+                min: 1
+                max: 255
+                description: "Number of chunks."
+              chunk_index:
+                type: "uint8"
+                min: 0
+                max: 254
+                description: "This chunk's index, from 0."
+              json_chunk:
+                type: "bytes"
+                min_length: 1
+                max_length: 176
+                description: "Next slice of the UTF-8 JSON."
+          set_notification_whitelist:
+            description: >
+              Replace the list of apps whose notifications the glasses show.
+              UTF-8 JSON (vendor demo keys: calendar_enable, call_enable,
+              msg_enable, ios_mail_enable, and app: {list: [...], enable: true}),
+              split into chunks of at most 177 bytes. Sent to the LEFT temple only.
+              Gadgetbridge whitelists one fixed app id and filters on the phone
+              instead.
+            verification: "reported"
+            template: [0x04, "{total_chunks}", "{chunk_index}", "{json_chunk}"]
+            parameters:
+              total_chunks:
+                type: "uint8"
+                min: 1
+                max: 255
+                description: "Number of chunks."
+              chunk_index:
+                type: "uint8"
+                min: 0
+                max: 254
+                description: "This chunk's index, from 0."
+              json_chunk:
+                type: "bytes"
+                min_length: 1
+                max_length: 177
+                description: "Next slice of the UTF-8 JSON."
+
+      - uuid: "6e400003-b5a3-f393-e0a9-e50e24dcca9e"
+        name: "UART notify (glasses to host)"
+        properties: ["notify"]
+        role: "notify"
+        notes: >
+          Carries every reply and event from this temple, each starting with an
+          opcode byte: command replies (<opcode> <status> ...), 0xF5 events,
+          0xF1 microphone audio, 0x21 QuickNote release, 0x1E QuickNote audio
+          and control, 0x22 dashboard status, and the deferred 4E C9 completion
+          frame. Dispatch on byte 0 (protocol_details.framing,
+          protocol_details.events_f5). The `format` below decodes only the
+          get_device_info reply (0x2C). The same battery value is also pushed
+          unprompted as F5 0A <percent>, a frame this block cannot pick out.
+        format_match:
+          offset: 0
+          value: 44
+          notes: "0x2C, the get_device_info reply."
+        format:
+          - offset: 1
+            length: 1
+            name: "frame_style"
+            type: "uint8"
+            values: {65: "A", 66: "B"}
+            notes: "ASCII 'A' or 'B'. Gadgetbridge reads it as the frame type. Probably the G1A/G1B frame shapes, not established."
+          - offset: 2
+            length: 1
+            name: "battery_percent"
+            type: "uint8"
+            unit: "%"
+            device_class: "battery"
+            notes: "This temple's battery, 0-100. The firmware reports any raw value above 96 as 100 and remaps 93-96, so 94-100 is a constructed value, not a measurement (firmware notes)."
+
+entities:
+  - platform: "sensor"
+    name: "Temple battery"
+    device_class: "battery"
+    unit: "%"
+    state_characteristic: "6e400003-b5a3-f393-e0a9-e50e24dcca9e"
+    state_mapping:
+      value: "battery_percent"
+    commands:
+      poll: "get_device_info"
+    notes: >
+      One reading per temple. Poll each temple with get_device_info. A
+      handler that dispatches 0xF5 events should also take the unprompted
+      F5 0A <percent> pushes (about every 1-2 s while worn) and F5 0F
+      <percent> for the case battery.
+  - platform: "button"
+    name: "Exit to dashboard"
+    command_characteristic: "6e400002-b5a3-f393-e0a9-e50e24dcca9e"
+    commands:
+      press: "exit_to_dashboard"
+    notes: "Send to the left temple, then to the right after the left answers C9."
+  - platform: "number"
+    name: "Display brightness"
+    command_characteristic: "6e400002-b5a3-f393-e0a9-e50e24dcca9e"
+    min: 0
+    max: 42
+    step: 1
+    commands:
+      set_value: {command: "set_brightness", values: {auto: 0}}
+    notes: "Sets a manual level (auto off). Send to both temples. The applied level comes back as F5 12 <level>."
+  - platform: "switch"
+    name: "Silent mode"
+    command_characteristic: "6e400002-b5a3-f393-e0a9-e50e24dcca9e"
+    commands:
+      turn_on: "silent_mode_on"
+      turn_off: "silent_mode_off"
+    notes: "A triple tap toggles the same state and reports it as F5 04 (on) / F5 05 (off)."
+  - platform: "switch"
+    name: "Wear detection"
+    command_characteristic: "6e400002-b5a3-f393-e0a9-e50e24dcca9e"
+    commands:
+      turn_on: {command: "set_wear_detection", values: {enabled: 1}}
+      turn_off: {command: "set_wear_detection", values: {enabled: 0}}
+  - platform: "number"
+    name: "Head-up angle"
+    unit: "°"
+    command_characteristic: "6e400002-b5a3-f393-e0a9-e50e24dcca9e"
+    min: 0
+    max: 60
+    step: 1
+    commands:
+      set_value: "set_head_up_angle"
+    notes: "Right temple only."
+  - platform: "select"
+    name: "Head-up behaviour"
+    command_characteristic: "6e400002-b5a3-f393-e0a9-e50e24dcca9e"
+    state_mapping:
+      options:
+        "0": "Show dashboard"
+        "2": "No overlay"
+    commands:
+      select_option: "set_head_up_action"
+  - platform: "select"
+    name: "Double-tap action"
+    command_characteristic: "6e400002-b5a3-f393-e0a9-e50e24dcca9e"
+    state_mapping:
+      options:
+        "0": "None"
+        "2": "Translate"
+        "3": "Teleprompter"
+        "4": "Dashboard"
+        "5": "Transcribe"
+    commands:
+      select_option: "set_double_tap_action"
+
+protocol_details:
+  dual_link:
+    description: >
+      Each temple is an independent link. The right temple is the master:
+      it advertises _R_, owns the deferred 0x4E completion frame, and is the
+      only side that accepts the dashboard lock. The temples keep each other
+      in step over their own radio link. The firmware notes list which
+      opcodes the master forwards to the slave: 0x01, 0x02, 0x03, 0x05, 0x07,
+      0x08, 0x09, 0x0B, 0x0D, 0x0F, 0x11, 0x14, 0x26, 0x29-0x2D, 0x32-0x37
+      and 0x4A-0x4F. That list excludes 0x06, 0x0A, 0x1E and 0x52, and
+      0x4E's forwarding does not carry the text. Display content therefore
+      has to be written to both temples.
+    side_rules:
+      - opcodes: "0x4E text, 0x18 exit, 0x25 heartbeat"
+        send_to: "both, left first, right only after the left answers"
+        source: "EvenDemoApp README and demo code"
+      - opcodes: "0x15 / 0x20 / 0x16 BMP transfer"
+        send_to: "both, independently and at the same time"
+        source: "EvenDemoApp README"
+      - opcodes: "0x0A navigation"
+        send_to: "both, interleaved per frame: right, 10 ms, left, 20 ms, and a 50 ms pause every 10 pairs"
+        source: "Cheddies1 companion. A broadcast starved one temple; sending all to one side then the other left a multi-second gap between the eyes."
+      - opcodes: "0x52 / 0x53 streaming text, 0x06 dashboard, 0x1E note slots, 0x01 brightness, 0x03 silent, 0x08 head-up action, 0x26 double-tap, 0x27 wear"
+        send_to: "both"
+        source: "Cheddies1 captures of the official app; Gadgetbridge"
+      - opcodes: "0x0E microphone, 0x1E audio request/ack, 0x0B / 0x32 head-up angle"
+        send_to: "right only"
+        source: "EvenDemoApp README (mic); Cheddies1 (QuickNote runs on the right); Gadgetbridge copying the official app (angle)"
+      - opcodes: "0x50 dashboard lock"
+        send_to: "right only (the left rejects it)"
+        source: "firmware notes via Cheddies1"
+      - opcodes: "0x4B notification, 0x04 app whitelist"
+        send_to: "left only"
+        source: "EvenDemoApp demo code"
+    events_by_side: >
+      0xF5 events arrive from either temple, and battery/wear pushes come from
+      both, independently. F5 02/03 (head up/down) have been seen on the right
+      only. 0xF1 microphone audio, 0x21 QuickNote releases, 0x1E audio and 0x22
+      dashboard status come from the right.
+  framing:
+    opcode: "Byte 0 of every frame in both directions."
+    length_field: >
+      In the families listed in device.notes, bytes 1-2 are the TOTAL frame
+      length, uint16 little-endian, counting the opcode. The firmware checks
+      it and drops a mismatched frame with no reply, so this is the first
+      thing to check when a hand-built frame does nothing. Byte 3 in those
+      families is a host-chosen sequence or sync id, and byte 4 is usually a
+      sub-command.
+    status_codes:
+      - {value: 0xC9, meaning: "success. The firmware's generic code, not specific to one family."}
+      - {value: 0xCA, meaning: "failure"}
+      - {value: 0xCB, meaning: "chunk accepted, more expected (multi-chunk 0x4E, 0x0F, 0x4B)"}
+    ack_shape: >
+      A reply echoes the opcode at byte 0 and usually puts the status at
+      byte 1 (18 C9, 0E C9 <state>, 20 C9). BMP CRC is the exception: its
+      status is at byte 5, after the echoed CRC. The glasses also send some
+      acks as event frames of the form <opcode> C9 <state> (at least 0x0D,
+      0x0F, 0x4E). F5 event frames are sent with a fixed 21-byte length,
+      padded after their meaningful bytes (firmware notes).
+    max_payload: >
+      Stay at or under about 180-194 bytes of payload per frame (Gadgetbridge
+      180; text chunks 176-191; BMP 194). MTU 251 is what the public clients
+      negotiate. Whether larger frames crash the glasses is untested.
+  events_f5:
+    description: >
+      Notification 0xF5 <code> [value]. The code is the firmware's internal
+      event id passed through unchanged. "upstream-confirmed" means the
+      Cheddies1 author saw it in their own captures or tests on firmware
+      1.6.6. That is NOT a confirmation by this project.
+    codes:
+      - {code: 0x00, meaning: "double tap closed the active feature / returned home", upstream: "upstream-confirmed; vendor README"}
+      - {code: 0x01, meaning: "single tap (vendor README: page up on the left, page down on the right)", upstream: "NOT seen on 1.6.6: upstream found single taps are handled on the glasses and never forwarded"}
+      - {code: 0x02, meaning: "head up (tilt-up start). Emitted even when the head-up dashboard is disabled.", upstream: "upstream-confirmed"}
+      - {code: 0x03, meaning: "head back down", upstream: "upstream-confirmed"}
+      - {code: 0x04, meaning: "silent mode on (triple tap)", upstream: "upstream-confirmed; vendor README"}
+      - {code: 0x05, meaning: "silent mode off (triple tap)", upstream: "upstream-confirmed; vendor README"}
+      - {code: 0x06, meaning: "worn", upstream: "upstream-confirmed"}
+      - {code: 0x07, meaning: "not worn / in transition (Gadgetbridge: not worn, not in the case)", upstream: "upstream-confirmed"}
+      - {code: 0x08, meaning: "in the case, lid open", upstream: "upstream-confirmed"}
+      - {code: 0x09, meaning: "charging-state flag at byte 2 (Gadgetbridge); a cradle sub-state paired with 0x0E (Cheddies1)", upstream: "suspected"}
+      - {code: 0x0A, meaning: "glasses battery push, byte 2 = 0-100 %. Every 1-2 s while worn, then only on change.", upstream: "upstream-confirmed"}
+      - {code: 0x0B, meaning: "in the case, lid closed", upstream: "upstream-confirmed"}
+      - {code: 0x0E, meaning: "case charging cable flag at byte 2 (0/1, polarity unverified)", upstream: "suspected"}
+      - {code: 0x0F, meaning: "case battery push, byte 2 = 0-100 %", upstream: "upstream-confirmed"}
+      - {code: 0x10, meaning: "unknown, often with 6 payload bytes (e.g. 64 00 00 00 00 00)", upstream: "suspected"}
+      - {code: 0x11, meaning: "binding success (Gadgetbridge's name)", upstream: "not observed upstream"}
+      - {code: 0x12, meaning: "brightness actually applied, byte 2 = level 0-42. Also pushed about 15 s after connect.", upstream: "upstream-confirmed; Gadgetbridge instead names 0x12 a long-press event, which is unexplained"}
+      - {code: 0x17, meaning: "left long-press started (Even AI entry). The host enables the right mic with 0x0E 01.", upstream: "vendor README; suspected at protocol level"}
+      - {code: 0x18, meaning: "left long-press released. The host disables the mic.", upstream: "upstream-confirmed; vendor README"}
+      - {code: 0x1E, meaning: "dashboard opened (follow-on after 0x02)", upstream: "suspected"}
+      - {code: 0x1F, meaning: "dashboard closed (follow-on after 0x03)", upstream: "suspected"}
+      - {code: 0x20, meaning: "double tap on either temple with a host-handled double-tap action configured (see set_double_tap_action). Arrives 1-6 s after the tap.", upstream: "upstream-confirmed"}
+    unmapped: "0x0C, 0x0D, 0x14, 0x15 and 0x32 have been seen or named without a meaning."
+    right_long_press: "A right long-press sends no F5 frame. It records a QuickNote on the glasses and sends 0x21 on release (see quick_notes)."
+  text_display:
+    width_px: 488
+    lines_per_screen: 5
+    chunk_body_max_bytes: 176
+    notes: >
+      The vendor demo wraps text to 488 px at font size 21 and 5 lines per
+      screen, and sends each screen as two chunks (lines 1-3, then 4-5).
+      Paging is timer-driven on the host. Taps do not page third-party text,
+      because single taps are not forwarded.
+  bmp:
+    image: "Complete 1-bit .bmp file (54-byte header + 8-byte palette + rows), 576 px wide. The vendor's samples are 576 x 135, the README says 576 x 136."
+    storage_address: [0x00, 0x1C, 0x00, 0x00]
+    chunk_bytes: 194
+    sequence: "bmp_first_packet (seq 0, with address), then bmp_packet for chunks 1..n, then bmp_end (wait for 20 C9), then bmp_crc (C9 at byte 5 = shown)."
+    crc: "CRC-32/XZ (zlib parameters) over storage_address + file, sent big-endian."
+    close: "exit_to_dashboard (0x18) removes the image."
+  streaming_text:
+    rows_visible: 3
+    chars_per_row_approx: 43
+    keepalive_s: 5
+    session: "dashboard_lock, stream_text_init, then per update stream_text_line(line 1, LF) + stream_text_line(line 2, visible text); stream_text_keepalive every 5 s; exit_to_dashboard to leave."
+    notes: "The glasses do not scroll. The host wraps at word boundaries near 43 characters and sends only the last three lines. The companion paces 2 words every 200 ms."
+  navigation:
+    display_area_px: {width: 488, height: 136}
+    icon_px: {width: 136, height: 136}
+    sync_interval_s: 1
+    sequence: "dashboard_lock; nav_control INIT; nav_control SYNC; nav_trip_status; 13 x nav_direction_icon_band; 90 x nav_route_map_row; nav_control SYNC; then nav_control SYNC every 1 s; nav_control EXIT (or ARRIVED) to finish."
+    string_limits_bytes_with_nul: {time_remaining: 24, distance_remaining: 24, road_name: 64, turn_distance: 24, speed: 24}
+    notes: "A full update is about 108 frames (~20 kB) per temple. Pace it (see dual_link.side_rules)."
+  dashboard_0x06:
+    description: "Dashboard information packets: 06 <len u16 LE> <sync id> <sub-command> ... Each frame is its own push, not part of a transaction."
+    subcommands:
+      - {value: 0x01, meaning: "time, date, weather and display formats (dashboard_set_time_weather)"}
+      - {value: 0x02, meaning: "accepted and ignored"}
+      - {value: 0x03, meaning: "calendar/schedule records (multi-packet). 06 0C 00 <id> 03 01 00 01 00 00 00 01 pushes an empty list."}
+      - {value: 0x04, meaning: "stocks records"}
+      - {value: 0x05, meaning: "news records"}
+      - {value: 0x06, meaning: "dashboard layout (dashboard_set_mode)"}
+      - {value: 0x07, meaning: "map/citywalk records"}
+    notes: "The record layouts of 0x03, 0x04, 0x05 and 0x07 are not documented publicly in usable detail. Gadgetbridge builds 0x03 calendar pages (up to 4 pages of 2 events) and is the place to start."
+  quick_notes:
+    slots: 4
+    release_frame_0x21:
+      short_form: "21 0F 00 <seq> 01 01 01 <8 bytes> (15 bytes): one note just saved. Request note_index 1."
+      list_form: "21 2A 00 <seq> 01 <count> then <count> x (<slot 1-4> <4-byte LE timestamp> <4-byte id>) (42 bytes for 4 notes): the whole list. Find the slot whose 8 bytes changed since the last one; do not assume the highest slot is the newest."
+      notes: "Which form a given session gets is not established (the official app saw 15 bytes, the companion 42). Upstream thinks the slots are a 4-slot ring but has not seen one wrap."
+    audio_stream_0x1e:
+      chunk: "1E <len u8> 00 <seq1> 02 <session byte> 00 <seq1+1> 00 01 <audio>, 10-byte header. Full chunks are 200 bytes (190 of audio); the last is shorter (e.g. 1E 5A = 90 bytes)."
+      end: "Any 0x1E frame whose byte 1 is outside the audio-length range (about 0x40-0xC8), e.g. 1E 06 00 <seq> 04 00. Also stop after 500 ms of silence."
+      decode: "Join the audio bytes of every chunk, then cut the result into 200-byte LC3 frames. LC3 frames do NOT line up with the 190-byte chunk payloads, and cutting at chunk edges causes clicks."
+      codec: {name: "LC3", sample_rate_hz: 16000, channels: 1, frame_bytes: 200}
+    flow: "right long-press (records on the glasses, even while disconnected) -> 0x21 on release -> quick_note_request_audio -> 0x1E audio chunks -> quick_note_audio_ack -> 1E 06 00 <seq> 04 00."
+  microphone_audio:
+    frame: "F1 <seq u8> <200 bytes LC3>, exactly 202 bytes; the vendor demo drops any 0xF1 frame of another length."
+    codec: {name: "LC3", sample_rate_hz: 16000, channels: 1, frame_bytes: 200}
+    max_recording_s: 30
+    flow: "F5 17 (left long-press) -> set_microphone(1) on the right -> 0xF1 frames from the right -> F5 18 (release) -> set_microphone(0)."
+    notes: "A raw-PCM microphone mode exists in the firmware behind a test mode. It is not documented here and should not be entered."
+  heartbeat:
+    command: "heartbeat (0x25), per temple"
+    idle_timeout_s: 30
+    cadences_seen:
+      - {client: "EvenDemoApp", interval_s: 8}
+      - {client: "Cheddies1 companion", interval_s: 2, notes: "per temple, own timer; a temple counts as degraded after 8 missed replies"}
+      - {client: "even_glasses", interval_s: 5}
+      - {client: "Gadgetbridge", interval_s: "8-25", notes: "sends 0x2B instead of 0x25, saying the official app does so"}
+    notes: "Upstream disagrees about the official app's own keep-alive: Cheddies1 saw a periodic 0x1F exchange about every 2 s, while Gadgetbridge says 0x2B. The firmware takes 0x25 either way."
+  readbacks:
+    description: >
+      0x29-0x3F are readbacks. Names below paraphrase the firmware's own labels
+      (via the upstream firmware notes) and Gadgetbridge's. "relayed" means
+      the answering temple consults the other before replying. 0x2F-0x31 have
+      no handler.
+    opcodes:
+      - {opcode: 0x29, reads: "brightness level + auto flag (get_brightness)", answered: "relayed"}
+      - {opcode: 0x2A, reads: "anti-shake enable (set by 0x02)", answered: "relayed"}
+      - {opcode: 0x2B, reads: "display mode per the firmware notes (reply 2B 69 <b2> <b3>); Gadgetbridge reads it as silent-mode state (byte 2 = 0x0C when on)", answered: "relayed"}
+      - {opcode: 0x2C, reads: "device info + battery; the request carries the host platform (get_device_info)", answered: "unknown"}
+      - {opcode: 0x2D, reads: "MAC addresses", answered: "unknown"}
+      - {opcode: 0x2E, reads: "notification app list (Gadgetbridge)", answered: "unknown"}
+      - {opcode: 0x32, reads: "head-up (wake-up) angle", answered: "unknown"}
+      - {opcode: 0x33, reads: "per-lens serial", answered: "unknown"}
+      - {opcode: 0x34, reads: "glasses serial, ASCII at bytes 2-17 (get_glasses_serial)", answered: "unknown"}
+      - {opcode: 0x35, reads: "inter-temple radio channel (probably the <channel> in the advertised name, an inference)", answered: "unknown"}
+      - {opcode: 0x36, reads: "notification counts", answered: "local"}
+      - {opcode: 0x37, reads: "5-byte value; Gadgetbridge reads it as time since boot", answered: "relayed"}
+      - {opcode: 0x38, reads: "ANCS (iOS notification) enable state", answered: "local"}
+      - {opcode: 0x39, reads: "system status / running screen id of THIS lens (get_system_status)", answered: "local"}
+      - {opcode: 0x3A, reads: "wear-detection state (Gadgetbridge)", answered: "unknown"}
+      - {opcode: 0x3B, reads: "display height/depth settings (Gadgetbridge)", answered: "unknown"}
+      - {opcode: 0x3C, reads: "notification auto-display state (Gadgetbridge)", answered: "unknown"}
+      - {opcode: 0x3E, reads: "usage/analytics counters (Gadgetbridge)", answered: "unknown"}
+      - {opcode: 0x3F, reads: "hardware settings (Gadgetbridge)", answered: "unknown"}
+  other_opcodes:
+    description: >
+      Named by Gadgetbridge or the firmware notes but not specified in this
+      document. They are listed so the next reader knows they exist. None is
+      declared as a command, because no public source gives a byte layout
+      that two sources agree on. One more opcode in the 0x01-0x27 range
+      starts a firmware update; it is deliberately left out.
+    opcodes:
+      - {opcode: 0x02, name: "anti-shake set"}
+      - {opcode: 0x07, name: "countdown timer (firmware-native)"}
+      - {opcode: 0x09, name: "teleprompter content"}
+      - {opcode: 0x0D, name: "transcribe control (acked as 0D C9 <state>)"}
+      - {opcode: 0x0F, name: "translate control (acked as 0F C9 <state>, chunked with CB)"}
+      - {opcode: 0x10, name: "head-up calibration control"}
+      - {opcode: 0x1F, name: "Gadgetbridge: tutorial control; Cheddies1: the official app's ~2 s periodic exchange"}
+      - {opcode: 0x22, name: "dashboard status. Seen as notifications (22 0A 00 00 01 00 00 01 04 00) after head-up on the right. Gadgetbridge also uses it as a status request."}
+      - {opcode: 0x23, name: "system control: sub 0x6C debug logging (0x00 on, 0x31 off), 0x72 reboot, 0x74 firmware build string (reply starts 0x6E)"}
+      - {opcode: 0x24, name: "teleprompter suspend (Gadgetbridge)"}
+      - {opcode: 0x25, name: "Gadgetbridge also names 0x25 teleprompter position; the heartbeat frame has 0x04 at byte 4"}
+      - {opcode: 0x26, name: "hardware settings: sub 0x02 display height/depth (26 08 00 <seq> 02 <preview> <height> <depth>, Gadgetbridge; even_glasses sends a 7-byte variant), 0x04 brightness gear, 0x05 double tap (declared), 0x06 brightness coefficient, 0x07 long-press action, 0x08 head-up mic activation"}
+      - {opcode: 0x3D, name: "language set (26-style frame, Gadgetbridge)"}
+      - {opcode: 0x47, name: "unpair (Gadgetbridge)"}
+      - {opcode: 0x4C, name: "clear notification (Gadgetbridge)"}
+      - {opcode: 0x4D, name: "tell the glasses the MTU (4D <mtu>, Gadgetbridge; the vendor demo's iOS path sends 4D 01)"}
+      - {opcode: 0x4F, name: "notification auto-display set"}
+      - {opcode: 0x58, name: "calendar next-up (Gadgetbridge)"}
+      - {opcode: 0xF4, name: "debug text from the glasses when logging is on; the vendor demo's Android path writes F4 01 on connect"}
+
+evidence:
+  artifacts:
+    - type: "vendor_documentation"
+      artifact: "EvenDemoApp README.md and docs/G1_BLE_CONNECTION.en.md at commit 3899aac (2026-06-09)"
+      url: "https://github.com/even-realities/EvenDemoApp"
+      obtained_via: "GitHub, read 2026-09-28"
+      description: >
+        The vendor's own open-source (BSD-2-Clause) demo. It is the source of
+        the two-temple model and send order, the name shape and channel
+        pairing, the Nordic UART UUIDs and connect sequence (CCCD, MTU 251,
+        bond), the 0xF5 gesture codes, 0x0E/0xF1 microphone, 0x4E text, the
+        0x15/0x20/0x16 BMP transfer, the heartbeat and 0x18 exit frames, the
+        0x4B notification and 0x04 whitelist chunking, and the 0x34 serial
+        read. The demo code was also read to settle the big-endian
+        new-character position, the 194-byte BMP chunks and the fact that
+        whole .bmp files are sent.
+    - type: "public_research"
+      artifact: "Cheddies1/even-g1-companion docs: protocol-reference.md, even-g1-event-mapping.md, firmware-decomp-notes.md (main, pushed 2026-09)"
+      url: "https://github.com/Cheddies1/even-g1-companion"
+      obtained_via: "GitHub, read 2026-09-28"
+      description: >
+        Command and event catalogue built from that author's HCI captures of
+        the official Android app and live tests on firmware 1.6.6, plus
+        structural notes from a third-party firmware decompilation. It is
+        the source of navigation, streaming text, dashboard slots and lock,
+        the battery/wear/brightness events, the head-up and double-tap
+        settings, the QuickNote family, the length rule, the ack codes, the
+        0x06 sub-commands and the readback range. Its "Confirmed" labels are
+        the author's own observations, not this project's. Decompiled
+        symbols and firmware log strings from those notes are deliberately
+        not reproduced here.
+    - type: "public_implementation"
+      artifact: "Cheddies1/even-g1-companion Android BleManager.kt and lib/services/proto.dart (BSD-2-Clause fork of EvenDemoApp)"
+      url: "https://github.com/Cheddies1/even-g1-companion/blob/main/android/app/src/main/kotlin/com/eddie/evencompanion/bluetooth/BleManager.kt"
+      description: "Per-temple setup order (CCCD, then MTU 251, then bond only if not bonded), the frame builders for heartbeat, brightness, head-up, double-tap, time sync, navigation control, streaming text, 0x39 and QuickNote audio."
+    - type: "public_implementation"
+      artifact: "emingenc/even_glasses (Python, GPL-3.0, last pushed 2024-11)"
+      url: "https://github.com/emingenc/even_glasses"
+      description: "Independent sender. It agrees on the UART UUIDs, the _L_/_R_ name split, the heartbeat, brightness, silent-mode and wear frames, the 0x4E header, BMP chunking with CRC-32 and the 0x1E note shape. It gives the 0x0B head-up angle range of 0-60 and uses a 5 s heartbeat. It does no explicit bonding."
+    - type: "public_implementation"
+      artifact: "Gadgetbridge Even Realities G1 support (AGPL-3.0), Codeberg master read 2026-09-28"
+      url: "https://codeberg.org/Freeyourgadget/Gadgetbridge/src/branch/master/app/src/main/java/nodomain/freeyourgadget/gadgetbridge/service/devices/evenrealities"
+      description: >
+        The widest opcode table: the 'Even G1_' name pattern, the ~30 s idle
+        disconnect and the heartbeat reasoning, 0x2C device info, the 0x0B
+        angle, silent mode, wear detection, 0x06 layout and time/weather with
+        the weather-icon table, and the named but unspecified opcodes in
+        protocol_details.other_opcodes. Only facts are used here; no code is
+        reproduced.
+    - type: "vendor_documentation"
+      artifact: "Even Realities help centre articles: User guide, Resolving Even G1 Connection Issues, Known Issues, General FAQs, Even G1 Sales Discontinuation Notice"
+      url: "https://support.evenrealities.com/hc/en-us/articles/14301335051023-User-guide"
+      description: "Activation from the case, TouchBar gestures, soft restart (5 + 5 taps), unpair and re-pair, the left/right display-mismatch known issue, firmware updates delivered by the app, and end of sale on 2026-09-15 with support to at least 2029-06-25."
+    - type: "fcc_filing"
+      artifact: "FCC ID 2BFKR-G1 user-manual exhibit (Quick Guide v1.0 plus safety and warranty text). 2BFKR-G1CASE covers the charging case."
+      url: "https://fccid.co/api/files/s1/2bfkr_g1_usersmanual_7414235_b7aa1f648c.pdf"
+      description: "Confirms the product and grantee code and the activation and charging steps. Contains no radio or protocol detail. Internal photos and test reports were not read."
+  open_questions: >
+    Everything is secondary. A single session with a real pair would settle
+    most of remaining_unknowns: scan names, whether a write without a bond
+    is refused, the 0x2C reply layout, the new-character-position byte order
+    and one navigation card.
+
+remaining_unknowns:
+  - "The exact advertised name: bare G1_<ch>_<side>_<id> (vendor demo comments) or Even G1_<ch>_<side>_<id> (Gadgetbridge's pattern), and whether it differs by firmware."
+  - "Whether the temples refuse writes over an unbonded link. Every client bonds, but no source shows a rejection."
+  - "Whether glasses never onboarded by the vendor app accept a third-party client, or need the official app first."
+  - "Whether each temple accepts one central or several, and whether it keeps more than one bond."
+  - "Whether the Nordic UART service UUID is in the advertisement."
+  - "Whether 6e400002 also accepts write-without-response."
+  - "Byte order of the 0x4E new-character position: the vendor README and demo put the high byte first, the Cheddies1 notes say low byte first. Every client sends 0."
+  - "The 0x2C reply beyond bytes 1-2 (firmware version positions), and what the iOS host-platform value (2) changes."
+  - "The meaning of the extra 22nd byte of the 0x06 time/weather frame, and whether the companion's value 0x02 or the wiki's 0x00 is right."
+  - "The 0x1E quick-note length handling: even_glasses's length is one byte longer than the frame and uses a different delete frame; the firmware's empty-body delete is untested."
+  - "The navigation icon-band and route-map header fields (band count/index base, row index base, route-map bit layout), and whether the parser's error frame ever reaches BLE."
+  - "Why dashboard_lock (0x50) is needed before streaming text or navigation, given the firmware treats it only as a master-side lock."
+  - "The official app's own keep-alive: 0x1F every ~2 s (Cheddies1) or 0x2B (Gadgetbridge)."
+  - "F5 0x12: brightness push (Cheddies1, capture-backed) or long press (Gadgetbridge)."
+  - "Which 0x21 release form (15 or 42 bytes) a client gets, and whether the 4-slot ring really wraps."
+  - "Screen ids returned by 0x39, and why 0x18 leaves some screens (Even AI, translate) half torn down."
+  - "The record layouts of the 0x06 calendar, stocks, news and map sub-commands."
+  - "Whether frames above ~194 bytes are safe at MTU 251."
+  - "Everything was documented against firmware around 1.6.x (upstream tested 1.6.6). Behaviour on other versions is unverified."
+
+helpful_urls:
+  - title: "Even G1 Quick Guide (PDF)"
+    url: "https://support.evenrealities.com/hc/article_attachments/15913878793103"
+    kind: "manual"
+    description: >
+      Even Realities' multilingual printed quick guide for the G1 glasses:
+      activation by charging in the case, folding the left temple first,
+      the case indicator colours, and where the TouchBars, microphones and
+      light sensor are. Attached to the help-centre user guide.
+  - title: "Even Realities G1 user manual exhibit, FCC ID 2BFKR-G1 (PDF)"
+    url: "https://fccid.co/api/files/s1/2bfkr_g1_usersmanual_7414235_b7aa1f648c.pdf"
+    kind: "manual"
+    description: >
+      The FCC filing's user-manual exhibit for the G1 glasses (2BFKR-G1): the
+      Quick Guide v1.0 in English and German plus the full safety,
+      regulatory and warranty text.
+  - title: "FCC ID 2BFKR-G1 (fcc.report)"
+    url: "https://fcc.report/FCC-ID/2BFKR-G1"
+    kind: "other"
+    description: "Grant record for the G1 glasses. The charging case is 2BFKR-G1CASE. The site blocks automated fetches, so it may return 403 to a checker."
+  - title: "Even Realities help centre: G1 User guide"
+    url: "https://support.evenrealities.com/hc/en-us/articles/14301335051023-User-guide"
+    kind: "vendor_support"
+    description: "The vendor's online manual for the G1: charging, the case indicator, TouchBar gestures (single, double, triple tap, long press left and right) and the features."
+  - title: "Even Realities help centre: Resolving Even G1 Connection Issues"
+    url: "https://support.evenrealities.com/hc/en-us/articles/14309516711055-Resolving-Even-G1-Connection-Issues"
+    kind: "vendor_support"
+    description: "The soft restart (five left taps, then five right taps) and the unpair-and-re-pair procedure."
+  - title: "Even Realities help centre: Known Issues"
+    url: "https://support.evenrealities.com/hc/en-us/articles/14309475255183-Known-Issues"
+    kind: "vendor_support"
+    description: "Includes the left/right display mismatch after a one-sided reconnect, the Bluetooth disconnection workaround and the in-app Quick Restart."
+  - title: "Even Realities help centre: Even G1 Sales Discontinuation Notice"
+    url: "https://support.evenrealities.com/hc/en-us/articles/17564427335823-Even-G1-Sales-Discontinuation-Notice"
+    kind: "vendor_support"
+    description: "End of direct sales on 2026-09-15; security support not ending before 2029-06-25."
+  - title: "even-realities/EvenDemoApp"
+    url: "https://github.com/even-realities/EvenDemoApp"
+    kind: "implementation"
+    description: "The vendor's own BSD-2-Clause Flutter demo (Android and iOS). The README is the vendor-published part of this protocol."
+  - title: "EvenDemoApp: G1 Bluetooth connection flow"
+    url: "https://github.com/even-realities/EvenDemoApp/blob/main/docs/G1_BLE_CONNECTION.en.md"
+    kind: "protocol_writeup"
+    description: "Vendor write-up of scanning, channel pairing of the two temples, the UART UUIDs and the per-temple connect sequence on Android and iOS."
+  - title: "Cheddies1/even-g1-companion: protocol reference"
+    url: "https://github.com/Cheddies1/even-g1-companion/blob/main/docs/protocol-reference.md"
+    kind: "protocol_writeup"
+    description: "The most complete public command catalogue, with per-entry confidence labels (firmware 1.6.6): navigation, streaming text, dashboard, settings, readbacks, QuickNote."
+  - title: "Cheddies1/even-g1-companion: event mapping"
+    url: "https://github.com/Cheddies1/even-g1-companion/blob/main/docs/even-g1-event-mapping.md"
+    kind: "protocol_writeup"
+    description: "Every observed 0xF5 event code with its evidence, including the negative result for single taps."
+  - title: "Cheddies1/even-g1-companion: firmware decompilation notes"
+    url: "https://github.com/Cheddies1/even-g1-companion/blob/main/docs/firmware-decomp-notes.md"
+    kind: "protocol_writeup"
+    description: "Structural cross-check against a third-party decompilation of the G1 firmware: the length rule, the ack codes, the 0x06 sub-commands, the readbacks. Structure only; it says nothing about behaviour."
+  - title: "Cheddies1/even-g1-companion"
+    url: "https://github.com/Cheddies1/even-g1-companion"
+    kind: "implementation"
+    description: "Android/Flutter companion that drives both temples, including QuickNote audio retrieval and LC3 decoding."
+  - title: "emingenc/even_glasses"
+    url: "https://github.com/emingenc/even_glasses"
+    kind: "implementation"
+    description: "Python (bleak) client for the G1: text, notifications, BMP, notes and settings."
+  - title: "Gadgetbridge: Even Realities G1 support"
+    url: "https://codeberg.org/Freeyourgadget/Gadgetbridge/src/branch/master/app/src/main/java/nodomain/freeyourgadget/gadgetbridge/service/devices/evenrealities"
+    kind: "implementation"
+    description: "Gadgetbridge's G1 driver: constants, command builders and the per-temple session manager."

@@ -36,6 +36,7 @@ device:
   protocol: "ble"
   transport: "ble-gatt"
   category: "sensor"
+  category_hierarchy: ["measurement", "temperature"]
   type: "wireless-meat-thermometer"
   safety_advisory:
     severity: "warning"

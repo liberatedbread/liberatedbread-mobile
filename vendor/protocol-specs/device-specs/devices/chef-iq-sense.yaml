@@ -10,6 +10,7 @@ device:
     status: untested
   protocol: "ble"
   category: "sensor"
+  category_hierarchy: ["measurement", "temperature"]
   notes: >
     Smart thermometer hub (CQ60) with wireless probes and ESP32-WROVER-E chipset.
     DUAL-INTERFACE: it works LOCALLY over BLE (probe data + Wi-Fi provisioning)
@@ -129,21 +130,45 @@ device:
       loud, because the vendor app treats the account as mandatory.
     methods:
       - type: "ble_direct"
-        name: "BLE only — no provisioning at all"
+        name: "Passive probe advertisements — no hub, account or bond"
         role: "primary"
         verified: false
         description: >
-          For local use, no provisioning is required: scan for the local name
-          CQ60, connect, and use the thermometer (048A) and system (9C6F)
-          services directly.
+          For local temperature readings, remove the probe from its dock to
+          wake it and listen for manufacturer 0x05CD advertisements. No GATT
+          connection, hub, cloud account, bonding or registration is used.
+          This is the Home Assistant integration's read-only path, not the
+          vendor app's hub/probe topology.
         ble:
-          advertised_name: "CQ60"
+          advertised_name: "CQ60 (shared by hub and probe; use payload format to distinguish)"
           pairing_required: false
         steps:
-          - action: "Scan for a device advertising the local name CQ60 with manufacturer ID 0x05CD and connect."
+          - action: "Remove the probe from its charging nest to wake it and listen passively for manufacturer 0x05CD packets."
             actor: "client"
-            request:
-              protocol: "ble_gatt"
+            expect: "Probe payloads of at most 18 bytes; longer CQ60 hub payloads are excluded. Existing vendor registration does not prevent this path."
+      - type: "ble_direct"
+        name: "Existing hub GATT — double-tap, bond and check registration"
+        role: "alternative"
+        verified: false
+        description: >
+          The vendor app's hub connection path: turn on the hub, double-tap
+          its power button, complete Android bonding and check appliance
+          ownership/accepted sharing with the online registration service.
+          An existing owner or accepted shared user continues without reset.
+          The code supplies no fixed PIN and does not establish a separate
+          application-layer encryption scheme.
+        ble:
+          advertised_name: "CQ60"
+          pairing_required: true
+        steps:
+          - action: "Turn on the hub and double-tap its power button; the blue light blinks during pairing."
+            actor: "user"
+            expect: "The light becomes solid blue after connection."
+          - action: "Select the existing appliance in the app and complete Android bonding if no usable bond already exists."
+            actor: "client"
+          - action: "Check registration with the owner or accepted shared account and disconnect other phones/tablets."
+            actor: "client"
+            expect: "Owner or accepted shared user continues. Another manager's appliance offers Request Access or an ownership-recovery reset; do not reset by default."
       - type: "ble_provisioning"
         name: "Wi-Fi credentials over the provisioning service"
         role: "alternative"
@@ -182,22 +207,62 @@ device:
               protocol: "ble_gatt"
               action: "Notify 8a71ffa0 (Network Info)"
             timeout_seconds: 60
+      - type: "device_ui"
+        name: "Register a probe in the hub's charging nest"
+        role: "alternative"
+        verified: false
+        description: >
+          Probe registration is not phone-to-probe Bluetooth pairing. Dock
+          the probe and use the new-probe prompt or More → Manage Probes;
+          the hub reports registration through command 16 and probe attribute
+          24. Do not reset the hub merely to add or replace a probe.
+        steps:
+          - action: "Keep the hub powered and put the probe to register in its charging nest."
+            actor: "user"
+          - action: "Use the new-probe prompt, or More → Manage Probes, and complete registration with the current owner account."
+            actor: "user"
+            expect: "The probe appears in the registered list (048AF011) with attribute 24 set and a dock number in attribute 25."
+          - action: "If registration fails, remove and reinsert the probe and check the charging contacts before retrying."
+            actor: "user"
+            notes: >
+              Gen 2 supports up to three probes and Gen 3 up to four. If the
+              probe is already registered, keep using it or deregister it
+              from the old topology first. Cross-account transfer without
+              the old owner is not proven; a hub reset is not a universal
+              release of a probe from a different hub/account.
     factory_reset:
       confidence: "low"
-      effect: "Removing the stored credential over BLE unprovisions WiFi without touching probe pairings or the account."
+      effect: >
+        BLE credential removal only unprovisions WiFi. A full hub reset for
+        ownership recovery removes saved favorites and hub/probe names; the
+        hub and probes must be registered again.
       procedures:
-        - name: "Remove credential over BLE"
+        - name: "Remove WiFi credential over BLE"
+          basis: "Existing protocol unprovision path; not a full factory reset."
           steps:
             - action: "Write to the remove-credential characteristic 8a71ffa5."
               actor: "client"
-              notes: "Protocol-level unprovision; the hardware button sequence for a full reset is not documented here."
+              notes: "Does not clear appliance ownership or probe registration."
+        - name: "Physical hub reset for ownership recovery"
+          verified: false
+          basis: "Vendor FAQ and 2026-11-07 app/manual review; not run by this project."
+          hold_seconds: 3
+          indicator: "The hub beeps and connection lights blink, then it beeps/reboots."
+          steps:
+            - action: "Insert a pin in the reset hole next to the hub's power button and hold for 3 seconds."
+              actor: "user"
+            - action: "Wait for the blinking and reboot to finish, then register the hub and probes again."
+              actor: "user"
+              notes: "Use only when owner/sharing access cannot be recovered, not for a new phone or a new probe."
     rejoin:
       in_place_supported: true
       requires_factory_reset: false
       notes: >
-        BLE stays available whatever the WiFi state, so a new network is just
-        another write to 8a71ffa3 — optionally preceded by a remove-credential
-        write to 8a71ffa5. No physical reset needed.
+        A new phone with the owner or accepted shared account can select the
+        existing appliance without reset; disconnect other phones/tablets
+        first. Forget a stale phone bond only in the phone's Bluetooth
+        settings, not in the appliance's ownership records. A router change
+        is another 8a71ffa3 write, optionally preceded by 8a71ffa5.
     credentials:
       wifi_passphrase_protection: "plaintext"
       stored_on_device:
@@ -209,12 +274,25 @@ device:
         exposed to anything sniffing the connection event during provisioning.
         Provision in a quiet RF environment or skip WiFi entirely for local use.
   pairing:
-    required: false
-    confidence: "medium"
-    security_mode: "none"
-    bonding: "none"
+    required: "unknown"
+    confidence: "low"
+    security_mode: "unknown"
+    bonding: "unknown"
     enter_pairing_mode:
-      required: false
+      required: true
+      procedures:
+        - name: "Double-tap the Smart Hub power button"
+          verified: false
+          basis: "CHEF iQ 5.5.2 hub onboarding flow; no hardware run."
+          indicator: "Blue light blinks during pairing and becomes solid after connection."
+          steps:
+            - action: "Turn on the hub and double-tap its power button, then select the existing appliance and complete Android bonding."
+              actor: "user"
+      notes: >
+        Passive probe advertisements need no pairing at all. Vendor hub GATT
+        onboarding uses an Android bond and an online ownership/accepted-share
+        check; the code does not prove a fixed PIN or security exchange.
+        Probe registration in the charging nest is a separate operation.
 services:
   - uuid: "048a00ff-cd06-4d57-a048-ccd5cb9f8f43"
     name: "Thermometer/Probe Service (Family A)"
@@ -796,6 +874,14 @@ entities:
     state_characteristic: "9c6ff052-0420-41c1-bd98-7a015c45dc5a"
 
 helpful_urls:
+  - title: "Official CHEF iQ Sense FAQ"
+    url: "https://chefiq.com/pages/new-iq-sense-faq"
+    kind: "vendor_support"
+    description: "Probe limits, dock registration and the ownership-recovery reset; distinguishes pairing from registration."
+  - title: "Home Assistant: CHEF iQ"
+    url: "https://www.home-assistant.io/integrations/chef_iq/"
+    kind: "implementation"
+    description: "Passive read-only CQ60 probe integration: no hub, account, bond or GATT connection."
   - title: "Invader444/chefiq-ble (PyPI: chefiq_ble)"
     url: "https://github.com/Invader444/chefiq-ble"
     description: >

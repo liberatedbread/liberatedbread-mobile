@@ -8,34 +8,39 @@ device:
   manufacturer_status: "active"
   testing:
     status: untested
+    detail: capture-verified
+    notes: >
+      Live owner-authorized GATT discovery on 2026-11-07 confirmed FFF0,
+      FFF2 write-without-response and FFF1 notify, plus the secondary
+      5833ff01-9b8b-5191-6142-22a4536ef123 service. No characteristic read,
+      subscription, command write, pairing, reset or firmware operation was
+      performed. Display commands, geometry and upload behavior remain
+      untested by this project.
   protocol: "ble"
   category: "display"
+  category_hierarchy: ["display", "led_matrix"]
   notes: >
-    Programmable full-color LED backpack screen. Uses the LOY SPACE / popled.cn protocol
-    (identical to NYAN GEAR). Supports BLE and Wi-Fi (AP mode, SSID starts with "YS",
-    default password 12345678, UDP port 9090).
-    BLE device name starts with "YS" or "TL".
-    Wire frame (hardware-verified by samrodrigues/loy-space-protocol and
-    icedac/open-loyspace): BLE writes carry an outer u16-LE total-length prefix,
-    then the inner frame [0xAA, 0x55, 0xFF, 0xFF, len (u16-LE), sno (u16-LE),
-    flags (0xC1), subflag, ...payload, checksum (u16-LE)]. Every frame ends with
-    a 2-byte additive checksum (sum of the preceding bytes & 0xFFFF,
-    little-endian); the device silently rejects bad checksums. Notifications
-    omit the outer prefix.
-    Commands are JSON objects app-side, serialized to binary TLV opcodes on the
-    wire — the JSON text itself never crosses the link.
-    Image/program upload is GIF89a streamed in chunks (a 24-bit BMP encoder
-    exists app-side as a conversion artifact, but BMP is not the wire format).
-    Supports multiple resolutions: 16x16, 32x16, 32x32, 48x28, 64x20, 64x64, 96x128, 160x32, 192x40.
-    Backend API: store-cdn.popled.cn.
-    Sliding window ACK protocol with max window size 3-10.
-    Chunked at ~180 bytes per BLE write.
-    Vendor ecosystem active: LOY SPACE app updated 2026-03-25, NYAN GEAR
-    2025-12-04, backend CDN live.
-    CONFIDENCE: HIGH — service/char UUIDs, name prefixes and command JSON verified in
-    the uni-app app-service.js bundle (serviceId 0000FFF0, WriteId 0000FFF2,
-    NotifyId 0000FFF1; header magic constant present); wire framing cross-checked
-    against two independent hardware-verified RE repos.
+    Programmable full-color LED backpack screen using the LOY SPACE /
+    popled.cn protocol family (shared with NYAN GEAR). BLE is established;
+    whether this particular backpack also has Wi-Fi is unknown. BLE device
+    name starts with "YS" or "TL", which identifies only the platform, not
+    the reseller, controller revision or matrix geometry.
+
+    Commands use checksummed AA 55 FF FF frames with a little-endian length,
+    sequence, flags/mode and binary TLV records. A stream builder can add a
+    separate outer u16 record length, but an individual GATT write must not
+    blindly prepend it. TLV value lengths are one byte below 0x80, 0x81 plus
+    one byte for 128-255, or 0x82 plus a little-endian u16 for 256 and above.
+    Thus 81 c4 means a 196-byte value, not a magic constant. Normal app
+    writes start around 180 bytes, with larger MTU-dependent paths;
+    resource data is normally split at 960 bytes with a 997-byte TLV limit
+    and a big-endian u16 resource chunk count. Third-party raw-GIF uploads
+    on another backpack do not establish that this unit accepts them.
+
+    Backend API: store-cdn.popled.cn. Sliding-window ACK and app-side JSON
+    command shapes are documented below, but the JSON itself never crosses
+    the link. Source evidence is LOY SPACE Android 1.2.19 plus public client
+    projects. Every command is reported until captured on this hardware.
   identification:
     # FAMILY FALLBACK. Every LOY SPACE / popled.cn panel advertises "YS" (or
     # "TL") plus a serial suffix and the 0xFFF0 service, whichever app it was
@@ -45,13 +50,14 @@ device:
     # signals; nyan-bt-image-controller and led-space describe their
     # products but deliberately state no BLE identification of their own.
     local_name_prefixes: ["YS", "TL"]
-    service_uuids:
-      - "0000fff0-0000-1000-8000-00805f9b34fb"
     notes: >
-      The advertised name is the prefix followed by a device serial
-      (e.g. YS524A250660, hardware-observed by icedac/open-loyspace); the
+      The advertised name is the prefix followed by a device serial; the
       vendor apps filter on the ["YS", "TL"] prefix list and nothing else.
-      A match means "a LOY SPACE platform panel", not this SKU.
+      A match means "a LOY SPACE platform panel", not this SKU. Select a
+      freshly discovered device by exact advertised name plus FFF0 when
+      several units may be present. A live unit appeared at a different
+      random-format address after an earlier address-based connection failed,
+      so do not persist a stale MAC as identity.
 
   discovery:
     methods:
@@ -60,10 +66,8 @@ device:
           local_name:
             match: "prefix"
             values: ["YS", "TL"]
-          service_uuids:
-            - "0000fff0-0000-1000-8000-00805f9b34fb"
     identity:
-      stable_keys: ["address"]
+      stable_keys: ["local_name"]
       display: "local_name"
     static_ip_required: false
 
@@ -131,13 +135,15 @@ device:
 # framed binary-TLV transport (shared with the NYAN BT Image Controller). Declarative.
 protocol_handler: "popled_json"
 
-# Full-color image / animation upload (device-reported resolution may differ;
-# app converts GIF/PNG/video to the device's native frame format).
+# Full-color image / animation upload. Query the panel before choosing a size;
+# app converts source media to its native resource format.
 features:
   - type: "image_upload"
     format: "gif"
-    max_width: 32
-    max_height: 16
+    notes: >
+      No fixed geometry is claimed. Read panel TLV 0x1b for big-endian width
+      and height. Raw-GIF acceptance on another backpack is not proof that
+      this unit accepts the simplified third-party route.
 
 services:
   - uuid: "0000fff0-0000-1000-8000-00805f9b34fb"
@@ -147,26 +153,25 @@ services:
         name: "Notify"
         properties: ["notify"]
         notes: >
-          NotifyId in app-service.js. NOTIFY-only — writes go to FFF2
-          (write-without-response); enable the CCCD before writing or frames
-          are not ACKed. Notifications carry the 0xAA55 inner frame without the
-          outer u16-LE length prefix used on writes. Evidence: common module
-          b8e6 get_pkt_data; hardware-verified by samrodrigues/loy-space-protocol.
+          Display acknowledgements and TLV responses. Live GATT discovery
+          confirmed notify on 2026-11-07. Subscribe before sending a display
+          query. Reassemble AA55 frames by their declared length; one
+          notification is not necessarily one complete frame.
 
       - uuid: "0000fff2-0000-1000-8000-00805f9b34fb"
         name: "Write"
         properties: ["write_without_response"]
         framing:
-          length_prefix: true
+          length_prefix: false
           max_chunk_size: 180
         notes: >
-          WriteId in app-service.js. Write-without-response is mandatory
-          (regular writes hang). App-side commands are JSON objects wrapped as
-          {"cmd": <command>, "sno": <sequence>}, but the wire payload is binary
-          TLV opcodes — the app serializes JSON to TLV before send. Each write
-          carries an outer u16-LE total-length prefix and every frame ends with
-          a 2-byte additive checksum (sum of the preceding bytes & 0xFFFF, LE);
-          the device silently rejects bad checksums.
+          Display-command writes. Live GATT discovery confirmed only
+          write-without-response on 2026-11-07; use response=False. App-side
+          commands are JSON objects wrapped as {"cmd": <command>,
+          "sno": <sequence>}, serialized to binary TLV before send. A stream
+          builder can add an outer u16 record length, but do not blindly
+          prepend it to an individual GATT write. The AA55 frame itself
+          carries a little-endian additive checksum of every preceding byte.
         commands:
           power_toggle:
             description: 'Toggle screen power. JSON: {"cmd":{"power":{"type":0}},"sno":N}'
@@ -225,6 +230,55 @@ services:
               key: "cmd.pgm_play.index"
               value_type: "int"
 
+  - uuid: "5833ff01-9b8b-5191-6142-22a4536ef123"
+    name: "Secondary vendor service (role unverified)"
+    notes: >
+      Present in live discovery, but not used by the analyzed LOY SPACE
+      display path. A public DCloud profile calls this family SBH OTA;
+      BanlanX research describes authenticated/ELS control on other firmware.
+      Other LOY SPACE panel research also leaves this channel unused. Those
+      are possible roles on other hardware, not evidence of this backpack's
+      role. Do not send display, authentication or firmware commands here.
+      Its protocol, accepted images and recovery path are unknown.
+    characteristics:
+      - uuid: "5833ff02-9b8b-5191-6142-22a4536ef123"
+        name: "Secondary write (role unverified)"
+        properties: ["write"]
+        notes: "Live-confirmed property. This is a response write, unlike FFF2."
+      - uuid: "5833ff03-9b8b-5191-6142-22a4536ef123"
+        name: "Secondary notification (role unverified)"
+        properties: ["notify"]
+        notes: "Live-confirmed property. No subscription or command was attempted."
+
+initialization:
+  - characteristic: "0000fff1-0000-1000-8000-00805f9b34fb"
+    subscribe: true
+    notes: "Open display replies before any information query or display command."
+
+protocol_details:
+  panel_discovery:
+    verification: "reported"
+    query_name: "get_device_info"
+    source_derived_query_hex: "aa 55 ff ff 0e 00 01 00 c1 03 0a 00 1b 00 04 00 06 00 ff 03"
+    query_notes: >
+      Source-derived 20-byte query with sequence 1, not sent by this
+      project. Subscribe to FFF1 first and use FFF2 without response. The
+      real client increments its sequence counter; 1 is only the worked
+      example. Device-information TLV 0x0a reports identity/model/version;
+      panel TLV 0x1b reports big-endian width and height. The app's initial
+      64x64 value is a default, not evidence for this backpack.
+    tlv_length_encoding:
+      short: "LL below 0x80: LL bytes"
+      extended_8: "81 LL: LL bytes (128-255)"
+      extended_16: "82 LL LH: little-endian u16 length (256 and above)"
+      example: "13 81 c4 = type 0x13 with a 196-byte value"
+    resource_framing:
+      normal_resource_chunk_bytes: 960
+      max_tlv_bytes: 997
+      resource_chunk_count: "big-endian uint16"
+      transport_initial_write_bytes: 180
+      note: "Logical resource chunks are not GATT writes; larger MTU-dependent paths exist."
+
 entities:
   - platform: "light"
     name: "LED Screen"
@@ -241,6 +295,8 @@ remaining_unknowns:
     this spec is the family fallback and a YS*/TL* panel resolves here.
     The dev_info reply (dev_model) after connect is the likely
     discriminator.
+  - "Exact controller revision, firmware, matrix geometry, official MTU, raw-GIF acceptance, animation behavior and status-code meanings remain unverified. No display command was sent during the 2026-11-07 live session."
+  - "The 5833ff service is shared with unrelated products and is not an AUTOBABA identifier. SBH OTA and authenticated/ELS roles are described on other hardware, but this backpack's role, commands, accepted images and recovery path are unknown."
 
 helpful_urls:
   - title: "LOY SPACE app (Google Play)"

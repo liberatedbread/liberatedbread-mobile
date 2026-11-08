@@ -10,6 +10,7 @@ device:
     status: untested
   protocol: "ble"
   category: "light"
+  category_hierarchy: ["light", "led"]
   notes: >
     Motorcycle ground-effect LED controller from com.ttcble.proglow static
     analysis (APK v4.7). Normal command sends are unencoded GATT writes to

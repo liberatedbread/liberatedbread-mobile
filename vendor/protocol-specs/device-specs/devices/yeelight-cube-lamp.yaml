@@ -20,6 +20,7 @@ device:
       and the factory-reset procedure are all open questions pending hardware.
   protocol: "wifi"
   category: "light"
+  category_hierarchy: ["light", "led"]
   type: "modular-led-lamp"
   transport: "tcp"  # JSON documents on a raw socket
   notes: >

@@ -64,6 +64,7 @@
 		<string>_airport._tcp</string>
 		<string>_androidtvremote2._tcp</string>
 		<string>_ankivector._tcp</string>
+		<string>_api._tcp</string>
 		<string>_aqara._tcp</string>
 		<string>_arsdk._udp</string>
 		<string>_coap._udp</string>

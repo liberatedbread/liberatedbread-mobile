@@ -10,6 +10,7 @@ device:
     status: untested
   protocol: "wifi"
   category: "display"
+  category_hierarchy: ["display", "led_matrix"]
   transport: "udp"
   notes: >
     Wi-Fi sibling of the AUTOBABA LED Backpack on the same LOY SPACE / popled.cn

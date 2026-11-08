@@ -129,6 +129,36 @@ void main() {
       }
     });
 
+    test('one matching service corroborates the spec\'s own name', () {
+      final own = SpecMatch(
+        entry: _entry(
+          'Own',
+          0,
+          const ['ffe0'],
+          localNamePrefixes: const ['Own'],
+        ),
+        matchedByNamePrefix: true,
+        confidence: MatchConfidence.likely,
+        matchedServiceUuids: const [],
+      );
+      final other = strong('Other', 1, const ['ffe0']);
+      final ranked = rankSpecMatches(
+        [other, own],
+        discoveredUuids: const ['ffe0'],
+        deviceName: 'Own unit',
+      );
+      expect(gattFingerprintOf(own, discoveredUuids: const ['ffe0']), 1);
+      expect(ranked.first, same(own));
+      expect(
+        topTiedSpecMatches(
+          ranked,
+          discoveredUuids: const ['ffe0'],
+          deviceName: 'Own unit',
+        ),
+        [same(own)],
+      );
+    });
+
     test('an absent optional service does not demote a named match', () {
       // Own spec declares ffe0 + ffe5; this unit omits ffe5. It is no
       // fingerprint, so the name corroboration still decides.

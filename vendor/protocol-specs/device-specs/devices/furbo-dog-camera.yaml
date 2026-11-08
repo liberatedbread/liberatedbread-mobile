@@ -1,0 +1,1335 @@
+# Furbo Dog Camera (Tomofun) — Device Specification
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Sources (all public or our own static analysis; clean-room, derived facts
+# only, every table written in our own words):
+#   - willbeeching/ha-furbo (MIT): furbo-bridge/DOCS.md, HARDWARE_VERIFICATION.md
+#     and furbo-bridge/src/furbo_p2p.py, furbo_cloud.py, furbo_bridge.py. The
+#     TUTK/Kalay session, the P2P credential flow, both IOCTRL opcode sets and
+#     the A/V formats, hardware-verified by that project on an FB0030
+#     (firmware 108). Third-party verification, so every fact from it is
+#     `reported` here.
+#   - AlexxIT/go2rtc pkg/tutk (MIT): a pure-Go TUTK client, cited for the
+#     transport and the LAN connection port.
+#   - Static analysis of the Furbo Android app 7.83.1: the BLE Wi-Fi
+#     onboarding surface (three setup controllers, the setup step, status and
+#     result enumerations, the characteristic use sites), and a cross-check
+#     of the IOCTRL opcode numbers ha-furbo publishes. Described by role; no
+#     app symbol, string beyond a short paraphrase, key or path is copied.
+#   - Furbo's own help centre (setup, hard reset, Wi-Fi change, 2.4 GHz and
+#     WPA3 articles) for the physical procedures and the network limits.
+#   - FCC grants 2AIBVTFFBV3 (Furbo 2.5T) and 2AIBV-MINICAM (Furbo Mini).
+#   - Somerset Recon's "Hacking the Furbo Dog Camera" series (2021-2022) for
+#     the security advisory and the unconfirmed RTSP report.
+#
+# Deliberately absent: the TUTK license string the vendor SDK is initialised
+# with, the fixed AES key and IV the app uses on the BLE setup fields, the
+# app-wide HTTP Basic credential and RSA public key of the cloud login, and
+# every per-owner secret (P2P UID, AuthKey, account id, tokens, MFA codes).
+# Their roles are described where they matter.
+
+device:
+  name: "Furbo Dog Camera (Furbo 2 / 2.5T, Furbo 360, Furbo Mini)"
+  manufacturer: "Tomofun Co., Ltd."
+  manufacturer_status: "active"
+  type: "pet-camera"
+  category: "camera"
+  pictogram: "ip-camera"
+  protocol: "wifi"
+  transport: "udp"
+  integration: "identify_only"
+  testing:
+    status: untested
+    notes: >-
+      Nobody on this project has driven a Furbo from this document, and the
+      research store holds no capture and no firmware. The P2P session, the
+      V3 opcode set, pan, one treat toss, H.264 at 1920x1080 and G.711
+      talkback frames were verified on real hardware (an FB0030 on firmware
+      108, TUTK library 003.011, 2026-09-05) by the ha-furbo project, per its
+      HARDWARE_VERIFICATION.md; the legacy (FB002) credential path was
+      verified by a contributor in ha-furbo issue 3. That is third-party
+      evidence, recorded per fact as `reported`. The BLE onboarding surface
+      comes from static analysis of the vendor app only.
+  openness:
+    status: "undocumented"
+    reverse_engineered: true
+    source_code: "https://github.com/willbeeching/ha-furbo"
+    notes: >-
+      Tomofun publishes no local API. The P2P transport is ThroughTek's
+      proprietary TUTK/Kalay SDK, which the vendor licenses per app; the
+      opcode set, the cloud credential flow and the BLE onboarding were all
+      recovered by observation, by ha-furbo and by our own app analysis.
+  notes: >-
+    A Wi-Fi pet camera with a pan motor (on the 360 models), two-way audio
+    and a treat launcher, sold with an optional Furbo Nanny subscription for
+    cloud alerts, clips and summaries. Three surfaces, each documented here
+    to the depth the evidence allows.
+
+    LOCAL CONTROL IS TUTK P2P, NOT RTSP. Every live path (video, microphone,
+    talkback, state, settings, pan and treat toss) runs over one ThroughTek
+    TUTK/Kalay P2P session: an IOTC session addressed by the camera's 20
+    character P2P UID, an AV channel inside it authenticated with a
+    cloud-issued credential, and vendor IOCTRL messages on that channel. The
+    SDK finds the camera by UDP broadcast, so a LAN-mode session needs the
+    client on the camera's subnet; there is no connect-by-IP. Otherwise the
+    session goes direct P2P through NAT, or through a Kalay relay (slow; video
+    may not start). The session layout, both opcode sets and the A/V formats
+    are in protocol_details. The schema has no transport for TUTK IOCTRL, so
+    none of it is an executable `commands` block and the spec is
+    identify_only until one exists (see evidence.open_questions).
+
+    FRESH CREDENTIALS NORMALLY COME FROM THE CLOUD. A client logs in to the
+    Furbo cloud (email, RSA-encrypted password, and an emailed MFA code on
+    first login from a new client id), lists the account's cameras, then asks
+    for a P2P credential per camera. The key part is reissued on every fetch
+    and the previous one stops working, so two clients (or the vendor app and
+    a bridge) fetching independently lock each other out of the AV channel.
+    Owner-exported account data and on-camera state are two credible recovery
+    sources for a preserved credential. Whether one keeps working with both
+    the vendor cloud and TUTK relays unavailable is still unproven. The flow
+    is in cloud.endpoints and protocol_details.cloud_credential.
+
+    ONBOARDING IS BLE, AND IT REGISTERS THE CAMERA WITH THE CLOUD. A setup-mode
+    camera advertises over BLE; the app reads a status code, triggers a Wi-Fi
+    scan, reads the AP list back, writes the SSID and passphrase, then writes
+    the account, a cloud endpoint and a short-lived registration token so the
+    camera can register itself, then time zone, country, speaker volume and
+    the phone's latitude and longitude. The current-generation GATT set is in
+    protocol_details.ble_onboarding_v4 (its service UUID is not established,
+    so it is not a `services` entry); the older generations' JSON channel is
+    the 77f9a069-2ff9-4ff9-93b7-4db9689f4b53 service below. Everything here is
+    from the app, not replayed.
+
+    TREAT TOSS IS A PHYSICAL ACTUATOR WITH A CONSUMABLE BEHIND IT. The app
+    tosses one treat per button press (sometimes preceded by the treat-call
+    sound). This spec documents only that. Repeated or scripted dispensing
+    can overfeed a pet and fling treats hard enough to startle it; any
+    automation should rate-limit itself and keep a person in the loop. The
+    cloud treat-toss call answers success for any action string (ha-furbo's
+    negative finding), so it proves nothing and is not documented further.
+
+    PRIVACY. This is an always-on camera and microphone in a home. Alerts
+    (barking, crying, person, smoke alarm, pet activity), clips, captions and
+    daily summaries are cloud features: the audio and video the
+    classification runs on leave the house, and the app asks the owner to
+    label its detections, which trains the vendor's models. At setup the app
+    also writes the phone's latitude and longitude to the camera. A
+    replacement client should be plain with its user about what it streams
+    and where.
+
+    RTSP IS MODEL-SPECIFIC. Somerset Recon established (2021) that the older
+    Furbo 2 served RTSP on TCP 554 at /stream, first unauthenticated and later
+    with HTTP Digest authentication. The current app exposes no RTSP or ONVIF
+    integration, and the same researcher found no listening service on the
+    Furbo Mini. No current-model RTSP surface is established, so no camera
+    block is declared. RTSP credentials are distinct from TUTK credentials.
+  security_advisory:
+    severity: "reported"
+    summary: "Published root exploits against older Furbo models; patch status unknown."
+    detail: >-
+      Somerset Recon published three write-ups (2021-2022). Furbo 2
+      (Ambarella S2Lm): a stack overflow in the RTSP server's digest
+      authentication parser gave unauthenticated root code execution from
+      the LAN (CVE-2020-24918; Ambarella's position is that the RTSP library
+      was demo-only). Furbo 2.5T: command injection as root in a CGI program
+      behind the camera's lighttpd server, which Somerset Recon labelled
+      CVE-2021-32452 (no published CVE record exists as of 2026-09). Furbo
+      Mini (Augentix SoC): firmware images fetched from a listable storage
+      bucket, with no signature check and no TLS certificate verification on
+      the download, so a network attacker could install modified firmware;
+      reported unpatched in December 2022. None of this has been checked by
+      this project, and the Furbo 360 (FB0030) is not named in any of it.
+      Keep the camera on current firmware and on a network segment you
+      trust.
+    advisory_url: "https://www.somersetrecon.com/blog/2021/hacking-the-furbo-part-1"
+  safety_advisory:
+    severity: "caution"
+    summary: "The treat launcher dispenses real food; scripted or repeated tossing can overfeed a pet."
+    detail: >-
+      Each toss fires one treat across the room. Use it the way the vendor
+      app does, one deliberate press at a time with the live view open.
+      Automations that toss on a schedule or on an event should rate-limit
+      themselves and keep a person watching; a jammed or empty hopper is not
+      reported reliably enough (see the treat troubleshoot opcodes in
+      protocol_details) to trust an unattended loop. This project is
+      unaffiliated with Tomofun and the vendor's own instructions govern.
+  identification:
+    notes: >-
+      No OUI is known for these cameras and none is claimed. Over BLE a
+      setup-mode camera is recognised by its advertised name (see the
+      ble_scan discovery method and device.variants); the app's exact rules
+      are substring and prefix tests with length limits: contains 'Furbo3'
+      and shorter than 12 characters, contains 'Furbo3C' and shorter than 14,
+      contains 'Furbo4' and shorter than 12, contains 'MINICAM', starts with
+      'M2-', 'M3-' or 'M4-' and shorter than 12, starts with 'F2' and shorter
+      than 5. A name containing 'Furbo' and shorter than 8 is treated as a
+      first-generation unit the app cannot set up this way. A name containing
+      '-S3' selects the current-generation GATT set, one containing 'FW3' the
+      second older controller, anything else the first. The app then reads a
+      12-character device id out of the raw advertisement bytes, decoded as
+      text with everything but letters, digits and '-' removed: the last 12
+      characters for the Furbo3/Furbo3C/Furbo4/M2/M3/M4 names, the first 12
+      otherwise. On the LAN nothing identifies a Furbo except a TUTK session
+      to its UID.
+  discovery:
+    methods:
+      - type: "cloud"
+        cloud:
+          provider: "Furbo cloud (Tomofun)"
+          auth_method: "cognito"
+          auth_params:
+            login_endpoint: "POST https://product.furbo.co/v5/account/read/login"
+            token_field: "CognitoToken"
+            notes: >-
+              The token is issued by the vendor's login endpoint and sent in
+              the JSON body of every request with the AccountId, not as an
+              Authorization header. See cloud.auth and
+              protocol_details.cloud_credential.
+          device_list_endpoint:
+            method: "POST"
+            url: "https://product.furbo.co/v2/account/{AccountId}/device"
+            response_mapping:
+              stable_keys:
+                - source: "json://DeviceList[].Id"
+                - source: "json://DeviceList[].P2PUuid"
+              display:
+                source: "json://DeviceList[].DeviceName"
+        notes: >-
+          The only way to learn a camera's P2P UID and to get the credential a
+          session needs. Each DeviceList entry also carries ProductId (which
+          opcode set it speaks, see device.variants), FirmwareVersion,
+          P2PVendor, DeviceToken and, on legacy cameras, P2PAccessToken.
+          Reported by ha-furbo (verified on its FB0030 account).
+      - type: "udp_broadcast"
+        udp_broadcast:
+          port: 32761
+          response_format: "binary"
+        notes: >-
+          TUTK LAN search: the SDK broadcasts a scrambled connect-by-UID probe
+          and a camera on the same subnet answers, which is what makes a
+          session come up in LAN mode. Port 32761 is the TUTK device listening
+          port go2rtc's pure-Go client defaults to; that a Furbo listens there
+          is a hypothesis. The probe and reply formats are go2rtc's
+          (pkg/tutk/session0.go), not reproduced here, and the reply
+          identifies a camera only by its P2P UID, so the cloud list is still
+          needed to name it.
+      - type: "ble_scan"
+        ble:
+          local_name:
+            match: "regex"
+            value: "^(F2.{0,2}|M[234]-.{0,8}|.*Furbo[34].*|.*MINICAM.*)$"
+        notes: >-
+          Finds a camera in setup mode only (the status light blinking yellow
+          on the 360 and Mini models, green on the original Furbo). The regex
+          is a slightly looser form of the app's rules, which are spelled out
+          in device.identification.notes. Whether a provisioned camera keeps
+          advertising is unknown.
+    identity:
+      stable_keys: ["device_id", "p2p_uid"]
+      display: "device_name"
+    static_ip_required: false
+
+  setup:
+    required: true
+    confidence: "low"
+    notes: >-
+      Setup is the vendor app over BLE, and it is not only a Wi-Fi handover:
+      after joining the network the camera asks for registration data (the
+      account, a cloud endpoint and a short-lived token the app fetches from
+      the cloud) and registers itself with the vendor cloud before it reports
+      success. Everything below is from static analysis of the app; nothing
+      has been replayed, and whether a camera ever completes setup without the
+      cloud is unknown. The network must be 2.4 GHz and WPA2 (the vendor
+      states that 5 GHz and WPA3 do not work); a hidden SSID is typed in by
+      hand. The survey behind this spec reports that newer "Subscription
+      Required" units need a paid plan at setup, and the app does have a
+      licence step that can fail; neither is verified.
+    methods:
+      - type: "ble_provisioning"
+        name: "Vendor app over Bluetooth (current-generation GATT set)"
+        role: "primary"
+        verified: false
+        description: >-
+          The flow the app runs for cameras whose advertised name contains
+          '-S3'. Every value on the wire is ASCII text written with response;
+          the device reports progress as an ASCII status code on a
+          read/indicate characteristic and the app reacts to each code as it
+          arrives. The characteristic table is protocol_details.ble_onboarding_v4
+          and the status codes are payload_formats.Status below. The
+          characteristics are matched by UUID across all services, because
+          which service holds them is not established. No bonding and no MTU
+          request; indications are enabled by writing 0x0200 to each CCCD.
+        ble:
+          protocol: "Furbo BLE setup, current generation (ASCII values on per-field characteristics)"
+          pairing_required: false
+        cloud:
+          provider: "Furbo cloud (Tomofun)"
+          local_alternative: >-
+            None known. The camera requests registration data after joining
+            Wi-Fi, and that data (a short-lived token and an endpoint) comes
+            from the vendor cloud through the app.
+        steps:
+          - action: "Plug the camera in and wait for setup mode: blinking yellow on Furbo 360 and Mini models, green on the original Furbo. Hard reset if it does not appear."
+            actor: "user"
+            timeout_seconds: 120
+          - action: "Scan for a name matching the ble_scan rule, take the 12-character device id from the advertisement, and connect. The app also checks with the cloud that the id is not bound to another account."
+            actor: "client"
+          - action: "Enable indications on the status characteristic 02435612-dc14-423f-bd4f-a6a12e567e90 and read it."
+            actor: "client"
+            request:
+              protocol: "ble_gatt"
+              action: "subscribe + read 02435612-dc14-423f-bd4f-a6a12e567e90"
+            expect: "An ASCII status code; '2' (advertising) or '4' (waiting for Wi-Fi details) means the camera is ready."
+          - action: "If the first status read is negative or above 4, restart the camera's setup: write '0' to fb6dfec1-257c-4d58-9eed-6f79599919f0 (registration-ready flag off), enable indications on 2c259f9c-4a57-4c74-830e-2013e4466c2c and write '1' to it ('2' when re-pointing an already bound camera, see rejoin). Wait for it to indicate '0', then refresh the GATT cache and rediscover services."
+            actor: "client"
+            timeout_seconds: 40
+          - action: "Enable indications on the scan-ready characteristic 3c2c5dea-35aa-4540-94be-0bd5d9e72793 and read it. If it is not '1', write '0' to it to start a Wi-Fi scan and wait for it to indicate '1'."
+            actor: "client"
+            timeout_seconds: 70
+          - action: "Read the AP list chunks e92543cb-08c6-4b2b-a395-1824cdbd4417, a43251f9-1d8c-41d0-9804-879b992d4748, 325d3a42-5102-4c55-aad6-20c7b1157997, 76e415d0-9e94-4979-aaa2-54d8489f7456 in order, stopping after the first chunk that is empty or contains ']'. Concatenate them and parse as payload_formats.ApList. If fewer than six characters came back, rescan (the app retries twice)."
+            actor: "client"
+          - action: "Pick the 2.4 GHz network and enter its passphrase, or type a hidden SSID by hand."
+            actor: "user"
+          - action: "Write the SSID as lowercase hex of its UTF-8 bytes to 233d5fb2-f565-4fef-832a-983d6c362f36. Write the passphrase: if f72deed1-3198-4df6-b0d7-e472cea7885f exists, its encrypted form there (see protocol_details.ble_onboarding_v4.field_encryption), otherwise its lowercase hex to ac075b73-2424-4e7a-9fe2-62cbf19e7e89. Then write '1' to 2474cee2-379d-4a0c-b630-37dd53965ca2."
+            actor: "client"
+            timeout_seconds: 50
+            expect: "The status moves to 8 (joining the AP), then 9, 10 and 12."
+          - action: "The camera joins Wi-Fi, takes a DHCP lease, checks DNS and checks that the cloud is reachable."
+            actor: "device"
+            timeout_seconds: 220
+          - action: "On status 20, write the registration data: the account value (encrypted to cb04b5ee-4c79-4316-a50e-8cc4a2067840 if present, else plain to 3c1a8fd9-ac74-4062-80cc-b2947cb7a039), the cloud endpoint to 81f6f485-eae6-41cc-8a2f-e11a5844a114, the short-lived registration token (encrypted to e42de30f-a772-43fe-b216-ca5b78db4d82 if present, else plain to 953b64d3-99bd-4434-b050-1c39512f9f95), then '1' to fb6dfec1-257c-4d58-9eed-6f79599919f0. Enable indications on f60a6339-0647-42a4-b709-29a3e620c0af and 41f21774-cc72-44f2-a002-86bdbedc253d for the camera's HTTP and service error codes."
+            actor: "client"
+            timeout_seconds: 60
+          - action: "The camera registers itself with the vendor cloud (status 13, then 14)."
+            actor: "device"
+            timeout_seconds: 200
+          - action: "On status 21, write the settings: longitude to 00002aaf-0000-1000-8000-00805f9b34fb and latitude to 00002aae-0000-1000-8000-00805f9b34fb (ASCII decimal, seven fractional digits), the two-letter country code to f34375ad-c23c-4bb5-bbfe-13d624741757, '60' to the speaker volume 1a19aaae-094a-47aa-aaa3-1d66bd08ab1a, the IANA time zone name plus a trailing 0x00 to 00002a0e-0000-1000-8000-00805f9b34fb, then '1' to 3c2fb8ce-49b9-4e1c-848f-8a26740e7c8c."
+            actor: "client"
+          - action: "The camera applies the settings (22), starts its P2P service (15) and reports '0' when a P2P session is possible. The app then opens a P2P session and asks for a camera name."
+            actor: "device"
+            timeout_seconds: 40
+            expect: "Status '0'. If it stays at 15 for 20 s the app treats setup as done anyway."
+        timing:
+          ap_info_write_to_status_s: 50
+          joining_ap_s: 220
+          getting_ip_s: 70
+          dns_or_system_setting_s: 20
+          cloud_check_or_verify_s: 70
+          registering_s: 200
+          register_info_write_to_status_s: 60
+          p2p_connecting_s: 20
+          reset_setup_s: 40
+          wifi_scan_s: 70
+          wifi_list_rescans: 2
+          notes: >-
+            The app's own timeouts, each armed when the named status first
+            arrives and cleared when the status changes. A repeated status
+            does not re-arm its timer.
+        payload_formats:
+          Status:
+            description: >-
+              The status characteristic's value: an ASCII signed decimal
+              integer, read and indicated. Codes are the device's; the labels
+              are ours. The order in which a healthy setup walks them is
+              inferred from the codes the app waits for and is not verified.
+            values:
+              "1": "initialising"
+              "2": "advertising, ready for setup"
+              "4": "waiting for Wi-Fi details"
+              "8": "joining the access point"
+              "9": "getting an IP address"
+              "10": "checking DNS"
+              "12": "checking the cloud service"
+              "20": "waiting for registration data"
+              "13": "registering with the cloud"
+              "14": "verifying the registration"
+              "21": "waiting for settings"
+              "22": "applying settings"
+              "15": "starting P2P"
+              "0": "P2P ready, setup complete"
+              "-1": "wrong Wi-Fi passphrase"
+              "-2": "could not join the access point (read Wi-Fi mode and Wi-Fi error for detail)"
+              "-3": "no IP address"
+              "-4": "DNS unavailable"
+              "-20": "cloud service unreachable"
+              "-8": "cloud registration failed"
+              "-21": "registration could not be confirmed"
+              "-30": "system error on the camera"
+              "-101": "Wi-Fi change requested but no ownership proof was written"
+              "-102": "Wi-Fi change ownership proof rejected"
+            parse_rules:
+              - "Decode the value as ASCII and parse a signed integer."
+              - "On the first read of a connection, a value below 0 or above 4 means a stale setup: restart it through the reset-setup characteristic before going on."
+              - "The app sorts failures three ways: -1 is a passphrase problem; -2, -3, -4, -8, -20 and -21 are router or internet problems; -30 and anything unlisted is a camera problem."
+            example: "4"
+          ApList:
+            description: >-
+              The Wi-Fi scan result, split across up to four read
+              characteristics. The concatenated chunks form a JSON array; the
+              app wraps it as {"ap_list": <array>} before parsing. Keys have a
+              long and a one-letter spelling.
+            fields:
+              - name: "name"
+                description: "SSID as lowercase hex of its UTF-8 bytes (also spelled 'n'). The app hex-decodes it, falling back to the raw text when it is not valid hex."
+              - name: "mode"
+                description: "Security mode as a string (also spelled 'm'). Its vocabulary is not recorded."
+              - name: "signal"
+                description: "Signal strength, an integer (also spelled 's'). Whether it is dBm or a percentage is not recorded."
+            parse_rules:
+              - "Read chunk 1, then 2, 3, 4, appending each; stop after a chunk that is empty or contains ']'."
+              - "Parse the concatenation as a JSON array of objects."
+              - "Hex-decode each name; show the list sorted and de-duplicated, as the app does."
+            example: '[{"name":"486f6d652d322e34","mode":"WPA2","signal":-52}]'
+        troubleshooting:
+          - symptom: "The app cannot find the camera ('can't connect to your Furbo')"
+            causes:
+              - "The camera is not in setup mode. Hard reset until the light blinks yellow (green on the original Furbo)."
+              - "Phone Bluetooth is off or wedged. The vendor's advice is to toggle Bluetooth, restart the phone, and unplug and replug the camera."
+              - "A first-generation camera: a name containing 'Furbo' and shorter than 8 characters is refused by this app's BLE flow."
+          - symptom: "Wi-Fi scan never completes (the app's 'scan timeout')"
+            causes:
+              - "The scan-ready characteristic never indicated '1' within 70 s. Write '0' again; the app retries twice."
+          - symptom: "The AP list cannot be read or parsed"
+            causes:
+              - "A chunk read failed, or the concatenation is not valid JSON. The app re-reads from chunk 1 after a rescan."
+          - symptom: "My network is not in the list"
+            causes:
+              - "It is 5 GHz only. Furbo joins 2.4 GHz only."
+              - "It is hidden. Enter the SSID by hand."
+              - "Weak signal. The vendor suggests setting up within about 1.5 m of the router."
+          - symptom: "Status -1 or -2 after the credentials are written"
+            causes:
+              - "Wrong passphrase, or a WPA3-only network. The vendor says WPA3 is not supported; switch the router to WPA2 or WPA2/WPA3 mixed."
+          - symptom: "Setup fails for a camera that was set up before"
+            causes:
+              - "It is still bound to an account. After a hard reset, remove the camera from the old account in the app, then set it up again."
+      - type: "ble_provisioning"
+        name: "Vendor app over Bluetooth (older-generation JSON channel)"
+        role: "variant"
+        verified: false
+        description: >-
+          For cameras whose advertised name does not contain '-S3' (the Furbo
+          2 generation and the first Mini, by the app's name rules; which
+          hardware that is exactly is unverified). One service,
+          77f9a069-2ff9-4ff9-93b7-4db9689f4b53, with a write characteristic
+          026048ab-fafc-48e5-9db0-a9bc46368055 and a notify/indicate
+          characteristic 30c95538-58f8-4db4-a62e-08af4bae4cb0. Requests are
+          JSON objects {"c": "<4-digit command>", "d": {...}} (one app
+          revision adds a fixed ten-character placeholder in "s"); '0001'
+          asks for the AP list, '0002' sends the Wi-Fi and registration
+          details (device_id, ssid, password, accesstoken, user, endpoint).
+          A later revision (names containing 'FW3') adds '0022' and '0023'.
+          Both revisions pass the JSON through a transform in the app's native
+          library before writing it as base64 text, which this project has not
+          analysed, so the bytes cannot be reproduced from this spec. After
+          each write the app writes 'ENM' without response as an end marker;
+          replies arrive as notifications, accumulated until one equal to
+          'ENM', then decoded the same way. See protocol_details.ble_onboarding_legacy.
+        ble:
+          protocol: "Furbo BLE setup, older generations (JSON over one write and one notify characteristic)"
+          service_uuid: "77f9a069-2ff9-4ff9-93b7-4db9689f4b53"
+          write_characteristic: "026048ab-fafc-48e5-9db0-a9bc46368055"
+          read_characteristic: "30c95538-58f8-4db4-a62e-08af4bae4cb0"
+          pairing_required: false
+        steps:
+          - action: "Put the camera in setup mode and connect to service 77f9a069-2ff9-4ff9-93b7-4db9689f4b53."
+            actor: "user"
+          - action: "Enable notifications (or indications, whichever the characteristic offers) on 30c95538-58f8-4db4-a62e-08af4bae4cb0."
+            actor: "client"
+          - action: "Send command '0001' with the 12-character device id; the reply's data carries the AP list."
+            actor: "client"
+            timeout_seconds: 60
+          - action: "Send command '0002' with the device id, SSID, passphrase, access token, user and endpoint; a reply result of 0 is success."
+            actor: "client"
+            timeout_seconds: 100
+        timing:
+          get_wifi_list_s: 60
+          set_wifi_s: 100
+          set_wifi_later_revision_s: 10
+          notes: "App timeouts: 60 s for the AP list, 100 s for the set-Wi-Fi reply in the first revision and 10 s in the later one."
+    factory_reset:
+      applicable: true
+      confidence: "medium"
+      effect: >-
+        Disconnects the camera from Wi-Fi, forgets the network and puts it
+        back in setup mode. It does not unbind the camera from its cloud
+        account: the vendor says to also remove it from the account in the
+        app, or the next setup fails.
+      description: >-
+        Procedures from Furbo's help centre, per model; none has been run by
+        this project. The vendor's own articles disagree on the Furbo 360 hold
+        time (5-10 s in the hard-reset article, 30 s in a setup article), so
+        hold until the light changes rather than counting. The vendor also
+        warns not to press reset just to change Wi-Fi networks; that is an
+        in-app flow (see rejoin). The P2P opcode set has a remote reset
+        request as well (protocol_details, marked advanced); the app's use of
+        it was not traced.
+      procedures:
+        - name: "Furbo 360 and Furbo 360 Cat: reset button under the camera"
+          verified: false
+          basis: "Furbo help centre, 'Hard Reset Your Furbo' (Furbo 360 Dog and Cat Camera articles) and 'Issues with Furbo Light Indicator'."
+          applies_to: ["FB0030", "FB0035", "FBC0030", "FBC0035"]
+          hold_seconds: 10
+          power_state: "on"
+          glyph: "generic/hold-button.svg"
+          indicator: "The status light starts blinking yellow (setup mode)."
+          indicator_glyph: "generic/led-flashing.svg"
+          steps:
+            - action: "With the camera plugged in, press and hold the reset button underneath it for about 5 to 10 seconds."
+              actor: "user"
+              expect: "The light starts blinking yellow."
+            - action: "Remove the camera from the old account in the Furbo app before setting it up again."
+              actor: "user"
+        - name: "Original Furbo (Furbo 2 / 2.5T): pinhole on the back, about 20 seconds"
+          verified: false
+          basis: "Furbo help centre, 'Hard reset your Furbo' (original Furbo Dog Camera article)."
+          applies_to: ["FB001", "FB002", "FB0025"]
+          hold_seconds: 20
+          power_state: "on"
+          glyph: "generic/pinhole-reset.svg"
+          indicator: "The light changes colour, then turns green (setup mode)."
+          steps:
+            - action: "With the camera plugged in, press and hold the pinhole reset button on the back with a pin or straightened paper clip for about 20 seconds, until the light changes colour."
+              actor: "user"
+            - action: "Wait until the light turns green."
+              actor: "device"
+              timeout_seconds: 120
+        - name: "Furbo Mini (non-rotating): pinhole, 5-10 seconds"
+          verified: false
+          basis: "Furbo help centre, 'Hard Reset Your Furbo Mini and Furbo Mini 360°'."
+          applies_to: ["MC0010", "MC0020", "MC0030"]
+          hold_seconds: 10
+          power_state: "on"
+          glyph: "generic/pinhole-reset.svg"
+          indicator: "The light starts blinking yellow."
+          indicator_glyph: "generic/led-flashing.svg"
+          steps:
+            - action: "With the camera plugged in, use a pin to press and hold the reset button for 5 to 10 seconds."
+              actor: "user"
+              expect: "The light starts blinking yellow."
+        - name: "Furbo Mini 360 (rotating): button under the device"
+          verified: false
+          basis: "Furbo help centre, 'Hard Reset Your Furbo Mini and Furbo Mini 360°', which gives no hold time."
+          power_state: "on"
+          glyph: "generic/hold-button.svg"
+          indicator: "The light starts blinking yellow."
+          indicator_glyph: "generic/led-flashing.svg"
+          steps:
+            - action: "With the camera plugged in, press and hold the reset button underneath until the light starts blinking yellow."
+              actor: "user"
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >-
+        The app's 'Reset Wi-Fi' menu item re-runs the BLE flow on a bound
+        camera without a hard reset (the vendor says the light shows blinking
+        blue when the camera has lost its network). In the current-generation
+        set the app writes '2' instead of '1' to the reset-setup
+        characteristic and, with the new credentials, writes an ownership
+        proof it holds for that camera, encrypted, to
+        d6f178c9-8137-4d18-8ced-0b62d7e3e7f2; a missing or wrong proof ends
+        with status -101 or -102. Where the app gets that proof was not
+        traced. P2P sessions need no change afterwards: the UID is the
+        camera's, not the network's.
+      steps:
+        - action: "Plug the camera in near the new router (blinking blue light when it cannot reach its old network)."
+          actor: "user"
+        - action: "In the vendor app choose the camera, then 'Reset Wi-Fi', and let the phone connect over Bluetooth."
+          actor: "user"
+        - action: "Write '2' to 2c259f9c-4a57-4c74-830e-2013e4466c2c, then run the scan and credential steps of the primary method, adding the encrypted ownership proof to d6f178c9-8137-4d18-8ced-0b62d7e3e7f2 before the ready flag."
+          actor: "client"
+    credentials:
+      wifi_passphrase_protection: "device_encrypted"
+      stored_on_device:
+        - "Wi-Fi SSID and passphrase"
+        - "Cloud registration (account, endpoint; the registration token is short-lived)"
+        - "Time zone, country code, the phone's latitude and longitude at setup, speaker volume"
+      issued_to_client:
+        - "Nothing locally. A P2P credential (the camera's UID, an 8-character AuthKey, a P2P account id and a P2P account key) is issued by the cloud on each request, and each request invalidates the previous key."
+      notes: >-
+        On the current-generation set the passphrase, the account value, the
+        registration token and the Wi-Fi-change proof travel AES-256-CBC
+        encrypted under a key and IV that are constants in the app, the same
+        for every install. That hides them from a casual BLE sniffer and from
+        nobody who has the app; the BLE link itself is unencrypted and
+        unpaired. A plain-hex passphrase characteristic also exists, used by
+        the app only when the encrypted one is absent. The key and IV are not
+        published here; an implementer extracts them from their own copy of
+        the app. The older generations pass the whole JSON request through a
+        transform in the app's native library, not analysed here.
+
+  pairing:
+    required: false
+    confidence: "low"
+    security_mode: "none"
+    bonding: "none"
+    exclusivity:
+      single_connection: "unknown"
+      single_bond: false
+      recovery: >-
+        Nothing bonds, so there is nothing to forget in the phone's Bluetooth
+        settings. The exclusivity that bites is on the P2P side: one cloud
+        fetch of the P2P credential invalidates the key every other client
+        holds, so the vendor app and a bridge fetching independently knock
+        each other off (-20011 on the AV channel). Share one session.
+    unpair:
+      supported: true
+      requires_factory_reset: false
+      clears: "The cloud account binding, via 'Remove Device' in the app. There is no BLE bond to clear."
+    notes: >-
+      From the app: no bond is ever created, no MTU is requested, and every
+      characteristic is used on a bare connection. Ownership is enforced by
+      the cloud binding and the P2P credential, not by the radio link. Not
+      checked on hardware.
+
+  variants:
+    - model: "FB001"
+      name: "Furbo Dog Camera, first generation (hypothesis)"
+      notes: >-
+        Cloud ProductId FB001 speaks the V2 opcode set per ha-furbo. Which
+        product it is and how it advertises are not established; a BLE name
+        containing 'Furbo' and shorter than 8 characters is what the app
+        treats as first generation and refuses.
+    - model: "FB002"
+      name: "Furbo Dog Camera 2 (hypothesis)"
+      identification:
+        local_name_prefix: "F2"
+      notes: >-
+        V2 opcode set. The cloud issues it no AuthKey, P2PAccountId or
+        P2PAccountKey; it authenticates with the account id and the device
+        record's P2PAccessToken in the clear (ha-furbo issue 3, verified on
+        FB002 hardware by a contributor). The 'F2' BLE prefix mapping is a
+        hypothesis from the app's name rules. Somerset Recon's RTSP and root
+        exploit reports concern this generation.
+    - model: "FB0025"
+      name: "Furbo Dog Camera 2.5T (model label 'Furbo2.5T', FCC ID 2AIBVTFFBV3)"
+      notes: >-
+        V2 opcode set per ha-furbo. The FCC label exhibit reads MODEL
+        Furbo2.5T, 5 V 2 A input. That the label model and cloud ProductId
+        FB0025 are the same product is a hypothesis. BLE name rule not
+        established (possibly 'F2', like the Furbo 2).
+    - model: "FB0030"
+      name: "Furbo 360 Dog Camera (sticker model 'Furbo3')"
+      identification:
+        local_name_contains: ["Furbo3"]
+      notes: >-
+        V3 opcode set. The one model the P2P half of this spec was verified
+        on (ha-furbo, firmware 108). The link from ProductId FB0030 to the
+        sticker model 'Furbo3' and the BLE name 'Furbo3...' is by the
+        vendor's model table and the app's setup types, not observed.
+    - model: "FB0035"
+      name: "Furbo 360 revision or successor (hypothesis)"
+      notes: "V3 opcode set per ha-furbo. Product not identified; possibly what the app's 'Furbo4' setup type covers."
+    - model: "FBC0030"
+      name: "Furbo 360 Cat Camera (sticker model 'FurboCat', hypothesis)"
+      identification:
+        local_name_contains: ["Furbo3C"]
+      notes: "V3 opcode set per ha-furbo. The 'C' ProductIds are taken to be the cat cameras; unverified."
+    - model: "FBC0035"
+      name: "Furbo 360 Cat Camera, later revision (hypothesis)"
+      notes: "V3 opcode set per ha-furbo. Product not identified."
+    - model: "MC0010"
+      name: "Furbo Mini (FCC ID 2AIBV-MINICAM, hypothesis)"
+      identification:
+        local_name_contains: ["MINICAM"]
+      notes: >-
+        V2 opcode set per ha-furbo. ProductId-to-product mapping and the
+        'MINICAM' BLE name link are hypotheses. Somerset Recon's firmware
+        update findings concern the Mini.
+    - model: "MC0020"
+      name: "Furbo Mini 2 (hypothesis)"
+      identification:
+        local_name_prefix: "M2-"
+      notes: "V3 opcode set per ha-furbo. The 'M2-' BLE prefix mapping is a hypothesis from the app's name rules."
+    - model: "MC0030"
+      name: "Furbo Mini 3 (hypothesis)"
+      identification:
+        local_name_prefix: "M3-"
+      notes: >-
+        V3 opcode set per ha-furbo. The app pans a Mini 3 by 50 degrees per
+        press instead of 60. The app also knows an 'M4-' name and a 'Mini
+        2K' setup type with no ProductId seen yet.
+
+services:
+  - uuid: "0000180a-0000-1000-8000-00805f9b34fb"
+    name: "Device Information"
+    notes: >-
+      Read by the app during current-generation setup and reported with its
+      analytics. Only the three characteristics below are used; their exact
+      contents on each model are not recorded.
+    characteristics:
+      - uuid: "00002a24-0000-1000-8000-00805f9b34fb"
+        name: "Model Number String"
+        properties: ["read"]
+      - uuid: "00002a26-0000-1000-8000-00805f9b34fb"
+        name: "Firmware Revision String"
+        properties: ["read"]
+      - uuid: "00002a28-0000-1000-8000-00805f9b34fb"
+        name: "Software Revision String"
+        properties: ["read"]
+  - uuid: "77f9a069-2ff9-4ff9-93b7-4db9689f4b53"
+    name: "Furbo setup service, older generations"
+    notes: >-
+      The service the app's two older setup controllers open by UUID. JSON
+      requests go out on 026048ab-fafc-48e5-9db0-a9bc46368055 and replies come
+      back on 30c95538-58f8-4db4-a62e-08af4bae4cb0, both through a native
+      transform this project has not analysed (see the older-generation setup
+      method and protocol_details.ble_onboarding_legacy). Properties are those
+      the app uses; the device's declared property bits are not recorded.
+    initialization:
+      - characteristic: "30c95538-58f8-4db4-a62e-08af4bae4cb0"
+        subscribe: true
+        description: >-
+          Open notifications (or indications) before the first request. The
+          app picks the CCCD value from the characteristic's property bits; it
+          sets the descriptor value but its older controllers never write the
+          descriptor, so whether the camera notifies without a CCCD write is
+          an open question. A client should write it.
+    characteristics:
+      - uuid: "026048ab-fafc-48e5-9db0-a9bc46368055"
+        name: "Setup request (write)"
+        properties: ["write", "write_without_response"]
+        role: "command"
+      - uuid: "30c95538-58f8-4db4-a62e-08af4bae4cb0"
+        name: "Setup reply (notify)"
+        properties: ["notify", "indicate"]
+        role: "notify"
+
+features:
+  - type: "firmware_update"
+    dfu:
+      mechanisms: ["vendor_cloud"]
+      transport: "cloud"
+      image:
+        signing: "unknown"
+        source: "device_pulls"
+        notes: >-
+          The camera fetches its own image. Somerset Recon reported (2022)
+          that the Furbo Mini's SWU images carried no signature and were
+          downloaded without TLS certificate verification; other models are
+          not covered by that report and nothing here is verified.
+      enter:
+        how: "unknown"
+        notes: >-
+          The app can ask a camera to update over P2P (an upgrade request in
+          each opcode set, listed as advanced in protocol_details and
+          deliberately not documented further), and the version fields of
+          the upgrade-info reply say whether one is pending. How the camera
+          then finds and applies the image is not known.
+      recovery:
+        interrupted: "unknown"
+        notes: "Somerset Recon describes A/B boot slots on the Mini, which would keep the old image; unverified and unknown for other models."
+      verification: "reported"
+      notes: >-
+        OTA is outside this spec's scope. This block exists so a consumer
+        never offers an update path it cannot see, and so the upgrade and
+        reset opcodes stay behind the advanced flag.
+
+cloud:
+  required: true
+  vendor_service: "Furbo cloud (Tomofun)"
+  hosts:
+    - "https://product.furbo.co"
+  auth:
+    type: "other"
+    endpoint: "/v5/account/read/login"
+    notes: >-
+      Every request is a JSON POST carrying AccountId and CognitoToken in the
+      body, plus a fixed HTTP Basic Authorization header and a user agent
+      that the app embeds (the same for every install; not reproduced here).
+      The password is RSA-encrypted (PKCS#1 v1.5) with a public key embedded
+      in the app and sent base64 as EncPassword. The client sends a MobileId
+      it generates (an uppercase UUID) and should keep: a new MobileId looks
+      like a new phone and triggers an emailed MFA code. The token lasts
+      about a day and no refresh token is issued. Each login also counts
+      against a per-account device binding limit.
+    verification: "reported"
+  endpoints:
+    - path: "/v5/account/read/login"
+      method: "POST"
+      name: "Login"
+      returns: "AccountId and CognitoToken, or result code 12101 with an MfaAuthCodeCandidate when an emailed code is needed. A stored MfaAuthCode from an earlier verification skips the challenge."
+      verification: "reported"
+    - path: "/v4/account/mfa/login/send-code"
+      method: "POST"
+      name: "Send MFA code"
+      returns: "Emails a code to the account; may return a refreshed MfaAuthCodeCandidate."
+      verification: "reported"
+    - path: "/v4/account/mfa/verify"
+      method: "POST"
+      name: "Verify MFA code"
+      returns: "MfaAuthCode, a proof to present on this and later logins."
+      verification: "reported"
+    - path: "/v2/account/login"
+      method: "POST"
+      name: "Login with MFA proof"
+      returns: "AccountId, CognitoToken and MfaAuthCode."
+      verification: "reported"
+    - path: "/v2/account/{AccountId}/device"
+      method: "POST"
+      name: "Device list"
+      returns: "DeviceList[]: Id, DeviceName, ProductId, FirmwareVersion, DeviceStatus, P2PVendor, P2PUuid, DeviceToken, and P2PAccessToken on legacy cameras."
+      verification: "reported"
+    - path: "/v5/device/p2p_connection/get"
+      method: "POST"
+      name: "P2P credential"
+      returns: "AuthKey (8 characters), P2PAccountId and a freshly issued P2PAccountKey for one DeviceId; all three null for a legacy camera. Every call invalidates the previously issued key."
+      notes: "The only cloud call a local P2P client strictly needs once it has the device list. Fetch it just before connecting, once, and share the session."
+      verification: "reported"
+  failure_mode: >-
+    Without the cloud a client cannot obtain a P2P credential, so it cannot
+    open a session, and a camera cannot be set up. Whether a session opened
+    with an earlier credential survives, or can be reopened, while the cloud
+    is unreachable is not established. Alerts, clips, captions, summaries and
+    the Nanny features stop outright.
+  data_leaves_device:
+    - "Live and recorded video and audio used for alerts and clips (cloud-side classification of barking, crying, person, smoke alarm and pet activity)"
+    - "Owner labels on the app's detections (training feedback)"
+    - "The phone's latitude and longitude, written to the camera at setup"
+    - "Wi-Fi network name, time zone and country"
+    - "Account email and identifiers"
+    - "Device logs, on request (an upload-logs opcode exists)"
+  notes: >-
+    Only the credential path is documented here. The rest of the cloud API
+    (alerts, subscriptions, events, the cloud treat toss) is out of scope;
+    ha-furbo's furbo_cloud.py covers it. Result codes seen by ha-furbo:
+    12002 token rejected (also the answer to a wrong email or password at
+    login), 12101 MFA required, 12102 wrong code, 12103 expired code, 80001
+    too many attempts, 80002 rate limited (TimeWait seconds in the body).
+
+local_access:
+  status: "native"
+  summary: >-
+    The camera speaks TUTK P2P on the LAN as shipped, and a same-subnet
+    client reaches it in LAN mode with no traffic leaving the house for the
+    session itself. But the credential for that session comes from the
+    vendor cloud, freshly, each time.
+  covers:
+    - "Live H.264 video (1080p or 360p on the FB0030)"
+    - "Microphone audio and G.711 u-law talkback"
+    - "Camera on/off, speaker volume, night vision, barking sensitivity, auto tracking and zoom, voice control, treat size"
+    - "Pan left/right and treat toss"
+    - "Firmware version report"
+  not_covered:
+    - "Obtaining the P2P credential (cloud login)"
+    - "Setup and Wi-Fi changes (BLE flow that registers with the cloud)"
+    - "Alerts, clips, captions, daily summaries, Nanny features"
+    - "Firmware updates"
+  notes: >-
+    The TUTK SDK is proprietary and licensed per app; ha-furbo builds
+    against a copy fetched at build time and ships none. go2rtc's pure-Go
+    TUTK package is the SDK-free route, but whether it handles the Furbo's
+    DTLS AV channel with the account/key identity is not established.
+
+protocol_details:
+  # The P2P session bring-up lives here rather than in a top-level
+  # `initialization` block: every initialization step must address a GATT
+  # characteristic or a declared command, and TUTK has neither.
+  tutk_session:
+    verification: "reported"
+    source: "ha-furbo furbo-bridge/src/furbo_p2p.py and DOCS.md; hardware-verified there on FB0030 firmware 108"
+    steps:
+      - "Initialise the SDK once per process: set the licence string the vendor app uses (an app-wide constant that the vendor SDK requires; not published here), initialise IOTC on a random local UDP port (the app uses 10000 plus the current time modulo 10000), then initialise AV. The app sets no region."
+      - "Fetch a P2P credential for the camera from the cloud (cloud.endpoints 'P2P credential') immediately before connecting."
+      - "Modern camera: connect by UID with authentication type 0 and the 8-character AuthKey. Legacy camera (the cloud returned no AuthKey): the plain parallel connect by UID with no key."
+      - "Check the session: mode 0 is direct P2P, 1 is relay, 2 is LAN. Relay makes commands slow and can stop video starting."
+      - "Start the AV client on IOTC channel 0: identity P2PAccountId, password P2PAccountKey, resend on, security mode 1 (DTLS, PSK-AES128-CBC-SHA256), auth type 0. Legacy camera: identity the account id, password the device record's P2PAccessToken, security mode 0 (no DTLS), auth type 0. ha-furbo raised the client receive buffers to 10 MiB."
+      - "V2 cameras only: send the account's DeviceToken, NUL-terminated, with the V2 set-device-token opcode. V3 cameras take nothing (the app's V3 implementation of that call sends nothing)."
+      - "Before each IOCTRL send, drain anything already queued, so the command's own reply is not consumed by the drain."
+      - "Close: exit IOCTRL, stop the AV client, stop the connect and close the session. Deinitialise the SDK only at process exit."
+    single_session_rule: >-
+      One session per camera, shared by video, audio and control. Every cloud
+      fetch reissues P2PAccountKey, so a second session (or the phone app)
+      that fetches its own credential invalidates the first one's key; both
+      then fail with -20011 and ha-furbo saw this wedge video and controls
+      for hours.
+    lan_mode: >-
+      LAN mode needs the client and camera in one broadcast domain. Across
+      VLANs, allow UDP both ways between the two hosts (the session then
+      comes up as direct P2P) or relay the search broadcast.
+    errors_seen:
+      "-90": "wrong AuthKey"
+      "-24": "camera offline (not listening)"
+      "-19": "camera not found"
+      "-20009": "wrong AV account or password"
+      "-20011": "AV timeout; also the symptom of a credential invalidated by another fetch"
+      "-20018": "security mode not supported by the server"
+      "-20027": "talkback server started without DTLS (the camera requires it)"
+      "-20040": "DTLS wrong password"
+      "-20041": "DTLS authentication failed"
+
+  ioctrl_framing:
+    verification: "reported"
+    request: "One IOCTRL message on the AV channel: a 32-bit opcode and a payload. Most requests carry 4 bytes; unused bytes are 0x00."
+    reply: "The reply opcode is the request opcode plus one (a reply carrying the request opcode itself is also seen). The payload starts with a status byte, 0 meaning success, unless noted."
+    rejection: >-
+      A request the camera will not serve is answered with opcode 0x40001
+      and payload [status, opcode bits 0-7, opcode bits 8-15, 0, 0]. Only the
+      low 16 bits of the refused opcode come back, so 0x10009 and 0x20009
+      look alike; match a refusal against the request that is outstanding.
+    notifications: "Unsolicited messages use their own opcodes (the 0x30000 range on V3) and are not replies."
+    pacing: "ha-furbo waits up to 0.4 s per reply on a V3 state sweep and moves on; on a LAN session replies arrive in milliseconds."
+
+  ioctrl_v3:
+    applies_to: ["FB0030", "FB0035", "FBC0030", "FBC0035", "MC0020", "MC0030"]
+    verification: "reported"
+    notes: >-
+      Opcode numbers were cross-checked against the vendor app's V3 command
+      table; payload layouts are the app's request builders and ha-furbo's
+      reply decoding, some of which ha-furbo established empirically on the
+      FB0030. Names are ours. Hardware-verified by ha-furbo: state read,
+      set volume (reads back), pan (moves and returns), one treat toss.
+    opcodes:
+      - {opcode: "0x10001", name: "get_device_info", request: "4 x 0x00", reply: "[0] status; [1] camera on (1/0); [5] speaker volume; from [9] four NUL-padded ASCII fields of equal width: current firmware, new firmware, library, new library; then flags and the Wi-Fi SSID as hex of hex text. Offsets partly empirical."}
+      - {opcode: "0x10003", name: "set_device_token", request: "not sent on V3", reply: "-"}
+      - {opcode: "0x10005", name: "get_time_zone", request: "4 x 0x00", reply: "status then the zone, layout not recorded"}
+      - {opcode: "0x10007", name: "set_time_zone", request: "IANA zone name, UTF-8, plus one 0x00", reply: "status"}
+      - {opcode: "0x10009", name: "get_camera_on", request: "4 x 0x00", reply: "[0] status; [1] 1 on, 0 off"}
+      - {opcode: "0x1000b", name: "set_camera_on", request: "[on (1/0), 0, 0, 0]", reply: "status"}
+      - {opcode: "0x1000d", name: "get_camera_schedule", request: "4 x 0x00", reply: "status then a JSON object"}
+      - {opcode: "0x1000f", name: "set_camera_schedule", request: "NUL-terminated JSON, e.g. {\"schedule_enable\":1} for the master switch alone", reply: "status"}
+      - {opcode: "0x10011", name: "get_upgrade_info", request: "4 x 0x00", reply: "[0] status; from [2] four NUL-padded ASCII fields: new firmware, current firmware, new library, current library"}
+      - {opcode: "0x10013", name: "get_night_vision", request: "4 x 0x00", reply: "[0] status; [1] mode: 0 auto, 1 on, 2 off"}
+      - {opcode: "0x10015", name: "set_night_vision", request: "[mode (0 auto, 1 on, 2 off), 0, 0, 0]", reply: "status"}
+      - {opcode: "0x10017", name: "get_sound_sensitivity", request: "4 x 0x00", reply: "[0] status; [1] level: 0 off, 1 low, 2 medium, 3 high"}
+      - {opcode: "0x10019", name: "set_sound_sensitivity", request: "[level (0 off, 1 low, 2 medium, 3 high), 0, 0, 0]", reply: "status"}
+      - {opcode: "0x1001b", name: "get_speaker_volume", request: "4 x 0x00", reply: "[0] status; [1] volume 0-100 (percent); [2] muted (1/0)"}
+      - {opcode: "0x1001d", name: "set_speaker_volume", request: "[volume 0-100 (percent), 0, 0, 0]", reply: "status"}
+      - {opcode: "0x1001f", name: "get_treat_sound", request: "4 x 0x00", reply: "[0] status; [1] 0 default, 1 custom, 2 mute"}
+      - {opcode: "0x10021", name: "set_treat_sound", request: "not traced (V2 takes a NUL-terminated sound URL)", reply: "status"}
+      - {opcode: "0x10023", name: "get_treat_size", request: "4 x 0x00", reply: "[0] status; [1] 0 large, 1 small"}
+      - {opcode: "0x10025", name: "set_treat_size", request: "[size (0 large, 1 small), 0, 0, 0]", reply: "status"}
+      - {opcode: "0x10027", name: "get_auto_tracking", request: "4 x 0x00", reply: "[0] status; [1] tracking while idle (cruise); [2] tracking in live view"}
+      - {opcode: "0x10029", name: "set_auto_tracking", request: "[cruise, live, live zoom, 0], each 1/0", reply: "status"}
+      - {opcode: "0x1002b", name: "get_auto_zoom", request: "4 x 0x00", reply: "[0] status; [1] cruise; [2] live"}
+      - {opcode: "0x1002d", name: "set_auto_zoom", request: "[cruise, live, 0, 0], each 1/0", reply: "status"}
+      - {opcode: "0x10030", name: "get_auto_calm", request: "4 x 0x00", reply: "status then JSON"}
+      - {opcode: "0x10032", name: "set_auto_calm", request: "not traced", reply: "status"}
+      - {opcode: "0x10034", name: "play_auto_calm_audio", request: "not traced", reply: "status"}
+      - {opcode: "0x10036", name: "get_voice_control", request: "4 x 0x00", reply: "[0] status; [1] 1 on, 0 off"}
+      - {opcode: "0x10038", name: "set_voice_control", request: "[on (1/0), 0, 0, 0]", reply: "status"}
+      - {opcode: "0x1003c", name: "get_treat_troubleshoot", request: "4 x 0x00", reply: "not recorded"}
+      - {opcode: "0x1003e", name: "set_treat_troubleshoot", request: "not traced", reply: "status"}
+      - {opcode: "0x10040", name: "get_network_info", request: "4 x 0x00", reply: "not recorded"}
+      - {opcode: "0x20001", name: "upgrade_firmware", advanced: true, advanced_reason: "Starts a firmware update; an interrupted update may leave the camera unusable. Not documented further.", request: "-", reply: "-"}
+      - {opcode: "0x20003", name: "reboot", advanced: true, advanced_reason: "Drops every session and takes the camera offline for its boot time.", request: "4 x 0x00", reply: "status"}
+      - {opcode: "0x20005", name: "upload_logs", advanced: true, advanced_reason: "Sends the camera's logs to the vendor.", request: "4 x 0x00", reply: "status"}
+      - {opcode: "0x20007", name: "toss_treat", request: "4 x 0x00", reply: "status; a treat-tossing notification (0x30005) follows", notes: "Physical actuator with a consumable. The app sends one per press, in one path preceded by play_treat_sound. Verified by ha-furbo: one treat dispensed."}
+      - {opcode: "0x20009", name: "pan", request: "6 bytes: [direction (1 left, 2 right), degrees (uint8), 0, 0, 0, 0]", reply: "status; a pan notification (0x30007) follows", notes: "Relative. The app turns 60 degrees per press (50 on the Mini 3) and in one case sends 0 degrees, probably a stop. ha-furbo accepts 1-180. The sixth byte is a third argument the app passes as 0. Verified by ha-furbo: moves and returns."}
+      - {opcode: "0x2000b", name: "reset_device", advanced: true, advanced_reason: "Remote factory reset: the camera forgets its Wi-Fi and must be set up again over BLE with the cloud.", request: "not traced", reply: "-"}
+      - {opcode: "0x2000d", name: "play_treat_sound", request: "4 x 0x00", reply: "status"}
+      - {opcode: "0x20013", name: "stop_auto_zoom", request: "4 x 0x00", reply: "status"}
+      - {opcode: "0x30001", name: "notify_av_status", direction: "camera to client", payload: "JSON; the camera's own account of the video stream, the only thing that says why it is sending nothing"}
+      - {opcode: "0x30003", name: "notify_camera_on_off", direction: "camera to client", payload: "not recorded"}
+      - {opcode: "0x30005", name: "notify_treat_tossing", direction: "camera to client", payload: "not recorded"}
+      - {opcode: "0x30007", name: "notify_pan", direction: "camera to client", payload: "not recorded"}
+      - {opcode: "0x30009", name: "notify_treat_troubleshoot", direction: "camera to client", payload: "not recorded"}
+      - {opcode: "0x40001", name: "request_refused", direction: "camera to client", payload: "[status, refused opcode bits 0-7, bits 8-15, 0, 0]"}
+
+  ioctrl_v2:
+    applies_to: ["FB001", "FB002", "FB0025", "MC0010"]
+    verification: "reported"
+    notes: >-
+      The older opcode set, from ha-furbo's reading of the vendor app. Not
+      hardware-verified beyond video and the legacy credential path on an
+      FB002 (ha-furbo issue 3). Requests are 4 bytes unless noted. V2 has
+      no pan.
+    opcodes:
+      - {opcode: "0x903", name: "set_video_quality", request: "not traced"}
+      - {opcode: "0x905", name: "set_night_vision", request: "[mode (0 auto, 1 on, 2 off), 0, 0, 0]"}
+      - {opcode: "0x907", name: "get_night_vision", reply: "[0 status, mode]"}
+      - {opcode: "0x909", name: "set_barking_sensitivity", request: "[level (1 low, 2 medium, 3 high), 0, 0, 0]"}
+      - {opcode: "0x90b", name: "get_barking_sensitivity", reply: "[level, status]: the level comes FIRST here, unlike every other V2 reply"}
+      - {opcode: "0x90d", name: "set_speaker_volume", request: "[volume, 0, 0, 0]"}
+      - {opcode: "0x90f", name: "get_speaker_volume", request: "[1, 0, 0, 0]", reply: "[0 status, volume, muted]"}
+      - {opcode: "0x911", name: "toss_treat", request: "4 x 0x00", notes: "Physical actuator; see the V3 entry."}
+      - {opcode: "0x915", name: "get_firmware_versions", request: "[1, 0, 0, 0]", reply: "status, then four 8-byte ASCII fields from offset 2: new firmware, current firmware, new library, library"}
+      - {opcode: "0x919", name: "update_firmware", advanced: true, advanced_reason: "Starts a firmware update. Not documented further."}
+      - {opcode: "0x91b", name: "set_power", request: "[on (1/0), 0, 0, 0]"}
+      - {opcode: "0x91d", name: "get_power", reply: "[0 status, on]"}
+      - {opcode: "0x91f", name: "set_time_zone"}
+      - {opcode: "0x921", name: "get_time_zone"}
+      - {opcode: "0x923", name: "set_treat_sound", request: "NUL-terminated sound URL"}
+      - {opcode: "0x925", name: "get_treat_sound", reply: "[0 status, 0 default / 1 custom / 2 mute]"}
+      - {opcode: "0x927", name: "reboot", advanced: true, advanced_reason: "Drops every session and takes the camera offline for its boot time."}
+      - {opcode: "0x929", name: "get_device_info", request: "[force (1/0), 0, 0, 0]", reply: "JSON"}
+      - {opcode: "0x92b", name: "set_device_token", request: "the account's DeviceToken, NUL-terminated; sent once after the AV channel opens"}
+      - {opcode: "0x931", name: "get_av_info", reply: "[0 status, first I-frame sent, fps at 1080p, fps at 720p, fps at 360p, resend buffer %, send fps, lost count (uint16 BE at 7-8), -, send kbps (uint16 BE at 10-11), max CPU %, max free memory]"}
+      - {opcode: "0x933", name: "video_start_answer", direction: "camera to client", payload: "status; the camera's answer to 0x1ff on both opcode sets"}
+      - {opcode: "0x935", name: "notify_service_state", direction: "camera to client"}
+      - {opcode: "0x937", name: "get_service_state"}
+      - {opcode: "0x93f", name: "set_schedule", request: "JSON"}
+      - {opcode: "0x941", name: "get_schedule", request: "[1, 0, 0, 0]", reply: "JSON"}
+      - {opcode: "0x943", name: "notify_clear_buffer", direction: "camera to client", payload: "the camera asks the client to flush its buffers"}
+      - {opcode: "0x945", name: "play_treat_sound", request: "4 x 0x00"}
+      - {opcode: "0x947", name: "get_auto_calm"}
+
+  av_streams:
+    verification: "reported"
+    video:
+      start: "Standard TUTK opcode 0x1ff with a 4-byte little-endian int32 quality number; stop with 0x2ff. The camera answers 0x933."
+      quality_numbers_v3: {"0": "1080p", "1": "720p", "2": "360p", "3": "1440p"}
+      quality_numbers_v2: {"0": "1440p", "1": "1080p", "2": "720p", "3": "360p"}
+      observed_fb0030: >-
+        Quality 0 gave H.264 1920x1080 at 25 fps after one 640x360 preview
+        frame; qualities 1 to 3 all gave 640x360 (ha-furbo,
+        HARDWARE_VERIFICATION.md). The FB0030 serves no 720p.
+      frames: "Read with the SDK's frame call; the frame header carries codec id, key-frame flag, frame rate, a millisecond timestamp and the frame number."
+    microphone:
+      start: "Standard TUTK opcode 0x300 with int32 0; stop 0x301. Frames arrive on a separate queue from video."
+      format: >-
+        Not established. The FB0030 labels its microphone frames with codec
+        id 135, whose meaning lives in the TUTK library; ha-furbo tests each
+        stream with a decoder instead of trusting the id.
+    talkback:
+      format: "G.711 u-law, 16 kHz, mono; 320-byte frames (20 ms), paced in real time."
+      open: >-
+        Get a free IOTC channel on the session, send standard opcode 0x350
+        (speaker start) with [channel as int32 LE, 4 x 0x00], then start an AV
+        SERVER on that channel with security mode 3 (DTLS,
+        PSK-AES128-CBC-SHA256) and authentication callbacks that accept
+        everything, as the app does; set a resend buffer (ha-furbo uses 512
+        KiB, since a zero buffer rejects every frame). Close with 0x351 and
+        the same payload, then stop the server and turn the channel off.
+      frame_header: "16 bytes: codec id (int16 LE, 137 = G.711 u-law), flags (uint8: sample-rate index in bits 2-5 over 8000/11025/12000/16000/22050/24000/32000/44100/48000 Hz, bit 1 set for 16-bit, bit 0 set for stereo; 14 = 16 kHz, 16-bit, mono), camera index (uint8), online count (uint8), 7 reserved bytes, timestamp in ms (uint32 LE)."
+      notes: >-
+        Verified by ha-furbo at the P2P layer on the FB0030: the camera
+        accepts frames. The talkback AV server uses security mode 3 while the
+        client channel uses mode 1; the triage brief's 'security mode 3' is
+        the talkback channel.
+
+  cloud_credential:
+    verification: "reported"
+    steps:
+      - "POST /v5/account/read/login with Email, EncPassword, MobileId and, if the client has one, the MfaAuthCode from an earlier verification."
+      - "If the answer is result code 12101, POST /v4/account/mfa/login/send-code with the MfaAuthCodeCandidate, ask the owner for the emailed code, POST /v4/account/mfa/verify with it, then POST /v2/account/login with the resulting MfaAuthCode. Keep MfaAuthCode and MobileId for next time."
+      - "POST /v2/account/{AccountId}/device and pick the camera by Id; note P2PUuid, ProductId and, for legacy cameras, P2PAccessToken."
+      - "POST /v5/device/p2p_connection/get with the DeviceId. All three of AuthKey, P2PAccountId, P2PAccountKey present: modern path. All three null: legacy path. Anything in between: refuse rather than guess, as ha-furbo does."
+    secrets: >-
+      The UID, AuthKey, P2P account id and key, AccountId, CognitoToken,
+      MfaAuthCode and DeviceToken are all per-owner secrets. An owner obtains
+      their own through the login above; none belongs in a spec, a log or a
+      bug report.
+    offline_recovery:
+      verification: "hypothesis"
+      account_export: >
+        The UID, AuthKey, P2PAccountId and P2PAccountKey (or the legacy
+        account/token pair) can be preserved by the owner. Public hardware
+        research also documents on-camera p2p_auth.json state; deleting that
+        state causes new credentials on the next cloud setup. These are
+        owner-recovery sources, not credential-free adoption or a universal
+        password.
+      persistence: >
+        Expect credentials to survive reboot until reset, re-registration or
+        regeneration. A same-LAN session with both the vendor cloud and TUTK
+        relays unavailable still requires an owner-authorized capture. Furbo
+        2's RTSP Digest credential is a separate secret and cannot be derived
+        from these TUTK fields.
+
+  ble_onboarding_v4:
+    verification: "reported"
+    source: "Static analysis of the vendor app's current-generation BLE setup controller (7.83.1)."
+    value_encoding: >-
+      Every value is ASCII text. Writes are with response (Android write
+      type default), UTF-8 bytes of the string, with no terminator except
+      the time zone, which ends in one 0x00. A write with no value sends a
+      single 0x00. Reads and indications decode as UTF-8.
+    service_uuid: >-
+      Not established. The app matches characteristics by UUID across all
+      services. It also declares four vendor UUIDs it never references
+      (7d7316ab-796b-46de-a6a3-b49d9779789e,
+      4ef3767f-1ff0-423a-98ca-aba79f75e0af,
+      923b0d97-2131-4d77-9ce9-56ff8998b4e9,
+      5650bad3-8798-437f-966e-a5c92c603fe3), which are probably the service
+      UUIDs; a hypothesis.
+    characteristics:
+      - {uuid: "02435612-dc14-423f-bd4f-a6a12e567e90", role: "setup status", use: "read + indicate", value: "ASCII signed integer; see the setup method's payload_formats.Status"}
+      - {uuid: "f60a6339-0647-42a4-b709-29a3e620c0af", role: "camera's HTTP return code during registration", use: "read + indicate", value: "ASCII; vocabulary not recorded"}
+      - {uuid: "41f21774-cc72-44f2-a002-86bdbedc253d", role: "camera's service error code", use: "read + indicate", value: "ASCII; vocabulary not recorded"}
+      - {uuid: "303a469f-7ca4-4cd5-bd79-1203774c719c", role: "Wi-Fi mode", use: "read after status -2", value: "ASCII; vocabulary not recorded"}
+      - {uuid: "8518174e-c27c-4b20-8b9c-96a855773795", role: "Wi-Fi error code", use: "read after status -2", value: "ASCII; vocabulary not recorded"}
+      - {uuid: "2c259f9c-4a57-4c74-830e-2013e4466c2c", role: "reset setup", use: "write + indicate", value: "write '1' to start a fresh setup, '2' to change Wi-Fi on a bound camera; the camera indicates '0' when done, after which the app refreshes its GATT cache and rediscovers services"}
+      - {uuid: "d6f178c9-8137-4d18-8ced-0b62d7e3e7f2", role: "Wi-Fi change ownership proof", use: "write", value: "base64 of the proof, encrypted (see field_encryption)"}
+      - {uuid: "3c2c5dea-35aa-4540-94be-0bd5d9e72793", role: "Wi-Fi scan ready", use: "read + indicate + write", value: "reads '1' when a scan result is ready; write '0' to start a new scan"}
+      - {uuid: "e92543cb-08c6-4b2b-a395-1824cdbd4417", role: "AP list chunk 1", use: "read", value: "text, part of a JSON array"}
+      - {uuid: "a43251f9-1d8c-41d0-9804-879b992d4748", role: "AP list chunk 2", use: "read", value: "text"}
+      - {uuid: "325d3a42-5102-4c55-aad6-20c7b1157997", role: "AP list chunk 3", use: "read", value: "text"}
+      - {uuid: "76e415d0-9e94-4979-aaa2-54d8489f7456", role: "AP list chunk 4", use: "read", value: "text"}
+      - {uuid: "233d5fb2-f565-4fef-832a-983d6c362f36", role: "Wi-Fi SSID", use: "write", value: "lowercase hex of the SSID's UTF-8 bytes"}
+      - {uuid: "ac075b73-2424-4e7a-9fe2-62cbf19e7e89", role: "Wi-Fi passphrase, plain", use: "write", value: "lowercase hex of the passphrase's UTF-8 bytes; used only when the encrypted characteristic is absent"}
+      - {uuid: "f72deed1-3198-4df6-b0d7-e472cea7885f", role: "Wi-Fi passphrase, encrypted", use: "write", value: "base64 of the lowercase-hex passphrase string, encrypted (see field_encryption)"}
+      - {uuid: "2474cee2-379d-4a0c-b630-37dd53965ca2", role: "Wi-Fi details ready", use: "write", value: "'1' after the SSID and passphrase; the app has a '0' form it does not use in the normal flow"}
+      - {uuid: "3c1a8fd9-ac74-4062-80cc-b2947cb7a039", role: "account, plain", use: "write", value: "the value the app sends as 'user' (not traced; an account identifier); used only when the encrypted form is absent"}
+      - {uuid: "cb04b5ee-4c79-4316-a50e-8cc4a2067840", role: "account, encrypted", use: "write", value: "base64, encrypted (see field_encryption)"}
+      - {uuid: "81f6f485-eae6-41cc-8a2f-e11a5844a114", role: "cloud endpoint for registration", use: "write", value: "text from the cloud via the app"}
+      - {uuid: "953b64d3-99bd-4434-b050-1c39512f9f95", role: "registration token, plain", use: "write", value: "a short-lived token the app obtains from the cloud; used only when the encrypted form is absent"}
+      - {uuid: "e42de30f-a772-43fe-b216-ca5b78db4d82", role: "registration token, encrypted", use: "write", value: "base64, encrypted (see field_encryption)"}
+      - {uuid: "fb6dfec1-257c-4d58-9eed-6f79599919f0", role: "registration data ready", use: "write", value: "'1' after the registration fields; '0' when restarting setup"}
+      - {uuid: "00002aaf-0000-1000-8000-00805f9b34fb", role: "longitude of the phone (SIG Longitude UUID, used for text)", use: "write", value: "ASCII decimal degrees with seven fractional digits, formatted in the phone's locale (a comma decimal separator is possible and untested)"}
+      - {uuid: "00002aae-0000-1000-8000-00805f9b34fb", role: "latitude of the phone (SIG Latitude UUID, used for text)", use: "write", value: "as longitude"}
+      - {uuid: "f34375ad-c23c-4bb5-bbfe-13d624741757", role: "country code", use: "write", value: "two-letter region of the phone; for the 360 setup types the app substitutes 'jp' when the region is not on its supported list"}
+      - {uuid: "1a19aaae-094a-47aa-aaa3-1d66bd08ab1a", role: "speaker volume", use: "write", value: "the app always writes '60' (percent)"}
+      - {uuid: "00002a0e-0000-1000-8000-00805f9b34fb", role: "time zone (SIG Time Zone UUID, used for text)", use: "write", value: "IANA zone name of the phone, e.g. 'Europe/London', plus one 0x00"}
+      - {uuid: "3c2fb8ce-49b9-4e1c-848f-8a26740e7c8c", role: "settings ready", use: "write", value: "'1' after the settings fields"}
+      - {uuid: "00002a05-0000-1000-8000-00805f9b34fb", role: "Service Changed", use: "indicate", value: "standard; the app only logs it"}
+    field_encryption: >-
+      AES-256-CBC with PKCS#7 padding. The key is 32 ASCII characters and the
+      IV 16 ASCII characters, both constants in the app and identical for
+      every install; they are not reproduced here. The ciphertext is sent as
+      base64 without line breaks. For the passphrase the plaintext is its
+      lowercase-hex string, not the passphrase itself; for the account, the
+      token and the ownership proof it is the raw text. The app writes the
+      encrypted form whenever the camera exposes the encrypted
+      characteristic.
+    notification_setup: "The app enables indications (CCCD 0x0200), not notifications, on every characteristic it subscribes to."
+    excluded_uuids: >-
+      A naive UUID search of the app also finds identifiers of its analytics
+      SDK (prefixes a029f440-, 46bad1ed-, 383f2407-, 8d9792b7-). They are not
+      device UUIDs.
+
+  ble_onboarding_legacy:
+    verification: "reported"
+    source: "Static analysis of the vendor app's two older BLE setup controllers."
+    envelope: >-
+      Request: a JSON object with "c" (a four-digit command code as a string)
+      and "d" (an object); the first revision also sends "s" with a fixed
+      ten-character placeholder. Reply: a JSON object with "r" (integer
+      result, 0 success), "c" (the command it answers) and "d" (data), plus
+      optional "e", "v", "f", "i", "dt", "md", "hc" (integer; by analogy with
+      the current set an HTTP return code), "se" (integer; service error)
+      and "we" (integer; Wi-Fi error). The other keys' roles are not
+      recorded.
+    commands:
+      "0001": "Get the AP list. d: {device_id}. The reply's d carries the list (same item keys as the current set's ApList)."
+      "0002": "Set Wi-Fi and registration. d: {device_id, ssid, password, accesstoken, user, endpoint}. The first revision passes ssid and password through a text-escaping helper first."
+      "0022": "Later revision only. d: {device_id}. Role not traced (polled during setup)."
+      "0023": "Later revision only, no data. Role not traced."
+    framing: >-
+      The app writes the request (write with response), and on write
+      success, if the value was not exactly three bytes, writes 'ENM'
+      without response as an end marker. Replies are notifications appended
+      together until one equals 'ENM'. Both revisions route the JSON
+      through the app's native library, which returns base64 text on the
+      way out and is applied in reverse on the way in; the transform was
+      not analysed, so no byte-exact example exists.
+    results_first_revision:
+      "-1": "wrong passphrase"
+      "-2": "no internet"
+      "-3": "registration error"
+      "-4": "connecting error"
+      "-5": "command error"
+      "-6": "access point error"
+      "-7": "cloud data error"
+    results_later_revision:
+      "-1": "wrong passphrase"
+      "-2": "could not join the access point"
+      "-3": "no IP address"
+      "-4": "DNS unavailable"
+      "-5": "could not get a streaming host"
+      "-6": "base64 encoding failed"
+      "-7": "host name lookup failed"
+      "-8": "cloud device registration failed"
+      "-9": "could not get the device id"
+      "-10": "memory allocation failed"
+      "-11": "unknown control"
+
+evidence:
+  app_static_analysis: >-
+    The vendor Android app 7.83.1 was decompiled and read for facts only.
+    Its current-generation BLE setup controller gave every characteristic
+    UUID above, the role of each (from its use sites and log labels), the
+    ASCII value conventions, the status-code table, the per-status timeouts,
+    the chunked AP list and its JSON keys, and the fixed-key AES-256-CBC
+    wrapping of four fields. Its two older controllers gave the
+    77f9a069-2ff9-4ff9-93b7-4db9689f4b53 service, the JSON command envelope,
+    the 'ENM' end marker and two result tables. Its BLE manager gave the
+    advertised-name rules and the 12-character device id extraction. Its
+    P2P command layer (one implementation per opcode set) confirmed the V3
+    opcode numbers ha-furbo publishes, the toss and pan request payloads and
+    the app's 60/50 degree pan step. RESEARCH.md's first pass called the
+    camera cloud-only; the app in fact carries the ThroughTek TUTK SDK, and
+    the local P2P path is ha-furbo's finding. Nothing was replayed.
+  open_source_review: >-
+    willbeeching/ha-furbo at b2a65be1 (MIT): furbo_p2p.py (session order,
+    both opcode tables, reply decoding, talkback header, legacy path),
+    furbo_cloud.py (credential flow, result codes), furbo_bridge.py (value
+    ranges its API enforces), DOCS.md (single-session rule, LAN mode,
+    relay, token lifetime) and HARDWARE_VERIFICATION.md (what was run on the
+    FB0030, including the negative cloud treat-toss finding). ha-furbo
+    derives from its own decompile of the app, so its agreement with ours on
+    opcode numbers is two readings of one source, not independent
+    confirmation. AlexxIT/go2rtc pkg/tutk at c245815e (MIT) for the TUTK
+    connection stages and the 32761 LAN port.
+  documentation_review: >-
+    Furbo help-centre articles (read 2026-09-28 through the help centre's
+    public article API): hard reset for the original Furbo, the 360 Dog and
+    Cat cameras and the Minis; setup for the Furbo and the 360; changing
+    Wi-Fi; the light indicator; 'can't find my Wi-Fi network' (the sticker
+    model table and the 2.4 GHz rule); WPA3. FCC grant records and label
+    exhibits for 2AIBVTFFBV3 (Furbo2.5T, 5 V 2 A) and 2AIBV-MINICAM
+    (antenna shared by 2.4 GHz Wi-Fi and Bluetooth). Somerset Recon's three
+    posts for the security advisory and the RTSP report.
+  open_questions: >-
+    See remaining_unknowns. First things to settle with a camera in hand:
+    whether a session opened with a stored credential works with the WAN
+    cut; whether the camera finishes BLE setup without registering; which
+    service holds the current-generation characteristics; what the
+    microphone codec 135 is. For the schema: a TUTK/IOCTRL transport (a
+    command addressed by a 32-bit opcode on a session's AV channel, with a
+    payload template and a reply keyed by opcode plus one) would let the V3
+    table become executable `commands` and `entities`; proposed in the
+    return notes of this change rather than in spec-evolution.md.
+  artifacts:
+    - type: "static_analysis"
+      artifact: "Furbo Android app (com.tomofun.furbo) 7.83.1"
+      obtained_via: "third-party APK mirror, 2026-09-17"
+      description: "BLE onboarding surface and a cross-check of the P2P opcode numbers. No code, key or string beyond short paraphrase is reproduced."
+    - type: "public_implementation"
+      artifact: "willbeeching/ha-furbo @ b2a65be1 (MIT)"
+      url: "https://github.com/willbeeching/ha-furbo"
+      obtained_via: "raw file fetch, 2026-09-28"
+      description: "TUTK session, credential flow, V2 and V3 opcode sets, A/V formats; hardware-verified by its author on an FB0030 (firmware 108)."
+    - type: "public_implementation"
+      artifact: "AlexxIT/go2rtc pkg/tutk @ c245815e (MIT)"
+      url: "https://github.com/AlexxIT/go2rtc/tree/master/pkg/tutk"
+      obtained_via: "GitHub API, 2026-09-28"
+      description: "Pure-Go TUTK client; connection stages and the default LAN port."
+    - type: "vendor_documentation"
+      artifact: "Furbo help centre articles (hard reset, setup, Wi-Fi change, light indicator, Wi-Fi list, WPA3)"
+      url: "https://help.furbo.com/hc/en-us"
+      obtained_via: "help centre article API, 2026-09-28"
+      description: "Reset procedures and indicators per model, 2.4 GHz and WPA2 requirements, the sticker model table, the in-app Wi-Fi change."
+    - type: "fcc_filing"
+      artifact: "FCC ID 2AIBVTFFBV3 (Furbo Dog Camera, model Furbo2.5T), granted 2020-07-30"
+      url: "https://fccid.co/fcc/2AIBVTFFBV3"
+      obtained_via: "fccid.co, harvested 2026-09-26"
+      description: "Label exhibit (model Furbo2.5T, 5 V 2 A, made in Thailand), regulatory leaflet, 2.412-2.462 GHz DTS."
+    - type: "fcc_filing"
+      artifact: "FCC ID 2AIBV-MINICAM (Furbo Dog Camera, Furbo Mini), granted 2020-09-15"
+      url: "https://fccid.co/fcc/2AIBV-MINICAM"
+      obtained_via: "fccid.co, harvested 2026-09-26"
+      description: "Warnings leaflet naming one dipole antenna shared by 2.4 GHz Wi-Fi and Bluetooth; US channels 1-11 only."
+    - type: "public_research"
+      artifact: "Somerset Recon, Hacking the Furbo Dog Camera, parts I-III (2021-2022)"
+      url: "https://www.somersetrecon.com/blog/2021/hacking-the-furbo-part-1"
+      obtained_via: "read 2026-09-28"
+      description: "Furbo 2 RTSP overflow and open ports, Furbo 2.5T command injection, Furbo Mini firmware update weaknesses and SoC."
+
+remaining_unknowns:
+  - "Whether a P2P session can be opened, or an open one survives, with the internet down, using a credential fetched earlier."
+  - "Which GATT service holds the current-generation setup characteristics, and the characteristics' declared property bits."
+  - "Whether a camera joins Wi-Fi and stays usable if the registration step (status 20) is never answered, i.e. whether any cloud-free setup exists."
+  - "The vocabularies of the Wi-Fi mode, Wi-Fi error, HTTP return code and service error characteristics, and of the AP list's mode field; whether signal is dBm or percent."
+  - "What the account value written during registration is (email or account id), and where the app's Wi-Fi-change ownership proof comes from."
+  - "The native transform the older BLE generations apply to their JSON, and the roles of commands '0022' and '0023' and the reply keys e, v, f, i, dt, md."
+  - "Which hardware maps to which ProductId, BLE name rule, GATT generation and opcode set: every variants entry except FB0030's opcode set is a hypothesis."
+  - "Behaviour without a Furbo Nanny subscription, and whether 'Subscription Required' units do anything before activation."
+  - "The microphone codec (FB0030 labels it 135) and whether it is the same on other models."
+  - "Whether go2rtc's SDK-free TUTK client can open the Furbo's DTLS AV channel with the P2P account/key identity."
+  - "Whether the camera listens on UDP 32761 for LAN connections, as TUTK devices usually do."
+  - "The reply layouts of get_time_zone, get_network_info and the treat troubleshoot opcodes, the payloads of set_treat_sound, set_auto_calm and play_auto_calm_audio on V3, and the notification payloads."
+  - "Somerset Recon's RTSP report on the Furbo 2 and its no-open-ports report on the Mini: neither checked here. No port scan of any model is in the research store."
+  - "Firmware update mechanics, signing and recovery on any model."
+  - "Whether a provisioned camera still advertises over BLE."
+
+helpful_urls:
+  - title: "Furbo Dog Camera 2.5T regulatory leaflet (FCC exhibit, PDF)"
+    url: "https://fccid.co/api/files/s1/2aibvtffbv3_usersmanual_4835149_9a990778a6.pdf"
+    kind: "manual"
+    description: >-
+      The user-manual exhibit filed under FCC ID 2AIBVTFFBV3 for the Furbo
+      Dog Camera model Furbo2.5T: three pages, almost entirely FCC/IC/NCC
+      regulatory text. The only manual-class document in the research store;
+      the setup and reset steps are in the help-centre links below.
+  - title: "Furbo Mini warnings leaflet (FCC exhibit, PDF)"
+    url: "https://fccid.co/api/files/s1/2aibv_minicam_usersmanual_4905810_8c8bbd4f18.pdf"
+    kind: "manual"
+    description: >-
+      The user-manual exhibit filed under FCC ID 2AIBV-MINICAM for the Furbo
+      Mini: warnings and regulatory text, including the one antenna shared by
+      Wi-Fi and Bluetooth. Not the Mini 360.
+  - title: "Furbo help centre: Hard reset your Furbo (original Furbo Dog Camera)"
+    url: "https://help.furbo.com/hc/en-us/articles/17472773095833-Hard-reset-your-Furbo"
+    kind: "vendor_support"
+    description: "Pinhole on the back, about 20 s while plugged in, then green. Zendesk; refuses non-browser clients."
+  - title: "Furbo help centre: Hard Reset Your Furbo (Furbo 360)"
+    url: "https://help.furbo.com/hc/en-us/articles/17465539176985-Hard-Reset-Your-Furbo"
+    kind: "vendor_support"
+    description: "Button under the camera, 5-10 s until blinking yellow, then remove the camera from the account."
+  - title: "Furbo help centre: Hard Reset Your Furbo Mini and Furbo Mini 360°"
+    url: "https://help.furbo.com/hc/en-us/articles/17538149642649-Hard-Reset-Your-Furbo-Mini-and-Furbo-Mini-360"
+    kind: "vendor_support"
+    description: "Pinhole for 5-10 s on the Mini, button underneath on the Mini 360, until blinking yellow."
+  - title: "Furbo help centre: Change Your Home Wi-Fi Network on Furbo"
+    url: "https://help.furbo.com/hc/en-us/articles/17465377871129-Change-Your-Home-Wi-Fi-Network-on-Furbo"
+    kind: "vendor_support"
+    description: "The in-app 'Reset Wi-Fi' flow over Bluetooth, and the advice not to press reset for a network change."
+  - title: "Furbo help centre: Can't find my Wi-Fi network in the App"
+    url: "https://help.furbo.com/hc/en-us/articles/17465472455961-Can-t-find-my-Wi-Fi-network-in-the-App"
+    kind: "vendor_support"
+    description: "The sticker model table (Furbo2/Furbo2.5, Furbo3, FurboCat, FurboMini), 2.4 GHz only, hidden networks."
+  - title: "Furbo help centre: WPA3 Router Security Compatibility"
+    url: "https://help.furbo.com/hc/en-us/articles/4412618937357-WPA3-Router-Security-Compatibility"
+    kind: "vendor_support"
+    description: "Furbo does not join WPA3 networks; use WPA2."
+  - title: "Furbo help centre: Error Message 'Can't connect to your Furbo'"
+    url: "https://help.furbo.com/hc/en-us/articles/17465440673817-Error-Message-Can-t-connect-to-your-Furbo"
+    kind: "vendor_support"
+    description: "The BLE connection failure during setup, the white/yellow/blue light states and the vendor's recovery steps."
+  - title: "willbeeching/ha-furbo"
+    url: "https://github.com/willbeeching/ha-furbo"
+    kind: "implementation"
+    description: "MIT Home Assistant integration and bridge add-on: TUTK P2P video, state, pan and treat toss, verified on a Furbo 360 (FB0030)."
+  - title: "ha-furbo: Furbo Bridge DOCS.md"
+    url: "https://github.com/willbeeching/ha-furbo/blob/main/furbo-bridge/DOCS.md"
+    kind: "protocol_writeup"
+    description: "The single-session rule, LAN versus P2P versus relay, the broadcast-only LAN search and the cloud token lifetime."
+  - title: "ha-furbo: HARDWARE_VERIFICATION.md"
+    url: "https://github.com/willbeeching/ha-furbo/blob/main/HARDWARE_VERIFICATION.md"
+    kind: "protocol_writeup"
+    description: "What was run on real FB0030 hardware, including the negative cloud treat-toss result."
+  - title: "ha-furbo: furbo_p2p.py (pinned)"
+    url: "https://github.com/willbeeching/ha-furbo/blob/b2a65be1c73862c7799d8403be084109bab66547/furbo-bridge/src/furbo_p2p.py"
+    kind: "implementation"
+    description: "Session bring-up, both IOCTRL opcode tables, reply decoding, talkback and the legacy credential path."
+  - title: "ha-furbo: furbo_cloud.py (pinned)"
+    url: "https://github.com/willbeeching/ha-furbo/blob/b2a65be1c73862c7799d8403be084109bab66547/furbo-bridge/src/furbo_cloud.py"
+    kind: "implementation"
+    description: "The cloud login, MFA and P2P credential calls, and their result codes."
+  - title: "ha-furbo: furbo_bridge.py (pinned)"
+    url: "https://github.com/willbeeching/ha-furbo/blob/b2a65be1c73862c7799d8403be084109bab66547/furbo-bridge/src/furbo_bridge.py"
+    kind: "implementation"
+    description: "The bridge's HTTP API over one shared session, with the value ranges it enforces."
+  - title: "ha-furbo issue 3: FB002 legacy P2P authentication"
+    url: "https://github.com/willbeeching/ha-furbo/issues/3"
+    kind: "forum"
+    description: "How the older FB002 authenticates with the account id and P2PAccessToken, worked out on real hardware."
+  - title: "go2rtc pkg/tutk"
+    url: "https://pkg.go.dev/github.com/AlexxIT/go2rtc/pkg/tutk"
+    kind: "implementation"
+    description: "A pure-Go TUTK client, the SDK-free starting point for a Furbo client. Furbo compatibility unverified."
+  - title: "Somerset Recon: Hacking the Furbo Dog Camera, Part I"
+    url: "https://www.somersetrecon.com/blog/2021/hacking-the-furbo-part-1"
+    kind: "teardown"
+    description: "Furbo 2 hardware (Ambarella S2Lm, three boards), RTSP on 554 and the RTSP overflow (CVE-2020-24918)."
+  - title: "Somerset Recon: Hacking the Furbo Dog Camera, Part II"
+    url: "https://www.somersetrecon.com/blog/2021/hacking-the-furbo-dog-camera-part-ii"
+    kind: "teardown"
+    description: "Furbo 2.5T: telnet, a lighttpd server and a root command injection."
+  - title: "Somerset Recon: Hacking the Furbo Dog Camera, Part III"
+    url: "https://www.somersetrecon.com/blog/2022/hacking-the-furbo-dog-camera-part-iii"
+    kind: "teardown"
+    description: "Furbo Mini: Augentix SoC, NAND layout, A/B slots and the unsigned firmware update."
+  - title: "NVD: CVE-2020-24918"
+    url: "https://nvd.nist.gov/vuln/detail/cve-2020-24918"
+    kind: "other"
+    description: "The Ambarella RTSP server overflow that reached the Furbo 2."
+  - title: "FCC ID 2AIBVTFFBV3 (Furbo Dog Camera, Furbo2.5T)"
+    url: "https://fccid.co/fcc/2AIBVTFFBV3"
+    kind: "other"
+    description: "Grant record with label, internal and external photo exhibits."
+  - title: "FCC ID 2AIBV-MINICAM (Furbo Mini)"
+    url: "https://fccid.co/fcc/2AIBV-MINICAM"
+    kind: "other"
+    description: "Grant record with label, internal and external photo exhibits."

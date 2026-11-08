@@ -20,6 +20,7 @@ device:
     status: untested
   protocol: "ble"
   category: "light"
+  category_hierarchy: ["light", "led"]
   notes: >
     Bluetooth-enabled motorcycle brake light bar with accelerometer-based smart
     braking. Uses Nordic UART Service (NUS) with protobuf-encoded messages.

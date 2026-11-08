@@ -10,6 +10,7 @@ device:
     status: untested
   protocol: "ble"
   category: "display"
+  category_hierarchy: ["display", "led_matrix"]
   notes: >
     LED face mask with 2074 RGB LEDs, 16-pixel-tall display.
     All commands to the Command characteristic are AES-128 ECB encrypted with the
@@ -59,15 +60,13 @@ device:
     app-confirmed. The local XAPK was re-hashed and matches the SHA-256 above,
     settling the mirror re-signing question.
   identification:
-    service_uuids:
-      - "0000fff0-0000-1000-8000-00805f9b34fb"
-
+    local_name_prefix: "MASK"
+    notes: >
+      Secondary name signal used by open-source clients. The official app
+      instead uses the manufacturer-data prefix below; the shared FFF0
+      service is not an identity signal.
   discovery:
     methods:
-      - type: "ble_scan"
-        ble:
-          service_uuids:
-            - "0000fff0-0000-1000-8000-00805f9b34fb"
       - type: "ble_scan"
         ble:
           manufacturer_data:

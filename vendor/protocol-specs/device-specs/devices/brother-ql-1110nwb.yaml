@@ -149,17 +149,24 @@ device:
               - source: "hostname"
             display:
               source: "name"
-      - type: "ble_scan"
-        ble:
-          local_name:
+      - type: "bt_classic_inquiry"
+        bt_classic:
+          name:
             match: "prefix"
             value: "QL-1110NWB"
+          service_uuids: ["00001101-0000-1000-8000-00805f9b34fb"]
+          requires_discoverable_mode: true
+        verification: "reported"
         notes: >
-          This is Bluetooth CLASSIC discovery, not BLE: the name appears in
-          a Classic inquiry, not a GATT advertisement. Recorded as a
-          ble_scan method because the schema has no bt_classic_inquiry type;
-          a consumer must do a Classic inquiry (or be handed the paired
-          device) and connect over SPP — there is no BLE GATT surface.
+          Bluetooth Classic (BR/EDR) inquiry; the printer has no BLE radio
+          surface, so a BLE scan never sees it. The inquiry name is
+          "QL-1110NWB" followed by the last four digits of the serial. The
+          printer answers only after its Bluetooth button has turned the
+          Bluetooth interface on (Bluetooth LED lit blue) and while the
+          "Visible to Other Devices" setting is on; the SPP UUID alone
+          identifies nothing, so the name is the real needle. A host that
+          has already bonded can skip the inquiry and connect to the paired
+          address directly.
     identity:
       stable_keys: ["address"]
       display: "local_name"
@@ -191,16 +198,17 @@ device:
           - action: "Join the printer to the LAN (WPS / Wireless Direct / USB tool / Ethernet)."
             actor: "user"
             expect: "The printer answers mDNS _pdl-datastream._tcp and accepts TCP 9100."
-      - type: "ble_direct"
+      - type: "bt_classic_pairing"
         name: "Bluetooth Classic pairing with the host OS"
         role: "alternative"
         verified: false
         description: >
-          Bluetooth Classic path (recorded under ble_direct for want of a
-          bt_classic setup type): press the printer's Bluetooth button, pair
-          with QL-1110NWB<serial-suffix> from the host, then open an SPP
-          connection (standard SPP UUID 00001101) and send the same raster
-          byte stream.
+          Bluetooth Classic path: press the printer's Bluetooth button, pair
+          with QL-1110NWB<serial-suffix> from the host's own Bluetooth
+          settings, then open an SPP connection (standard SPP UUID
+          00001101-0000-1000-8000-00805f9b34fb) and send the same raster
+          byte stream. The link-layer facts (PIN, SSP confirmation, bonding)
+          are in bluetooth_classic.pairing.
         steps:
           - action: "Press the Bluetooth button on the printer."
             actor: "user"
@@ -243,6 +251,36 @@ device:
       notes: >
         No client authentication on any print transport: anything that can
         open TCP 9100 (or SPP, or LPR) can print. Segment accordingly.
+
+  # The Bluetooth Classic path only; the LAN transports do not go through a
+  # host Bluetooth stack.
+  host_compatibility:
+    - stack: "corebluetooth"
+      link: "br_edr"
+      status: "incompatible"
+      symptom: "no_transport"
+      cause:
+        missing_api: "rfcomm"
+      workaround: "vendor_mfi"
+      variants:
+        - "QL-1110NWB"
+      verification: "reported"
+      basis: >
+        Brother's user's guide and spec sheet list iAP as a supported
+        Bluetooth protocol alongside SPP/OPP/BIP/HCRP, and describe an
+        "Auto re-pairing" setting for iPad/iPhone/iPod touch. No iOS
+        Bluetooth session has been run by this project.
+      notes: >
+        CoreBluetooth exposes no RFCOMM, so an iPhone or iPad cannot open
+        the SPP socket this spec's Bluetooth path documents. The printer is
+        MFi (iAP), so iOS reaches it over Bluetooth only through the
+        ExternalAccessory framework, which requires the app to declare
+        Brother's accessory protocol string; that string, and whether the
+        iAP session carries the same raster stream, are not recorded here.
+        The LAN transports (TCP 9100, IPP/AirPrint) are unaffected and are
+        the practical iOS path. macOS is outside this verdict: IOBluetooth
+        exposes RFCOMM, and the user's guide describes a Mac Bluetooth
+        setup.
 
   variants:
     - model: "QL-1110NWB"
@@ -540,6 +578,109 @@ local_access:
     - "Status/error/media-remaining reporting"
     - "P-touch Template standalone printing"
   not_covered: []
+
+# The second path to the printer: Bluetooth Classic SPP after the Bluetooth
+# button. device.protocol stays "wifi" because the LAN is the primary surface.
+bluetooth_classic:
+  pairing:
+    required: true
+    confidence: "medium"
+    security_mode: "unknown"
+    bonding: "required"
+    pin:
+      source: "derived"
+      length: 4
+      notes: >
+        Used only when the host pairs with Bluetooth 2.0-or-earlier legacy
+        pairing. Factory value is the last four digits of the product serial
+        number (per the user's guide); it can be changed in the printer's
+        communication settings, after which it is user-chosen. Never commit
+        a unit's value.
+    enter_pairing_mode:
+      required: true
+      indicator: "Bluetooth LED lit blue."
+      procedures:
+        - name: "Bluetooth button"
+          verified: false
+          basis: "Brother QL-1110NWB user's guide, Bluetooth connection sections."
+          description: >
+            Press the Bluetooth button on the printer; the Bluetooth LED
+            lights blue and the printer can be found and paired from the
+            host's Bluetooth settings. Whether discoverability then closes
+            after a timed window is not stated in the manual.
+      notes: >
+        Two printer settings also govern this: "Bluetooth on Power On"
+        (on by default / off by default / keep current state) and "Visible
+        to Other Devices". With visibility off, the printer does not answer
+        an inquiry even with Bluetooth on.
+    notes: >
+      The user's guide tells the user to pair from the host (computer or
+      mobile device Bluetooth settings), so a bond exists and the SPP
+      socket is a secure one. The security mode depends on the host and on
+      a printer setting, and the manual does not state the factory default
+      of that setting, so it stays unknown: a host limited to Bluetooth
+      2.0 or earlier uses legacy PIN pairing (legacy_pin, the PIN above);
+      a Bluetooth 2.1+ host uses Secure Simple Pairing, which completes
+      with no action at the printer (just_works from the printer's side)
+      unless "Request Secure Simple Pairing (SSP) settings during pairing"
+      is enabled, in which case the user confirms by pressing the Bluetooth
+      button while the Bluetooth LED flashes blue. A separate "Auto
+      re-pairing" setting reconnects a previously connected Apple device.
+      None of this has been replayed by this project.
+
+  dual_mode: false
+  ble_role: "none"
+  profiles:
+    - profile: "spp"
+      uuid: "00001101-0000-1000-8000-00805f9b34fb"
+      role: "control"
+      secure: true
+      verification: "reported"
+      notes: >
+        Carries the raster byte stream. Secure because the user's guide has
+        the host pair first; the RFCOMM channel is not documented, so resolve
+        it by SDP from the UUID.
+    - profile: "opp"
+      role: "undocumented"
+      verification: "reported"
+      notes: >
+        Listed on Brother's spec sheet. The user's guide says OPP is how a
+        JPEG image is sent for driverless printing over Bluetooth (the
+        printer dithers it to black and white); not documented here.
+    - profile: "bip"
+      role: "undocumented"
+      verification: "reported"
+      notes: "Listed on Brother's spec sheet; not documented here."
+    - profile: "hcrp"
+      role: "undocumented"
+      verification: "reported"
+      notes: "Listed on Brother's spec sheet; not documented here."
+    - profile: "iap2"
+      role: "undocumented"
+      verification: "reported"
+      notes: >
+        The spec sheet says "iAP" (MFi) without a version; the iOS Bluetooth
+        path. See device.host_compatibility.
+  serial:
+    profile_uuid: "00001101-0000-1000-8000-00805f9b34fb"
+    encoding: "binary"
+    framing:
+      length_prefix: false
+      notes: >
+        The byte stream is identical to the one sent to TCP 9100: the same
+        raster job, byte for byte. It is self-delimiting per the raster
+        protocol (brother_ql_raster_protocol) -- after the leading run of
+        0x00 invalidate bytes, every command is a fixed opcode with a fixed
+        or explicitly counted payload, raster rows carry their own byte
+        count, and the job ends at the print command (0x1A).
+        The only reply is the fixed 32-byte status record (header 80 20 42),
+        so a client splits replies by that length.
+    verification: "reported"
+  verification: "reported"
+  notes: >
+    Bluetooth 2.1+EDR, Classic only (no BLE). Every fact here comes from
+    Brother's spec sheet and user's guide; no Bluetooth job has been run by
+    this project.
 
 protocol_handler: "brother_ql_raster"
 

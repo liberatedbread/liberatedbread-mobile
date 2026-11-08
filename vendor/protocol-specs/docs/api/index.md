@@ -77,7 +77,7 @@ Each device entry:
 | `id` | string | Device identifier (matches `target_id` in `targets.csv`) |
 | `name` | string | Human-readable device name |
 | `manufacturer` | string | Original manufacturer |
-| `protocol` | string | Primary protocol (`ble`, `wifi`, `zigbee`, `zwave`, `obd2`, `uart`, `can`) |
+| `protocol` | string | Primary protocol (`ble`, `bluetooth_classic`, `wifi`, `lan`, `zigbee`, `zwave`, `obd2`, `uart`, `can`) |
 | `category` | string | Broad device class from the schema's closed vocabulary (`light`, `display`, `sensor`, `motor`, `switch`, `tv`, … — see [Reading a Device Spec](spec-format.md)). `protocol` says whether you can reach the device; `category` says what it is |
 | `status` | string | Manufacturer support status (`active`, `abandoned`, `shutdown`, `unsupported`) |
 | `openness` | string | Whether the protocol was published or recovered (`open_by_design`, `documented_api`, `undocumented`, `hostile`); defaults to `undocumented` when the spec is silent |

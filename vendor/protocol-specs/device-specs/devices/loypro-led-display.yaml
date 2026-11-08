@@ -1,0 +1,226 @@
+# LOY / LOYPRO LED displays (com.yskj.loypro) — Device Specification
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+
+device:
+  name: "LOY / LOYPRO LED Display"
+  manufacturer: "LOY / YSKJ OEM family"
+  manufacturer_status: "active"
+  openness:
+    status: "undocumented"
+    reverse_engineered: true
+    notes: >
+      The LOYPRO app (com.yskj.loypro) explicitly accepts advertised names
+      beginning LOY, unlike the LOY PLAY and LOY SPACE app versions that
+      accept only YS and TL. That prefix, not the widely shared 0xFFF0
+      service, is the scan-time discriminator for this candidate.
+  testing:
+    status: untested
+    detail: capture-verified
+    notes: >
+      One 2026-11-07 advertisement from LOY5265115155 carried the LOY name
+      and 0xFFF0, with no service-data or manufacturer record. It was not
+      found again in two later windows, so GATT enumeration did not
+      complete. No characteristic read, subscription, write, pairing,
+      reset or firmware operation was performed. Model, geometry and the
+      exact AA55 dialect remain unverified.
+  protocol: "ble"
+  transport: "ble-gatt"
+  category: "display"
+  category_hierarchy: ["display", "led_matrix"]
+  integration: "identify_only"
+  notes: >
+    Candidate identification for LOY/LOYPRO LED matrix displays. The app
+    evidence supports the same AA55 binary-TLV family as AUTOBABA, but this
+    spec deliberately does not force that product's YS/TL identity or claim
+    a model, geometry or working command session for a LOY-named unit.
+
+    `identify_only` remains the honest state until a read-only GATT
+    enumeration and a device-information response establish the model,
+    firmware, width, height and exact command dialect. The shared 0xFFF0
+    service is retained in `services` for post-connect use, never as an
+    identification signal: unrelated LED panels, thermometers, battery
+    monitors, OBD adapters and treadmills all advertise it.
+  identification:
+    local_name_prefixes: ["LOY"]
+    notes: >
+      LOYPRO 2.1.04 explicitly accepts this prefix in its scan filter.
+      LOY PLAY 1.7.15 and LOY SPACE 1.2.19 accept only YS/TL, so do not
+      conflate the three app families. The digits after LOY have no proven
+      model or resolution meaning.
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          local_name:
+            match: "prefix"
+            value: "LOY"
+        verification: "confirmed"
+        notes: >
+          Exact-prefix evidence from the 2026-11-07 advertisement and the
+          LOYPRO app's scan list. Do not add 0xFFF0 here: doing so would
+          reactivate every unrelated FFF0-based spec as a candidate.
+    identity:
+      stable_keys: ["local_name"]
+      display: "local_name"
+    static_ip_required: false
+  setup:
+    required: false
+    confidence: "low"
+    notes: >
+      No account or provisioning is established for the BLE display path.
+      Start read-only: enumerate GATT, subscribe to FFF1 and use a
+      source-derived information query only after the user has selected
+      this LOYPRO candidate. Do not send another protocol's initialization.
+    methods:
+      - type: "ble_direct"
+        name: "Read-only LOYPRO identification"
+        role: "primary"
+        verified: false
+        description: >
+          Match the LOY prefix, enumerate services and characteristics,
+          then corroborate the AA55 family with a device-information reply.
+          Full GATT properties are not yet known for the observed unit.
+        ble:
+          advertised_name: "LOY<serial>"
+          pairing_required: false
+        steps:
+          - action: "Scan for a fresh LOY-prefixed advertisement and connect without persisting a stale address."
+            actor: "client"
+          - action: "Enumerate GATT and confirm FFF2 is write-without-response and FFF1 is notify, if that is the layout offered."
+            actor: "client"
+          - action: "Subscribe to FFF1 and request device/panel information using protocol_details.read_only_identification."
+            actor: "client"
+            expect: "An AA55 reply identifying model, firmware, width and height; stop if the dialect differs."
+    factory_reset:
+      applicable: "unknown"
+      confidence: "low"
+      effect: >
+        No reset is established. Do not use a display-format or delete-all
+        command as a pairing or identification probe.
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        Rediscover by the exact advertised name and, once confirmed, the
+        expected characteristic layout. A previous address may be stale.
+    credentials:
+      wifi_passphrase_protection: "not_applicable"
+      stored_on_device: []
+      issued_to_client: []
+      notes: "No account, Wi-Fi credential or pairing secret is established."
+  pairing:
+    required: false
+    confidence: "low"
+    security_mode: "none"
+    bonding: "none"
+    enter_pairing_mode:
+      required: false
+    notes: >
+      The wider codec has an optional password capability, but no such
+      requirement was observed. If enabled, use the owner's normal app
+      flow rather than guessing or bypassing it.
+
+services:
+  - uuid: "0000fff0-0000-1000-8000-00805f9b34fb"
+    name: "LOY display service (family evidence)"
+    verification: "reported"
+    notes: >
+      LOYPRO uses this service for display commands, but 0xFFF0 is shared
+      by many unrelated protocols and must not identify the device by
+      itself. Full characteristic properties for LOY5265115155 are unknown.
+    characteristics:
+      - uuid: "0000fff1-0000-1000-8000-00805f9b34fb"
+        name: "Display notifications"
+        properties: ["notify"]
+        verification: "reported"
+        notes: "Expected AA55 acknowledgements and TLV replies; subscribe before an information query."
+      - uuid: "0000fff2-0000-1000-8000-00805f9b34fb"
+        name: "Display writes"
+        properties: ["write_without_response"]
+        verification: "reported"
+        notes: "Use response=False if the unit confirms this property; no write was attempted."
+        commands:
+          get_device_info:
+            description: "Request device and panel information using the source-derived AA55 information query in protocol_details.read_only_identification."
+            encoding: "json"
+            payload:
+              key: "cmd.get"
+              value_type: "string"
+            verification: "reported"
+
+protocol_details:
+  family_evidence:
+    app: "LOY / LOYPRO com.yskj.loypro 2.1.04"
+    accepted_name_prefixes: ["YS", "TL", "LOY"]
+    transport_shape: "AA55 framing, sequence, flags/mode, TLV payloads and little-endian additive checksum"
+    not_evidence_for: >
+      Exact retail model, matrix geometry, raw-GIF compatibility, optional
+      maintenance services or a successful command session on this unit.
+  read_only_identification:
+    verification: "reported"
+    source_derived_query_hex: "aa 55 ff ff 0e 00 01 00 c1 03 0a 00 1b 00 04 00 06 00 ff 03"
+    notes: >
+      Twenty-byte AA55 information query with example sequence 1, shared
+      from the reviewed family codec and not transmitted during research.
+      Subscribe to FFF1 first and use FFF2 without response only if that
+      property is confirmed. Device-information TLV 0x0a carries
+      identity/model/version; panel TLV 0x1b carries big-endian width and
+      height. Stop if no valid AA55 reply arrives; do not try another
+      protocol's initialization as a fallback.
+    tlv_length_encoding:
+      short: "LL below 0x80: LL bytes"
+      extended_8: "81 LL: LL bytes (128-255)"
+      extended_16: "82 LL LH: little-endian u16 length (256 and above)"
+      example: "13 81 c4 = type 0x13 with a 196-byte value"
+
+features:
+  - type: "image_upload"
+    format: "gif"
+    notes: >
+      No fixed geometry is claimed. Read panel TLV 0x1b before rendering.
+      Raw-GIF support on another YS-family backpack is not proof of
+      compatibility with a LOYPRO unit.
+
+remaining_unknowns:
+  - "Full GATT properties and whether 5833ff, Nordic DFU or other maintenance services exist."
+  - "Actual model, firmware, width, height and whether the name's digits carry any serial/model semantics."
+  - "Whether this unit uses the exact AA55 TLV dialect and initialization sequence expected by LOYPRO."
+  - "Whether intermittent advertising means another central is holding the connection."
+
+evidence:
+  artifacts:
+    - type: "advertisement"
+      artifact: "LOY5265115155, observed 2026-11-07"
+      description: >
+        Name and advertised 0xFFF0, RSSI -59 dBm; no manufacturer or
+        service-data record retained. Address and raw payloads deliberately
+        omitted. Later scans did not rediscover the name, so GATT discovery
+        did not complete.
+    - type: "static_analysis"
+      artifact: "LOYPRO com.yskj.loypro 2.1.04 and LOY PLAY com.yskj.loy 1.7.15"
+      description: >
+        Established that LOYPRO accepts LOY while the other app version
+        accepts only YS/TL, and corroborated the FFF0/FFF2/FFF1 map and
+        AA55 family. No vendor classes, methods, source paths or UI text
+        are reproduced.
+    - type: "public_implementation"
+      artifact: "ztrawhcs/yskj-led-sign"
+      url: "https://github.com/ztrawhcs/yskj-led-sign"
+      description: >
+        Independent LOY PLAY / YSKJ client with the same service map and
+        AA55 framing. Tested another named device, not LOY5265115155.
+
+helpful_urls:
+  - title: "LOY / LOYPRO on Google Play"
+    url: "https://play.google.com/store/apps/details?id=com.yskj.loypro"
+    kind: "vendor_support"
+    description: "The app family whose scan filter explicitly accepts the LOY prefix."
+  - title: "ztrawhcs/yskj-led-sign"
+    url: "https://github.com/ztrawhcs/yskj-led-sign"
+    kind: "implementation"
+    description: "Independent LOY PLAY / YSKJ AA55 client; family evidence, not verification of this LOY unit."
+  - title: "AUTOBABA LED Backpack protocol relative"
+    url: "https://github.com/liberatedbread/liberatedbread-protocol-specs/blob/main/device-specs/devices/autobaba-led-backpack.yaml"
+    kind: "protocol_writeup"
+    description: "Related LOY SPACE AA55 implementation with its own YS/TL identity; do not substitute it for LOYPRO."

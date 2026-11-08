@@ -1,0 +1,1074 @@
+# Pix Backpack / Pix Mini (16x20 LED matrix backpack) device spec
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+
+device:
+  name: "Pix Backpack / Pix Mini"
+  manufacturer: "Pix Inc."
+  manufacturer_status: "shutdown"
+  testing:
+    status: untested
+    notes: >
+      Recovered by clean-room static analysis of the vendor Android app
+      (style.pix.app v1.40, versionCode 3040) — a React Native build whose
+      entire protocol implementation lives in its JavaScript bundle. No live
+      capture and no hardware driven yet. Opcode bytes, UUIDs, frame layouts
+      and the upload/OTA sequences are read directly out of the app's own
+      encoders, so they are exact as sent; device-side behaviour (accepted
+      ranges, the unused response characteristic, actual limits) is
+      unverified.
+  protocol: "ble"
+  type: "led-matrix-backpack"
+  category: "display"
+  category_hierarchy: ["display", "led_matrix"]
+  notes: >
+    Wearable 16x20 RGB LED matrix sewn into a backpack (Kickstarter 2018,
+    "Pix Backpack"; a smaller "Pix Mini" for kids followed in 2019), driven by
+    the vendor's Pix app (Android package style.pix.app, v1.40 analyzed; minSdk
+    21, targetSdk 29). Vendor Pix Inc. (pix.style) appears defunct and the app
+    is delisted from Google Play — this is an abandoned-hardware rescue. The
+    app is a React Native build: all protocol logic is in its JavaScript
+    bundle, the native side is stock RN boilerplate, and BLE goes through the
+    stock react-native-ble-manager library (no custom native code, no vendor
+    SDK).
+
+    LOCAL-ONLY VIABILITY: HIGH. Scan, connect, image/animation upload,
+    brightness, scrolling text, clock/widgets and games are all pure local
+    BLE. The app silently creates an anonymous cloud account, but that exists
+    only for the content marketplace; sign-in is optional and nothing in the
+    control path needs the cloud. Cloud endpoints in this build point at the
+    vendor's STAGE environment (app.stage.pix.style, device-gateway
+    .stage.pix.style) — production hostnames (app.pix.style,
+    device-gateway.pix.style) presumably existed as siblings. Both are dead
+    with the vendor; only the marketplace, news feed and firmware hosting are
+    lost, and firmware hosting is replaceable (see OTA below).
+
+    IDENTIFICATION: the advertised local name is "pix <12 hex digits>" — the
+    app lowercases the name, splits on spaces, requires the first word to be
+    "pix" and the last word to match /^[0-9a-fA-F]{12}$/ (the 12 hex digits
+    are the device MAC and double as its id). Scan filter is the 0100 service
+    UUID under either of the two "original" base UUIDs:
+      LEGACY  0000xxxx-e984-11e7-b78e-ffd6fcc3450f
+      V1      0000xxxx-e984-11e7-b78e-ffd6fcc34510
+    After connecting, the protocol variant is chosen from the DISCOVERED
+    services: if the legacy 0100 service is present the legacy base is used,
+    otherwise V1. Both services below have identical characteristic layouts;
+    only the UUID base differs. A third base
+    (0000xxxx-9552-4325-8021-a85f8136a5c4) exists for the mini variant but is
+    build-time disabled in the analyzed app — recorded under variants, never
+    exercised.
+
+    TRANSPORT: one GATT service 0100 (per base above). Characteristic 0101 is
+    the RPC channel (write only): every command is
+    [callId u8, opcode u8, payload...] — callId is a per-command counter that
+    wraps 255 -> 0. NO length field, NO checksum, NO crypto anywhere in the
+    BLE path (the app's only crypto is MD5 for firmware integrity). The
+    response characteristic is declared as the SAME 0101 UUID; the app never
+    subscribes to notifications anywhere, so upload is fire-and-forget
+    sequential writes. Default write chunking is 20 bytes; on Android the app
+    optionally requests MTU 517 (on by default) and lets the BLE library
+    chunk larger writes. A replacement client can simply chunk to 20 bytes
+    and skip MTU negotiation. Connect sequence: discover services, read DIS
+    firmware revision (2a26) and hardware revision (2a27), optionally request
+    MTU, then read matrix width (0103), height (0104) and max frames (0105).
+
+    PIXEL ENCODING: frames are width x height bytes (320 B at 16x20), ONE
+    byte per pixel = index into an RGB888 palette, row-major. The palette is
+    uploaded first as raw [r,g,b] triplets via SET_PALETTE, at most 160
+    colors (480 bytes) per call; a second call with startColorIndex=160
+    covers palettes over 160 colors (256 assumed max, unverified). Frames are
+    cropped/padded to the matrix size client-side before upload.
+
+    UPLOAD SEQUENCE (the app's upload orchestrator, all on 0101):
+    read width/height -> clear screen (SET_CONFIG mode NONE) ->
+    SET_FRAME_COUNT(0) (erase) -> SET_PALETTE -> one SET_FRAME per frame ->
+    SET_FRAMES_DURATIONS (per-frame u16LE milliseconds, default 80) ->
+    SET_ANIMATION_DIRECTION -> SET_FRAME_COUNT(n) ->
+    SAVE_TO_PERSISTENT_MEMORY (only when "play on boot" is wanted; saved
+    content autostarts on power-on). Scrolling text is render mode 2: 8x20
+    font sprites are uploaded as ordinary frames and a config blob
+    [2, direction(0=left), speed u16LE, charW=8, charH=20, seqLen u16LE,
+    spriteIndex-per-char...] is sent via SET_CONFIG in 512-byte chunks.
+
+    OTA / FIRMWARE: device-side Wi-Fi download, not a BLE transfer. The app
+    writes 0 to OTA-enable (0107), writes a fixed 215-byte config blob to
+    0108 — [ssid CStr pad32][password CStr pad64][flags u8 = 0][hostname CStr
+    pad32][port u16LE = 80][path CStr pad64][size u32LE][md5 16 raw bytes] —
+    then writes 1 to 0107. The device joins the named Wi-Fi network (2.4 GHz
+    only — the app refuses 5 GHz networks for updates), HTTP-GETs
+    http://<host>:80<path>, verifies size and MD5, and flashes it. Port 80 is
+    hardcoded and the scheme is plain HTTP, so a rescue OTA server is any
+    HTTP server on port 80 serving an image with matching size/MD5. The app
+    then sets render mode OTA_PROGRESS(3), force-disconnects, and polls OTA
+    state (0109). Firmware metadata came from GET
+    {api}/firmware?fields=latest (JSON {latest:{version, md5, size, ...}});
+    the binary was at {device-gateway}/firmware/{version}. OTA requires
+    hardware revision >= 3.1; no firmware image is bundled in the app and the
+    image format is unknown (ESP32-class OTA bin suspected — see chip
+    hypothesis).
+
+    CHIP FAMILY (HYPOTHESIS): BLE + Wi-Fi combo with Wi-Fi OTA over HTTP and
+    ~2020 firmware suggests an ESP32-class part. No chip strings exist in the
+    app (BLE via the Android stack, no vendor .so); confirm via FCC ID,
+    hardware revision strings, or a firmware image header.
+
+    CONFIDENCE — HIGH (read directly from the app's encoders): advertised-name
+    rule, all UUIDs and the base-selection rule, GATT map, RPC framing and
+    full opcode table, palette/frame encoding, upload sequence, brightness
+    encoding, OTA blob layout and flow, cloud endpoint shapes. MEDIUM (needs
+    live capture): whether 0101 streams RPC responses when notifications are
+    enabled, max-frames/palette limits, the SET_FRAME offset semantics
+    (partial-frame writes), demo-mode (0110) semantics, game-mode config
+    bytes, OTA flags byte, mini variant behaviour.
+  identification:
+    local_name_prefix: "pix"
+    service_uuids:
+      - "00000100-e984-11e7-b78e-ffd6fcc3450f"
+      - "00000100-e984-11e7-b78e-ffd6fcc34510"
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          local_name:
+            match: "regex"
+            value: "^[pP][iI][xX]( .+)? [0-9a-fA-F]{12}$"
+          service_uuids:
+            - "00000100-e984-11e7-b78e-ffd6fcc3450f"
+            - "00000100-e984-11e7-b78e-ffd6fcc34510"
+        notes: >
+          Advertised name is "pix <12-hex-MAC>" (the app lowercases the name
+          first; the regex above covers either case as seen on air). Scan
+          filter is the 0100 service under either original base UUID; after
+          connecting, pick the LEGACY base if the legacy 0100 service is
+          present, else V1. The mini variant advertises
+          00000100-9552-4325-8021-a85f8136a5c4 instead.
+    identity:
+      stable_keys: ["address", "local_name"]
+      display: "local_name"
+    static_ip_required: false
+
+  setup:
+    required: false
+    confidence: "medium"
+    notes: >
+      No provisioning, no pairing, no account. The backpack advertises as
+      soon as the display is powered (it is USB-power-bank powered — the
+      backpack itself has no battery) and accepts a connection from any
+      central; the app connects in-app with no OS-level bond. Confidence
+      medium: derived from the app's scanner/connect code, not yet exercised
+      against hardware by this project.
+    methods:
+      - type: "ble_direct"
+        name: "Connect over BLE"
+        role: "primary"
+        verified: false
+        description: >
+          Scan for the "pix <12-hex>" name / 0100 service, connect, discover
+          services, then read width/height/max-frames to learn the matrix.
+          No PIN, no bond, no credentials. Notifications are never enabled by
+          the vendor app.
+        ble:
+          advertised_name: "pix "
+          pairing_required: false
+        steps:
+          - action: "Power the backpack's display (connect its internal USB cable to a power bank) and scan for a 'pix <12-hex>' advertisement."
+            actor: "user"
+          - action: "Connect and discover services; select the legacy or V1 UUID base from the discovered 0100 service."
+            actor: "client"
+            request:
+              protocol: "ble_gatt"
+          - action: "Read firmware/hardware revision (DIS 2a26/2a27), then matrix width (0103), height (0104) and max frames (0105)."
+            actor: "client"
+    factory_reset:
+      applicable: "unknown"
+      confidence: "low"
+      effect: >
+        No factory reset exists in the app, and there is little to reset: the
+        device holds no accounts, no keys and no bonds. Persistent state is
+        only the saved animation (erasable over BLE with SET_FRAME_COUNT(0))
+        and, transiently during OTA, the Wi-Fi credentials written into the
+        OTA config. A hardware/button reset procedure is unknown.
+      procedures:
+        - name: "Erase stored content over BLE"
+          verified: false
+          basis: >
+            App analysis: the app's upload sequencer erases existing content
+            with SET_FRAME_COUNT(0) before every upload; no stronger reset is
+            implemented anywhere in the app.
+          steps:
+            - action: "Connect and send the erase_animation command (SET_FRAME_COUNT with count 0), then save_to_persistent_memory."
+              actor: "client"
+              expect: "Stored animation cleared from flash; the matrix goes blank until new content is uploaded."
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        Nothing binds the backpack to a phone — switching controllers is just
+        connecting from the new one. Wi-Fi is involved only during OTA (the
+        device joins a network named in the OTA config to download firmware);
+        it is not a LAN-controllable device and there is no network to
+        rejoin. Expect a single BLE connection at a time: disconnect the old
+        central first.
+    credentials:
+      wifi_passphrase_protection: "plaintext"
+      stored_on_device:
+        - "Wi-Fi SSID/passphrase, written transiently into the OTA config during a firmware update (cleartext over an unbonded BLE link)"
+      issued_to_client: []
+      notes: >
+        Normal control needs no credentials at all. The one place a secret
+        crosses a link is OTA: the phone hands the device the Wi-Fi SSID and
+        passphrase as cleartext inside the 0108 config blob over an
+        unencrypted, unbonded BLE connection, and the firmware download
+        itself is plain HTTP on port 80. Owners should treat OTA as
+        trust-everyone-in-range and prefer a throwaway hotspot for it.
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "none"
+    bonding: "none"
+    enter_pairing_mode:
+      required: false
+    exclusivity:
+      single_connection: "unknown"
+      single_bond: false
+      recovery: >
+        If a connect times out, close the vendor app (or disconnect whatever
+        other phone last drove the backpack) and retry; unplugging the power
+        bank for a few seconds drops any stale link.
+    notes: >
+      From app analysis: the vendor app connects on a bare link, never asks
+      the OS to create a bond, never enables notifications, and has no PIN or
+      pairing screen anywhere. Unreplayed against hardware, so a firmware
+      that demands encryption on some characteristic (which the OS would
+      answer with a Just Works pairing) is not ruled out. Nothing is stored on either side, so there is nothing to unpair and
+      a second-hand unit needs no reset to adopt. Whether the firmware
+      accepts more than one central at a time is not established.
+
+  variants:
+    - model: "Pix Backpack"
+      identification:
+        local_name_prefix: "pix"
+        service_uuids:
+          - "00000100-e984-11e7-b78e-ffd6fcc3450f"
+          - "00000100-e984-11e7-b78e-ffd6fcc34510"
+      notes: >
+        The original 16x20 matrix backpack. Both base UUIDs are "original"
+        product IDs — legacy vs V1 firmware — selected from the discovered
+        services at connect time.
+    - model: "Pix Mini"
+      identification:
+        local_name_prefix: "pix"
+        service_uuids:
+          - "00000100-9552-4325-8021-a85f8136a5c4"
+      notes: >
+        Smaller kids' variant (2019). Its 0100 service UUID is recorded from
+        the app's constants, but the analyzed build selects the product at
+        build time and never uses the mini UUIDs — matrix geometry and
+        whether the characteristic layout matches the original are
+        UNCONFIRMED. Read width/height/max-frames (0103/0104/0105) rather
+        than assuming 16x20.
+
+features:
+  - type: "stored_upload"
+    format: "rgb888"
+    resolution_source: "device_reported"
+    max_width: 16
+    max_height: 20
+    default_frame_interval_ms: 80
+    notes: >
+      Animation upload persists into device flash and (optionally) autostarts
+      on boot. Format is palette-indexed: the palette is the unique RGB888
+      colors across all frames, uploaded via set_palette as raw [r,g,b]
+      triplets (max 160 colors / 480 bytes per call; second call at
+      start_color_index 160 for larger palettes); each frame is then one byte
+      per pixel = palette index, row-major, width*height bytes (320 at
+      16x20), one set_frame call per frame. Full sequence, all fire-and-forget
+      writes to the RPC characteristic: clear_screen -> erase_animation
+      (set_frame_count 0) -> set_palette -> set_frame x N ->
+      set_frame_durations (u16LE ms per frame) -> set_animation_direction ->
+      set_frame_count(n) -> save_to_persistent_memory (only for autostart).
+      Geometry and the frame cap are device-reported (0103/0104/0105) — read
+      them instead of assuming 16x20. No ACKs exist; pace writes and let the
+      BLE stack chunk to the negotiated MTU (20 bytes default).
+  - type: "firmware_update"
+    dfu:
+      mechanisms: ["custom"]
+      transport: "http"
+      image:
+        signing: "unknown"
+        algorithm: "unknown"
+        source: "device_pulls"
+        format: "Unknown. An ESP32-class OTA application image is suspected (chip hypothesis only); no image is bundled in the app and none is publicly archived."
+        notes: >
+          The client never carries the image. It tells the device where to
+          fetch it (host, fixed port 80, path) together with the expected
+          size and MD5, and the device downloads it over plain HTTP. The MD5
+          is an integrity check the app computes from the vendor's firmware
+          metadata; whether the firmware additionally verifies a vendor
+          signature is unknown, and it decides whether a community-built
+          image could ever be installed. The vendor's metadata and image
+          hosts are dead, so today only an image an owner already holds can
+          be served.
+      enter:
+        how: "in_place"
+        command: "ota_enable"
+        notes: >
+          No reboot into a bootloader precedes the download: the running
+          firmware joins Wi-Fi and fetches the image itself once armed. The
+          vendor app's order, all on the Pix service of whichever UUID base
+          the device uses: ota_disable (0107 <- 0) -> ota_configure (the
+          215-byte blob on 0108) -> ota_enable (0107 <- 1) -> set_config with
+          render mode 3 (OTA_PROGRESS) -> drop the BLE link; the app then
+          polls OTA state on 0109. Every step that writes is advanced.
+      dfu_mode:
+        notes: >
+          Mid-update the matrix shows the OTA_PROGRESS render mode and the
+          OTA State characteristic (0109) reports stage, downloaded size and
+          error fields (stage 2 = failed). The app drops the BLE link while
+          the device downloads; whether it keeps advertising, and under what
+          name, during the download or the flash is not established. The
+          update characteristics (0107/0108/0109) sit in the same Pix service
+          as the control surface, so no separate update service is listed
+          here.
+      recovery:
+        interrupted: "unknown"
+        notes: >
+          The device is handed the expected size and MD5 and, per the app's
+          flow, verifies both before flashing, so a truncated download should
+          be rejected rather than flashed; what a power loss during the flash itself leaves behind is
+          unknown. If the chip hypothesis holds, an ESP-IDF style A/B slot
+          layout would keep the old image, but that is a stack default, not
+          an observed fact about this device.
+      verification: "reported"
+      notes: >
+        From static analysis of the vendor app's firmware updater; never
+        replayed against hardware. The app only offers the update when the
+        device reports hardware revision >= 3.1 (DIS 2a27), and it refuses
+        5 GHz networks for it.
+    notes: >
+      Device-side Wi-Fi OTA: the phone does NOT transfer the image. Sequence:
+      ota_disable (write 0 to 0107) -> ota_configure (215-byte blob to 0108:
+      ssid pad32, password pad64, flags 0, hostname pad32, port u16LE = 80,
+      path pad64, size u32LE, md5 16 raw bytes) -> ota_enable (write 1 to
+      0107); the device joins the named 2.4 GHz Wi-Fi network, plain-HTTP
+      GETs the image from port 80, verifies size + MD5 and flashes. Render
+      mode OTA_PROGRESS(3) shows progress on the matrix; the app disconnects
+      and polls OTA state on 0109 (stage 2 = failed). Firmware metadata was
+      GET {api}/firmware?fields=latest and the binary
+      {device-gateway}/firmware/{version}; the analyzed build points at the
+      vendor's stage hosts, which are dead. RESCUE: any HTTP server on port
+      80 serving an image with matching size/MD5 can feed the device — but no
+      image is publicly archived, the image format is unknown, and this path
+      can brick the backpack. Requires hardware revision >= 3.1. MEDIUM
+      confidence; never replayed against hardware here.
+
+services:
+  # ---- Pix RPC service, V1 base (chosen when the legacy 0100 service is absent) ----
+  - uuid: "00000100-e984-11e7-b78e-ffd6fcc34510"
+    name: "Pix RPC Service (V1 base)"
+    notes: >
+      Same characteristic layout as the legacy-base service below; the app
+      picks this base unless the device advertises the legacy 0100 service.
+    characteristics:
+      - uuid: "00000101-e984-11e7-b78e-ffd6fcc34510"
+        name: "RPC (requests)"
+        properties: ["write"]
+        role: "command"
+        notes: >
+          Every command is [callId u8, opcode u8, payload...]; callId is a
+          per-command counter wrapping 255 -> 0. No length, no checksum, no
+          crypto. The app also declares this SAME UUID as the response
+          characteristic but never subscribes to it — there are no ACKs and
+          upload is fire-and-forget; whether firmware streams responses here
+          when notifications are enabled is an open question (try it on
+          hardware). Opcodes: 0 SET_FRAME, 1 SET_PALETTE, 2 SET_FRAME_COUNT,
+          3 SET_FRAMES_DURATIONS, 4 SET_ANIMATION_DIRECTION,
+          5 SAVE_TO_PERSISTENT_MEMORY, 6 PRINT_MEMORY (debug), 7 SET_CONFIG,
+          8 SET_INPUT, 9 RESTART.
+        commands:
+          set_frame:
+            description: >
+              Opcode 0 — upload one frame: frame_index u16LE, offset u16LE
+              (always 0 in the app; likely allows partial-frame writes,
+              unverified), then the frame bytes (1 byte/pixel palette index,
+              row-major, width*height bytes — 320 at 16x20).
+            template: ["{call_id}", 0, "{frame_index}", "{offset}", "{pixels}"]
+            parameters:
+              call_id:
+                type: "uint8"
+                auto: "sequence"
+              frame_index:
+                type: "uint16"
+                endianness: "little"
+              offset:
+                type: "uint16"
+                endianness: "little"
+                default: 0
+              pixels:
+                type: "bytes"
+                min_length: 1
+                max_length: 320
+          set_palette:
+            description: >
+              Opcode 1 — upload palette entries starting at start_color_index:
+              raw [r,g,b] triplets, at most 160 colors (480 bytes) per call.
+              For palettes over 160 colors send a second call with
+              start_color_index = 160. Palette cap assumed 256 (unverified).
+            template: ["{call_id}", 1, "{start_color_index}", "{rgb}"]
+            parameters:
+              call_id:
+                type: "uint8"
+                auto: "sequence"
+              start_color_index:
+                type: "uint8"
+                default: 0
+              rgb:
+                type: "bytes"
+                min_length: 3
+                max_length: 480
+          set_frame_count:
+            description: >
+              Opcode 2 — set the animation frame count. Sent as 0 before
+              upload to erase existing content, then as n after all frames
+              are in place (see the stored_upload feature for the sequence).
+            template: ["{call_id}", 2, "{count}"]
+            parameters:
+              call_id:
+                type: "uint8"
+                auto: "sequence"
+              count:
+                type: "uint8"
+          erase_animation:
+            description: >
+              Opcode 2 with count 0 — erase stored frames (the upload
+              sequencer's first step). Follow with save_to_persistent_memory
+              to make the erasure survive a power cycle.
+            template: ["{call_id}", 2, 0]
+            parameters:
+              call_id:
+                type: "uint8"
+                auto: "sequence"
+          set_frame_durations:
+            description: >
+              Opcode 3 — per-frame durations: offset u16LE (always 0 in the
+              app), then one u16LE duration in milliseconds per frame.
+              Default duration is 80 ms.
+            template: ["{call_id}", 3, "{offset}", "{durations}"]
+            parameters:
+              call_id:
+                type: "uint8"
+                auto: "sequence"
+              offset:
+                type: "uint16"
+                endianness: "little"
+                default: 0
+              durations:
+                type: "bytes"
+                min_length: 2
+          set_animation_direction:
+            description: >
+              Opcode 4 — playback direction: 0 normal loop, 1 alternate
+              (ping-pong), 2 normal-then-stop, 3 alternate-then-stop.
+            template: ["{call_id}", 4, "{direction}"]
+            parameters:
+              call_id:
+                type: "uint8"
+                auto: "sequence"
+              direction:
+                type: "uint8"
+                min: 0
+                max: 3
+          save_to_persistent_memory:
+            description: >
+              Opcode 5 — persist the current animation to flash; saved
+              content autostarts on power-on. The app sends this only when
+              the user wants the content to play on boot.
+            template: ["{call_id}", 5]
+            parameters:
+              call_id:
+                type: "uint8"
+                auto: "sequence"
+          print_memory:
+            description: "Opcode 6 — debug memory dump; never sent by the app's normal flows."
+            advanced: true
+            advanced_reason: "Debug opcode; device-side effect unknown (no response channel is subscribed)."
+            template: ["{call_id}", 6]
+            parameters:
+              call_id:
+                type: "uint8"
+                auto: "sequence"
+          set_config:
+            description: >
+              Opcode 7 — set render mode / mode config: offset u16LE then
+              config bytes, chunked at 512 bytes per call (continue with the
+              offset advanced). First config byte is the render mode: 0 NONE,
+              1 ANIMATION, 2 SCROLLING text, 3 OTA_PROGRESS, 6 CLOCK, 7 BIKE,
+              8 COUNTDOWN, 9 STOPWATCH, 16 PIX_BLOCKS, 17 PIXEL_BREAKER,
+              18 CRAWLER. Scrolling-text config layout:
+              [2, direction(0=left), speed u16LE, charW=8, charH=20,
+              seqLen u16LE, sprite-index per char...] with the 8x20 font
+              sprites uploaded beforehand as ordinary frames. Config layouts
+              for CLOCK/BIKE/widgets/games are not yet extracted (MEDIUM).
+            template: ["{call_id}", 7, "{offset}", "{config}"]
+            parameters:
+              call_id:
+                type: "uint8"
+                auto: "sequence"
+              offset:
+                type: "uint16"
+                endianness: "little"
+                default: 0
+              config:
+                type: "bytes"
+                min_length: 1
+                max_length: 512
+          clear_screen:
+            description: >
+              Opcode 7 with offset 0 and config [0x00] — render mode NONE;
+              blanks the matrix. The upload sequencer's first step.
+            template: ["{call_id}", 7, 0, 0, 0]
+            parameters:
+              call_id:
+                type: "uint8"
+                auto: "sequence"
+          set_input:
+            description: >
+              Opcode 8 — input to the interactive widgets/games: input_id u8
+              (rolling 1..255 per event), command u8. Known widget commands
+              for stopwatch/timer modes: 1 START, 2 STOP, 3 RESET, 4 LAP.
+              Widgets require firmware >= 2.2.5.
+            template: ["{call_id}", 8, "{input_id}", "{command}"]
+            parameters:
+              call_id:
+                type: "uint8"
+                auto: "sequence"
+              input_id:
+                type: "uint8"
+                min: 1
+                max: 255
+              command:
+                type: "uint8"
+          restart:
+            description: "Opcode 9 — reboot the device."
+            template: ["{call_id}", 9]
+            parameters:
+              call_id:
+                type: "uint8"
+                auto: "sequence"
+
+      - uuid: "00000103-e984-11e7-b78e-ffd6fcc34510"
+        name: "Matrix Width"
+        properties: ["read"]
+        notes: "Matrix width in pixels (16 on the Pix Backpack). Read after connecting."
+        format:
+          - offset: 0
+            length: 1
+            name: "width"
+            type: "uint8"
+      - uuid: "00000104-e984-11e7-b78e-ffd6fcc34510"
+        name: "Matrix Height"
+        properties: ["read"]
+        notes: "Matrix height in pixels (20 on the Pix Backpack)."
+        format:
+          - offset: 0
+            length: 1
+            name: "height"
+            type: "uint8"
+      - uuid: "00000105-e984-11e7-b78e-ffd6fcc34510"
+        name: "Max Frames"
+        properties: ["read"]
+        notes: "Maximum animation frame count the device holds; value unverified (no live read yet)."
+        format:
+          - offset: 0
+            length: 1
+            name: "max_frames"
+            type: "uint8"
+      - uuid: "00000106-e984-11e7-b78e-ffd6fcc34510"
+        name: "Brightness"
+        properties: ["write"]
+        notes: >
+          Single byte: the app writes floor(255 * level) for a 0..1 slider,
+          i.e. raw 0-255. Whether the value is readable or persisted is
+          unknown (the app only writes).
+        commands:
+          set_brightness:
+            description: "Set display brightness, 0 (off) to 255 (full)."
+            template: ["{level}"]
+            parameters:
+              level:
+                type: "uint8"
+                min: 0
+                max: 255
+      - uuid: "00000107-e984-11e7-b78e-ffd6fcc34510"
+        name: "OTA Enable"
+        properties: ["write"]
+        notes: "Gate for the OTA downloader: write 0 before loading the OTA config, 1 to arm and start it."
+        commands:
+          ota_enable:
+            description: "Arm OTA: after the 0108 config blob is written, the device joins the named Wi-Fi and downloads the image."
+            advanced: true
+            advanced_reason: "Firmware update path; a bad or interrupted flash can brick the backpack."
+            value: [1]
+          ota_disable:
+            description: "Disarm OTA before (re)writing the OTA config blob."
+            advanced: true
+            advanced_reason: "Firmware update path."
+            value: [0]
+      - uuid: "00000108-e984-11e7-b78e-ffd6fcc34510"
+        name: "OTA Config"
+        properties: ["write"]
+        notes: >
+          Fixed 215-byte blob: [wifi SSID CStr pad32][wifi password CStr
+          pad64][flags u8 = 0, meaning unknown][hostname CStr pad32][port
+          u16LE, hardcoded 80][path CStr pad64][image size u32LE][image MD5,
+          16 raw bytes]. The device then plain-HTTP GETs
+          http://<hostname>:80<path> and verifies size + MD5. Whether paths
+          longer than 64 chars work is unknown.
+        commands:
+          ota_configure:
+            description: "Write the 215-byte OTA download config blob (layout in the characteristic notes)."
+            advanced: true
+            advanced_reason: "Firmware update path; hands the Wi-Fi passphrase to the device in cleartext over BLE, and a bad image can brick the backpack."
+            template: ["{blob}"]
+            parameters:
+              blob:
+                type: "bytes"
+                min_length: 215
+                max_length: 215
+      - uuid: "00000109-e984-11e7-b78e-ffd6fcc34510"
+        name: "OTA State"
+        properties: ["read"]
+        notes: "Polled after the app disconnects during OTA; stage 2 means failed."
+        format:
+          - offset: 0
+            length: 1
+            name: "stage"
+            type: "uint8"
+            notes: "2 = failed"
+          - offset: 1
+            length: 4
+            name: "download_size"
+            type: "uint32"
+            endianness: "little"
+          - offset: 5
+            length: 4
+            name: "error"
+            type: "int32"
+            endianness: "little"
+          - offset: 9
+            length: 1
+            name: "error_type"
+            type: "uint8"
+          - offset: 10
+            length: 4
+            name: "error_number"
+            type: "int32"
+            endianness: "little"
+      - uuid: "00000110-e984-11e7-b78e-ffd6fcc34510"
+        name: "Demo Mode"
+        properties: ["read", "write"]
+        notes: >
+          Demo-mode state (the app only ever references a "disabled" state).
+          Read/write semantics are not extracted — MEDIUM confidence that this
+          toggles a demo/attract loop.
+
+  # ---- Pix RPC service, LEGACY base (chosen when the legacy 0100 service is present) ----
+  - uuid: "00000100-e984-11e7-b78e-ffd6fcc3450f"
+    name: "Pix RPC Service (legacy base)"
+    notes: >
+      Identical layout and command semantics to the V1-base service above;
+      only the UUID base differs (…450f instead of …4510). The app picks this
+      base when the device advertises this legacy 0100 service, otherwise V1.
+      Command descriptions here are abbreviated — see the V1 service block.
+    characteristics:
+      - uuid: "00000101-e984-11e7-b78e-ffd6fcc3450f"
+        name: "RPC (requests)"
+        properties: ["write"]
+        role: "command"
+        notes: "Same framing as V1: [callId u8, opcode u8, payload...], no checksum/crypto, no ACKs."
+        commands:
+          set_frame:
+            description: "Opcode 0 — upload one frame (frame_index u16LE, offset u16LE, palette-index bytes). See V1 block."
+            template: ["{call_id}", 0, "{frame_index}", "{offset}", "{pixels}"]
+            parameters:
+              call_id:
+                type: "uint8"
+                auto: "sequence"
+              frame_index:
+                type: "uint16"
+                endianness: "little"
+              offset:
+                type: "uint16"
+                endianness: "little"
+                default: 0
+              pixels:
+                type: "bytes"
+                min_length: 1
+                max_length: 320
+          set_palette:
+            description: "Opcode 1 — palette upload, <=160 RGB888 colors per call. See V1 block."
+            template: ["{call_id}", 1, "{start_color_index}", "{rgb}"]
+            parameters:
+              call_id:
+                type: "uint8"
+                auto: "sequence"
+              start_color_index:
+                type: "uint8"
+                default: 0
+              rgb:
+                type: "bytes"
+                min_length: 3
+                max_length: 480
+          set_frame_count:
+            description: "Opcode 2 — set frame count (0 erases). See V1 block."
+            template: ["{call_id}", 2, "{count}"]
+            parameters:
+              call_id:
+                type: "uint8"
+                auto: "sequence"
+              count:
+                type: "uint8"
+          erase_animation:
+            description: "Opcode 2 with count 0 — erase stored frames. See V1 block."
+            template: ["{call_id}", 2, 0]
+            parameters:
+              call_id:
+                type: "uint8"
+                auto: "sequence"
+          set_frame_durations:
+            description: "Opcode 3 — offset u16LE + per-frame u16LE ms durations (default 80). See V1 block."
+            template: ["{call_id}", 3, "{offset}", "{durations}"]
+            parameters:
+              call_id:
+                type: "uint8"
+                auto: "sequence"
+              offset:
+                type: "uint16"
+                endianness: "little"
+                default: 0
+              durations:
+                type: "bytes"
+                min_length: 2
+          set_animation_direction:
+            description: "Opcode 4 — 0 normal, 1 alternate, 2 normal-stop, 3 alternate-stop. See V1 block."
+            template: ["{call_id}", 4, "{direction}"]
+            parameters:
+              call_id:
+                type: "uint8"
+                auto: "sequence"
+              direction:
+                type: "uint8"
+                min: 0
+                max: 3
+          save_to_persistent_memory:
+            description: "Opcode 5 — persist animation to flash (autostart on boot). See V1 block."
+            template: ["{call_id}", 5]
+            parameters:
+              call_id:
+                type: "uint8"
+                auto: "sequence"
+          print_memory:
+            description: "Opcode 6 — debug memory dump."
+            advanced: true
+            advanced_reason: "Debug opcode; device-side effect unknown."
+            template: ["{call_id}", 6]
+            parameters:
+              call_id:
+                type: "uint8"
+                auto: "sequence"
+          set_config:
+            description: "Opcode 7 — render mode + config, offset u16LE, 512-byte chunks. Mode byte first: 0 NONE, 1 ANIMATION, 2 SCROLLING, 3 OTA_PROGRESS, 6 CLOCK, 7 BIKE, 8 COUNTDOWN, 9 STOPWATCH, 16/17/18 games. See V1 block."
+            template: ["{call_id}", 7, "{offset}", "{config}"]
+            parameters:
+              call_id:
+                type: "uint8"
+                auto: "sequence"
+              offset:
+                type: "uint16"
+                endianness: "little"
+                default: 0
+              config:
+                type: "bytes"
+                min_length: 1
+                max_length: 512
+          clear_screen:
+            description: "Opcode 7, offset 0, config [0] — blank the matrix (mode NONE)."
+            template: ["{call_id}", 7, 0, 0, 0]
+            parameters:
+              call_id:
+                type: "uint8"
+                auto: "sequence"
+          set_input:
+            description: "Opcode 8 — widget/game input: rolling input_id u8 + command u8 (1 START, 2 STOP, 3 RESET, 4 LAP). See V1 block."
+            template: ["{call_id}", 8, "{input_id}", "{command}"]
+            parameters:
+              call_id:
+                type: "uint8"
+                auto: "sequence"
+              input_id:
+                type: "uint8"
+                min: 1
+                max: 255
+              command:
+                type: "uint8"
+          restart:
+            description: "Opcode 9 — reboot."
+            template: ["{call_id}", 9]
+            parameters:
+              call_id:
+                type: "uint8"
+                auto: "sequence"
+      - uuid: "00000103-e984-11e7-b78e-ffd6fcc3450f"
+        name: "Matrix Width"
+        properties: ["read"]
+        format:
+          - offset: 0
+            length: 1
+            name: "width"
+            type: "uint8"
+      - uuid: "00000104-e984-11e7-b78e-ffd6fcc3450f"
+        name: "Matrix Height"
+        properties: ["read"]
+        format:
+          - offset: 0
+            length: 1
+            name: "height"
+            type: "uint8"
+      - uuid: "00000105-e984-11e7-b78e-ffd6fcc3450f"
+        name: "Max Frames"
+        properties: ["read"]
+        format:
+          - offset: 0
+            length: 1
+            name: "max_frames"
+            type: "uint8"
+      - uuid: "00000106-e984-11e7-b78e-ffd6fcc3450f"
+        name: "Brightness"
+        properties: ["write"]
+        notes: "Single byte 0-255 (app writes floor(255*level))."
+        commands:
+          set_brightness:
+            description: "Set display brightness, 0 (off) to 255 (full)."
+            template: ["{level}"]
+            parameters:
+              level:
+                type: "uint8"
+                min: 0
+                max: 255
+      - uuid: "00000107-e984-11e7-b78e-ffd6fcc3450f"
+        name: "OTA Enable"
+        properties: ["write"]
+        commands:
+          ota_enable:
+            description: "Arm OTA after the 0108 config blob is written. See V1 block."
+            advanced: true
+            advanced_reason: "Firmware update path; a bad or interrupted flash can brick the backpack."
+            value: [1]
+          ota_disable:
+            description: "Disarm OTA before (re)writing the OTA config blob."
+            advanced: true
+            advanced_reason: "Firmware update path."
+            value: [0]
+      - uuid: "00000108-e984-11e7-b78e-ffd6fcc3450f"
+        name: "OTA Config"
+        properties: ["write"]
+        notes: "Same 215-byte blob as the V1 block (ssid pad32, password pad64, flags 0, host pad32, port 80 u16LE, path pad64, size u32LE, md5 16 bytes)."
+        commands:
+          ota_configure:
+            description: "Write the 215-byte OTA download config blob. See V1 block."
+            advanced: true
+            advanced_reason: "Firmware update path; cleartext Wi-Fi passphrase over BLE, bricking risk."
+            template: ["{blob}"]
+            parameters:
+              blob:
+                type: "bytes"
+                min_length: 215
+                max_length: 215
+      - uuid: "00000109-e984-11e7-b78e-ffd6fcc3450f"
+        name: "OTA State"
+        properties: ["read"]
+        notes: "Same layout as the V1 block; stage 2 = failed."
+        format:
+          - offset: 0
+            length: 1
+            name: "stage"
+            type: "uint8"
+            notes: "2 = failed"
+          - offset: 1
+            length: 4
+            name: "download_size"
+            type: "uint32"
+            endianness: "little"
+          - offset: 5
+            length: 4
+            name: "error"
+            type: "int32"
+            endianness: "little"
+          - offset: 9
+            length: 1
+            name: "error_type"
+            type: "uint8"
+          - offset: 10
+            length: 4
+            name: "error_number"
+            type: "int32"
+            endianness: "little"
+      - uuid: "00000110-e984-11e7-b78e-ffd6fcc3450f"
+        name: "Demo Mode"
+        properties: ["read", "write"]
+        notes: "Demo-mode state; semantics not extracted (see V1 block)."
+
+  # ---- Standard Device Information Service, read at connect ----
+  - uuid: "0000180a-0000-1000-8000-00805f9b34fb"
+    name: "Device Information Service"
+    characteristics:
+      - uuid: "00002a26-0000-1000-8000-00805f9b34fb"
+        name: "Firmware Revision String"
+        properties: ["read"]
+        notes: >
+          Read immediately after service discovery. Widgets (stopwatch etc.)
+          require firmware >= 2.2.5; OTA requires hardware >= 3.1.
+        format:
+          - offset: 0
+            length: 16
+            name: "firmware_revision"
+            type: "string"
+      - uuid: "00002a27-0000-1000-8000-00805f9b34fb"
+        name: "Hardware Revision String"
+        properties: ["read"]
+        notes: "OTA is supported for hardware revision >= 3.1 (the app excludes a placeholder 6.6.6 value)."
+        format:
+          - offset: 0
+            length: 16
+            name: "hardware_revision"
+            type: "string"
+
+entities:
+  - platform: "light"
+    name: "LED Matrix"
+    variants: ["Pix Backpack"]
+    command_characteristic: "00000106-e984-11e7-b78e-ffd6fcc34510"
+    notes: >
+      The matrix as a light: brightness is the one direct control. There is
+      no power on/off command — clear_screen (render mode NONE) blanks the
+      display and is the closest "off"; content/mode is re-established by
+      uploading or by set_config. No state channel exists (the app never
+      subscribes to notifications), so current brightness/mode cannot be read
+      back. For a legacy-base unit use the …3450f characteristic UUIDs.
+    commands:
+      set_brightness: "set_brightness"
+      turn_off: "clear_screen"
+      # `set_effect` is the vocabulary's name for a mode/animation picker;
+      # here the "effect" is the render mode selected by set_config's first
+      # config byte. It takes raw config bytes, so a consumer that draws
+      # one-value controls will not resolve it yet — but the binding says
+      # what it IS.
+      set_effect: "set_config"
+  - platform: "button"
+    name: "Restart"
+    variants: ["Pix Backpack"]
+    command_characteristic: "00000101-e984-11e7-b78e-ffd6fcc34510"
+    notes: "Reboots the device (opcode 9). Useful after OTA or a wedged render mode."
+    commands:
+      press: "restart"
+  - platform: "sensor"
+    name: "Firmware Version"
+    variants: ["Pix Backpack"]
+    state_characteristic: "00002a26-0000-1000-8000-00805f9b34fb"
+    notes: "DIS 2a26 string, read at connect. Widgets need >= 2.2.5."
+  - platform: "sensor"
+    name: "Hardware Version"
+    variants: ["Pix Backpack"]
+    state_characteristic: "00002a27-0000-1000-8000-00805f9b34fb"
+    notes: "DIS 2a27 string, read at connect. OTA needs >= 3.1."
+
+protocol_details:
+  render_modes:
+    description: "First byte of the SET_CONFIG (opcode 7) config blob."
+    values:
+      0: "NONE (blank; clear screen)"
+      1: "ANIMATION (uploaded frames)"
+      2: "SCROLLING (text; sprites uploaded as frames)"
+      3: "OTA_PROGRESS"
+      6: "CLOCK"
+      7: "BIKE (cycling display)"
+      8: "COUNTDOWN"
+      9: "STOPWATCH"
+      16: "PIX_BLOCKS (game)"
+      17: "PIXEL_BREAKER (game)"
+      18: "CRAWLER (game)"
+  ota_config_layout:
+    description: "Fixed 215-byte blob written to characteristic 0108 during firmware update."
+    fields:
+      - "wifi_ssid: CStr, padded to 32"
+      - "wifi_password: CStr, padded to 64"
+      - "flags: u8, always 0 (meaning unknown)"
+      - "hostname: CStr, padded to 32"
+      - "port: u16LE, hardcoded 80"
+      - "path: CStr, padded to 64"
+      - "image_size: u32LE"
+      - "image_md5: 16 raw bytes"
+  widget_input_commands:
+    description: "SET_INPUT (opcode 8) command byte for stopwatch/countdown widgets (firmware >= 2.2.5)."
+    values:
+      1: "START"
+      2: "STOP"
+      3: "RESET"
+      4: "LAP"
+
+evidence:
+  artifacts:
+    - type: "static_analysis"
+      artifact: "style.pix.app v1.40 (versionCode 3040), minSdk 21, targetSdk 29 — React Native app; protocol recovered from its JavaScript bundle"
+      obtained_via: "third-party APK mirror (XAPK: base + arm64 config split), 2026-08"
+      description: >
+        Clean-room static analysis (2026-08). The app is a React Native
+        build: the native side is stock boilerplate and BLE goes through the
+        stock react-native-ble-manager library, so every protocol fact here —
+        advertised-name rule, UUIDs and base-selection, RPC framing, opcode
+        table, palette/frame encoders, upload sequence, OTA blob and flow,
+        cloud endpoint shapes — is read out of the JavaScript bundle's own
+        constants and encoders. No live capture exists for this device yet.
+    - type: "public_reporting"
+      url: "https://web.archive.org/web/20210515074642/https://www.hackster.io/news/pix-interactive-animated-led-backpack-d29f09a138c2"
+      description: "Contemporaneous coverage of the 2018 Kickstarter (16x20 matrix, BLE control) — corroborates geometry and product identity."
+    - type: "public_reporting"
+      url: "https://www.prweb.com/releases/pix-mini-the-first-smart-backpack-for-kids-eclipses-crowdfunding-goal-on-day-one-and-surpasses-27-000-in-presales-on-kickstarter-in-first-week-841249079.html"
+      description: "2019 press release for the Pix Mini variant."
+
+remaining_unknowns:
+  - "Does the 0101 characteristic stream RPC responses when notifications are enabled? The app declares it as the response characteristic but never subscribes — verify on hardware."
+  - "MAX_FRAME (0105) value and real palette cap (256 assumed)."
+  - "SET_FRAME's offset u16: always 0 in the app; likely partial-frame writes — unexercised."
+  - "Config byte layouts for CLOCK/BIKE/COUNTDOWN/STOPWATCH and the three games (present in the bundle, not yet extracted)."
+  - "OTA config flags byte meaning; whether paths >64 chars are accepted; demo-mode (0110) read/write semantics."
+  - "Firmware image format (ESP32-class OTA bin suspected); no image is bundled in the app and none is publicly archived."
+  - "Pix Mini: characteristic layout and matrix geometry (mini base UUID recorded, never exercised in the analyzed build)."
+  - "Chip family (ESP32-class hypothesis): confirm via FCC ID or a firmware image header."
+
+helpful_urls:
+  - title: "PIX: Interactive Animated LED Backpack (Hackster, archived)"
+    url: "https://web.archive.org/web/20210515074642/https://www.hackster.io/news/pix-interactive-animated-led-backpack-d29f09a138c2"
+    kind: "other"
+    description: >-
+      Contemporaneous write-up of the 2018 Kickstarter campaign: 16x20 LED
+      array, Bluetooth control, images/animations/widgets. Internet Archive
+      replay; the live page refuses non-browser clients.
+  - title: "Pix Mini, the First Smart Backpack for Kids, Eclipses Crowdfunding Goal on Day One (PRWeb, 2019)"
+    url: "https://www.prweb.com/releases/pix-mini-the-first-smart-backpack-for-kids-eclipses-crowdfunding-goal-on-day-one-and-surpasses-27-000-in-presales-on-kickstarter-in-first-week-841249079.html"
+    kind: "other"
+    description: >-
+      Vendor press release for the smaller Pix Mini variant.
+  - title: "Pix - backpack with programmable screen (pix.style, archived 2019)"
+    url: "https://web.archive.org/web/20191217051149/https://www.pix.style/"
+    kind: "other"
+    description: >-
+      The vendor's own product site as the Internet Archive captured it in
+      December 2019. Pix Inc. appears defunct and the live domain is gone.
+  - title: "Pix Backpack app on Google Play (archived 2020 listing)"
+    url: "https://web.archive.org/web/20201204124920/https://play.google.com/store/apps/details?id=style.pix.app"
+    kind: "other"
+    description: >-
+      Internet Archive replay of the vendor app's store listing
+      (style.pix.app), the last description of intended behaviour; the app
+      is delisted.

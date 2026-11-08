@@ -41,6 +41,7 @@ device:
       throughout.
   protocol: "ble"
   category: "sensor"
+  category_hierarchy: ["measurement", "temperature"]
   notes: >
     BLE thermometer and hygrometer. It broadcasts temperature, humidity and
     battery in a manufacturer advertisement, so live readings need no connection,

@@ -16,6 +16,7 @@ device:
       driven from this spec; numeric command opcodes are not yet extracted.
   protocol: "ble"
   category: "light"
+  category_hierarchy: ["light", "led"]
   type: "flow-arts-pixel-prop"
   openness:
     status: "undocumented"

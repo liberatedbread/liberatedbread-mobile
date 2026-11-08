@@ -24,6 +24,7 @@ device:
       documented below.
   protocol: "wifi"
   category: "light"
+  category_hierarchy: ["light", "led"]
   transport: "tcp"
   notes: >
     The SP108E is a WiFi addressable-LED (SPI pixel) strip controller driven by

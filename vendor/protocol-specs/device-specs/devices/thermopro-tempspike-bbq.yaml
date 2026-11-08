@@ -2,6 +2,7 @@ device:
   name: ThermoPro TempSpike / TP9xx BBQ Thermometer
   manufacturer: ThermoPro (Adsmart)
   category: sensor
+  category_hierarchy: ["measurement", "temperature"]
   type: bbq-thermometer
   transport: "ble-gatt"
   protocol: ble

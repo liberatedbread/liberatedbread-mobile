@@ -11,6 +11,7 @@ device:
         Temperature, humidity and barometric pressure; the 'xw' units are
         the outdoor-rated enclosure.
   category: sensor
+  category_hierarchy: ["measurement", "temperature"]
   type: sensor-temperature-humidity
   transport: "ble-gatt"
   # 'gatt' is not a schema protocol; GATT is the attribute protocol carried over

@@ -85,6 +85,10 @@ def build_entry(path, doc: dict, version: str) -> dict:
         "manufacturer": device.get("manufacturer"),
         "manufacturer_status": device.get("manufacturer_status"),
     }
+    for field in ("category_hierarchy", "aliases", "distributors", "companion_apps"):
+        value = device.get(field)
+        if value is not None:
+            entry[field] = value
     handler = doc.get("protocol_handler")
     if handler is not None:
         entry["protocol_handler"] = handler

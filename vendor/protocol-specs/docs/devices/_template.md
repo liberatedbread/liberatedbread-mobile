@@ -1,7 +1,7 @@
 # [Device Name]
 
 > **Status**: [Research / In Progress / Complete]
-> **Protocol**: [BLE / WiFi / Zigbee / Other]
+> **Protocol**: [BLE / Bluetooth Classic (SPP, L2CAP, HID) / WiFi / Zigbee / Other]
 > **Manufacturer**: [Company Name]
 > **Manufacturer Status**: [Abandoned / Shutdown / Server-dependent]
 
@@ -17,6 +17,10 @@ Brief description of the device and why it's being reverse engineered.
 | Chipset | |
 | Radio | BLE 4.x / WiFi 802.11n / etc. |
 | FCC ID | |
+| Category / hierarchy | e.g. `sensor` + `["measurement", "distance"]` |
+| Aliases | Other retail/model names an owner may search for |
+| Distributors | Brand / retailer / OEM names and roles |
+| Companion apps | App names, packages, generation and store links |
 
 ## Initial Setup
 
@@ -27,7 +31,7 @@ this into `device.setup` in the machine-readable spec.
 | Property | Value |
 |----------|-------|
 | Setup required | Yes / No (most BLE devices: No) |
-| Method | `softap_http` / `softap_soap` / `ble_provisioning` / `ble_direct` / `wired` / `device_ui` / `button_pairing` / `cloud_account` |
+| Method | `softap_http` / `softap_soap` / `ble_provisioning` / `ble_direct` / `bt_classic_pairing` / `wired` / `device_ui` / `button_pairing` / `cloud_account` |
 | Setup AP / advertised name | e.g. `Wemo.*`, `Vector-XXXX` |
 | Passphrase protection | plaintext / device_encrypted / tls / not_applicable |
 | Confidence | high (ran it) / medium (public source) / low (inferred) |
@@ -79,6 +83,19 @@ close the vendor app, forget it in the OS Bluetooth settings, power-cycle it.
 | UUID | Name | Description |
 |------|------|-------------|
 | `0x????` | | |
+
+### Bluetooth Classic profiles (if applicable)
+
+Which SDP profile carries the control surface, the socket flag, and what a
+BLE-only client can do. Mirror this into the top-level `bluetooth_classic`
+block; see [Common Bluetooth Classic Patterns](../protocols/bluetooth-classic-common.md).
+
+| Property | Value |
+|----------|-------|
+| Control profile | SPP (`00001101-…`) / vendor RFCOMM UUID / L2CAP PSM / HID |
+| Socket | insecure (no bond) / secure (bonded) |
+| Dual-mode | Yes (BLE role: discovery only / secondary control) / No |
+| iOS reachable | No (no MFi) / Yes via MFi (iAP2) |
 
 ### HTTP Endpoints (if applicable)
 
