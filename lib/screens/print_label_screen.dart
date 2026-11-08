@@ -185,7 +185,9 @@ class _PrintLabelScreenState extends ConsumerState<PrintLabelScreen> {
         // would send the label before the one that failed.
         _preview?.image.dispose();
         _preview = null;
-        _error = _mode == _Mode.photo
+        _error = e is QrLabelTooSmallException
+            ? e.message
+            : _mode == _Mode.photo
             ? 'Could not read that photo.'
             : 'Could not draw the label.';
       });

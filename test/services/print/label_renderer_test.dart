@@ -126,6 +126,25 @@ void main() {
     expect(fitsInQr('x' * 5000), isFalse);
   });
 
+  testWidgets('a QR code that cannot fit the label geometry is refused', (
+    tester,
+  ) async {
+    final data = 'x' * 1000;
+    expect(fitsInQr(data), isTrue);
+    Object? error;
+    await tester.runAsync(() async {
+      try {
+        await renderLabel(
+          LabelContent(lines: const ['Plug'], qrData: data),
+          _d11,
+        );
+      } on Object catch (e) {
+        error = e;
+      }
+    });
+    expect(error, isA<QrLabelTooSmallException>());
+  });
+
   testWidgets('a photo fills the head width and keeps its aspect', (
     tester,
   ) async {

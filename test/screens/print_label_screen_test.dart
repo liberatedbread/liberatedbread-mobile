@@ -43,6 +43,12 @@ class _RecordingTarget implements LabelPrintTarget {
   }
 }
 
+class _NarrowTarget extends _RecordingTarget {
+  @override
+  LabelGeometry get geometry =>
+      const LabelGeometry(widthDots: 96, dpi: 203, lengthDots: 240);
+}
+
 class _FakePhotos implements PhotoSource {
   final Uint8List? photo;
   _FakePhotos(this.photo);
@@ -304,5 +310,24 @@ void main() {
       ),
     );
     expect(button.onPressed, isNull);
+  });
+
+  testWidgets('a QR code too detailed for the label cannot be printed', (
+    tester,
+  ) async {
+    final target = _NarrowTarget();
+    await _pump(tester, target);
+    await tester.enterText(find.byKey(const ValueKey('label-qr')), 'x' * 1000);
+    await _settleRender(tester);
+
+    expect(find.textContaining('too detailed for this label'), findsOneWidget);
+    final button = tester.widget<FilledButton>(
+      find.ancestor(
+        of: find.text('Print'),
+        matching: find.byType(FilledButton),
+      ),
+    );
+    expect(button.onPressed, isNull);
+    expect(target.prints, isEmpty);
   });
 }

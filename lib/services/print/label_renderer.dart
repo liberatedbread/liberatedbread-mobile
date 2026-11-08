@@ -14,6 +14,15 @@ import 'print_target.dart';
 /// A label painted at the printer's real resolution, in head coordinates:
 /// [width] dots across the head, [height] rows along the feed, RGBA with
 /// straight alpha. Black on white; the codec reduces it to two colours.
+class QrLabelTooSmallException implements Exception {
+  final String message;
+
+  const QrLabelTooSmallException(this.message);
+
+  @override
+  String toString() => message;
+}
+
 @immutable
 class RenderedLabel {
   final int width;
@@ -135,6 +144,16 @@ Future<RenderedLabel> renderLabel(
   }
 
   final qrSide = qrSideFor(painters);
+  if (qr != null && qrSide < qr.moduleCount + 2) {
+    for (final p in painters) {
+      p.dispose();
+    }
+    throw QrLabelTooSmallException(
+      'This QR code is too detailed for this label: it needs '
+      '${qr.moduleCount + 2} dots, but only ${qrSide.floor()} are available. '
+      'Use a wider roll or less data.',
+    );
+  }
   final textW = blockWidth(painters);
   final textH = blockHeight(painters);
   final contentW = qrSide + (qr != null && hasText ? gap : 0) + textW;

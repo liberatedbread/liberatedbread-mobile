@@ -308,8 +308,17 @@ pub fn render_brother_ql_job(
             p.width
         );
     }
+    let height = if params.media_die_cut {
+        height
+    } else {
+        let minimum = crate::protocol::image_upload::image_feature(&spec)
+            .and_then(|f| f.print_geometry.as_ref())
+            .and_then(|g| g.min_length_dots)
+            .unwrap_or(0);
+        height.max(minimum)
+    };
     let left = p.left + (p.width - w) / 2;
-    let mut head = vec![255u8; p.head_dots * h * 3];
+    let mut head = vec![255u8; p.head_dots * height as usize * 3];
     for y in 0..h {
         let src = &rgb[y * w * 3..(y + 1) * w * 3];
         let at = (y * p.head_dots + left) * 3;
@@ -534,6 +543,31 @@ mod tests {
                 && field[5] == 17
                 && field[6] == 54
         }));
+    }
+
+    #[test]
+    fn continuous_jobs_meet_the_minimum_length_without_padding_die_cut_jobs() {
+        let yaml = vendored("brother-ql-1110nwb.yaml");
+        for (die_cut, expected_rows) in [(false, 301), (true, 1)] {
+            let (width, length) = if die_cut { (17, 54) } else { (62, 0) };
+            let job = render_brother_ql_job(
+                yaml.clone(),
+                params(width, length, die_cut),
+                vec![0, 0, 0],
+                1,
+                1,
+            )
+            .unwrap();
+            let field = job
+                .windows(13)
+                .find(|field| field.starts_with(&[0x1B, 0x69, 0x7A]))
+                .expect("media and quality field");
+            assert_eq!(
+                u32::from_le_bytes(field[7..11].try_into().unwrap()),
+                expected_rows,
+                "die_cut={die_cut}"
+            );
+        }
     }
 
     #[test]
