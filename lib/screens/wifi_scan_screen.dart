@@ -10,6 +10,7 @@ import 'package:permission_handler/permission_handler.dart';
 
 import '../core/device_pictogram.dart';
 import '../core/error_text.dart';
+import '../core/localthings.dart';
 import '../core/log.dart';
 import '../core/web_link.dart';
 import '../models/network_device.dart';
@@ -28,6 +29,7 @@ import '../services/spec_codec.dart';
 import '../widgets/ad_banner_bar.dart';
 import '../widgets/adopt_device_card.dart';
 import '../widgets/device_list_tile.dart';
+import '../widgets/localthings_suggestion_card.dart';
 import 'adopt_device_screen.dart';
 import 'network_controls_launcher.dart';
 
@@ -111,8 +113,13 @@ class _WifiScanScreenState extends ConsumerState<WifiScanScreen> {
     // the catalogue states its type only inside a discovery method, and those
     // are precisely the ones this list exists for. `_miio._udp` and
     // `_arsdk._udp` were never asked for by name.
+    //
+    // Plus Home Assistant's own type, which no spec names because it is a
+    // server the app integrates with, not a catalogue device: seeing it beside
+    // a SmartThings hub is what brings up the LocalThings card.
     final mdnsTypes = <String>{
       for (final identity in identities) ...identity.mdnsServiceTypes,
+      homeAssistantServiceType,
     }.toList();
     if (!mounted) return;
 
@@ -279,6 +286,17 @@ class _WifiScanScreenState extends ConsumerState<WifiScanScreen> {
                 ),
               ),
             ),
+            // A SmartThings hub is recognised, not driven — but the Samsung
+            // appliances on its account can run locally through LocalThings,
+            // and with a Home Assistant in the house that is the advice worth
+            // giving. Mounted only once SmartThings is seen, so a scan with
+            // none never asks Home Assistant anything.
+            if (_found.values.any(isSmartThingsDevice))
+              LocalThingsSuggestionCard(
+                discoveredHaUrl: _discoveredHomeAssistantUrl(),
+                onOpen: (uri) =>
+                    unawaited(_openExternal(context, uri, uri.toString())),
+              ),
             if (_hasScanned && !_isScanning && _found.isEmpty) ...[
               const SizedBox(height: 24),
               Center(
@@ -583,6 +601,14 @@ class _WifiScanScreenState extends ConsumerState<WifiScanScreen> {
     return null;
   }
 
+  /// Where the Home Assistant this scan found says it lives, if it found one.
+  String? _discoveredHomeAssistantUrl() {
+    for (final d in _found.values) {
+      if (isHomeAssistantServer(d)) return homeAssistantUrlOf(d);
+    }
+    return null;
+  }
+
   /// Open a device's own admin page, filling `{address}` with its host.
   void _openAdmin(ScanGuess guess, NetworkDevice device) {
     final raw = guess.adminUrl!.replaceAll('{address}', device.host);
@@ -737,6 +763,10 @@ class _WifiScanScreenState extends ConsumerState<WifiScanScreen> {
                   const SizedBox(height: 16),
                   _controllableViaNote(sheetContext),
                 ],
+                if (isSmartThingsDevice(device)) ...[
+                  const SizedBox(height: 16),
+                  _localThingsNote(sheetContext),
+                ],
               ],
             ),
           ),
@@ -808,6 +838,70 @@ class _WifiScanScreenState extends ConsumerState<WifiScanScreen> {
               ),
             ),
           ],
+        ],
+      ),
+    );
+  }
+
+  /// A footer note for a SmartThings hub: the hub stays on Samsung's cloud,
+  /// but the appliances on its account need not. Shown whether or not a Home
+  /// Assistant is around — the scan's card is the nudge when one is; this is
+  /// where someone who taps the hub reads why it is "not controlled here".
+  Widget _localThingsNote(BuildContext sheetContext) {
+    final scheme = Theme.of(sheetContext).colorScheme;
+    final text = Theme.of(sheetContext).textTheme;
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(
+                Icons.info_outline,
+                size: 18,
+                color: scheme.onSurfaceVariant,
+              ),
+              const SizedBox(width: 8),
+              Flexible(
+                child: Text(
+                  'Samsung appliances can go local',
+                  softWrap: true,
+                  style: text.titleSmall?.copyWith(
+                    color: scheme.onSurfaceVariant,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'Every local service this hub offers needs a Samsung cloud token, '
+            'so this app only recognises it. The Samsung washers, fridges, '
+            'ovens and air conditioners on its account are different: '
+            'LocalThings, a Home Assistant integration, controls them over '
+            'your own network with no Samsung account.',
+            style: text.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
+          ),
+          const SizedBox(height: 8),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton.icon(
+              icon: const Icon(Icons.open_in_new, size: 18),
+              label: const Text('About LocalThings'),
+              onPressed: () => unawaited(
+                _openExternal(
+                  sheetContext,
+                  localThingsRepoUrl,
+                  localThingsRepoUrl.toString(),
+                ),
+              ),
+            ),
+          ),
         ],
       ),
     );

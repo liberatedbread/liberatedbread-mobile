@@ -214,6 +214,18 @@ abstract class HaApiClient {
     required String entityId,
   });
 
+  /// The integrations Home Assistant has loaded, as `GET /api/components`
+  /// reports them: bare domains (`localthings`) and their platforms
+  /// (`localthings.sensor`) alike.
+  ///
+  /// How the app tells whether a recommended integration is already
+  /// installed — LocalThings for a house with a SmartThings hub — without
+  /// guessing from entity names, which carry no integration.
+  Future<Set<String>> loadedComponents({
+    required String baseUrl,
+    required String token,
+  });
+
   /// Call `<domain>.<service>` against [entityId] — `vacuum.start` and
   /// friends. Returns when HA has accepted the call, which is not the same as
   /// the robot having finished acting on it.
