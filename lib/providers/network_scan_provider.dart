@@ -38,6 +38,9 @@ final networkScanServiceProvider = Provider<NetworkScanService>((ref) {
         return const [];
       }
     },
+    delimitedFieldReader: (datagram) => ref
+        .read(specCodecProvider)
+        .parseSensemeDiscoveryReply(datagram: datagram),
   );
   // Multicast sockets and the mDNS client outlive a widget if nobody closes
   // them, and a leaked bound socket keeps the radio awake.

@@ -3329,7 +3329,7 @@ void main() {
   // ── A tcp-json device whose renderer is gated away ──────────────────────
   //
   // The Kasa renderer is gated on `protocol_handler: tplink_smarthome`, so the
-  // other two tcp-json specs — a Tuya gas sensor, a Yeelight cube — resolve no
+  // tcp-json specs with no handler here — a Tuya gas sensor — resolve no
   // actions at all. Their entities still carry a tcp-json state command, and
   // the screen's "does anything need the UPnP description" test used to be the
   // negative "is any state command not http", which caught them: both devices

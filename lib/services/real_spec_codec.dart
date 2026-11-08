@@ -579,6 +579,52 @@ class RealSpecCodec implements SpecCodec {
   }
 
   @override
+  Future<YeelightRequestDto> renderNetworkYeelightCommand({
+    required String specYaml,
+    required String commandName,
+    required Map<String, String> values,
+  }) => rust.renderNetworkYeelightCommand(
+    specYaml: specYaml,
+    commandName: commandName,
+    values: values,
+  );
+
+  @override
+  Future<YeelightRequestDto> renderNetworkYeelightStateRequest({
+    required String specYaml,
+    required String stateCommand,
+  }) => rust.renderNetworkYeelightStateRequest(
+    specYaml: specYaml,
+    stateCommand: stateCommand,
+  );
+
+  @override
+  Future<List<int>> yeelightEncodeLine({required String json}) =>
+      rust.yeelightEncodeLine(json: json);
+
+  @override
+  Future<YeelightReplyDto> yeelightDecodeReply({
+    required String requestJson,
+    required String line,
+  }) => rust.yeelightDecodeReply(requestJson: requestJson, line: line);
+
+  @override
+  Future<List<LimitlessledFrameDto>> renderNetworkLimitlessledCommand({
+    required String specYaml,
+    required String commandName,
+    required Map<String, String> values,
+  }) => rust.renderNetworkLimitlessledCommand(
+    specYaml: specYaml,
+    commandName: commandName,
+    values: values,
+  );
+
+  @override
+  Future<List<String>?> parseSensemeDiscoveryReply({
+    required List<int> datagram,
+  }) => rust.parseSensemeDiscoveryReply(datagram: datagram);
+
+  @override
   Future<KasaRequestDto> renderNetworkKasaCommand({
     required String specYaml,
     required String commandName,

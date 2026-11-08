@@ -9,9 +9,9 @@ import '../frb_generated.dart';
 import '../spec/types.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These functions are ignored because they are not marked as `pub`: `agreeing`, `all_company_ids`, `all_service_types`, `all_service_uuids`, `best_mac_prefix`, `ble_provisioning_profiles_over`, `brightness_to_byte`, `brother_ql_media`, `brother_ql_test_canvas`, `check_stored_layer_edges`, `confidence`, `decode_with_protocol`, `encode_command_with_spec`, `encode_command_writes_with_spec`, `encode_entity_value_with_spec`, `entity_dto`, `find_entity`, `finite`, `format_mac`, `format_number`, `from_lifx`, `from`, `groups_governing`, `handler_surface`, `http_scheme_of`, `image_plan_dto`, `image_upload_dto`, `is_empty`, `is_narrowed`, `is_platform_company_id`, `is_shared_service_type`, `is_sig_assigned_service`, `lifx_network_entities`, `list_network_instances_with_spec`, `mac_prefix_confidence`, `match_axes`, `match_connected_device`, `match_network_axes`, `match_network_over`, `match_scanned_over`, `network_surface_for`, `normalize_mac_prefix`, `normalize_mac`, `rank_matches`, `read_network_entity_roles_with_spec`, `read_network_entity_with_spec`, `read_network_instance_with_spec`, `reading_to_dto`, `regex_for`, `render_network_http_state_request_with_spec`, `render_network_state_request_with_spec`, `resolve_query_source`, `roomba_network_entities`, `scroll_from_str`, `select_entity`, `soft_ap_profiles_over`, `stored_plan_to_dto`, `stored_upload_dto`, `strip_hex`, `txt_conditions_hold`, `txt_group_holds`, `value_matches`
+// These functions are ignored because they are not marked as `pub`: `agreeing`, `all_company_ids`, `all_service_types`, `all_service_uuids`, `answered_protocol_tokens`, `best_mac_prefix`, `ble_provisioning_profiles_over`, `brightness_to_byte`, `brother_ql_media`, `brother_ql_test_canvas`, `check_stored_layer_edges`, `confidence`, `decode_with_protocol`, `encode_command_with_spec`, `encode_command_writes_with_spec`, `encode_entity_value_with_spec`, `entity_dto`, `find_entity`, `finite`, `format_mac`, `format_number`, `from_lifx`, `from`, `groups_governing`, `handler_surface`, `http_scheme_of`, `image_plan_dto`, `image_upload_dto`, `is_empty`, `is_narrowed`, `is_platform_company_id`, `is_shared_service_type`, `is_sig_assigned_service`, `lifx_network_entities`, `list_network_instances_with_spec`, `mac_prefix_confidence`, `match_axes`, `match_connected_device`, `match_network_axes`, `match_network_over`, `match_scanned_over`, `network_surface_for`, `normalize_mac_prefix`, `normalize_mac`, `rank_matches`, `read_network_entity_roles_with_spec`, `read_network_entity_with_spec`, `read_network_instance_with_spec`, `reading_to_dto`, `regex_for`, `render_network_http_state_request_with_spec`, `render_network_state_request_with_spec`, `resolve_query_source`, `roomba_network_entities`, `scroll_from_str`, `select_entity`, `soft_ap_profiles_over`, `stored_plan_to_dto`, `stored_upload_dto`, `strip_hex`, `txt_conditions_hold`, `txt_group_holds`, `value_matches`
 // These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `ConnectedMatch`, `MatchAxes`
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `cmp`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `partial_cmp`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `cmp`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `partial_cmp`
 // These functions are ignored (category: IgnoreBecauseOwnerTyShouldIgnore): `default`
 
 /// Resolve a `device_reported` panel's REAL width/height from its BLE
@@ -209,6 +209,60 @@ Future<HttpRequestDto> renderNetworkHttpCommand({
   specYaml: specYaml,
   commandName: commandName,
   values: values,
+);
+
+/// Render one Yeelight LAN command to its JSON.
+Future<YeelightRequestDto> renderNetworkYeelightCommand({
+  required String specYaml,
+  required String commandName,
+  required Map<String, String> values,
+}) => RustLib.instance.api.crateApiDeviceApiRenderNetworkYeelightCommand(
+  specYaml: specYaml,
+  commandName: commandName,
+  values: values,
+);
+
+/// Render the JSON that polls a Yeelight state command (`get_prop`).
+Future<YeelightRequestDto> renderNetworkYeelightStateRequest({
+  required String specYaml,
+  required String stateCommand,
+}) => RustLib.instance.api.crateApiDeviceApiRenderNetworkYeelightStateRequest(
+  specYaml: specYaml,
+  stateCommand: stateCommand,
+);
+
+/// One Yeelight message as the bytes that go on the socket.
+Future<Uint8List> yeelightEncodeLine({required String json}) =>
+    RustLib.instance.api.crateApiDeviceApiYeelightEncodeLine(json: json);
+
+/// Read one line off a Yeelight socket against the request it may answer.
+Future<YeelightReplyDto> yeelightDecodeReply({
+  required String requestJson,
+  required String line,
+}) => RustLib.instance.api.crateApiDeviceApiYeelightDecodeReply(
+  requestJson: requestJson,
+  line: line,
+);
+
+/// Render one LimitlessLED command to its complete timed sequence: zone
+/// addressing, repeats and pacing included. `values` may carry `zone` (1-4)
+/// beside the command's own parameters; absent addresses all zones.
+Future<List<LimitlessledFrameDto>> renderNetworkLimitlessledCommand({
+  required String specYaml,
+  required String commandName,
+  required Map<String, String> values,
+}) => RustLib.instance.api.crateApiDeviceApiRenderNetworkLimitlessledCommand(
+  specYaml: specYaml,
+  commandName: commandName,
+  values: values,
+);
+
+/// The fields of a SenseME discovery reply, the `field:N` identity dialect:
+/// null for a datagram that is not one.
+Future<List<String>?> parseSensemeDiscoveryReply({
+  required List<int> datagram,
+}) => RustLib.instance.api.crateApiDeviceApiParseSensemeDiscoveryReply(
+  datagram: datagram,
 );
 
 /// Render a named `transport: tcp-json` command into the JSON to send — the
@@ -3212,6 +3266,25 @@ class LifxZonesDto {
           colors == other.colors;
 }
 
+/// One datagram of a legacy LimitlessLED send, and the wait after it.
+class LimitlessledFrameDto {
+  final Uint8List bytes;
+  final int delayAfterMs;
+
+  const LimitlessledFrameDto({required this.bytes, required this.delayAfterMs});
+
+  @override
+  int get hashCode => bytes.hashCode ^ delayAfterMs.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is LimitlessledFrameDto &&
+          runtimeType == other.runtimeType &&
+          bytes == other.bytes &&
+          delayAfterMs == other.delayAfterMs;
+}
+
 /// One MAC prefix a spec declares, and how much of the block is really this
 /// device's.
 ///
@@ -6011,4 +6084,57 @@ enum WemoJoinStatus {
 
   /// Anything else the device might answer.
   unknown,
+}
+
+/// What one line off a Yeelight socket means for the request in flight.
+class YeelightReplyDto {
+  /// False for a pushed notification or anything else: keep reading.
+  final bool answersRequest;
+  final PlatformInt64? errorCode;
+  final String? errorMessage;
+
+  /// A `get_prop` result, keyed by the names it was requested under: the
+  /// name-to-value pairs the entity decoder reads.
+  final Map<String, String> fields;
+
+  const YeelightReplyDto({
+    required this.answersRequest,
+    this.errorCode,
+    this.errorMessage,
+    required this.fields,
+  });
+
+  @override
+  int get hashCode =>
+      answersRequest.hashCode ^
+      errorCode.hashCode ^
+      errorMessage.hashCode ^
+      fields.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is YeelightReplyDto &&
+          runtimeType == other.runtimeType &&
+          answersRequest == other.answersRequest &&
+          errorCode == other.errorCode &&
+          errorMessage == other.errorMessage &&
+          fields == other.fields;
+}
+
+/// A rendered Yeelight request: the JSON to send, before its CRLF.
+class YeelightRequestDto {
+  final String json;
+
+  const YeelightRequestDto({required this.json});
+
+  @override
+  int get hashCode => json.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is YeelightRequestDto &&
+          runtimeType == other.runtimeType &&
+          json == other.json;
 }

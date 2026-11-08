@@ -199,7 +199,7 @@ pub(crate) fn substitute(
 /// the corner cases are the control characters (a raw newline or NUL in a
 /// device reply), and a hand-rolled table that forgets one is exactly how
 /// this bug comes back.
-fn json_escape(value: &str) -> String {
+pub(crate) fn json_escape(value: &str) -> String {
     let quoted = serde_json::Value::String(value.to_string()).to_string();
     // `to_string` on a JSON string always yields at least the two quotes.
     quoted[1..quoted.len() - 1].to_string()

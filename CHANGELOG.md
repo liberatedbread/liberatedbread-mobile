@@ -13,6 +13,23 @@ heading.
 
 ### Added
 
+- **Yeelight lights over the LAN (`yeelight_lan`).** The cube lamp's spec now
+  drives power, brightness, colour and colour temperature over JSON lines on
+  TCP 55443, reads state back, and paints a module's rows on a unit that lists
+  `set_segment_rgb`. A failed connection names the LAN Control toggle and offers
+  the spec's setup notes. Built from the spec and tested against a fake lamp;
+  not run on hardware.
+- **Legacy LimitlessLED / Mi-Light bridges (`limitlessled_legacy_8899`).** A
+  bridge that answers its discovery probe now finds its spec and gets power,
+  brightness, colour and zone selection, as paced repeats over UDP 8899. The
+  protocol is write-only, so the card says what was sent rather than what
+  happened. Built from the spec and tested against a fake bridge; not run on
+  hardware.
+- **Pride mode reaches Yeelight and LimitlessLED lights**, and their cards get
+  colour swatches: packed `rgb` for one, the hue byte for the other.
+- **Big Ass Fans SenseME discovery.** The scan reads the `field:N` identity its
+  reply is described in, so a fan on legacy firmware is found and named. Tested
+  against a fake responder; not run on hardware.
 - **SolarEdge inverters over Modbus TCP, read-only (`modbus_tcp_sunspec`).**
   AC and DC power, lifetime energy, heat-sink temperature, operating state and
   meter 1 power, read with function 03 only. Meter power is shown as a magnitude

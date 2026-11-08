@@ -8,6 +8,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../core/color_names.dart';
 import '../core/error_text.dart';
 import '../core/group_actions.dart';
+import '../core/pride_flags.dart' show Rgb;
 import '../providers/network_control_provider.dart';
 import '../providers/spec_codec_provider.dart';
 import '../services/spec_codec.dart';
@@ -44,7 +45,11 @@ class NetworkLightCard extends ConsumerStatefulWidget {
   /// transport. On the LIFX path this is unused — and a non-LIFX light with
   /// no sender simply renders its controls disabled, which is safer than the
   /// old behavior of firing LIFX datagrams at whatever the entity was.
-  final Future<void> Function(
+  ///
+  /// Answers whether the device took the command. The screen reports a failure
+  /// itself and does not rethrow, so without this the card would record what it
+  /// sent as though it had landed.
+  final Future<bool> Function(
     NetworkActionDto action,
     Map<String, String> values,
   )?
@@ -59,6 +64,12 @@ class NetworkLightCard extends ConsumerStatefulWidget {
   final double? initialBrightness;
   final double? initialColorTemperature;
 
+  /// Whether discovery heard this unit list per-row colour among the methods it
+  /// answers. A plain Yeelight bulb reaches this card through the same spec as
+  /// a cube, because the token that identifies both cannot tell them apart;
+  /// its `support` header can, and this is that answer.
+  final bool supportsSegments;
+
   const NetworkLightCard({
     super.key,
     required this.entity,
@@ -69,10 +80,15 @@ class NetworkLightCard extends ConsumerStatefulWidget {
     this.initialOn,
     this.initialBrightness,
     this.initialColorTemperature,
+    this.supportsSegments = false,
   });
 
   /// Whether this entity rides the dedicated LIFX binary-UDP handler.
   bool get isLifx => entity.transport == 'lifx';
+
+  /// Whether this entity is a legacy LimitlessLED bridge's: write-only, with
+  /// four zones the protocol addresses and nothing reports.
+  bool get isLimitlessled => entity.transport == kLimitlessledTransport;
 
   @override
   ConsumerState<NetworkLightCard> createState() => _NetworkLightCardState();
@@ -108,6 +124,30 @@ class _NetworkLightCardState extends ConsumerState<NetworkLightCard> {
   List<Color> _zoneColors = const [];
   int? _selectedZone;
 
+  /// A bridge's zone to address, 1-4; null means all of them.
+  int? _bridgeZone;
+
+  /// What was last sent to each of a bridge's zones, null where nothing has
+  /// been. One value would not do: nothing reads a bridge back, so a position
+  /// recorded for one zone would stand in for the other three until the screen
+  /// closed.
+  final List<bool?> _bridgeZonesOn = List.filled(_bridgeZones, null);
+
+  static const _bridgeZones = 4;
+
+  /// A cube's row colours as last taken, by a row edit or a whole-lamp colour:
+  /// `set_segment_rgb` carries every row, so a row edit restates the others from
+  /// here. The protocol cannot read them back, so they start unlit, which is
+  /// also what the wire calls a row left at 0.
+  final List<Color> _rowColors = List.filled(_rowsPerModule, Colors.black);
+
+  /// The row the swatches paint; null means the whole lamp.
+  int? _selectedRow;
+
+  /// Rows on one 5x5 module. A stack has more, and nothing in the protocol says
+  /// how many are attached, so what this paints is the first module.
+  static const _rowsPerModule = 5;
+
   NetworkActionDto? _action(String role) {
     for (final action in widget.entity.actions) {
       if (action.role == role) return action;
@@ -122,6 +162,7 @@ class _NetworkLightCardState extends ConsumerState<NetworkLightCard> {
   NetworkActionDto? get _setColorTemperature =>
       _action('set_color_temperature');
   NetworkActionDto? get _setZoneColor => _action('set_zone_color');
+  NetworkActionDto? get _setSegments => _action('set_segments');
 
   /// The roles the getters above look up — what this card answers for, even
   /// where it draws nothing: a strip that never reported its zones shows no
@@ -135,15 +176,16 @@ class _NetworkLightCardState extends ConsumerState<NetworkLightCard> {
     'set_brightness',
     'set_color_temperature',
     'set_zone_color',
+    'set_segments',
   };
 
   /// The part of [_claimedRoles] this build actually draws, which is what
   /// [UnclaimedActions] must be told. Claiming the whole table hid a role
   /// the card then drew nowhere, with nothing on screen saying so: Yeelight
-  /// Cube's packed-`rgb` set_color and MiLight's `hue` get no swatches (see
-  /// [_carriesRgb]), and a lone turn_on or turn_off gets no switch. Handed
-  /// on, the first two are named in the "no control here yet" note and a
-  /// lone power role becomes a button. [_claimedRoles] stays the full list,
+  /// colour in an encoding nothing here knows gets no swatches (see
+  /// [_carriesColor]), and a lone turn_on or turn_off gets no switch. Handed
+  /// on, the first is named in the "no control here yet" note and a lone
+  /// power role becomes a button. [_claimedRoles] stays the full list,
   /// the lexical contract claimed_roles_consistency_test checks.
   ///
   /// set_color counts only when it carries rgb itself: a swatch with no
@@ -155,7 +197,7 @@ class _NetworkLightCardState extends ConsumerState<NetworkLightCard> {
       for (final role in _claimedRoles)
         if (switch (role) {
           'turn_on' || 'turn_off' => hasToggle,
-          'set_color' => _carriesRgb(_setColor),
+          'set_color' => _carriesColor(_setColor),
           'set_zone_color' => _zonesReachable,
           _ => true,
         })
@@ -186,6 +228,72 @@ class _NetworkLightCardState extends ConsumerState<NetworkLightCard> {
         owned.contains('blue') &&
         owned.every(sendable.contains);
   }
+
+  /// Whether a colour action takes what a swatch says: three channels, or the
+  /// single encoded value [networkColorValues] knows how to fill.
+  bool _carriesColor(NetworkActionDto? action) =>
+      _carriesRgb(action) ||
+      (action != null &&
+          networkColorValues(action, const (r: 255, g: 0, b: 0)) != null);
+
+  /// The rows are drawn for a unit that said it takes them.
+  bool get _rowsReachable => _setSegments != null && widget.supportsSegments;
+
+  /// The swatches this light can show. A hue wheel has no white, so offering
+  /// one would be a press that sends nothing.
+  List<Color> get _swatches {
+    final action = _setColor;
+    if (action == null || _carriesRgb(action)) return lightSwatches;
+    return [
+      for (final swatch in lightSwatches)
+        if (networkColorValues(action, _rgbOf(swatch)) != null) swatch,
+    ];
+  }
+
+  /// What a command [role] does to a light's power beyond what it says.
+  ///
+  /// On a legacy bridge a colour or brightness byte addresses nothing, so the
+  /// codec sends the zone's ON ahead of it (`limitlessled::render_request`), and
+  /// there is no poll to report the light came on: true of the zones that send
+  /// addressed, and of no others. Null everywhere else: on any other light a
+  /// colour says nothing about power that this card could know.
+  bool? _impliedPower(String role) =>
+      widget.isLimitlessled && (role == 'set_color' || role == 'set_brightness')
+      ? true
+      : null;
+
+  /// Record [on] for the zone a send addressed, or for all of them.
+  void _recordBridgePower(int? zone, bool on) {
+    if (zone == null) {
+      _bridgeZonesOn.fillRange(0, _bridgeZones, on);
+    } else {
+      _bridgeZonesOn[zone - 1] = on;
+    }
+  }
+
+  /// Whether "All" is selected over zones that were not all last told the same
+  /// thing, including zones told nothing. No position of a switch is true of
+  /// that, so the card offers both commands instead of drawing one.
+  bool get _bridgeZonesDiffer =>
+      widget.isLimitlessled &&
+      _bridgeZone == null &&
+      _bridgeZonesOn.toSet().length > 1;
+
+  /// The power position to show. On a bridge it is the selection's: the zone's
+  /// last command, or under "All" the one they share, and null when there is
+  /// none to state.
+  bool? get _shownOn {
+    if (!widget.isLimitlessled) return _assumedOn;
+    final zone = _bridgeZone;
+    if (zone != null) return _bridgeZonesOn[zone - 1];
+    return _bridgeZonesDiffer ? null : _bridgeZonesOn.first;
+  }
+
+  static Rgb _rgbOf(Color color) => (
+    r: (color.r * 255).round(),
+    g: (color.g * 255).round(),
+    b: (color.b * 255).round(),
+  );
 
   /// The one value a single-parameter action takes, by role: what the card
   /// calls it, before it is renamed to the spec's own parameter name. The
@@ -313,6 +421,9 @@ class _NetworkLightCardState extends ConsumerState<NetworkLightCard> {
     Map<String, double> params, {
     bool? assumeOn,
   }) async {
+    final sentColor = _color;
+    final sentZone = _bridgeZone;
+    var delivered = true;
     setState(() {
       _sending = true;
       _sendingRole = action;
@@ -355,8 +466,11 @@ class _NetworkLightCardState extends ConsumerState<NetworkLightCard> {
         final values = <String, String>{
           for (final entry in chosen.entries)
             entry.key: entry.value.round().toString(),
+          if (action == 'set_color' && !_carriesRgb(resolved))
+            ...?networkColorValues(resolved, _rgbOf(_color)),
+          if (widget.isLimitlessled && sentZone != null) 'zone': '$sentZone',
         };
-        await send(resolved, values);
+        delivered = await send(resolved, values);
       }
       if (!mounted) return;
       setState(() {
@@ -364,8 +478,14 @@ class _NetworkLightCardState extends ConsumerState<NetworkLightCard> {
         _sendingRole = null;
         if (widget.isLifx) {
           if (assumeOn != null) _assumedOn = assumeOn;
+        } else if (widget.isLimitlessled) {
+          final power = delivered ? assumeOn ?? _impliedPower(action) : null;
+          if (power != null) _recordBridgePower(sentZone, power);
         } else {
-          _reseedFromPoll(assumeOn);
+          _reseedFromPoll(delivered ? assumeOn : null);
+        }
+        if (delivered && action == 'set_color') {
+          _rowColors.fillRange(0, _rowColors.length, sentColor);
         }
       });
     } catch (e) {
@@ -385,6 +505,12 @@ class _NetworkLightCardState extends ConsumerState<NetworkLightCard> {
 
   /// Apply the current colour: to the whole strip, or to the selected zone.
   void _applyColor() {
+    final row = _selectedRow;
+    final segments = _setSegments;
+    if (row != null && segments != null && _rowsReachable) {
+      unawaited(_sendRows(segments, row, _color));
+      return;
+    }
     final zone = _selectedZone;
     if (zone != null && _carriesRgb(_setZoneColor)) {
       final params = _colorParams()..['zone'] = zone.toDouble();
@@ -399,6 +525,51 @@ class _NetworkLightCardState extends ConsumerState<NetworkLightCard> {
       }
     } else {
       _send('set_color', _colorParams());
+    }
+  }
+
+  /// Paint the rows: one request carrying all of them, packed the way a whole
+  /// lamp's `rgb` is, since `set_segment_rgb` has no way to name just one.
+  ///
+  /// [row] joins the cached rows only once the lamp has taken it: a refused
+  /// colour held there would be restated by the next row edit.
+  Future<void> _sendRows(NetworkActionDto action, int row, Color color) async {
+    final send = widget.sendAction;
+    if (send == null) return;
+    final proposed = List<Color>.of(_rowColors)..[row] = color;
+    setState(() {
+      _sending = true;
+      _sendingRole = action.role;
+      _errorText = null;
+    });
+    try {
+      final colours = [
+        for (final colour in proposed)
+          () {
+            final rgb = _rgbOf(colour);
+            return (rgb.r << 16) | (rgb.g << 8) | rgb.b;
+          }(),
+      ];
+      final delivered = await send(action, {
+        action.userParams.first: '$colours',
+      });
+      if (!mounted) return;
+      setState(() {
+        _sending = false;
+        _sendingRole = null;
+        if (delivered) _rowColors.setAll(0, proposed);
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _sending = false;
+        _sendingRole = null;
+        _errorText = friendlyErrorText(
+          e,
+          context: 'send ${action.role}',
+          fallback: 'The light did not accept that command.',
+        );
+      });
     }
   }
 
@@ -462,7 +633,7 @@ class _NetworkLightCardState extends ConsumerState<NetworkLightCard> {
     final turnOn = _turnOn;
     final turnOff = _turnOff;
     final hasToggle = turnOn != null && turnOff != null;
-    final shownOn = _assumedOn;
+    final shownOn = _shownOn;
     final resolved = <({String role, bool takesValue})>[
       for (final action in widget.entity.actions)
         (role: action.role, takesValue: action.userParams.isNotEmpty),
@@ -517,7 +688,22 @@ class _NetworkLightCardState extends ConsumerState<NetworkLightCard> {
                     ],
                   ),
                 ),
-                if (hasToggle)
+                if (hasToggle && _bridgeZonesDiffer) ...[
+                  TextButton(
+                    key: const Key('bridge-all-on'),
+                    onPressed: _sending
+                        ? null
+                        : () => _send('turn_on', const {}, assumeOn: true),
+                    child: const Text('All on'),
+                  ),
+                  TextButton(
+                    key: const Key('bridge-all-off'),
+                    onPressed: _sending
+                        ? null
+                        : () => _send('turn_off', const {}, assumeOn: false),
+                    child: const Text('All off'),
+                  ),
+                ] else if (hasToggle)
                   Switch(
                     value: shownOn ?? false,
                     onChanged: _sending
@@ -617,13 +803,40 @@ class _NetworkLightCardState extends ConsumerState<NetworkLightCard> {
               const SizedBox(height: 10),
               _zoneRow(scheme, text),
             ],
-            if (_carriesRgb(_setColor) || _zonesReachable) ...[
+            if (widget.isLimitlessled) ...[
+              const SizedBox(height: 10),
+              _chipRow(
+                text,
+                scheme,
+                label: 'Zones',
+                count: 4,
+                keyPrefix: 'bridge-zone',
+                itemLabel: (i) => 'Zone ${i + 1}',
+                selected: _bridgeZone == null ? null : _bridgeZone! - 1,
+                onSelected: (i) =>
+                    setState(() => _bridgeZone = i == null ? null : i + 1),
+              ),
+            ],
+            if (_rowsReachable) ...[
+              const SizedBox(height: 10),
+              _chipRow(
+                text,
+                scheme,
+                label: 'Rows',
+                count: _rowsPerModule,
+                keyPrefix: 'lamp-row',
+                itemLabel: (i) => 'Row ${i + 1}',
+                selected: _selectedRow,
+                onSelected: (i) => setState(() => _selectedRow = i),
+              ),
+            ],
+            if (_carriesColor(_setColor) || _zonesReachable) ...[
               const SizedBox(height: 10),
               Wrap(
                 spacing: 8,
                 runSpacing: 8,
                 children: [
-                  for (final swatch in lightSwatches)
+                  for (final swatch in _swatches)
                     SwatchButton(
                       color: swatch,
                       selected: _color == swatch,
@@ -676,6 +889,49 @@ class _NetworkLightCardState extends ConsumerState<NetworkLightCard> {
     // Brightness rides on the colour command: re-send the current colour with
     // the new brightness. Scoped to the selected zone when one is chosen.
     _applyColor();
+  }
+
+  /// An "All" chip and one numbered chip each, for a selection the swatches and
+  /// sliders then apply to.
+  Widget _chipRow(
+    TextTheme text,
+    ColorScheme scheme, {
+    required String label,
+    required int count,
+    required String keyPrefix,
+    required String Function(int) itemLabel,
+    required int? selected,
+    required void Function(int?) onSelected,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: text.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
+        ),
+        const SizedBox(height: 6),
+        Wrap(
+          spacing: 6,
+          runSpacing: 6,
+          children: [
+            ChoiceChip(
+              key: Key('$keyPrefix-all'),
+              label: const Text('All'),
+              selected: selected == null,
+              onSelected: _sending ? null : (_) => onSelected(null),
+            ),
+            for (var i = 0; i < count; i++)
+              ChoiceChip(
+                key: Key('$keyPrefix-$i'),
+                label: Text('${i + 1}', semanticsLabel: itemLabel(i)),
+                selected: selected == i,
+                onSelected: _sending ? null : (_) => onSelected(i),
+              ),
+          ],
+        ),
+      ],
+    );
   }
 
   /// The per-zone selector: an "All" chip plus one tappable chip per zone,
@@ -765,6 +1021,12 @@ class _NetworkLightCardState extends ConsumerState<NetworkLightCard> {
         _errorText!,
         style: text.bodySmall?.copyWith(color: scheme.error),
       );
+    }
+    if (_bridgeZonesDiffer) return Text('Zones differ', style: style);
+    // Write-only: what the switch shows is what was sent, and a bridge cannot
+    // say whether a bulb took it.
+    if (widget.isLimitlessled && shownOn != null) {
+      return Text(shownOn ? 'On (sent)' : 'Off (sent)', style: style);
     }
     return Text(switch (shownOn) {
       true => 'On',

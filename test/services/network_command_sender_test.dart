@@ -19,6 +19,8 @@ import 'package:liberated_bread_mobile/services/tls_trust.dart';
 import 'package:liberated_bread_mobile/services/ecp2_control_service.dart';
 import 'package:liberated_bread_mobile/services/http_control_service.dart';
 import 'package:liberated_bread_mobile/services/kasa_control_service.dart';
+import 'package:liberated_bread_mobile/services/limitlessled_control_service.dart';
+import 'package:liberated_bread_mobile/services/yeelight_control_service.dart';
 import 'package:liberated_bread_mobile/services/mqtt_session.dart';
 import 'package:liberated_bread_mobile/services/ws_control_service.dart';
 import 'package:liberated_bread_mobile/services/network_command_sender.dart';
@@ -43,6 +45,34 @@ NetworkActionDto action(
   credentials: const [],
   instanceParams: const [],
 );
+
+class _RecordingYeelight extends YeelightControlClient {
+  _RecordingYeelight(super.codec);
+  final sent = <({String host, int port, YeelightRequestDto request})>[];
+
+  @override
+  Future<YeelightReplyDto> send(
+    String host,
+    int port,
+    YeelightRequestDto request,
+  ) async {
+    sent.add((host: host, port: port, request: request));
+    return const YeelightReplyDto(answersRequest: true, fields: {});
+  }
+}
+
+class _RecordingLimitlessled extends LimitlessledControlClient {
+  final sent = <({String host, int port})>[];
+
+  @override
+  Future<void> send(
+    String host,
+    int port,
+    List<LimitlessledFrameDto> frames,
+  ) async {
+    sent.add((host: host, port: port));
+  }
+}
 
 void main() {
   final codec = FakeSpecCodec();
@@ -498,6 +528,109 @@ void main() {
       ),
       isFalse,
     );
+    expect(
+      NetworkCommandSender.isIndependentTransport(
+        action('press', 'x', transport: NetworkCommandSender.yeelightTransport),
+      ),
+      isTrue,
+    );
+    expect(
+      NetworkCommandSender.isIndependentTransport(
+        action(
+          'press',
+          'x',
+          transport: NetworkCommandSender.limitlessledTransport,
+        ),
+      ),
+      isTrue,
+    );
+  });
+
+  group('the handlers that share a declared transport with another vendor', () {
+    NetworkCommandSender routed({
+      required _RecordingYeelight yeelight,
+      required _RecordingLimitlessled limitlessled,
+      NetworkCapabilitiesDto? capabilities,
+      int? devicePort,
+    }) => NetworkCommandSender(
+      host: '192.0.2.9',
+      discoveredControlPort: null,
+      devicePort: devicePort,
+      ssdpTargets: const [],
+      capabilities: capabilities,
+      specYaml: 'yaml',
+      codec: codec,
+      http: HttpControlClient(
+        httpClient: MockClient((request) async => fail('no HTTP here')),
+      ),
+      soap: SoapControlClient(
+        httpClient: MockClient((request) async => fail('no SOAP here')),
+      ),
+      kasa: KasaControlClient(
+        codec,
+        exchange: (host, port, request, timeout) async =>
+            fail('Kasa\'s cipher must not reach another vendor'),
+      ),
+      rabbitAir: RabbitAirControlClient(codec),
+      ecp2: Ecp2ControlService(
+        connector: (host, port) async =>
+            throw const Ecp2Exception('no ECP2 in this test'),
+      ),
+      yeelight: yeelight,
+      limitlessled: limitlessled,
+    );
+
+    test('a Yeelight action goes down its own socket', () async {
+      final yeelight = _RecordingYeelight(codec);
+      final limitlessled = _RecordingLimitlessled();
+      await routed(yeelight: yeelight, limitlessled: limitlessled).sendAction(
+        action(
+          'set_color',
+          'set_rgb',
+          transport: NetworkCommandSender.yeelightTransport,
+        ),
+        {'rgb': '255'},
+      );
+      expect(yeelight.sent.single.port, 55443, reason: 'the protocol\'s own');
+      expect(limitlessled.sent, isEmpty);
+    });
+
+    test('a bridge action plays its frames at the bridge\'s port', () async {
+      final yeelight = _RecordingYeelight(codec);
+      final limitlessled = _RecordingLimitlessled();
+      await routed(yeelight: yeelight, limitlessled: limitlessled).sendAction(
+        action(
+          'turn_on',
+          'turn_on',
+          transport: NetworkCommandSender.limitlessledTransport,
+        ),
+        {'zone': '2'},
+      );
+      expect(limitlessled.sent.single.port, 8899);
+      expect(yeelight.sent, isEmpty);
+    });
+
+    test('a port the spec declares wins over the protocol default', () async {
+      final limitlessled = _RecordingLimitlessled();
+      await routed(
+        yeelight: _RecordingYeelight(codec),
+        limitlessled: limitlessled,
+        capabilities: const NetworkCapabilitiesDto(
+          mqttClientIdGenerated: false,
+          defaultPort: 9000,
+          tlsSelfSigned: false,
+          advertisedPortUnreliable: false,
+        ),
+      ).sendAction(
+        action(
+          'turn_on',
+          'turn_on',
+          transport: NetworkCommandSender.limitlessledTransport,
+        ),
+        const {},
+      );
+      expect(limitlessled.sent.single.port, 9000);
+    });
   });
 
   test('close is safe on a sender that never opened a session', () async {

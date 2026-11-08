@@ -441,6 +441,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   LifxZonesDto dco_decode_lifx_zones_dto(dynamic raw);
 
   @protected
+  LimitlessledFrameDto dco_decode_limitlessled_frame_dto(dynamic raw);
+
+  @protected
   List<String> dco_decode_list_String(dynamic raw);
 
   @protected
@@ -515,6 +518,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   List<LifxZoneColorDto> dco_decode_list_lifx_zone_color_dto(dynamic raw);
+
+  @protected
+  List<LimitlessledFrameDto> dco_decode_list_limitlessled_frame_dto(
+    dynamic raw,
+  );
 
   @protected
   List<Uint8List> dco_decode_list_list_prim_u_8_strict(dynamic raw);
@@ -1158,6 +1166,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   XBeeFrameDto dco_decode_x_bee_frame_dto(dynamic raw);
 
   @protected
+  YeelightReplyDto dco_decode_yeelight_reply_dto(dynamic raw);
+
+  @protected
+  YeelightRequestDto dco_decode_yeelight_request_dto(dynamic raw);
+
+  @protected
   YummlyFrameDto dco_decode_yummly_frame_dto(dynamic raw);
 
   @protected
@@ -1647,6 +1661,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   LifxZonesDto sse_decode_lifx_zones_dto(SseDeserializer deserializer);
 
   @protected
+  LimitlessledFrameDto sse_decode_limitlessled_frame_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   List<String> sse_decode_list_String(SseDeserializer deserializer);
 
   @protected
@@ -1757,6 +1776,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   List<LifxZoneColorDto> sse_decode_list_lifx_zone_color_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  List<LimitlessledFrameDto> sse_decode_list_limitlessled_frame_dto(
     SseDeserializer deserializer,
   );
 
@@ -2588,6 +2612,14 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   XBeeFrameDto sse_decode_x_bee_frame_dto(SseDeserializer deserializer);
 
   @protected
+  YeelightReplyDto sse_decode_yeelight_reply_dto(SseDeserializer deserializer);
+
+  @protected
+  YeelightRequestDto sse_decode_yeelight_request_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   YummlyFrameDto sse_decode_yummly_frame_dto(SseDeserializer deserializer);
 
   @protected
@@ -3227,6 +3259,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   void sse_encode_lifx_zones_dto(LifxZonesDto self, SseSerializer serializer);
 
   @protected
+  void sse_encode_limitlessled_frame_dto(
+    LimitlessledFrameDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_list_String(List<String> self, SseSerializer serializer);
 
   @protected
@@ -3364,6 +3402,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_list_lifx_zone_color_dto(
     List<LifxZoneColorDto> self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_list_limitlessled_frame_dto(
+    List<LimitlessledFrameDto> self,
     SseSerializer serializer,
   );
 
@@ -4431,6 +4475,18 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_x_bee_frame_dto(XBeeFrameDto self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_yeelight_reply_dto(
+    YeelightReplyDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_yeelight_request_dto(
+    YeelightRequestDto self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_yummly_frame_dto(

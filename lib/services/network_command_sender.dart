@@ -2,17 +2,21 @@
 // SPDX-License-Identifier: Apache-2.0
 import 'dart:async';
 
+import '../core/group_actions.dart'
+    show kLimitlessledTransport, kYeelightTransport;
 import '../core/log.dart';
 import '../models/network_device.dart';
 import 'ecp2_control_service.dart';
 import 'http_control_service.dart';
 import 'kasa_control_service.dart';
+import 'limitlessled_control_service.dart';
 import 'mqtt_session.dart';
 import 'ws_control_service.dart';
 import 'rabbit_air_control_service.dart';
 import 'soap_control_service.dart';
 import 'spec_codec.dart';
 import 'tls_trust.dart';
+import 'yeelight_control_service.dart';
 
 /// Reads the credentials stored for one device, name → value.
 ///
@@ -87,6 +91,8 @@ class NetworkCommandSender {
   final SoapControlClient _soap;
   final KasaControlClient _kasa;
   final RabbitAirControlClient _rabbitAir;
+  final YeelightControlClient _yeelight;
+  final LimitlessledControlClient _limitlessled;
   final Ecp2ControlService _ecp2Service;
 
   /// Opens the MQTT session for a device whose commands ride that transport.
@@ -165,11 +171,15 @@ class NetworkCommandSender {
     required this._kasa,
     required this._rabbitAir,
     required Ecp2ControlService ecp2,
+    YeelightControlClient? yeelight,
+    LimitlessledControlClient? limitlessled,
     this._mqttConnect,
     this.wsCredential,
     this.onCredentialIssued,
     this._wsConnect,
-  }) : _ecp2Service = ecp2;
+  }) : _ecp2Service = ecp2,
+       _yeelight = yeelight ?? YeelightControlClient(_codec),
+       _limitlessled = limitlessled ?? LimitlessledControlClient();
 
   /// The credentials read from the store, held once read.
   ///
@@ -264,6 +274,14 @@ class NetworkCommandSender {
   /// one (a manually added device, a mock). Real discovery reports 9999.
   static const kasaPort = 9999;
 
+  /// The Yeelight LAN transport: CRLF-terminated JSON over TCP. The spec says
+  /// `tcp-json`; the resolver replaces that with the handler's own name.
+  static const yeelightTransport = kYeelightTransport;
+
+  /// The legacy LimitlessLED transport: write-only 3-byte UDP datagrams. The
+  /// spec says `udp`; the resolver replaces that the same way.
+  static const limitlessledTransport = kLimitlessledTransport;
+
   /// The WebSocket transport constant. A persistent socket a television's
   /// whole control surface rides.
   static const websocketTransport = 'websocket';
@@ -305,6 +323,14 @@ class NetworkCommandSender {
       : (discoveredControlPort ?? capabilities?.defaultPort);
 
   int get _kasaHostPort => devicePort ?? kasaPort;
+
+  /// Where a Yeelight request goes: its discovery row carries no port (the
+  /// M-SEARCH reply states it in a URL), so the spec's is what is usually here.
+  int get yeelightPort =>
+      controlPort ?? devicePort ?? YeelightControlClient.defaultPort;
+
+  int get _limitlessledPort =>
+      controlPort ?? devicePort ?? LimitlessledControlClient.defaultPort;
 
   int get _rabbitAirHostPort =>
       devicePort ?? RabbitAirControlClient.defaultPort;
@@ -383,12 +409,15 @@ class NetworkCommandSender {
   }
 
   /// Whether [action] rides a transport with no read-back coupling. HTTP,
-  /// Kasa and Rabbit Air sends are independent; SOAP writes serialize —
+  /// Kasa, Yeelight, LimitlessLED and Rabbit Air sends are independent; SOAP
+  /// writes serialize —
   /// the Crock-Pot's read-back design — and the caller owns that gate,
   /// since "one SOAP write in flight" is a per-surface rule.
   static bool isIndependentTransport(NetworkActionDto action) =>
       action.transport == 'http' ||
       action.transport == kasaTransport ||
+      action.transport == yeelightTransport ||
+      action.transport == limitlessledTransport ||
       action.transport == mqttTransport ||
       action.transport == websocketTransport ||
       action.transport == rabbitAirTransport;
@@ -425,6 +454,10 @@ class NetworkCommandSender {
         await _sendHttp(action, values);
       case kasaTransport:
         await _sendKasa(action, values);
+      case yeelightTransport:
+        await _sendYeelight(action, values);
+      case limitlessledTransport:
+        await _sendLimitlessled(action, values);
       case mqttTransport:
         await _sendMqtt(action, values);
       case websocketTransport:
@@ -922,6 +955,35 @@ class NetworkCommandSender {
       values: values,
     );
     await _kasa.send(host, _kasaHostPort, request);
+  }
+
+  /// The Yeelight send: render the JSON and write its line. Unlike the Kasa
+  /// send the reply's error is not left for a re-poll to show: a light that
+  /// refuses a colour reads back exactly as it did, with nothing saying why.
+  Future<void> _sendYeelight(
+    NetworkActionDto action,
+    Map<String, String> values,
+  ) async {
+    final request = await _codec.renderNetworkYeelightCommand(
+      specYaml: specYaml,
+      commandName: action.commandName,
+      values: values,
+    );
+    await _yeelight.send(host, yeelightPort, request);
+  }
+
+  /// The LimitlessLED send: render the timed sequence and play it. Nothing
+  /// answers, and there is nothing to re-poll.
+  Future<void> _sendLimitlessled(
+    NetworkActionDto action,
+    Map<String, String> values,
+  ) async {
+    final frames = await _codec.renderNetworkLimitlessledCommand(
+      specYaml: specYaml,
+      commandName: action.commandName,
+      values: values,
+    );
+    await _limitlessled.send(host, _limitlessledPort, frames);
   }
 
   /// The Rabbit Air send: sync the clock, render the envelope, encrypt it

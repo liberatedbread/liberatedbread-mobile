@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:liberated_bread_mobile/providers/network_control_provider.dart';
 import 'package:liberated_bread_mobile/providers/spec_codec_provider.dart';
+import 'package:liberated_bread_mobile/core/group_actions.dart';
 import 'package:liberated_bread_mobile/services/lifx_control_service.dart';
 import 'package:liberated_bread_mobile/services/spec_codec.dart';
 import 'package:liberated_bread_mobile/widgets/light_swatches.dart';
@@ -194,8 +195,10 @@ void main() {
                 specYaml: 'y',
                 host: '10.0.0.7',
                 targetMac: '',
-                sendAction: (action, values) async =>
-                    sent.add((action.commandName, values)),
+                sendAction: (action, values) async {
+                  sent.add((action.commandName, values));
+                  return true;
+                },
               ),
             ),
           ),
@@ -263,8 +266,10 @@ void main() {
                   specYaml: 'y',
                   host: '10.0.0.7',
                   targetMac: '',
-                  sendAction: (action, values) async =>
-                      sent.add((action.commandName, values)),
+                  sendAction: (action, values) async {
+                    sent.add((action.commandName, values));
+                    return true;
+                  },
                   initialColorTemperature: colorTemperature,
                 ),
               ),
@@ -462,8 +467,10 @@ void main() {
                   initialBrightness: initialBrightness,
                   // Refused, and swallowed: completes normally, and the
                   // screen's reading does not move.
-                  sendAction: (action, values) async =>
-                      sent.add(action.commandName),
+                  sendAction: (action, values) async {
+                    sent.add(action.commandName);
+                    return true;
+                  },
                 ),
               ),
             ),
@@ -518,6 +525,500 @@ void main() {
     });
   });
 
+  group('the encodings a swatch can be said in', () {
+    NetworkActionDto wired(
+      String role,
+      String transport, [
+      List<String> params = const [],
+      double? max,
+    ]) => NetworkActionDto(
+      role: role,
+      commandName: role,
+      transport: transport,
+      userParams: params,
+      max: max,
+      readBack: const [],
+      credentials: const [],
+      instanceParams: const [],
+    );
+
+    Future<List<(String, Map<String, String>)>> pump(
+      WidgetTester tester,
+      String transport,
+      List<NetworkActionDto> actions, {
+      bool supportsSegments = false,
+      bool Function()? delivers,
+    }) async {
+      final sent = <(String, Map<String, String>)>[];
+      final deliver = delivers ?? () => true;
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            specCodecProvider.overrideWithValue(FakeSpecCodec()),
+            lifxControlClientProvider.overrideWithValue(_FakeLifxClient()),
+          ],
+          child: MaterialApp(
+            home: Scaffold(
+              body: SingleChildScrollView(
+                child: NetworkLightCard(
+                  entity: NetworkEntityDto(
+                    name: 'Lamp',
+                    platform: 'light',
+                    transport: transport,
+                    isInstanced: false,
+                    stateCommand: '',
+                    options: const [],
+                    actions: actions,
+                  ),
+                  specYaml: 'y',
+                  host: '10.0.0.7',
+                  targetMac: '',
+                  supportsSegments: supportsSegments,
+                  sendAction: (action, values) async {
+                    sent.add((action.commandName, values));
+                    return deliver();
+                  },
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      return sent;
+    }
+
+    Finder swatch(int argb) => find.byWidgetPredicate(
+      (w) => w is SwatchButton && w.color.toARGB32() == argb,
+    );
+
+    testWidgets('a packed rgb is sent packed', (tester) async {
+      final sent = await pump(tester, kYeelightTransport, [
+        wired('turn_on', kYeelightTransport),
+        wired('turn_off', kYeelightTransport),
+        wired('set_color', kYeelightTransport, ['rgb'], 16777215),
+      ]);
+      expect(find.byType(SwatchButton), findsWidgets);
+      expect(find.byType(UnclaimedActions), findsNothing);
+      await tester.tap(swatch(0xFFFF0000));
+      await tester.pumpAndSettle();
+      expect(sent.single.$2, {'rgb': '16711680'});
+    });
+
+    testWidgets('a bridge sends the hue byte, and offers no white', (
+      tester,
+    ) async {
+      final sent = await pump(tester, kLimitlessledTransport, [
+        wired('turn_on', kLimitlessledTransport),
+        wired('turn_off', kLimitlessledTransport),
+        wired('set_color', kLimitlessledTransport, ['hue'], 255),
+      ]);
+      expect(swatch(0xFFFFFFFF), findsNothing);
+      await tester.tap(swatch(0xFF00FF00));
+      await tester.pumpAndSettle();
+      expect(sent.single.$2, {'hue': '${0x60}'});
+    });
+
+    testWidgets('a bridge\'s chosen zone rides every send', (tester) async {
+      final sent = await pump(tester, kLimitlessledTransport, [
+        wired('turn_on', kLimitlessledTransport),
+        wired('turn_off', kLimitlessledTransport),
+        wired('set_color', kLimitlessledTransport, ['hue'], 255),
+      ]);
+      await tester.tap(find.byKey(const Key('bridge-zone-2')));
+      await tester.pumpAndSettle();
+      await tester.tap(swatch(0xFFFF0000));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byType(Switch));
+      await tester.pumpAndSettle();
+      expect(sent[0].$2, {'hue': '${0xB0}', 'zone': '3'});
+      // The colour carried the zone's ON, so the switch's next press is Off.
+      expect(sent[1].$1, 'turn_off');
+      expect(sent[1].$2, {'zone': '3'});
+
+      await tester.tap(find.byKey(const Key('bridge-zone-all')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('bridge-all-on')));
+      await tester.pumpAndSettle();
+      expect(sent[2].$1, 'turn_on');
+      expect(sent[2].$2, isEmpty);
+    });
+
+    testWidgets('a write-only light says what was sent, not what is', (
+      tester,
+    ) async {
+      await pump(tester, kLimitlessledTransport, [
+        wired('turn_on', kLimitlessledTransport),
+        wired('turn_off', kLimitlessledTransport),
+      ]);
+      await tester.tap(find.byType(Switch));
+      await tester.pumpAndSettle();
+      expect(find.text('On (sent)'), findsOneWidget);
+    });
+
+    testWidgets('a row is painted by sending all five', (tester) async {
+      final sent = await pump(tester, kYeelightTransport, [
+        wired('turn_on', kYeelightTransport),
+        wired('turn_off', kYeelightTransport),
+        wired('set_color', kYeelightTransport, ['rgb'], 16777215),
+        wired('set_segments', kYeelightTransport, ['colors']),
+      ], supportsSegments: true);
+      await tester.tap(find.byKey(const Key('lamp-row-1')));
+      await tester.pumpAndSettle();
+      await tester.tap(swatch(0xFFFF0000));
+      await tester.pumpAndSettle();
+      expect(sent.single.$1, 'set_segments');
+      expect(sent.single.$2, {'colors': '[0, 16711680, 0, 0, 0]'});
+
+      await tester.tap(find.byKey(const Key('lamp-row-all')));
+      await tester.pumpAndSettle();
+      await tester.tap(swatch(0xFF00FF00));
+      await tester.pumpAndSettle();
+      expect(sent.last.$1, 'set_color', reason: 'All is the whole lamp');
+    });
+
+    List<NetworkActionDto> cube() => [
+      wired('turn_on', kYeelightTransport),
+      wired('turn_off', kYeelightTransport),
+      wired('set_color', kYeelightTransport, ['rgb'], 16777215),
+      wired('set_segments', kYeelightTransport, ['colors']),
+    ];
+
+    testWidgets('a row edit restates the whole-lamp colour on the others', (
+      tester,
+    ) async {
+      final sent = await pump(
+        tester,
+        kYeelightTransport,
+        cube(),
+        supportsSegments: true,
+      );
+      await tester.tap(swatch(0xFFFF0000));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('lamp-row-1')));
+      await tester.pumpAndSettle();
+      await tester.tap(swatch(0xFF00FF00));
+      await tester.pumpAndSettle();
+      expect(sent.last.$1, 'set_segments');
+      expect(sent.last.$2, {
+        'colors': '[16711680, 65280, 16711680, 16711680, 16711680]',
+      });
+    });
+
+    testWidgets('a refused whole-lamp colour does not reach the rows', (
+      tester,
+    ) async {
+      var delivered = false;
+      final sent = await pump(
+        tester,
+        kYeelightTransport,
+        cube(),
+        supportsSegments: true,
+        delivers: () => delivered,
+      );
+      await tester.tap(swatch(0xFFFF0000));
+      await tester.pumpAndSettle();
+      delivered = true;
+      await tester.tap(find.byKey(const Key('lamp-row-0')));
+      await tester.pumpAndSettle();
+      await tester.tap(swatch(0xFF00FF00));
+      await tester.pumpAndSettle();
+      expect(sent.last.$2, {'colors': '[65280, 0, 0, 0, 0]'});
+    });
+
+    testWidgets('a refused row edit is not restated by the next one', (
+      tester,
+    ) async {
+      var delivered = false;
+      final sent = await pump(
+        tester,
+        kYeelightTransport,
+        cube(),
+        supportsSegments: true,
+        delivers: () => delivered,
+      );
+      await tester.tap(find.byKey(const Key('lamp-row-0')));
+      await tester.pumpAndSettle();
+      await tester.tap(swatch(0xFFFF0000));
+      await tester.pumpAndSettle();
+      expect(sent.last.$2, {'colors': '[16711680, 0, 0, 0, 0]'});
+
+      delivered = true;
+      await tester.tap(find.byKey(const Key('lamp-row-1')));
+      await tester.pumpAndSettle();
+      await tester.tap(swatch(0xFF00FF00));
+      await tester.pumpAndSettle();
+      expect(sent.last.$2, {'colors': '[0, 65280, 0, 0, 0]'});
+    });
+
+    List<NetworkActionDto> bridge() => [
+      wired('turn_on', kLimitlessledTransport),
+      wired('turn_off', kLimitlessledTransport),
+      wired('set_brightness', kLimitlessledTransport, ['level'], 27),
+      wired('set_color', kLimitlessledTransport, ['hue'], 255),
+    ];
+
+    Future<void> switchOff(WidgetTester tester) async {
+      await tester.tap(find.byType(Switch));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byType(Switch));
+      await tester.pumpAndSettle();
+      expect(find.text('Off (sent)'), findsOneWidget);
+    }
+
+    testWidgets('a colour on a bridge turned its zone back on', (tester) async {
+      await pump(tester, kLimitlessledTransport, bridge());
+      await switchOff(tester);
+      await tester.tap(swatch(0xFFFF0000));
+      await tester.pumpAndSettle();
+      expect(find.text('On (sent)'), findsOneWidget);
+      expect(tester.widget<Switch>(find.byType(Switch)).value, isTrue);
+    });
+
+    testWidgets('so did a brightness', (tester) async {
+      final sent = await pump(tester, kLimitlessledTransport, bridge());
+      await switchOff(tester);
+      await tester.drag(find.byType(Slider), const Offset(-40, 0));
+      await tester.pumpAndSettle();
+      expect(sent.last.$1, 'set_brightness');
+      expect(find.text('On (sent)'), findsOneWidget);
+    });
+
+    testWidgets('a bridge send that did not go leaves the switch alone', (
+      tester,
+    ) async {
+      var delivered = true;
+      await pump(
+        tester,
+        kLimitlessledTransport,
+        bridge(),
+        delivers: () => delivered,
+      );
+      await switchOff(tester);
+      delivered = false;
+      await tester.tap(swatch(0xFFFF0000));
+      await tester.pumpAndSettle();
+      expect(find.text('Off (sent)'), findsOneWidget);
+      await tester.tap(find.byType(Switch));
+      await tester.pumpAndSettle();
+      expect(
+        find.text('Off (sent)'),
+        findsOneWidget,
+        reason: 'an On that did not go out did not turn anything on',
+      );
+    });
+
+    Future<void> pick(WidgetTester tester, String chip) async {
+      await tester.tap(find.byKey(Key('bridge-zone-$chip')));
+      await tester.pumpAndSettle();
+    }
+
+    Future<void> flip(WidgetTester tester) async {
+      await tester.tap(find.byType(Switch));
+      await tester.pumpAndSettle();
+    }
+
+    group('a bridge remembers each zone', () {
+      testWidgets('one zone off under all on: All states neither', (
+        tester,
+      ) async {
+        final sent = await pump(tester, kLimitlessledTransport, bridge());
+        await flip(tester); // all on
+        await pick(tester, '0');
+        await flip(tester); // zone 1 off
+        expect(sent.last.$2, {'zone': '1'});
+        expect(find.text('Off (sent)'), findsOneWidget);
+
+        await pick(tester, 'all');
+        expect(find.byType(Switch), findsNothing);
+        expect(find.text('Zones differ'), findsOneWidget);
+        expect(find.text('Off (sent)'), findsNothing);
+        expect(find.text('On (sent)'), findsNothing);
+      });
+
+      testWidgets('from differing zones, All reaches off', (tester) async {
+        final sent = await pump(tester, kLimitlessledTransport, bridge());
+        await flip(tester);
+        await pick(tester, '0');
+        await flip(tester);
+        await pick(tester, 'all');
+
+        await tester.tap(find.byKey(const Key('bridge-all-off')));
+        await tester.pumpAndSettle();
+        expect(sent.last.$1, 'turn_off');
+        expect(sent.last.$2, isEmpty, reason: 'every zone');
+        expect(find.text('Off (sent)'), findsOneWidget);
+        expect(tester.widget<Switch>(find.byType(Switch)).value, isFalse);
+
+        await pick(tester, '2');
+        expect(find.text('Off (sent)'), findsOneWidget, reason: 'all of them');
+      });
+
+      testWidgets('from differing zones, All reaches on', (tester) async {
+        final sent = await pump(tester, kLimitlessledTransport, bridge());
+        await flip(tester);
+        await pick(tester, '0');
+        await flip(tester);
+        await pick(tester, 'all');
+
+        await tester.tap(find.byKey(const Key('bridge-all-on')));
+        await tester.pumpAndSettle();
+        expect(sent.last.$1, 'turn_on');
+        expect(sent.last.$2, isEmpty);
+        expect(find.text('On (sent)'), findsOneWidget);
+
+        await pick(tester, '0');
+        expect(find.text('On (sent)'), findsOneWidget, reason: 'zone 1 too');
+      });
+
+      testWidgets('each zone shows its own, and presses by it', (tester) async {
+        final sent = await pump(tester, kLimitlessledTransport, bridge());
+        await flip(tester);
+        await pick(tester, '0');
+        await flip(tester);
+
+        await pick(tester, '1');
+        expect(find.text('On (sent)'), findsOneWidget);
+        await flip(tester);
+        expect(sent.last.$1, 'turn_off', reason: 'zone 2 was on');
+        expect(sent.last.$2, {'zone': '2'});
+
+        await pick(tester, '0');
+        expect(find.text('Off (sent)'), findsOneWidget);
+        await flip(tester);
+        expect(sent.last.$1, 'turn_on', reason: 'zone 1 was off');
+      });
+
+      testWidgets('agreeing again gets the switch back', (tester) async {
+        await pump(tester, kLimitlessledTransport, bridge());
+        await flip(tester);
+        await pick(tester, '0');
+        await flip(tester);
+        await flip(tester); // zone 1 back on
+        await pick(tester, 'all');
+        expect(find.byType(Switch), findsOneWidget);
+        expect(find.text('On (sent)'), findsOneWidget);
+      });
+
+      testWidgets('a zone told something beside three told nothing differs', (
+        tester,
+      ) async {
+        await pump(tester, kLimitlessledTransport, bridge());
+        await pick(tester, '0');
+        await flip(tester);
+        await pick(tester, 'all');
+        expect(find.text('Zones differ'), findsOneWidget);
+        await pick(tester, '1');
+        expect(find.text('Ready'), findsOneWidget, reason: 'told nothing yet');
+      });
+
+      testWidgets('a zone\'s colour turns on that zone and no other', (
+        tester,
+      ) async {
+        await pump(tester, kLimitlessledTransport, bridge());
+        await switchOff(tester);
+        await pick(tester, '1');
+        await tester.tap(swatch(0xFFFF0000));
+        await tester.pumpAndSettle();
+        expect(find.text('On (sent)'), findsOneWidget);
+
+        await pick(tester, '0');
+        expect(find.text('Off (sent)'), findsOneWidget);
+        await pick(tester, 'all');
+        expect(find.text('Zones differ'), findsOneWidget);
+      });
+
+      testWidgets('a zone\'s brightness turns on that zone and no other', (
+        tester,
+      ) async {
+        final sent = await pump(tester, kLimitlessledTransport, bridge());
+        await switchOff(tester);
+        await pick(tester, '3');
+        await tester.drag(find.byType(Slider), const Offset(-40, 0));
+        await tester.pumpAndSettle();
+        expect(sent.last.$1, 'set_brightness');
+        expect(sent.last.$2['zone'], '4');
+        expect(find.text('On (sent)'), findsOneWidget);
+
+        await pick(tester, '2');
+        expect(find.text('Off (sent)'), findsOneWidget);
+      });
+
+      testWidgets('a colour under All turns them all on', (tester) async {
+        await pump(tester, kLimitlessledTransport, bridge());
+        await flip(tester);
+        await pick(tester, '0');
+        await flip(tester);
+        await pick(tester, 'all');
+        await tester.tap(swatch(0xFFFF0000));
+        await tester.pumpAndSettle();
+        expect(find.text('On (sent)'), findsOneWidget);
+        await pick(tester, '0');
+        expect(find.text('On (sent)'), findsOneWidget);
+      });
+
+      testWidgets('a zone send that did not go changes nothing', (
+        tester,
+      ) async {
+        var delivered = true;
+        await pump(
+          tester,
+          kLimitlessledTransport,
+          bridge(),
+          delivers: () => delivered,
+        );
+        await flip(tester);
+        delivered = false;
+        await pick(tester, '0');
+        await flip(tester);
+        expect(find.text('On (sent)'), findsOneWidget);
+        await pick(tester, 'all');
+        expect(find.byType(Switch), findsOneWidget);
+        expect(find.text('On (sent)'), findsOneWidget);
+      });
+    });
+
+    testWidgets('a light with no zones keeps its one switch', (tester) async {
+      final sent = await pump(tester, kYeelightTransport, cube());
+      expect(find.byKey(const Key('bridge-zone-all')), findsNothing);
+      await tester.tap(find.byType(Switch));
+      await tester.pumpAndSettle();
+      expect(find.text('On'), findsOneWidget);
+      await tester.tap(find.byType(Switch));
+      await tester.pumpAndSettle();
+      expect(find.text('Off'), findsOneWidget);
+      expect(find.text('Zones differ'), findsNothing);
+      expect(find.byKey(const Key('bridge-all-on')), findsNothing);
+      expect(sent.map((s) => s.$2), everyElement(isEmpty));
+    });
+
+    testWidgets('a colour says nothing about power on any other light', (
+      tester,
+    ) async {
+      await pump(tester, kYeelightTransport, cube());
+      await tester.tap(find.byType(Switch));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byType(Switch));
+      await tester.pumpAndSettle();
+      expect(find.text('Off'), findsOneWidget);
+      await tester.tap(swatch(0xFFFF0000));
+      await tester.pumpAndSettle();
+      expect(find.text('Off'), findsOneWidget);
+    });
+
+    testWidgets('no rows for a unit that did not say it takes them', (
+      tester,
+    ) async {
+      await pump(tester, kYeelightTransport, [
+        wired('turn_on', kYeelightTransport),
+        wired('turn_off', kYeelightTransport),
+        wired('set_segments', kYeelightTransport, ['colors']),
+      ]);
+      expect(find.byKey(const Key('lamp-row-0')), findsNothing);
+      expect(find.byType(UnclaimedActions), findsNothing);
+    });
+  });
+
   group('a role the card cannot draw is handed on, not hidden', () {
     // The card claimed set_color and the power pair whether or not it drew
     // them, so UnclaimedActions never named them: Yeelight Cube's packed
@@ -561,8 +1062,10 @@ void main() {
                   specYaml: 'y',
                   host: '10.0.0.7',
                   targetMac: '',
-                  sendAction: (action, values) async =>
-                      sent.add(action.commandName),
+                  sendAction: (action, values) async {
+                    sent.add(action.commandName);
+                    return true;
+                  },
                 ),
               ),
             ),

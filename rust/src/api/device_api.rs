@@ -1306,9 +1306,7 @@ impl From<&DeviceSpec> for DeviceSpecDto {
             ssdp_search_targets: ident
                 .and_then(|i| i.ssdp_search_targets.clone())
                 .unwrap_or_default(),
-            lan_protocols: ident
-                .and_then(|i| i.lan_protocols.clone())
-                .unwrap_or_default(),
+            lan_protocols: answered_protocol_tokens(spec),
             default_port: ident.and_then(|i| i.default_port),
             name_matchers: spec
                 .device
@@ -2765,6 +2763,122 @@ pub fn render_network_http_command(
     let mut dto = HttpRequestDto::from(request);
     dto.scheme = http_scheme_of(&spec);
     Ok(dto)
+}
+
+/// The tokens a device that answered this spec's probe is matched back by.
+///
+/// `identification.lan_protocols` when it states them. A spec that declares a
+/// `udp_broadcast` probe and a `protocol_handler` but no token — the legacy
+/// Mi-Light bridge, SPECS_TO_FIX.md S-21 — has already named the protocol once,
+/// so that name stands in: without it the bridge answers the probe and is
+/// listed as an unidentified host, with the controls its spec describes out of
+/// reach.
+pub(crate) fn answered_protocol_tokens(spec: &DeviceSpec) -> Vec<String> {
+    let declared = spec
+        .device
+        .identification
+        .as_ref()
+        .and_then(|i| i.lan_protocols.clone())
+        .unwrap_or_default();
+    if !declared.is_empty() || spec.device.udp_broadcast_probes().is_empty() {
+        return declared;
+    }
+    spec.protocol_handler.iter().cloned().collect()
+}
+
+/// A rendered Yeelight request: the JSON to send, before its CRLF.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct YeelightRequestDto {
+    pub json: String,
+}
+
+/// Render one Yeelight LAN command to its JSON.
+pub fn render_network_yeelight_command(
+    spec_yaml: String,
+    command_name: String,
+    values: HashMap<String, String>,
+) -> anyhow::Result<YeelightRequestDto> {
+    let spec = crate::protocol::dispatch::parse_or_cached(&spec_yaml)?;
+    let request = crate::protocol::yeelight::render_request(
+        &spec,
+        &command_name,
+        &values.into_iter().collect(),
+    )?;
+    Ok(YeelightRequestDto { json: request.json })
+}
+
+/// Render the JSON that polls a Yeelight state command (`get_prop`).
+pub fn render_network_yeelight_state_request(
+    spec_yaml: String,
+    state_command: String,
+) -> anyhow::Result<YeelightRequestDto> {
+    let spec = crate::protocol::dispatch::parse_or_cached(&spec_yaml)?;
+    let request = crate::protocol::yeelight::render_state_request(&spec, &state_command)?;
+    Ok(YeelightRequestDto { json: request.json })
+}
+
+/// One Yeelight message as the bytes that go on the socket.
+pub fn yeelight_encode_line(json: String) -> Vec<u8> {
+    crate::protocol::yeelight::encode_line(&json)
+}
+
+/// What one line off a Yeelight socket means for the request in flight.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct YeelightReplyDto {
+    /// False for a pushed notification or anything else: keep reading.
+    pub answers_request: bool,
+    pub error_code: Option<i64>,
+    pub error_message: Option<String>,
+    /// A `get_prop` result, keyed by the names it was requested under: the
+    /// name-to-value pairs the entity decoder reads.
+    pub fields: HashMap<String, String>,
+}
+
+/// Read one line off a Yeelight socket against the request it may answer.
+pub fn yeelight_decode_reply(request_json: String, line: String) -> YeelightReplyDto {
+    let reply = crate::protocol::yeelight::decode_reply(&request_json, &line);
+    YeelightReplyDto {
+        answers_request: reply.answers_request,
+        error_code: reply.error_code,
+        error_message: reply.error_message,
+        fields: reply.fields.into_iter().collect(),
+    }
+}
+
+/// One datagram of a legacy LimitlessLED send, and the wait after it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LimitlessledFrameDto {
+    pub bytes: Vec<u8>,
+    pub delay_after_ms: u32,
+}
+
+/// Render one LimitlessLED command to its complete timed sequence: zone
+/// addressing, repeats and pacing included. `values` may carry `zone` (1-4)
+/// beside the command's own parameters; absent addresses all zones.
+pub fn render_network_limitlessled_command(
+    spec_yaml: String,
+    command_name: String,
+    values: HashMap<String, String>,
+) -> anyhow::Result<Vec<LimitlessledFrameDto>> {
+    let spec = crate::protocol::dispatch::parse_or_cached(&spec_yaml)?;
+    let frames = crate::protocol::limitlessled::render_request(
+        &spec,
+        &command_name,
+        &values.into_iter().collect(),
+    )?;
+    Ok(frames
+        .into_iter()
+        .map(|frame| LimitlessledFrameDto {
+            bytes: frame.bytes.to_vec(),
+            delay_after_ms: u32::try_from(frame.delay_after_ms).unwrap_or(u32::MAX),
+        })
+        .collect())
+}
+
+/// The fields of a SenseME discovery reply, the `field:N` identity dialect:
+/// null for a datagram that is not one.
+pub fn parse_senseme_discovery_reply(datagram: Vec<u8>) -> Option<Vec<String>> {
+    crate::protocol::senseme::parse_discovery_reply(&datagram)
 }
 
 /// A rendered Kasa request: the JSON to send, before the cipher and framing.
@@ -8046,8 +8160,8 @@ device:
     #[test]
     fn a_multi_frame_command_parses_its_frames() {
         // milight's night_mode: two frames with a delay between them, declared
-        // as data (`frames`) rather than prose. No transport executes this yet;
-        // this pins that the sequence survives parsing for the one that will.
+        // as data (`frames`) rather than prose. This pins that the sequence
+        // survives parsing for the transport that plays it.
         const YAML: &str = r#"
 device:
   name: "Frame Bridge"

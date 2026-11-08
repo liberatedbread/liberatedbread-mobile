@@ -544,10 +544,9 @@ pub struct SpecCommand {
     /// Ordered wire frames for a command whose single invocation is more than
     /// one frame (milight's night_mode: OFF then, ~100 ms later, OFF|0x80),
     /// declared instead of [`Self::arguments`]. Typed so the sequence survives
-    /// parsing as data rather than prose; NO transport executes it yet — the
-    /// milight/raw-UDP sender does not exist — and a consumer without
-    /// multi-frame support must treat the command as documentation rather than
-    /// render the first frame alone.
+    /// parsing as data rather than prose; [`crate::protocol::limitlessled`]
+    /// plays it. A consumer without multi-frame support must treat the command
+    /// as documentation rather than render the first frame alone.
     #[serde(default)]
     pub frames: Vec<CommandFrame>,
     /// Values the caller supplies, keyed by the placeholder name.

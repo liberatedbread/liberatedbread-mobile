@@ -82,6 +82,12 @@ const Map<String, String> _performed = {
       'BiSecur LogicBox discovery, replied to on :4002 '
       '(_runCatalogueProbes)',
   '9080/json': 'Sengled search_devices (_runCatalogueProbes)',
+  '48899/unspecified':
+      'Mi-Light bridge, both probe strings, CSV reply read with the csv '
+      'dialect (_runCatalogueProbes)',
+  '31415/unspecified':
+      'SenseME `<ALL;DEVICE;ID;GET>`, reply read with the field dialect '
+      'through the Rust core (_runCatalogueProbes)',
 };
 
 /// Probes with no `udp_broadcast` block behind them, keyed by port, each for a
@@ -171,26 +177,11 @@ Set<int> _portsProbed() {
 /// how to find it and which this app therefore cannot find. Delete a line by
 /// writing the transport.
 const Map<String, String> _notPerformed = {
-  '31415/unspecified':
-      'big-ass-fans-senseme.yaml. The spec supplies the probe and '
-      'parenthesised, semicolon-delimited reply, but the synchronous Dart '
-      'identity reader has no field:N dialect. Add the parser in the Rust '
-      'core and bridge it before claiming this exchange: escaped delimiters '
-      'and the DEVICE;ID shape must be checked, not guessed.',
   '32761/binary':
       'furbo-dog-camera.yaml. The spec explicitly leaves the TUTK probe and '
       'reply layouts undocumented and says the cloud device list is needed '
       'to name the P2P UID. A datagram cannot be built or identified from '
       'this spec yet; whether a Furbo listens on 32761 is also unverified.',
-  '48899/unspecified':
-      'limitlessled-milight-bridge.yaml. WRITEABLE TODAY: the spec carries '
-      'both probe strings ("HF-A11ASSISTHREAD", "Link_Wi-Fi"), the reply '
-      'shape (`ip,mac,module`, verified live) and the field positions. It '
-      'needs a transport, and the spec needs a `lan_protocols` token for '
-      'the found bridge to be matched to it — without one a discovered '
-      'bridge appears as an unidentified host. The schema also has no '
-      '`response_format` value for ASCII CSV, which is why this key reads '
-      '`unspecified`.',
   '9999/tlv':
       'synology-diskstation.yaml. NOT writeable from the spec as it stands: it '
       'says `response_format: tlv` and names `tlv:mac`, `tlv:serial`, '

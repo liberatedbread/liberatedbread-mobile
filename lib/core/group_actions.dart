@@ -218,9 +218,9 @@ PridePicture? imageSurfaceForPride(DeviceSpecDto spec) {
   };
 }
 
-/// Whether [userParams] can state a colour: the three channels, by the names
-/// the light cards fill. A packed `rgb` or a lone `hue` is a different
-/// conversation, and left out here as it is from the cards' swatches.
+/// Whether [userParams] can state a colour as three channels, by the names the
+/// light cards fill. A packed `rgb` or a lone `hue` is the network path's
+/// [networkColorValues]; no BLE spec binds either.
 bool _carriesRgb(List<String> userParams) =>
     userParams.contains('red') &&
     userParams.contains('green') &&
@@ -624,13 +624,29 @@ class GroupNetworkPlan {
   bool get isEmpty => direct.isEmpty && gated.isEmpty && rainbowEffects.isEmpty;
 }
 
+/// The transport a Yeelight LAN action resolves to: the handler's name, since
+/// the spec's own `tcp-json` already means Kasa's cipher downstream.
+const kYeelightTransport = 'yeelight_lan';
+
+/// The transport a legacy LimitlessLED action resolves to, for the same reason
+/// with bare `udp` and Rabbit Air.
+const kLimitlessledTransport = 'limitlessled_legacy_8899';
+
 /// Transports the group path can actually drive headlessly today. `udp`
 /// (Rabbit Air) is deliberately absent: its every exchange needs the stored
 /// per-device key, and a bulk operation silently reaching for stored
 /// credentials is a surprise; it can join when someone asks for it. An
 /// action on any other transport (a LIFX handler's `lifx`, an LG WebSocket)
-/// resolves nothing here and the member reports an honest skip.
-const Set<String> kGroupSendableTransports = {'http', 'soap', 'tcp-json'};
+/// resolves nothing here and the member reports an honest skip. Yeelight and
+/// LimitlessLED take no credential at all, and a group send to either is the
+/// same request a press on its card makes.
+const Set<String> kGroupSendableTransports = {
+  'http',
+  'soap',
+  'tcp-json',
+  kYeelightTransport,
+  kLimitlessledTransport,
+};
 
 bool _groupSendable(NetworkActionDto action) =>
     kGroupSendableTransports.contains(action.transport) &&
@@ -727,11 +743,64 @@ int? rainbowEffectIndex(List<String> names) {
   return loose >= 0 ? loose : null;
 }
 
-/// The `set_color` a group can write three channels through, or null.
+/// The largest packed 24-bit colour, which is how a packed `rgb` parameter
+/// declares itself.
+const _kPackedRgbMax = 0xFFFFFF;
+
+/// The colour wheel a legacy LimitlessLED hue byte runs round, as the spec
+/// anchors it (`rgbw_commands.set_color`): red 0xB0, green 0x60, royal blue
+/// 0x10, wrapping through 0x00 violet and 0xF0 lavender back up to red.
+///
+/// Null for a colour with no hue, white or black or grey: the wheel has no such
+/// position, and red would be a lie.
+int? limitlessledHueByte(Rgb color) {
+  final hsv = HSVColor.fromColor(
+    Color.fromARGB(255, color.r, color.g, color.b),
+  );
+  if (hsv.saturation == 0 || hsv.value == 0) return null;
+  final h = hsv.hue;
+  final byte = switch (h) {
+    < 120 => 0xB0 - h / 120 * 0x50,
+    < 240 => 0x60 - (h - 120) / 120 * 0x50,
+    _ => 0x10 - (h - 240) / 120 * 0x60,
+  };
+  return byte.round() & 0xFF;
+}
+
+/// The values [action] states [color] in, by what its parameters declare: three
+/// channels, one packed 0xRRGGBB (Yeelight's `rgb`), or the hue byte of a legacy
+/// LimitlessLED bridge. Null when it takes none of those, or this colour cannot
+/// be said in the one it takes.
+///
+/// A lone `hue` is keyed on the transport as well as the name, because a hue
+/// scale is the protocol's own: degrees on one device, a wheel from violet on
+/// another, and a number that means nothing on a third.
+Map<String, String>? networkColorValues(NetworkActionDto action, Rgb color) {
+  final params = action.userParams;
+  if (_carriesRgb(params)) {
+    return {'red': '${color.r}', 'green': '${color.g}', 'blue': '${color.b}'};
+  }
+  if (params.length != 1) return null;
+  if (params.first == 'rgb' && action.max == _kPackedRgbMax) {
+    return {'rgb': '${(color.r << 16) | (color.g << 8) | color.b}'};
+  }
+  if (params.first == 'hue' && action.transport == kLimitlessledTransport) {
+    final hue = limitlessledHueByte(color);
+    return hue == null ? null : {'hue': '$hue'};
+  }
+  return null;
+}
+
+/// The `set_color` a group can state a colour through, or null.
 NetworkActionDto? _networkPrideColorAction(NetworkEntityDto entity) {
   if (entity.platform != 'light') return null;
   final action = _networkAction(entity, 'set_color');
-  return action != null && _carriesRgb(action.userParams) ? action : null;
+  // Asked with a colour every encoding can say; which colour turns up later is
+  // the rainbow's, and all of those have a hue.
+  return action != null &&
+          networkColorValues(action, const (r: 255, g: 0, b: 0)) != null
+      ? action
+      : null;
 }
 
 /// The parameter a light's `set_effect` takes the effect's index in.
@@ -825,17 +894,12 @@ GroupNetworkPlan resolveNetworkGroupPlan({
             GroupNetworkSend(entity: entity, action: on, values: const {}),
           );
         }
-        if (action != null) {
+        final values = action == null
+            ? null
+            : networkColorValues(action, color);
+        if (action != null && values != null) {
           direct.add(
-            GroupNetworkSend(
-              entity: entity,
-              action: action,
-              values: {
-                'red': '${color.r}',
-                'green': '${color.g}',
-                'blue': '${color.b}',
-              },
-            ),
+            GroupNetworkSend(entity: entity, action: action, values: values),
           );
         }
         if (effect != null) {

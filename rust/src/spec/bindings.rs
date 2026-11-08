@@ -20,7 +20,7 @@ use super::types::{
     SpecCommand, TemplateElement, ValueType,
 };
 use crate::codec::types::{unsupported_single_write_kind, unsupported_single_write_transform};
-use crate::protocol::{http, kasa, mqtt, rabbit_air, soap, websocket};
+use crate::protocol::{http, kasa, limitlessled, mqtt, rabbit_air, soap, websocket, yeelight};
 use std::borrow::Cow;
 use std::collections::HashMap;
 
@@ -995,7 +995,32 @@ pub fn resolve_network_actions<'a>(
     if !has_state_binding(spec, entity) {
         actions.retain(|action| action.role != TOGGLE.role);
     }
+    if let Some(segments) = yeelight_segment_action(spec, entity) {
+        actions.push(segments);
+    }
     actions
+}
+
+/// The role a Yeelight cube's per-row colour resolves to.
+const SET_SEGMENTS: &str = "set_segments";
+
+/// A cube's `set_segment_rgb`, as an action on its light.
+///
+/// By the handler and not by a binding: the spec keeps the command off its
+/// entity because per-pixel streaming is no entity's business, and this one
+/// command is not streaming — it is one request, like a colour. The rest of
+/// that surface (`update_leds`, `activate_fx_mode`, music mode) stays unbound.
+fn yeelight_segment_action<'a>(
+    spec: &'a DeviceSpec,
+    entity: &'a Entity,
+) -> Option<NetworkAction<'a>> {
+    if spec.protocol_handler.as_deref() != Some(yeelight::HANDLER_NAME)
+        || entity.platform.as_deref() != Some("light")
+    {
+        return None;
+    }
+    let (name, command) = spec.commands.get_key_value(yeelight::SEGMENT_COMMAND)?;
+    qualify_network(spec, SET_SEGMENTS, name, command, true)
 }
 
 /// The choices one entity's picker offers, as (raw, label) pairs.
@@ -1149,8 +1174,11 @@ fn qualify_network<'a>(
 ) -> Option<NetworkAction<'a>> {
     let protocol_handler = spec.protocol_handler.as_deref();
     // Resolved once and carried on the action, so the string a command is
-    // ADMITTED on is the string a caller later dispatches on.
-    let transport = effective_transport(spec, command);
+    // ADMITTED on is the string a caller later dispatches on. A handler that
+    // shares its declared transport with another vendor's framing replaces it
+    // with its own name below: `tcp-json` and `udp` already mean Kasa and
+    // Rabbit Air to everything downstream of this function.
+    let mut transport = effective_transport(spec, command);
     // Renderable at all: a command missing its transport's address, or one for
     // a transport this crate does not speak, resolves to nothing rather than
     // to a control that errors when pressed. Each transport is whole on its
@@ -1204,6 +1232,11 @@ fn qualify_network<'a>(
             // or an HTTP command without its path does.
             command.body.as_ref()?;
         }
+        // Yeelight's CRLF plaintext, under the rule the arm above states.
+        t if t == yeelight::TRANSPORT && protocol_handler == Some(yeelight::HANDLER_NAME) => {
+            command.body.as_ref()?;
+            transport = yeelight::HANDLER_NAME;
+        }
         websocket::TRANSPORT => {
             // The action IS the instruction — a wire method, an SSAP URI, a
             // button name — so a command without one has nothing to send.
@@ -1233,6 +1266,17 @@ fn qualify_network<'a>(
         // rule is Kasa's: the invocation IS the JSON.
         t if t == rabbit_air::TRANSPORT && protocol_handler == Some(rabbit_air::HANDLER_NAME) => {
             command.body.as_ref()?;
+        }
+        // A legacy bridge's bare datagrams, keyed on the handler for the same
+        // reason. A command's byte table is what it says to send: with neither
+        // that nor a frame list there is nothing to render.
+        t if t == limitlessled::TRANSPORT
+            && protocol_handler == Some(limitlessled::HANDLER_NAME) =>
+        {
+            if !command.arguments.contains_key("command") && command.frames.is_empty() {
+                return None;
+            }
+            transport = limitlessled::HANDLER_NAME;
         }
         _ => return None,
     }
@@ -1433,7 +1477,9 @@ fn state_command_resolves(spec: &DeviceSpec, command: &str) -> bool {
 fn state_transport_readable(spec: &DeviceSpec, command: &SpecCommand) -> bool {
     let handler = spec.protocol_handler.as_deref();
     match declared_transport(spec, command) {
-        Some(t) if t == kasa::TRANSPORT => handler == Some(kasa::HANDLER_NAME),
+        Some(t) if t == kasa::TRANSPORT => {
+            handler == Some(kasa::HANDLER_NAME) || handler == Some(yeelight::HANDLER_NAME)
+        }
         Some(t) if t == rabbit_air::TRANSPORT => handler == Some(rabbit_air::HANDLER_NAME),
         _ => true,
     }

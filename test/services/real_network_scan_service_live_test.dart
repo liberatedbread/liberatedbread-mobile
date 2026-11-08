@@ -471,6 +471,69 @@ void _catalogueProbeTransportTests() {
     );
   });
 
+  test('a SenseME reply is read through the Rust core\'s fields', () async {
+    final fan = await RawDatagramSocket.bind(InternetAddress.loopbackIPv4, 0);
+    fan.listen((event) {
+      if (event != RawSocketEvent.read) return;
+      final datagram = fan.receive();
+      if (datagram == null) return;
+      if (utf8.decode(datagram.data) != '<ALL;DEVICE;ID;GET>') return;
+      fan.send(
+        utf8.encode(
+          '(Living Room Fan;DEVICE;ID;20:F8:5E:AA:BB:CC;FAN,HAIKU,SENSEME)',
+        ),
+        datagram.address,
+        datagram.port,
+      );
+    });
+
+    final service = RealNetworkScanService(
+      multicastLock: MulticastLock(isSupported: false),
+      // Not the Rust parser, which is tested against the spec's literal reply
+      // in rust/src/protocol/senseme.rs: what is under test is that the reader
+      // is asked and what it answers becomes the row.
+      delimitedFieldReader: (datagram) async {
+        final reply = utf8.decode(datagram);
+        return reply.substring(1, reply.length - 1).split(';');
+      },
+      probeSource: () async => [
+        UdpProbeDto(
+          specKey: 'big-ass-fans-senseme.yaml',
+          index: 0,
+          displayName: 'Haiku',
+          port: fan.port,
+          broadcastAddress: '127.0.0.1',
+          probe: Uint8List.fromList(utf8.encode('<ALL;DEVICE;ID;GET>')),
+          passiveOk: false,
+          lanProtocols: const ['senseme'],
+          stableKeys: const [
+            UdpIdentityFieldDto(dialect: 'field', path: '3', name: 'mac'),
+          ],
+          displayField: const UdpIdentityFieldDto(
+            dialect: 'field',
+            path: '0',
+            name: '0',
+          ),
+        ),
+      ],
+    );
+
+    final found = <NetworkDevice>[];
+    final sub = service
+        .scan(timeout: const Duration(seconds: 3))
+        .listen(found.add);
+    await Future<void>.delayed(const Duration(seconds: 4));
+    await sub.cancel();
+    fan.close();
+
+    final row = found
+        .where((d) => d.txt['mac'] == '20:F8:5E:AA:BB:CC')
+        .toList();
+    expect(row, hasLength(1));
+    expect(row.single.name, 'Living Room Fan');
+    expect(row.single.answeredLanProtocols, ['senseme']);
+  });
+
   test('a reply that identifies nothing does not become a device', () async {
     // Answering on a vendor port is not by itself a device: something else on
     // the LAN using the same port must not turn into a row the user is asked
