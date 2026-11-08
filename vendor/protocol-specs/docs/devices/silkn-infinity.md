@@ -103,6 +103,10 @@ background — close it (or power-cycle the device) and connect again.
 One custom primary service with five synthetic characteristics sharing the
 `12345678-9012-3456-7890-1234567890xx` prefix, plus standard DIS.
 
+Client integration: `protocol_handler: ipl_silkn` selects the mobile lock-state
+check and conditional Released + Unlocked write. Intensity remains a physical
+control; the client must not invent an energy-level write.
+
 ### BLE Services
 
 | UUID | Name | Description |
