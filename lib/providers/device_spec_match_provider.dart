@@ -312,19 +312,20 @@ bool isContradictedNameOnlyMatch(
 const Set<String> _infrastructureServices = {'1800', '1801', '180a', '180f'};
 
 /// How many of [match]'s declared GATT services the connected device carries,
-/// when it carries ALL of them and there are at least two (infrastructure
-/// services aside); 0 otherwise.
+/// when it carries ALL of them and there are at least two, or one when that
+/// service corroborates the spec's name match (infrastructure aside); 0 otherwise.
 ///
 /// A multi-service fingerprint that is wholly present is the strongest
 /// evidence a post-connect GATT table can give, and the matcher's confidence
 /// cannot see it: a real iTag (1802, 1803, ffe0, 180f) came back with eight
 /// Strong matches on ffe0 alone — LED strips, a scale, an OBD adapter — all
 /// outranking the iTag spec, whose every declared service was present but
-/// whose only identification UUID is the SIG 0x1802 (so `possible`). A
-/// single declared service is not a fingerprint (that is just the UUID match
-/// the tiers already weigh), and a partly-present one is not either — an
-/// optional service a unit omits must not demote its own spec below one
-/// that happens to declare fewer.
+/// whose only identification UUID is the SIG 0x1802 (so `possible`). A single
+/// declared service is not a fingerprint on its own, but it counts when it
+/// corroborates the spec's name match: Anova and Even G1 each declare one
+/// service and would otherwise lose to an unrelated UUID-only spec. A
+/// partly-present fingerprint is not one either — an optional service a unit
+/// omits must not demote its own spec below one that happens to declare fewer.
 ///
 /// A spec that names its products (declares any name axis:
 /// `local_name_prefixes`, `local_names` or `name_matchers`, the three Rust
@@ -352,7 +353,10 @@ int gattFingerprintOf(
   final declared = {
     for (final uuid in match.entry.gattServiceUuids) normalizeUuid(uuid),
   }..removeAll(_infrastructureServices);
-  if (declared.length < 2) return 0;
+  if (declared.isEmpty ||
+      (declared.length == 1 && !match.matchedByNamePrefix)) {
+    return 0;
+  }
   final discovered = {for (final uuid in discoveredUuids) normalizeUuid(uuid)};
   return discovered.containsAll(declared) ? declared.length : 0;
 }

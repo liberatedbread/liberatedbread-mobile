@@ -171,6 +171,17 @@ Set<int> _portsProbed() {
 /// how to find it and which this app therefore cannot find. Delete a line by
 /// writing the transport.
 const Map<String, String> _notPerformed = {
+  '31415/unspecified':
+      'big-ass-fans-senseme.yaml. The spec supplies the probe and '
+      'parenthesised, semicolon-delimited reply, but the synchronous Dart '
+      'identity reader has no field:N dialect. Add the parser in the Rust '
+      'core and bridge it before claiming this exchange: escaped delimiters '
+      'and the DEVICE;ID shape must be checked, not guessed.',
+  '32761/binary':
+      'furbo-dog-camera.yaml. The spec explicitly leaves the TUTK probe and '
+      'reply layouts undocumented and says the cloud device list is needed '
+      'to name the P2P UID. A datagram cannot be built or identified from '
+      'this spec yet; whether a Furbo listens on 32761 is also unverified.',
   '48899/unspecified':
       'limitlessled-milight-bridge.yaml. WRITEABLE TODAY: the spec carries '
       'both probe strings ("HF-A11ASSISTHREAD", "Link_Wi-Fi"), the reply '

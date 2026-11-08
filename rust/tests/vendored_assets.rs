@@ -3476,11 +3476,13 @@ fn a_ble_family_spec_narrows_to_the_device_in_front_of_it() {
         vec!["SP110E"]
     );
 
-    // A treadmill's verbs come from the service it actually carries.
+    // A treadmill's verbs come from the service it actually carries, when
+    // the spec declares that discriminator. Upstream removed it from UREVO's
+    // FT variant, so FFF0 deliberately leaves all variants available.
     const FTMS: &str = "00001826-0000-1000-8000-00805f9b34fb";
     const FT: &str = "0000fff0-0000-1000-8000-00805f9b34fb";
     assert_eq!(matched("urevo-walking-pad.yaml", "", &[FTMS]), vec!["FTMS"]);
-    assert_eq!(matched("urevo-walking-pad.yaml", "", &[FT]), vec!["FT"]);
+    assert!(matched("urevo-walking-pad.yaml", "", &[FT]).is_empty());
 
     // THE SPELLING THE APP ACTUALLY SENDS.
     //
@@ -3499,7 +3501,6 @@ fn a_ble_family_spec_narrows_to_the_device_in_front_of_it() {
     // this is what that looks like when it happens.
     for (spec_file, name, short, long, expected) in [
         ("urevo-walking-pad.yaml", "", "1826", FTMS, "FTMS"),
-        ("urevo-walking-pad.yaml", "", "fff0", FT, "FT"),
         ("kingsmith-walkingpad.yaml", "", "1826", FTMS, "FTMS"),
         (
             "kingsmith-walkingpad.yaml",
@@ -3936,9 +3937,16 @@ fn every_declared_udp_probe_parses() {
                     // the same case: its probe is a TLV frame whose sequence
                     // number and checksum change per send, so the spec gives
                     // a builder in `protocol_details` rather than fixed bytes.
+                    // Furbo is the different, explicitly unactionable case: its
+                    // TUTK layouts are not reproduced and its presence on the
+                    // port is only a hypothesis, so this is a research backlog,
+                    // not a probe that can be synthesized from the YAML.
                     const PAYLOAD_ONLY_IN_PROSE: &[&str] = &["aqara-hub.yaml", "led-space.yaml"];
+                    const PAYLOAD_UNDOCUMENTED: &[&str] = &["furbo-dog-camera.yaml"];
                     assert!(
-                        speaks_first || PAYLOAD_ONLY_IN_PROSE.contains(&path.as_str()),
+                        speaks_first
+                            || PAYLOAD_ONLY_IN_PROSE.contains(&path.as_str())
+                            || PAYLOAD_UNDOCUMENTED.contains(&path.as_str()),
                         "{path}: a probe with no payload and no passive_ok says nothing a \
                          client could act on"
                     );
@@ -3955,10 +3963,10 @@ fn every_declared_udp_probe_parses() {
                     assert!(
                         matches!(
                             dialect,
-                            "json" | "tlv" | "csv" | "payload" | "header" | "xml"
+                            "json" | "tlv" | "csv" | "payload" | "header" | "xml" | "field"
                         ),
                         "{path}: identity source dialect {dialect} is not one the \
-                         catalogue uses elsewhere (json/tlv/csv/payload/header/xml)"
+                         catalogue uses elsewhere (json/tlv/csv/payload/header/xml/field)"
                     );
                     assert!(
                         !field.name().is_empty(),
@@ -4157,6 +4165,7 @@ fn the_catalogue_hands_over_the_probes_the_app_already_sends() {
     assert_eq!(
         would_send,
         vec![
+            "big-ass-fans-senseme.yaml:31415",
             "hormann-bisecur-gateway.yaml:4001",
             "limitlessled-milight-bridge.yaml:48899",
             "limitlessled-milight-bridge.yaml:48899",
