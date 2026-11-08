@@ -8,6 +8,7 @@ import 'dart:typed_data';
 import 'package:ffi/ffi.dart';
 
 import 'direct_att/att_channel.dart' show bdaddrBytes;
+import '../src/rust/api/sdp_api.dart';
 
 class SppTransportException implements Exception {
   final String stage;
@@ -24,14 +25,13 @@ class SppTransportException implements Exception {
 
 /// Resolve SPP over SDP, then make one Brother status request over RFCOMM.
 /// The blocking socket calls run on a worker isolate and have their own
-/// deadlines; Dart sockets have no AF_BLUETOOTH support.
+/// deadlines; Dart sockets have no AF_BLUETOOTH support. Rust owns the SDP
+/// wire format, on the calling isolate where the FRB library was initialized.
 Future<Uint8List> linuxSppProbe(
   String address,
   List<int> payload,
   Duration timeout,
-) => Isolate.run(() => _probe(address, payload, timeout));
-
-Uint8List _probe(String address, List<int> payload, Duration timeout) {
+) async {
   final clock = Stopwatch()..start();
   int left() {
     final ms = timeout.inMilliseconds - clock.elapsedMilliseconds;
@@ -41,22 +41,57 @@ Uint8List _probe(String address, List<int> payload, Duration timeout) {
     return ms;
   }
 
+  final request = await buildSppSdpRequest();
+  final response = await Isolate.run(
+    () => _sdpExchange(address, request, left()),
+  );
+  final channel = await rfcommChannelFromSdpResponse(response);
+  if (channel == null) {
+    throw const SppTransportException(
+      'sdp',
+      'the printer did not publish an SPP RFCOMM channel',
+    );
+  }
+  return Isolate.run(() => _serialExchange(address, channel, payload, left()));
+}
+
+Uint8List _sdpExchange(String address, List<int> payload, int timeoutMs) {
+  final clock = Stopwatch()..start();
+  int left() {
+    final ms = timeoutMs - clock.elapsedMilliseconds;
+    if (ms <= 0) {
+      throw const SppTransportException('timeout', 'SPP probe timed out');
+    }
+    return ms;
+  }
+
   var sdp = -1;
-  var serial = -1;
   try {
     sdp = _openSocket(_SocketKind.l2cap, address, 1, left());
-    _writeAll(sdp, buildSppSdpRequest(), left);
-    final response = _readSome(sdp, left);
-    final channel = rfcommChannelFromSdpResponse(response);
-    if (channel == null) {
-      throw const SppTransportException(
-        'sdp',
-        'the printer did not publish an SPP RFCOMM channel',
-      );
-    }
-    _close(sdp);
-    sdp = -1;
+    _writeAll(sdp, payload, left);
+    return _readSome(sdp, left);
+  } finally {
+    if (sdp >= 0) _close(sdp);
+  }
+}
 
+Uint8List _serialExchange(
+  String address,
+  int channel,
+  List<int> payload,
+  int timeoutMs,
+) {
+  final clock = Stopwatch()..start();
+  int left() {
+    final ms = timeoutMs - clock.elapsedMilliseconds;
+    if (ms <= 0) {
+      throw const SppTransportException('timeout', 'SPP probe timed out');
+    }
+    return ms;
+  }
+
+  var serial = -1;
+  try {
     serial = _openSocket(_SocketKind.rfcomm, address, channel, left());
     _writeAll(serial, payload, left);
     final reply = BytesBuilder();
@@ -72,124 +107,15 @@ Uint8List _probe(String address, List<int> payload, Duration timeout) {
     }
     return Uint8List.fromList(status);
   } finally {
-    if (sdp >= 0) _close(sdp);
     if (serial >= 0) _close(serial);
   }
 }
 
-Uint8List buildSppSdpRequest({int transactionId = 1}) => Uint8List.fromList([
-  0x04,
-  (transactionId >> 8) & 0xff,
-  transactionId & 0xff,
-  0x00,
-  0x0d,
-  0x35,
-  0x03,
-  0x19,
-  0x11,
-  0x01,
-  0x00,
-  0xff,
-  0x35,
-  0x03,
-  0x09,
-  0x00,
-  0x04,
-  0x00,
-]);
+Future<Uint8List> buildSppSdpRequest({int transactionId = 1}) =>
+    sppSdpRequest(transactionId: transactionId);
 
-int? rfcommChannelFromSdpResponse(List<int> response) {
-  if (response.length < 6) {
-    throw const FormatException('short SDP response');
-  }
-  if (response[0] == 0x06) {
-    throw const FormatException('the printer rejected the SDP request');
-  }
-  if (response[0] != 0x05) {
-    throw const FormatException('not an SDP service-search-attribute response');
-  }
-  final length = (response[3] << 8) | response[4];
-  if (length < 1 || response.length < 5 + length) {
-    throw const FormatException('truncated SDP response');
-  }
-  if (response[5 + length - 1] != 0) {
-    throw const FormatException(
-      'a continued SDP response is not one SPP record',
-    );
-  }
-  final attributes = response.sublist(5, 5 + length - 1);
-  final root = _parseElement(attributes, 0).element;
-  return _rfcommChannel(root);
-}
-
-class _Element {
-  final int type;
-  final List<int> value;
-  final List<_Element> children;
-
-  const _Element(this.type, this.value, this.children);
-
-  int? get unsigned => switch (value.length) {
-    1 => value[0],
-    2 => (value[0] << 8) | value[1],
-    4 => (value[0] << 24) | (value[1] << 16) | (value[2] << 8) | value[3],
-    _ => null,
-  };
-
-  int? get uuid => type == 3 ? unsigned : null;
-}
-
-({_Element element, int next}) _parseElement(List<int> bytes, int offset) {
-  if (offset >= bytes.length) throw const FormatException('short SDP element');
-  final header = bytes[offset++];
-  final type = header >> 3;
-  final descriptor = header & 7;
-  if (type == 0) return (element: const _Element(0, [], []), next: offset);
-
-  var size = 0;
-  if (descriptor <= 4) {
-    size = 1 << descriptor;
-  } else {
-    final lengthBytes = 1 << (descriptor - 5);
-    if (offset + lengthBytes > bytes.length) {
-      throw const FormatException('short SDP element length');
-    }
-    for (var i = 0; i < lengthBytes; i++) {
-      size = (size << 8) | bytes[offset++];
-    }
-  }
-  final end = offset + size;
-  if (end > bytes.length) {
-    throw const FormatException('truncated SDP element');
-  }
-  final value = bytes.sublist(offset, end);
-  if (type != 6 && type != 7) {
-    return (element: _Element(type, value, const []), next: end);
-  }
-  final children = <_Element>[];
-  var child = 0;
-  while (child < value.length) {
-    final parsed = _parseElement(value, child);
-    children.add(parsed.element);
-    child = parsed.next;
-  }
-  return (element: _Element(type, value, children), next: end);
-}
-
-int? _rfcommChannel(_Element element) {
-  final children = element.children;
-  if (children.length >= 2 &&
-      children[0].uuid == 0x0003 &&
-      children[1].type == 1) {
-    final channel = children[1].unsigned;
-    if (channel != null && channel >= 1 && channel <= 30) return channel;
-  }
-  for (final child in children) {
-    final channel = _rfcommChannel(child);
-    if (channel != null) return channel;
-  }
-  return null;
-}
+Future<int?> rfcommChannelFromSdpResponse(List<int> response) =>
+    sppRfcommChannelFromSdpResponse(response: response);
 
 enum _SocketKind { l2cap, rfcomm }
 

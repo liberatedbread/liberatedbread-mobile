@@ -184,13 +184,13 @@ class EnphaseBleClient implements EnphaseClient {
 
       final replies = <EnphaseStatusReply>[];
       for (final type in const [4, 5, 8]) {
-        await _writeEncrypted(await crypto.encodeFrame(0x2d, 1, [type, 0]));
+        await _writeEncrypted(await crypto.encodeFrame(0x2d, 1, [0, type, 0]));
         final reply = await _next(type: 0xad, payloadType: type);
         replies.add(
           EnphaseStatusReply(
             type: type,
-            sourceInterface: reply.payload[0],
-            payload: reply.payload.sublist(1),
+            sourceInterface: reply.step,
+            payload: reply.payload,
           ),
         );
       }
@@ -269,7 +269,7 @@ class EnphaseBleClient implements EnphaseClient {
       if (frame.frameType != type) return false;
       if (step != null && frame.step != step) return false;
       if (payloadType != null &&
-          (frame.payload.length < 2 || frame.payload[1] != payloadType)) {
+          (frame.payload.isEmpty || frame.payload[0] != payloadType)) {
         return false;
       }
       return true;

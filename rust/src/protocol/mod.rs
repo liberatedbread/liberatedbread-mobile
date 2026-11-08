@@ -28,6 +28,7 @@ pub mod rabbit_air_ble;
 pub mod radio;
 pub mod raster_print;
 pub mod roomba;
+pub mod sdp;
 pub mod soap;
 pub mod stored_upload;
 pub mod traits;

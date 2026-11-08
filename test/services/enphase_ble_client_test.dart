@@ -167,12 +167,13 @@ class _ScriptedXBee extends FakeBleService {
     final frame = await crypto.decodeFrame(plain);
     expect(frame.frameType, 0x2d);
     expect(frame.step, 1);
-    expect(frame.payload, hasLength(2));
-    expect(frame.payload[1], 0);
-    expect(frame.payload[0], anyOf(4, 5, 8));
-    final type = frame.payload[0];
-    relayPayloads.add(List<int>.of(frame.payload));
-    final reply = _frame(0xad, 0, [0, type, 0xa0 + type, 0]);
+    expect(frame.payload, hasLength(3));
+    expect(frame.payload[0], 0);
+    expect(frame.payload[2], 0);
+    expect(frame.payload[1], anyOf(4, 5, 8));
+    final type = frame.payload[1];
+    relayPayloads.add(List<int>.of(frame.payload.sublist(1)));
+    final reply = _frame(0xad, 0, [type, 0xa0 + type, 0]);
     final encryptedReply = await crypto.applyCipher(
       key: _key,
       nonce: _rxNonce,

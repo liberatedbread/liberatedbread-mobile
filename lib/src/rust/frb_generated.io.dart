@@ -10,6 +10,7 @@ import 'api/enphase_api.dart';
 import 'api/mock_api.dart';
 import 'api/print_api.dart';
 import 'api/radio_api.dart';
+import 'api/sdp_api.dart';
 import 'api/serial_api.dart';
 import 'api/spec_handle.dart';
 import 'dart:async';

@@ -1219,3 +1219,6 @@ followed by the response payload. Reverse these descriptions upstream;
 the destination/source fields and the simple request/response payload layout
 are otherwise correct. This is a documentation correction, not a reason to
 edit the vendored subtree or to reverse a working client's frame IDs.
+
+Resolved upstream in liberatedbread/liberatedbread-protocol-specs#84 (merged
+2026-11-08). The vendored copy awaits the next normal subtree refresh.
