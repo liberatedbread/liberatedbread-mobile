@@ -29,6 +29,7 @@ export '../src/rust/api/device_api.dart'
         FormatFieldDto,
         DecodedValueDto,
         ImageUploadDto,
+        PanelProbeDto,
         PanelResolutionDto,
         ImageWriteDto,
         ImageWritePlanDto,
@@ -294,6 +295,27 @@ abstract class SpecCodec {
     required List<int> rgb,
     required int frameIndex,
     required int maxPayloadPerWrite,
+  });
+
+  /// A looping animation as one upload the device then plays by itself, for a
+  /// spec whose [ImageUploadDto.animatedUpload] says it can.
+  Future<ImageWritePlanDto> encodeImageAnimation({
+    required String specYaml,
+    required int width,
+    required int height,
+    required List<List<int>> frames,
+    required int delayMs,
+    required int maxPayloadPerWrite,
+  });
+
+  /// The query that makes a panel state its size, for a handler that has one
+  /// (see [panelResolutionFromReply]); null otherwise.
+  Future<PanelProbeDto?> panelProbe({required String specYaml});
+
+  /// The size stated in the notifications that followed [panelProbe], or null.
+  Future<PanelResolutionDto?> panelResolutionFromReply({
+    required String specYaml,
+    required List<List<int>> notifications,
   });
 
   /// The device's REAL panel resolution, read from its advertisement per the

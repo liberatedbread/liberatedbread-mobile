@@ -54,6 +54,7 @@ pub fn parse_device_spec(yaml: &str) -> Result<DeviceSpec, SpecError> {
     let mut spec: DeviceSpec = serde_yaml::from_str(yaml)?;
     hoist_device_nested_capabilities(&mut spec);
     prefer_template_over_value(&mut spec);
+    crate::protocol::popled::bind_commands(&mut spec);
     validate_spec(&spec)?;
     Ok(spec)
 }

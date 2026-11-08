@@ -127,6 +127,7 @@ class _GroupDetailScreenState extends ConsumerState<GroupDetailScreen> {
               op,
               members.network,
               brightnessPercent: brightnessPercent,
+              firstPosition: members.ble.length,
               stop: _stop,
             ),
       );
@@ -393,6 +394,7 @@ class _OpButtons extends StatelessWidget {
             opButton(GroupOp.setBrightness, custom: onBrightness),
             opButton(GroupOp.readBattery),
             opButton(GroupOp.readSensors),
+            opButton(GroupOp.prideMode),
             if (running)
               OutlinedButton.icon(
                 onPressed: onCancel,

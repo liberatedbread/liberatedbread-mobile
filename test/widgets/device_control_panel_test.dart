@@ -1649,6 +1649,7 @@ const _paper = ImageUploadDto(
   encodable: true,
   resolutionDeviceReported: false,
   animation: false,
+  animatedUpload: false,
   maxWidth: 8,
   maxHeight: 8,
 );

@@ -18,6 +18,7 @@ import '../providers/spec_codec_provider.dart';
 import '../providers/saved_device_provider.dart';
 import '../providers/scan_match_provider.dart';
 import '../providers/svc_report_provider.dart';
+import '../services/ble_connect_within.dart';
 import '../services/ble_service.dart';
 import '../services/spec_codec.dart' show BleHandshakeDto;
 import '../widgets/ad_banner_bar.dart';
@@ -71,24 +72,6 @@ const deviceConnectRetryPause = Duration(seconds: 1);
 /// to ride out a flaky stack, few enough that a device which really is gone
 /// still reaches the error card in seconds.
 const deviceConnectAutoRetries = 2;
-
-/// Whether a failed connect or discovery is worth the screen trying again by
-/// itself (see [deviceConnectAutoRetries]).
-///
-/// Everything is, except the failures that are answers: Bluetooth off or
-/// absent, permission withheld, a device demanding pairing, an identifier the
-/// system has forgotten, and a characteristic that never replies. Asking
-/// those again gets the same answer and only delays the advice that fixes
-/// them. A link that dropped is not decided here — the screen shows it as a
-/// disconnect, not a failed connect.
-bool isTransientConnectFailure(Object error) => switch (error) {
-  BlePermissionDeniedException() ||
-  BleUnavailableException() ||
-  BlePairingRequiredException() ||
-  BleDeviceUnheardException() ||
-  BleCharacteristicSilentException() => false,
-  _ => true,
-};
 
 /// When the connecting screen starts saying that this can take a while.
 ///

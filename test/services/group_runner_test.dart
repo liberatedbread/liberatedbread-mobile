@@ -5,8 +5,10 @@ import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:liberated_bread_mobile/core/group_actions.dart';
+import 'package:liberated_bread_mobile/core/pride_flags.dart';
 import 'package:liberated_bread_mobile/core/stop_signal.dart';
 import 'package:liberated_bread_mobile/models/ble_discovered_service.dart';
+import 'package:liberated_bread_mobile/services/ble_service.dart';
 import 'package:liberated_bread_mobile/services/group_runner.dart';
 import 'package:liberated_bread_mobile/services/spec_codec.dart';
 
@@ -125,6 +127,19 @@ const _batteryService = BleDiscoveredService(
 GroupMember _member(String id, {DeviceSpecDto? spec, String? yaml}) =>
     GroupMember(id: id, name: id, spec: spec, specYaml: yaml);
 
+class _FlakyConnectBle extends FakeBleService {
+  final void Function() onConnect;
+
+  _FlakyConnectBle({required this.onConnect})
+    : super(servicesToReturn: const [_controlService]);
+
+  @override
+  Future<void> connect(String deviceId) async {
+    onConnect();
+    await super.connect(deviceId);
+  }
+}
+
 /// Per-device failures, which the base fake's single mutable error field
 /// cannot express.
 class _PerDeviceFakeBle extends FakeBleService {
@@ -187,7 +202,313 @@ class _ClaimBooksBle extends FakeBleService {
   }
 }
 
+DeviceSpecDto _prideSpec({
+  String? category,
+  ImageUploadDto? imageUpload,
+  List<EntityDto> entities = const [],
+}) => DeviceSpecDto(
+  nameMatchers: const [],
+  platformFallbackTypes: const [],
+  txtMatchGroups: const [],
+  hiddenEntityNames: const [],
+  deviceName: 'Panel',
+  manufacturer: 'Acme',
+  manufacturerStatus: 'active',
+  protocol: 'ble',
+  category: category,
+  localNamePrefixes: const [],
+  localNames: const [],
+  serviceUuids: const [_svc],
+  companyIds: Uint16List(0),
+  macPrefixes: const [],
+  mdnsServiceTypes: const [],
+  ssdpSearchTargets: const [],
+  lanProtocols: const [],
+  services: const [],
+  imageUpload: imageUpload,
+  entities: entities,
+);
+
+ImageUploadDto _upload({
+  bool encodable = true,
+  bool animatedUpload = false,
+  bool reported = false,
+  int? maxWidth = 32,
+  int? maxHeight = 16,
+}) => ImageUploadDto(
+  encodable: encodable,
+  maxWidth: maxWidth,
+  maxHeight: maxHeight,
+  resolutionDeviceReported: reported,
+  animation: false,
+  animatedUpload: animatedUpload,
+);
+
+const _colorLight = EntityDto(
+  options: [],
+  name: 'Strip',
+  platform: 'light',
+  canNotify: false,
+  hasFormat: false,
+  onWhenNonzero: false,
+  variants: [],
+  actions: [
+    EntityActionDto(
+      role: 'turn_on',
+      serviceUuid: _svc,
+      characteristicUuid: _cmdChar,
+      commandName: 'power_on',
+      userParams: [],
+    ),
+    EntityActionDto(
+      role: 'set_color',
+      serviceUuid: _svc,
+      characteristicUuid: _cmdChar,
+      commandName: 'set_rgb',
+      userParams: ['red', 'green', 'blue'],
+    ),
+  ],
+);
+
 void main() {
+  group('pride mode', () {
+    Future<List<GroupRunEvent>> run(
+      GroupRunner runner,
+      List<GroupMember> members, {
+      int firstPosition = 0,
+    }) => runner
+        .run(
+          GroupOp.prideMode,
+          members,
+          firstPosition: firstPosition,
+          stop: StopSignal(),
+        )
+        .toList();
+
+    test('panels get different flags, in member order', () async {
+      final ble = FakeBleService(servicesToReturn: const [_controlService]);
+      final codec = FakeSpecCodec();
+      final spec = _prideSpec(category: 'display', imageUpload: _upload());
+      final events = await run(GroupRunner(ble: ble, codec: codec), [
+        _member('A', spec: spec, yaml: 'y'),
+        _member('B', spec: spec, yaml: 'y'),
+      ]);
+
+      expect(codec.encodeImageCalls, hasLength(2));
+      expect(
+        codec.encodeImageCalls[0].rgb,
+        renderPrideFlag(prideFlagAt(0), 32, 16),
+      );
+      expect(
+        codec.encodeImageCalls[1].rgb,
+        renderPrideFlag(prideFlagAt(1), 32, 16),
+      );
+      expect(
+        events
+            .where((e) => e.status == GroupDeviceStatus.ok)
+            .map((e) => e.detail),
+        ['${prideFlagAt(0).name} flag set', '${prideFlagAt(1).name} flag set'],
+      );
+      expect(ble.writes, hasLength(2), reason: 'each plan actually went out');
+    });
+
+    test('a panel that holds an animation cycles from its own flag', () async {
+      final ble = FakeBleService(servicesToReturn: const [_controlService]);
+      final codec = FakeSpecCodec();
+      final spec = _prideSpec(
+        category: 'display',
+        imageUpload: _upload(animatedUpload: true),
+      );
+      final events = await run(GroupRunner(ble: ble, codec: codec), [
+        _member('A', spec: spec, yaml: 'y'),
+      ], firstPosition: 3);
+
+      expect(codec.animationFrames, hasLength(prideFlags.length));
+      expect(
+        codec.animationFrames!.first,
+        renderPrideFlag(prideFlagAt(3), 32, 16),
+      );
+      expect(
+        codec.animationFrames![1],
+        renderPrideFlag(prideFlagAt(4), 32, 16),
+      );
+      expect(codec.animationDelayMs, GroupRunner.prideFlagSeconds * 1000);
+      expect(events.last.status, GroupDeviceStatus.ok);
+      expect(events.last.detail, 'Alternating ${prideFlags.length} flags');
+    });
+
+    test('a string with a canvas gets the rainbow, not a flag', () async {
+      final ble = FakeBleService(servicesToReturn: const [_controlService]);
+      final codec = FakeSpecCodec();
+      final spec = _prideSpec(category: 'light', imageUpload: _upload());
+      final events = await run(GroupRunner(ble: ble, codec: codec), [
+        _member('A', spec: spec, yaml: 'y'),
+      ]);
+
+      expect(codec.encodeImageCalls.single.rgb, renderRainbowGradient(32, 16));
+      expect(events.last.detail, 'Rainbow set');
+    });
+
+    test('single-colour lights take the rainbow one colour each', () async {
+      final ble = FakeBleService(servicesToReturn: const [_controlService]);
+      final codec = FakeSpecCodec(encoded: Uint8List.fromList([0x01]));
+      final spec = _prideSpec(category: 'light', entities: const [_colorLight]);
+      final events = await run(GroupRunner(ble: ble, codec: codec), [
+        _member('A', spec: spec, yaml: 'y'),
+        _member('B', spec: spec, yaml: 'y'),
+      ]);
+
+      final colors = codec.encodeCalls
+          .where((c) => c.commandName == 'set_rgb')
+          .map((c) => c.params)
+          .toList();
+      Map<String, double> asParams(Rgb c) => {
+        'red': c.r.toDouble(),
+        'green': c.g.toDouble(),
+        'blue': c.b.toDouble(),
+      };
+      expect(colors, [asParams(prideColorAt(0)), asParams(prideColorAt(1))]);
+      expect(
+        codec.encodeCalls.map((c) => c.commandName).take(2),
+        ['power_on', 'set_rgb'],
+        reason: 'on first, for a light whose colour does not wake it',
+      );
+      expect(events.last.detail, 'Rainbow colour set');
+    });
+
+    test('a printer never runs its roll out, nor a lock its bolt', () async {
+      final ble = FakeBleService(servicesToReturn: const [_controlService]);
+      final codec = FakeSpecCodec();
+      final printer = _prideSpec(category: 'printer', imageUpload: _upload());
+      final lock = _prideSpec(category: 'lock', entities: const [_colorLight]);
+      expect(supportedGroupOps(printer), isNot(contains(GroupOp.prideMode)));
+      expect(supportedGroupOps(lock), isNot(contains(GroupOp.prideMode)));
+
+      final events = await run(GroupRunner(ble: ble, codec: codec), [
+        _member('P', spec: printer, yaml: 'y'),
+        _member('L', spec: lock, yaml: 'y'),
+      ]);
+      expect(
+        events.every((e) => e.status == GroupDeviceStatus.skipped),
+        isTrue,
+      );
+      expect(ble.writes, isEmpty);
+      expect(ble.events, isEmpty, reason: 'ruled out before spending radio');
+    });
+
+    test('an upload this build cannot encode does not claim support', () {
+      final spec = _prideSpec(
+        category: 'display',
+        imageUpload: _upload(encodable: false),
+      );
+      expect(supportedGroupOps(spec), isNot(contains(GroupOp.prideMode)));
+    });
+
+    test('a panel asked for its size is drawn at that size', () async {
+      final ble = FakeBleService(servicesToReturn: const [_controlService]);
+      final codec = FakeSpecCodec()
+        ..panelProbeResult = PanelProbeDto(
+          serviceUuid: _svc,
+          writeCharacteristicUuid: _cmdChar,
+          notifyCharacteristicUuid: _cmdChar,
+          bytes: Uint8List.fromList([0x01]),
+        )
+        ..panelReplyResolution = const PanelResolutionDto(
+          width: 96,
+          height: 16,
+        );
+      final spec = _prideSpec(
+        category: 'display',
+        imageUpload: _upload(reported: true, maxWidth: null, maxHeight: null),
+      );
+      await run(
+        GroupRunner(ble: ble, codec: codec, panelQueryListen: Duration.zero),
+        [_member('A', spec: spec, yaml: 'y')],
+      );
+      expect(codec.encodeImageCalls.single.width, 96);
+      expect(codec.encodeImageCalls.single.height, 16);
+    });
+
+    test(
+      'a panel that will not say falls back to what was remembered',
+      () async {
+        final ble = FakeBleService(servicesToReturn: const [_controlService]);
+        final codec = FakeSpecCodec();
+        final spec = _prideSpec(
+          category: 'light',
+          imageUpload: _upload(reported: true, maxWidth: 255, maxHeight: 255),
+        );
+        await run(
+          GroupRunner(
+            ble: ble,
+            codec: codec,
+            rememberedSize: (_) => (width: 20, height: 20),
+          ),
+          [_member('A', spec: spec, yaml: 'y')],
+        );
+        expect(codec.encodeImageCalls.single.width, 20);
+      },
+    );
+
+    test(
+      'a failed upload is that member failing, and the run goes on',
+      () async {
+        final ble = FakeBleService(servicesToReturn: const [_controlService]);
+        final codec = FakeSpecCodec(encodeImageError: StateError('no'));
+        final spec = _prideSpec(category: 'display', imageUpload: _upload());
+        final events = await run(GroupRunner(ble: ble, codec: codec), [
+          _member('A', spec: spec, yaml: 'y'),
+          _member('B', spec: spec, yaml: 'y'),
+        ]);
+        expect(
+          events.where((e) => e.status == GroupDeviceStatus.failed),
+          hasLength(2),
+        );
+        expect(ble.events, contains('disconnect:B'));
+      },
+    );
+  });
+
+  test('a transient connect failure is retried once', () async {
+    var attempts = 0;
+    final ble = _FlakyConnectBle(
+      onConnect: () {
+        if (++attempts == 1) throw Exception('link still closing');
+      },
+    );
+    final codec = FakeSpecCodec(encoded: Uint8List.fromList([0x00]));
+    final events =
+        await GroupRunner(
+          ble: ble,
+          codec: codec,
+          connectRetryPause: Duration.zero,
+        ).run(GroupOp.turnOff, [
+          _member('A', spec: _bulbSpec(), yaml: 'y'),
+        ], stop: StopSignal()).toList();
+    expect(attempts, 2);
+    expect(events.last.status, GroupDeviceStatus.ok);
+  });
+
+  test('a connect failure that is an answer is not retried', () async {
+    var attempts = 0;
+    final ble = _FlakyConnectBle(
+      onConnect: () {
+        attempts++;
+        throw const BlePermissionDeniedException('denied');
+      },
+    );
+    final events =
+        await GroupRunner(
+          ble: ble,
+          codec: FakeSpecCodec(),
+          connectRetryPause: Duration.zero,
+        ).run(GroupOp.turnOff, [
+          _member('A', spec: _bulbSpec(), yaml: 'y'),
+        ], stop: StopSignal()).toList();
+    expect(attempts, 1);
+    expect(events.last.status, GroupDeviceStatus.failed);
+  });
+
   test('runs members strictly one at a time, stopping the scan first', () async {
     final ble = FakeBleService(servicesToReturn: const [_controlService]);
     final codec = FakeSpecCodec(encoded: Uint8List.fromList([0x00]));

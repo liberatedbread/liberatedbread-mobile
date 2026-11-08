@@ -18,6 +18,7 @@ import '../providers/panel_resolution_cache_provider.dart';
 import '../providers/saved_designs_provider.dart';
 import '../providers/spec_codec_provider.dart';
 import '../services/ble_write_plan_runner.dart';
+import '../services/panel_size_query.dart';
 import '../services/saved_designs_store.dart';
 import '../services/spec_codec.dart';
 import '../services/stored_upload_event_reader.dart';
@@ -463,9 +464,17 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
   /// notify characteristics are named); returns null for panels without it, or
   /// when nothing decodable arrived.
   Future<({int width, int height})?> _queryDeviceInfoResolution() async {
-    if (widget.storedUpload == null) return null;
     final codec = ref.read(specCodecProvider);
     final ble = ref.read(bleServiceProvider);
+    // A handler with a query of its own for this needs none of what follows.
+    final asked = await queryPanelSize(
+      ble,
+      codec,
+      widget.deviceId,
+      widget.specYaml,
+    );
+    if (asked != null) return asked;
+    if (widget.storedUpload == null) return null;
     // A no-BLE encode of the blank default canvas, purely to learn the DDP
     // service + notify + write characteristics from the spec.
     final probe = await codec.encodeStoredImage(

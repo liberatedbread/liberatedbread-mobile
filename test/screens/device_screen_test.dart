@@ -17,6 +17,7 @@ import 'package:liberated_bread_mobile/providers/spec_codec_provider.dart';
 import 'package:liberated_bread_mobile/services/spec_codec.dart';
 import 'package:liberated_bread_mobile/widgets/safety_advisory_gate.dart';
 import 'package:liberated_bread_mobile/screens/device_screen.dart';
+import 'package:liberated_bread_mobile/services/ble_connect_within.dart';
 import 'package:liberated_bread_mobile/screens/find_device_screen.dart';
 import 'package:liberated_bread_mobile/screens/setup_instructions_screen.dart';
 import 'package:liberated_bread_mobile/services/ble_service.dart';

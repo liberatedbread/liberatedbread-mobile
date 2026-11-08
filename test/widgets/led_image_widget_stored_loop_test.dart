@@ -30,6 +30,7 @@ const _spec = ImageUploadDto(
   maxHeight: 4,
   resolutionDeviceReported: false,
   animation: true,
+  animatedUpload: false,
 );
 
 const _stored = StoredUploadDto(containerFormat: 'daniao_amx', encodable: true);
@@ -478,6 +479,7 @@ void main() {
         maxHeight: 2,
         resolutionDeviceReported: false,
         animation: true,
+        animatedUpload: false,
       );
       final codec = FakeSpecCodec();
       final ble = FakeBleService();

@@ -37,6 +37,7 @@ import 'device_category.dart';
 import 'entity_live_value.dart';
 import 'find_device.dart' show discoveredPairKey, discoveredWritablePairs;
 import 'hex.dart';
+import 'pride_flags.dart';
 
 /// The Bluetooth SIG Battery Service and its Battery Level characteristic —
 /// the no-spec-needed battery path, mirrored from
@@ -62,7 +63,12 @@ enum GroupOp {
   turnOff(Icons.power_off_outlined, 'Turn all off'),
   setBrightness(Icons.brightness_6_outlined, 'Set brightness'),
   readBattery(Icons.battery_4_bar_outlined, 'Read batteries'),
-  readSensors(Icons.sensors, 'Read sensors');
+  readSensors(Icons.sensors, 'Read sensors'),
+
+  /// Flags on what can show a picture, the rainbow on the lights. Bound to no
+  /// one role, since what it sends depends on what each member can show: see
+  /// [resolvePrideSurface].
+  prideMode(Icons.flag_outlined, 'Pride mode');
 
   final IconData icon;
   final String label;
@@ -73,13 +79,13 @@ enum GroupOp {
     turnOn => 'turn_on',
     turnOff => 'turn_off',
     setBrightness => 'set_brightness',
-    readBattery || readSensors => '',
+    readBattery || readSensors || prideMode => '',
   };
 
   /// Whether this op writes commands (vs. reading values). Derived from
-  /// [roleName] — command ops are exactly the ones bound to an entity action
-  /// role — so a new op cannot be in one partition and out of the other.
-  bool get isCommand => roleName.isNotEmpty;
+  /// [roleName] — every other command op is bound to an entity action role —
+  /// so a new op cannot be in one partition and out of the other.
+  bool get isCommand => roleName.isNotEmpty || this == prideMode;
 
   /// Whether the runner can attempt this op for a member with no resolved
   /// spec. Battery reads can: the SIG Battery Service decodes through the
@@ -162,7 +168,113 @@ Set<GroupOp> supportedGroupOps(
     if (_isSensorEntity(entity)) ops.add(GroupOp.readSensors);
   }
   if (_declaresSigBattery(spec)) ops.add(GroupOp.readBattery);
+  if (imageSurfaceForPride(spec) != null ||
+      _prideColorActions(spec, matchedVariants: matchedVariants).isNotEmpty) {
+    ops.add(GroupOp.prideMode);
+  }
   return ops;
+}
+
+/// One side of a panel with a reported size that could not be learned: a size
+/// the panel's bound allows, small enough to fit whatever it turns out to be.
+int initialPanelSide(int? max) =>
+    max == null || max >= 16 ? 16 : max.clamp(1, 16);
+
+/// One side of a panel of stated size. A side a spec leaves open (a scrolling
+/// badge states only its height) follows the [other], and neither gets past
+/// what is plausibly a screen.
+int fixedPanelSide(int? side, {int? other}) =>
+    (side ?? other ?? 64).clamp(1, 256);
+
+/// What a member shows when it holds pictures rather than a colour.
+enum PridePicture {
+  /// A display: a flag, or several in turn where it can hold an animation.
+  flags,
+
+  /// Lights with an addressable canvas, like a string laid out in rows: the
+  /// rainbow along its length. A flag is meant to be read as a picture, and a
+  /// strand does not read as one.
+  rainbow,
+}
+
+/// What [spec]'s image surface is good for in pride mode, or null when it has
+/// no surface this build can encode, or one that would be wasted on this.
+///
+/// By category and not merely by capability, because the catalogue's other
+/// image surfaces are printers: a group's pride mode must not run a label
+/// roll out, and a pair of glasses is not showing anybody a flag.
+PridePicture? imageSurfaceForPride(DeviceSpecDto spec) {
+  if (spec.imageUpload?.encodable != true) return null;
+  return switch (DeviceCategory.parse(spec.category)) {
+    DeviceCategory.display => PridePicture.flags,
+    DeviceCategory.light => PridePicture.rainbow,
+    _ => null,
+  };
+}
+
+/// Whether [userParams] can state a colour: the three channels, by the names
+/// the light cards fill. A packed `rgb` or a lone `hue` is a different
+/// conversation, and left out here as it is from the cards' swatches.
+bool _carriesRgb(List<String> userParams) =>
+    userParams.contains('red') &&
+    userParams.contains('green') &&
+    userParams.contains('blue');
+
+/// The `set_color` actions a colour can be written through.
+List<({EntityDto entity, EntityActionDto action})> _prideColorActions(
+  DeviceSpecDto spec, {
+  List<String>? matchedVariants,
+}) => [
+  for (final bound in _controlActions(spec, matchedVariants: matchedVariants))
+    if (bound.entity.platform == 'light' &&
+        bound.action.role == 'set_color' &&
+        _carriesRgb(bound.action.userParams))
+      bound,
+];
+
+/// The writes that put one [color] on a member's lights: on first, for the
+/// lights whose colour command does not itself wake them, then the colour.
+/// Empty when it has no light that takes one, or this unit lacks the
+/// characteristic.
+List<GroupWrite> resolvePrideColorWrites({
+  required DeviceSpecDto spec,
+  required List<BleDiscoveredService> services,
+  required Rgb color,
+  List<String>? matchedVariants,
+}) {
+  final writable = discoveredWritablePairs(services);
+  bool found(EntityActionDto action) => writable.containsKey(
+    discoveredPairKey(action.serviceUuid, action.characteristicUuid),
+  );
+  final writes = <GroupWrite>[];
+  for (final (:entity, :action) in _prideColorActions(
+    spec,
+    matchedVariants: matchedVariants,
+  )) {
+    if (!found(action)) continue;
+    for (final on in entity.actions) {
+      if (on.role != 'turn_on' || on.commandName == null || !found(on)) {
+        continue;
+      }
+      writes.add(
+        GroupWrite(
+          serviceUuid: on.serviceUuid,
+          charUuid: on.characteristicUuid,
+          commandName: on.commandName!,
+          params: _paramsFor(on, color: color),
+        ),
+      );
+    }
+    writes.add(
+      GroupWrite(
+        serviceUuid: action.serviceUuid,
+        charUuid: action.characteristicUuid,
+        commandName: action.commandName!,
+        params: _paramsFor(action, color: color),
+      ),
+    );
+  }
+  return writes;
 }
 
 /// The control-entity actions a group command op may bind: light/switch
@@ -285,13 +397,19 @@ double brightnessDeviceValue(EntityActionDto action, double percent) =>
 /// real value: a spec naming its knob `warmth` would get a zero written to
 /// every member of the group, silently. Omitting hands the decision to the
 /// encoder — the spec's own default, or a visible ParameterMissing.
-Map<String, double> _paramsFor(EntityActionDto action, {double? brightness}) {
+Map<String, double> _paramsFor(
+  EntityActionDto action, {
+  double? brightness,
+  Rgb? color,
+}) {
   final values = <String, double>{};
   for (final p in action.userParams) {
     final value = switch (p) {
       'brightness' ||
       'level' => brightness ?? (action.max ?? kUndeclaredBrightnessMax),
-      'red' || 'green' || 'blue' => 255.0,
+      'red' => (color?.r ?? 255).toDouble(),
+      'green' => (color?.g ?? 255).toDouble(),
+      'blue' => (color?.b ?? 255).toDouble(),
       _ => null,
     };
     if (value == null) continue;
@@ -486,9 +604,18 @@ class GroupNetworkPlan {
   final List<GroupNetworkSend> direct;
   final List<GroupNetworkGatedToggle> gated;
 
-  const GroupNetworkPlan({this.direct = const [], this.gated = const []});
+  /// Pride mode's `set_effect`s, whose index is not known until the device
+  /// lists its effects: which number means "Rainbow" varies by build, so the
+  /// runner has to ask ([rainbowEffectIndex]).
+  final List<GroupNetworkSend> rainbowEffects;
 
-  bool get isEmpty => direct.isEmpty && gated.isEmpty;
+  const GroupNetworkPlan({
+    this.direct = const [],
+    this.gated = const [],
+    this.rainbowEffects = const [],
+  });
+
+  bool get isEmpty => direct.isEmpty && gated.isEmpty && rainbowEffects.isEmpty;
 }
 
 /// Transports the group path can actually drive headlessly today. `udp`
@@ -576,8 +703,48 @@ Set<GroupOp> supportedNetworkGroupOps(List<NetworkEntityDto> entities) {
     if (_networkBrightnessAction(entity) != null) {
       ops.add(GroupOp.setBrightness);
     }
+    if (_networkPrideColorAction(entity) != null ||
+        _networkRainbowEffectAction(entity) != null) {
+      ops.add(GroupOp.prideMode);
+    }
   }
   return ops;
+}
+
+/// The index of the rainbow in a device's list of effect [names], preferring
+/// the one called just that over a variation on it. Null when it has none.
+int? rainbowEffectIndex(List<String> names) {
+  final lower = [for (final n in names) n.toLowerCase().trim()];
+  final exact = lower.indexOf('rainbow');
+  if (exact >= 0) return exact;
+  final loose = lower.indexWhere((n) => n.contains('rainbow'));
+  return loose >= 0 ? loose : null;
+}
+
+/// The `set_color` a group can write three channels through, or null.
+NetworkActionDto? _networkPrideColorAction(NetworkEntityDto entity) {
+  if (entity.platform != 'light') return null;
+  final action = _networkAction(entity, 'set_color');
+  return action != null && _carriesRgb(action.userParams) ? action : null;
+}
+
+/// The parameter a light's `set_effect` takes the effect's index in.
+const groupEffectParam = 'effect';
+
+/// A `set_effect` by index on a light with no colour to set, or null: the one
+/// way to reach an addressable strip whose spec offers effects and not
+/// colours. The index comes from the device, see
+/// [GroupNetworkPlan.rainbowEffects].
+NetworkActionDto? _networkRainbowEffectAction(NetworkEntityDto entity) {
+  if (entity.platform != 'light' || _networkPrideColorAction(entity) != null) {
+    return null;
+  }
+  final action = _networkAction(entity, 'set_effect');
+  return action != null &&
+          action.transport == 'http' &&
+          action.userParams.contains(groupEffectParam)
+      ? action
+      : null;
 }
 
 /// Resolve what one member sends for a command op, role-first with no GATT
@@ -594,10 +761,14 @@ GroupNetworkPlan resolveNetworkGroupPlan({
   required GroupOp op,
   required List<NetworkEntityDto> entities,
   double? brightnessPercent,
+
+  /// The colour this member takes in pride mode.
+  Rgb? prideColor,
 }) {
   assert(op.isCommand, 'read ops have no network resolution yet');
   final direct = <GroupNetworkSend>[];
   final gated = <GroupNetworkGatedToggle>[];
+  final rainbowEffects = <GroupNetworkSend>[];
   for (final entity in _networkControlEntities(entities)) {
     switch (op) {
       case GroupOp.turnOn:
@@ -637,11 +808,44 @@ GroupNetworkPlan resolveNetworkGroupPlan({
             ),
           );
         }
+      case GroupOp.prideMode:
+        final color = prideColor ?? prideColorAt(0);
+        final action = _networkPrideColorAction(entity);
+        final effect = _networkRainbowEffectAction(entity);
+        if (action == null && effect == null) break;
+        final on = _networkAction(entity, 'turn_on');
+        if (on != null) {
+          direct.add(
+            GroupNetworkSend(entity: entity, action: on, values: const {}),
+          );
+        }
+        if (action != null) {
+          direct.add(
+            GroupNetworkSend(
+              entity: entity,
+              action: action,
+              values: {
+                'red': '${color.r}',
+                'green': '${color.g}',
+                'blue': '${color.b}',
+              },
+            ),
+          );
+        }
+        if (effect != null) {
+          rainbowEffects.add(
+            GroupNetworkSend(entity: entity, action: effect, values: const {}),
+          );
+        }
       case GroupOp.readBattery || GroupOp.readSensors:
         break;
     }
   }
-  return GroupNetworkPlan(direct: direct, gated: gated);
+  return GroupNetworkPlan(
+    direct: direct,
+    gated: gated,
+    rainbowEffects: rainbowEffects,
+  );
 }
 
 /// The discovered service owning [charUuid] with read permission, or null.
