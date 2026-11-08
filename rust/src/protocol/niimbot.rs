@@ -245,6 +245,7 @@ pub fn encode_print_job(
             after_write: frame.writes.len() - 1,
             characteristic_uuid: char_uuid.clone(),
             expect_prefix: vec![HEAD[0], HEAD[1], reply],
+            must_carry: None,
             error_prefixes: ERROR_REPLIES
                 .iter()
                 .map(|e| vec![HEAD[0], HEAD[1], *e])

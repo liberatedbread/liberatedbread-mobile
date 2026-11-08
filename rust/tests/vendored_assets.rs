@@ -658,15 +658,15 @@ fn the_vendored_xkglow_set_rgb_color_honours_its_parameters() {
     assert!(command.is_encodable);
 }
 
-/// A characteristic that encrypts or frames its payloads must resolve no
+/// A characteristic whose transform this build cannot execute must resolve no
 /// control actions, however sendable the command itself looks.
 ///
 /// The encoding gate asks whether a *command* can be encoded; these specs put
-/// the obstacle one level up, on the characteristic. shining-mask wraps every
-/// write in AES-128-ECB and coolledx length-prefixes, escapes and delimits
-/// its frames — neither transform is implemented here, so a slider built on
-/// them would write plaintext or unwrapped bytes the device silently drops.
-/// Rendering a control that cannot work is worse than rendering none.
+/// the obstacle one level up, on the characteristic. coolledx length-prefixes,
+/// escapes and delimits its frames, pax derives its key per device, and niu's
+/// ECB key is per device too and declared nowhere. A slider built on them would
+/// write bytes the device silently drops. Rendering a control that cannot work
+/// is worse than rendering none.
 ///
 /// In each spec below the only command-bearing characteristic is the one
 /// carrying the transform, so nothing in the spec should resolve an action.
@@ -677,11 +677,9 @@ fn characteristics_needing_unimplemented_transforms_resolve_no_actions() {
     use liberated_bread_core::api::device_api::load_device_spec;
 
     let cases = [
-        ("shining-mask.yaml", "AES-128-ECB"),
-        ("shining-glasses.yaml", "AES-128-ECB"),
-        ("magic-display.yaml", "AES-128-ECB"),
         ("coolledx-led-sign.yaml", "length-prefix framing"),
-        ("pax-vape.yaml", "OFB encryption"),
+        ("pax-vape.yaml", "OFB encryption with a per-device key"),
+        ("niu-escooter.yaml", "ECB with a per-device key"),
     ];
 
     for (file, transform) in cases {
@@ -699,6 +697,297 @@ fn characteristics_needing_unimplemented_transforms_resolve_no_actions() {
             );
         }
     }
+}
+
+/// Decrypt one block with the spec's own key, as a device would.
+fn ecb_decrypt(key: [u8; 16], ciphertext: &[u8]) -> [u8; 16] {
+    use aes::cipher::{BlockCipherDecrypt, KeyInit};
+    let mut block: [u8; 16] = ciphertext.try_into().expect("one cipher block");
+    aes::Aes128::new(&key.into()).decrypt_block((&mut block).into());
+    block
+}
+
+const HEATON_COMMAND: &str = "d44bc439-abfd-45a2-b575-925416129600";
+/// `32672f7974ad43451d9c6c894a0e8764`, as shining-mask and shining-glasses state it.
+const MASK_FAMILY_KEY: [u8; 16] = [
+    0x32, 0x67, 0x2F, 0x79, 0x74, 0xAD, 0x43, 0x45, 0x1D, 0x9C, 0x6C, 0x89, 0x4A, 0x0E, 0x87, 0x64,
+];
+/// `34522a5b7a6e492c08090a9d8d2a23f8`, as ideal-led and magic-display state it.
+const IDEAL_FAMILY_KEY: [u8; 16] = [
+    0x34, 0x52, 0x2A, 0x5B, 0x7A, 0x6E, 0x49, 0x2C, 0x08, 0x09, 0x0A, 0x9D, 0x8D, 0x2A, 0x23, 0xF8,
+];
+
+/// The other half of the test above: a static key the spec states in full, and
+/// a padding its family states, make the same kind of card work.
+#[test]
+fn static_ecb_specs_resolve_their_entity_actions() {
+    use liberated_bread_core::api::device_api::load_device_spec;
+
+    for (file, entity, roles) in [
+        (
+            "ideal-led.yaml",
+            "Pixel String",
+            &["set_brightness", "set_color", "turn_off", "turn_on"][..],
+        ),
+        ("shining-mask.yaml", "Mask Display", &["set_brightness"][..]),
+        (
+            "shining-glasses.yaml",
+            "Glasses Display",
+            &["set_brightness"][..],
+        ),
+        (
+            "magic-display.yaml",
+            "LED Display",
+            &["set_brightness", "turn_off", "turn_on"][..],
+        ),
+    ] {
+        let yaml = fs::read_to_string(spec_path(file)).expect("readable");
+        let dto = load_device_spec(yaml).unwrap_or_else(|e| panic!("{file}: {e}"));
+        let found = dto
+            .entities
+            .iter()
+            .find(|e| e.name == entity)
+            .unwrap_or_else(|| panic!("{file} keeps '{entity}'"));
+        for role in roles {
+            assert!(
+                found.actions.iter().any(|a| &a.role == role),
+                "{file}: '{entity}' should resolve {role}, got {:?}",
+                found.actions.iter().map(|a| &a.role).collect::<Vec<_>>()
+            );
+        }
+    }
+}
+
+/// What a vendored spec encodes decrypts, under the key the spec states, to the
+/// plaintext the spec states, padded the way the spec's family says.
+#[test]
+fn static_ecb_specs_encode_their_spelled_out_plaintext() {
+    use liberated_bread_core::api::device_api::encode_command;
+    use std::collections::HashMap;
+
+    let encode = |file: &str, command: &str, params: &[(&str, f64)]| {
+        let yaml = fs::read_to_string(spec_path(file)).expect("readable");
+        let params: HashMap<String, f64> =
+            params.iter().map(|(k, v)| (k.to_string(), *v)).collect();
+        encode_command(
+            Some(yaml),
+            None,
+            HEATON_COMMAND.to_string(),
+            command.to_string(),
+            params,
+        )
+        .unwrap_or_else(|e| panic!("{file} {command}: {e}"))
+    };
+    let colour = [
+        ("red", 0x10 as f64),
+        ("green", 0x20 as f64),
+        ("blue", 0x30 as f64),
+    ];
+
+    // ideal-led: COLO in G, R, B order, zero-padded. Ciphertext from openssl.
+    let wire = encode("ideal-led.yaml", "set_color", &colour);
+    assert_eq!(
+        wire,
+        [
+            0xDD, 0x71, 0x3C, 0x0D, 0xF5, 0xB3, 0x7F, 0x55, 0xA9, 0xCC, 0x1D, 0x7F, 0xD6, 0xED,
+            0x05, 0xBE
+        ]
+    );
+    assert_eq!(
+        ecb_decrypt(IDEAL_FAMILY_KEY, &wire),
+        *b"\x07COLO\x20\x10\x30\0\0\0\0\0\0\0\0"
+    );
+    assert_eq!(
+        ecb_decrypt(IDEAL_FAMILY_KEY, &encode("ideal-led.yaml", "power_on", &[])),
+        *b"\x05TURN\x01\0\0\0\0\0\0\0\0\0\0"
+    );
+
+    // magic-display: `[length, ASCII_CMD..., params..., zero_pad]`. From openssl.
+    assert_eq!(
+        encode("magic-display.yaml", "led_on", &[]),
+        [
+            0xEB, 0xD3, 0x72, 0xED, 0x98, 0x85, 0x73, 0x17, 0xF2, 0xF5, 0x4C, 0xD2, 0x13, 0x0F,
+            0xDC, 0x9C
+        ]
+    );
+
+    // shining-glasses: the mask's key, under the handler it shares with Magic
+    // Display. From openssl.
+    assert_eq!(
+        encode(
+            "shining-glasses.yaml",
+            "set_brightness",
+            &[("brightness", 0x80 as f64)]
+        ),
+        [
+            0x80, 0x9F, 0x3D, 0xA6, 0x17, 0x71, 0x41, 0x50, 0x1B, 0x24, 0xE3, 0x73, 0x33, 0x50,
+            0x32, 0x55
+        ]
+    );
+
+    // shining-mask: the tail is filler, nonzero, and the same every time.
+    let wire = encode("shining-mask.yaml", "set_foreground_color", &colour);
+    assert_eq!(
+        wire,
+        encode("shining-mask.yaml", "set_foreground_color", &colour),
+        "the pad must not make the output nondeterministic"
+    );
+    let block = ecb_decrypt(MASK_FAMILY_KEY, &wire);
+    assert_eq!(block[..7], [0x06, 0x46, 0x43, 0x01, 0x10, 0x20, 0x30]);
+    assert!(
+        block[7..].iter().all(|b| *b != 0),
+        "not zeros: {block:02X?}"
+    );
+}
+
+/// Every command these four specs declare either encodes to one cipher block or
+/// says why it cannot. None of them fails only when pressed.
+#[test]
+fn every_offered_static_ecb_command_encodes_to_one_block() {
+    use liberated_bread_core::codec::types::unsupported_write_kind;
+    use liberated_bread_core::protocol::generic::GenericProtocol;
+    use liberated_bread_core::protocol::traits::DeviceProtocol;
+    use std::collections::HashMap;
+    use std::sync::Arc;
+
+    for file in [
+        "ideal-led.yaml",
+        "shining-mask.yaml",
+        "shining-glasses.yaml",
+        "magic-display.yaml",
+    ] {
+        let spec = parse_device_spec(&fs::read_to_string(spec_path(file)).expect("readable"))
+            .unwrap_or_else(|e| panic!("{file}: {e:?}"));
+        let protocol = GenericProtocol::new(Arc::new(spec.clone()));
+        let mut sent = 0;
+        for service in &spec.services {
+            for characteristic in &service.characteristics {
+                for (name, command) in characteristic.commands.iter().flatten() {
+                    if characteristic.encryption.is_none() {
+                        continue;
+                    }
+                    // Magic Display keeps this entry to say the command is not
+                    // in its app. It has no bytes, and is refused for that.
+                    if name == "multi_frame_animation_start" {
+                        assert!(unsupported_write_kind(characteristic, command).is_some());
+                        continue;
+                    }
+                    assert_eq!(
+                        unsupported_write_kind(characteristic, command),
+                        None,
+                        "{file} {name}"
+                    );
+                    let params: HashMap<String, f64> = command
+                        .parameters
+                        .iter()
+                        .flat_map(|set| set.params.keys())
+                        .map(|k| (k.clone(), 1.0))
+                        .collect();
+                    let wire = protocol
+                        .encode_command(&characteristic.uuid, name, &params)
+                        .unwrap_or_else(|e| panic!("{file} {name}: {e}"));
+                    assert_eq!(wire.len(), 16, "{file} {name}");
+                    sent += 1;
+                }
+            }
+        }
+        assert!(sent >= 5, "{file}: saw only {sent} encrypted commands");
+    }
+}
+
+/// seeblue binds both of its dialects, and a card's command comes out wrapped
+/// in the envelope the framing block describes.
+#[test]
+fn seeblue_commands_bind_and_go_out_in_their_envelope() {
+    use liberated_bread_core::api::device_api::{encode_command, load_device_spec};
+    use std::collections::HashMap;
+
+    const TX: &str = "0000ffe9-0000-1000-8000-00805f9b34fb";
+    let yaml = fs::read_to_string(spec_path("seeblue-motorcycle-led.yaml")).expect("readable");
+
+    let dto = load_device_spec(yaml.clone()).expect("seeblue loads");
+    let lights: Vec<_> = dto
+        .entities
+        .iter()
+        .filter(|e| e.name == "Motorcycle LEDs")
+        .collect();
+    assert_eq!(lights.len(), 2, "one light per dialect");
+    for light in lights {
+        for role in ["turn_on", "turn_off", "set_brightness", "set_color"] {
+            assert!(
+                light.actions.iter().any(|a| a.role == role),
+                "seeblue should resolve {role}, got {:?}",
+                light.actions.iter().map(|a| &a.role).collect::<Vec<_>>()
+            );
+        }
+    }
+
+    let params = |pairs: &[(&str, f64)]| -> HashMap<String, f64> {
+        pairs.iter().map(|(k, v)| (k.to_string(), *v)).collect()
+    };
+    // `sn` names the index, for a pinned frame. Sum of the frame after 0x95 is
+    // 06 07 01 01 10 20 30 = 0x6F, whose two's complement is 0x91.
+    assert_eq!(
+        encode_command(
+            Some(yaml.clone()),
+            None,
+            TX.to_string(),
+            "direct_set_color_1".to_string(),
+            params(&[("red", 16.0), ("green", 32.0), ("blue", 48.0), ("sn", 7.0)]),
+        )
+        .unwrap(),
+        [0x95, 0x06, 0x07, 0x01, 0x01, 0x10, 0x20, 0x30, 0x91]
+    );
+    // Protocol 0x10 comes from the command, not the packet's leading 0x05.
+    assert_eq!(
+        encode_command(
+            Some(yaml.clone()),
+            None,
+            TX.to_string(),
+            "ledglow_v2_power_off".to_string(),
+            params(&[("sn", 0.0)]),
+        )
+        .unwrap(),
+        [0x95, 0x05, 0x00, 0x10, 0x05, 0x00, 0x00, 0xE6]
+    );
+    // A card names no index, and each send still gets a fresh one.
+    let send = || {
+        encode_command(
+            Some(yaml.clone()),
+            None,
+            TX.to_string(),
+            "direct_power_off".to_string(),
+            HashMap::new(),
+        )
+        .unwrap()
+    };
+    let (first, second) = (send(), send());
+    assert_ne!(first[2], second[2], "message_index must advance");
+    assert_eq!(first[1..].iter().fold(0u8, |a, b| a.wrapping_add(*b)), 0);
+}
+
+/// The MXW01's whole plan through the FFI surface the print flow uses.
+#[test]
+fn vendored_mxw01_spec_prints_through_its_declared_channels() {
+    use liberated_bread_core::api::device_api::{encode_image_frame, load_device_spec};
+
+    let yaml = fs::read_to_string(spec_path("cat-printer-mxw01.yaml")).expect("readable");
+    let dto = load_device_spec(yaml.clone()).expect("mxw01 loads");
+    let image = dto.image_upload.expect("declares image_upload");
+    assert_eq!(image.handler.as_deref(), Some("cat_printer_mxw01"));
+    assert!(image.encodable);
+
+    let plan = encode_image_frame(yaml, 384, 1, vec![0u8; 384 * 3], 0, 244).unwrap();
+    assert_eq!(plan.service_uuid, "0000ae30-0000-1000-8000-00805f9b34fb");
+    let wait = &plan.reply_waits[0];
+    assert_eq!(wait.after_write, 1);
+    assert_eq!(wait.must_carry_offset, 6);
+    assert_eq!(wait.must_carry.as_deref(), Some(&[0u8][..]));
+    assert!(plan.reply_waits[1].must_carry.is_none());
+    assert_eq!(plan.completion_poll.as_ref().unwrap().before_write, 1);
+    // A black row is all ones, and the padding is blank.
+    assert_eq!(plan.writes[2].bytes, vec![0xFF; 48]);
+    assert_eq!(plan.writes[3].bytes, vec![0x00; 48]);
 }
 
 /// Every LOY SPACE panel spec names the handler and is drivable through it:
@@ -1096,29 +1385,49 @@ fn specs_this_branch_unlocked_do_not_offer_commands_that_cannot_encode() {
             .unwrap_or_else(|e| panic!("{name} should parse: {e:?}"))
     };
 
-    // Every seeblue command sits behind the envelope, so none is sendable raw.
+    // Every seeblue command goes out in the envelope. Those the gate offers
+    // must encode, and those it refuses must say why.
     let seeblue = read("seeblue-motorcycle-led.yaml");
+    let protocol = liberated_bread_core::protocol::generic::GenericProtocol::new(
+        std::sync::Arc::new(seeblue.clone()),
+    );
     let mut checked = 0;
+    let mut offered = 0;
     for service in &seeblue.services {
         for characteristic in &service.characteristics {
             let Some(commands) = characteristic.commands.as_ref() else {
                 continue;
             };
             for (name, command) in commands {
-                let reason = unsupported_write_kind(characteristic, command);
-                assert!(
-                    reason
-                        .as_deref()
-                        .is_some_and(|r| r.contains("seeblue_envelope")),
-                    "seeblue {name} must be gated by its characteristic's framing, got {reason:?}"
-                );
                 checked += 1;
+                if unsupported_write_kind(characteristic, command).is_some() {
+                    continue;
+                }
+                offered += 1;
+                let params: std::collections::HashMap<String, f64> = command
+                    .parameters
+                    .iter()
+                    .flat_map(|set| set.params.keys())
+                    .map(|k| (k.clone(), 1.0))
+                    .collect();
+                let wire = liberated_bread_core::protocol::traits::DeviceProtocol::encode_command(
+                    &protocol,
+                    &characteristic.uuid,
+                    name,
+                    &params,
+                )
+                .unwrap_or_else(|e| panic!("seeblue {name} is offered but: {e}"));
+                assert_eq!(wire[0], 0x95, "seeblue {name} must be in its envelope");
             }
         }
     }
     assert!(
         checked >= 30,
         "expected seeblue's full command set, saw {checked}"
+    );
+    assert!(
+        offered >= 30,
+        "expected nearly all of seeblue's commands to be offered, saw {offered}"
     );
 
     // Fardriver's frame carries a raw byte payload the FFI cannot express.

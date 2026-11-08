@@ -3,6 +3,7 @@
 
 pub mod brother_ql;
 pub mod cat_printer;
+pub mod cat_printer_mxw01;
 pub mod cdbwsoft_ecb;
 pub mod daniao;
 pub mod daniao_store;
@@ -32,8 +33,10 @@ pub mod radio;
 pub mod raster_print;
 pub mod roomba;
 pub mod sdp;
+pub mod seeblue;
 pub mod senseme;
 pub mod soap;
+pub mod static_ecb;
 pub mod stored_upload;
 pub mod traits;
 pub mod tuya;
@@ -262,13 +265,24 @@ pub struct EncodedFrame {
 /// [`Self::characteristic_uuid`] containing [`Self::expect_prefix`]. A
 /// notification containing any of [`Self::error_prefixes`] first is the
 /// device refusing; nothing within [`Self::timeout_ms`] is it not answering.
+/// A reply that arrives but lacks [`Self::must_carry`] is also a refusal.
 #[derive(Debug, Clone)]
 pub struct ReplyWait {
     pub after_write: usize,
     pub characteristic_uuid: String,
     pub expect_prefix: Vec<u8>,
+    pub must_carry: Option<ReplyField>,
     pub error_prefixes: Vec<Vec<u8>>,
     pub timeout_ms: u32,
+}
+
+/// Bytes a reply must hold at an offset from its start, for a protocol whose
+/// verdict sits past a header byte no prefix can pin (the MXW01's replies vary
+/// in the byte after their command id).
+#[derive(Debug, Clone)]
+pub struct ReplyField {
+    pub offset: usize,
+    pub bytes: Vec<u8>,
 }
 
 /// Before write [`Self::before_write`], send [`Self::request`] every
@@ -327,6 +341,10 @@ const IMAGE_UPLOAD_HANDLERS: &[ImageUploadHandler] = &[
     ImageUploadHandler {
         name: cat_printer::HANDLER_NAME,
         encode: cat_printer::encode_print_job,
+    },
+    ImageUploadHandler {
+        name: cat_printer_mxw01::HANDLER_NAME,
+        encode: cat_printer_mxw01::encode_print_job,
     },
     ImageUploadHandler {
         name: fichero_d11::HANDLER_NAME,
