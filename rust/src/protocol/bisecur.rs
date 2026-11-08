@@ -262,7 +262,9 @@ fn hex_digit(char: u8) -> Option<u8> {
 }
 
 fn from_hex(text: &[u8]) -> Result<Vec<u8>, ProtocolError> {
-    text.chunks_exact(2)
+    text.as_chunks::<2>()
+        .0
+        .iter()
         .map(|pair| {
             let high = hex_digit(pair[0]).ok_or_else(|| malformed("not hex text"))?;
             let low = hex_digit(pair[1]).ok_or_else(|| malformed("not hex text"))?;

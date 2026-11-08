@@ -26,8 +26,11 @@ final sunSpecClientFactoryProvider =
 /// A SolarEdge inverter's readings over Modbus TCP.
 ///
 /// Read-only: there is no control on this screen and no path from it to one.
-/// Polls every [pollInterval] while open, which is the solaredge-modbus-multi
-/// default the spec records.
+/// While open it reads again [pollInterval] after each read ends, the
+/// solaredge-modbus-multi default the spec records. Timed from the END of a
+/// read because one can outlast the interval, and the inverter takes one client:
+/// a second read on a fixed tick would be a second connection competing with
+/// the first, and could land an older result over a newer one.
 class SunSpecStatusScreen extends ConsumerStatefulWidget {
   final NetworkDevice device;
   final NetworkControls controls;
@@ -57,7 +60,8 @@ class _SunSpecStatusScreenState extends ConsumerState<SunSpecStatusScreen> {
   SunSpecReading? _reading;
   String? _error;
   bool _loading = true;
-  Timer? _poll;
+  bool _readInFlight = false;
+  Timer? _nextRead;
 
   @override
   void initState() {
@@ -67,7 +71,7 @@ class _SunSpecStatusScreenState extends ConsumerState<SunSpecStatusScreen> {
 
   @override
   void dispose() {
-    _poll?.cancel();
+    _nextRead?.cancel();
     super.dispose();
   }
 
@@ -90,13 +94,13 @@ class _SunSpecStatusScreenState extends ConsumerState<SunSpecStatusScreen> {
       ModbusSunSpecClient.unitIdFromTxt(device.txt),
     );
     await _read();
-    if (!mounted) return;
-    _poll = Timer.periodic(widget.pollInterval, (_) => unawaited(_read()));
   }
 
   Future<void> _read() async {
     final client = _client;
-    if (client == null) return;
+    if (client == null || _readInFlight) return;
+    _readInFlight = true;
+    _nextRead?.cancel();
     if (mounted) setState(() => _loading = true);
     try {
       final reading = await client.read();
@@ -116,6 +120,11 @@ class _SunSpecStatusScreenState extends ConsumerState<SunSpecStatusScreen> {
           fallback: 'Could not read the inverter.',
         );
       });
+    } finally {
+      _readInFlight = false;
+      if (mounted) {
+        _nextRead = Timer(widget.pollInterval, () => unawaited(_read()));
+      }
     }
   }
 

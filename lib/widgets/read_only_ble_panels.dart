@@ -51,6 +51,10 @@ abstract class _WatchState<W extends ConsumerStatefulWidget, R>
   Stream<R> openSession();
   Future<void> closeSession();
 
+  /// True when this device must not be connected to at all. There is then no
+  /// start action on screen, and [start] refuses in case anything calls it.
+  bool get refusesToConnect => false;
+
   @override
   void initState() {
     super.initState();
@@ -69,6 +73,7 @@ abstract class _WatchState<W extends ConsumerStatefulWidget, R>
   }
 
   void start() {
+    if (refusesToConnect) return;
     setState(() {
       watching = true;
       error = null;
@@ -147,12 +152,14 @@ abstract class _WatchState<W extends ConsumerStatefulWidget, R>
         ],
         ...readings,
         const SizedBox(height: 16),
-        FilledButton.icon(
-          onPressed: () => watching ? unawaited(stop()) : start(),
-          icon: Icon(watching ? Icons.stop : Icons.sensors),
-          label: Text(watching ? 'Stop reading' : 'Start reading'),
-        ),
-        const SizedBox(height: 16),
+        if (!refusesToConnect) ...[
+          FilledButton.icon(
+            onPressed: () => watching ? unawaited(stop()) : start(),
+            icon: Icon(watching ? Icons.stop : Icons.sensors),
+            label: Text(watching ? 'Stop reading' : 'Start reading'),
+          ),
+          const SizedBox(height: 16),
+        ],
         if (surface != null) ReadOnlyCommandsCard(commands: surface!.commands),
       ],
     );
@@ -215,6 +222,9 @@ class _YummlyPanelState extends _WatchState<_YummlyPanel, YummlyReading> {
   /// The spec's variant rule. XW3 shares this spec, and nobody known to it has
   /// ever run one, so a T3 is not even connected to.
   bool get _isT3 => widget.device.displayName.contains('T3');
+
+  @override
+  bool get refusesToConnect => _isT3;
 
   @override
   Stream<YummlyReading> openSession() {

@@ -3,6 +3,8 @@
 //
 // The BiSecur door screen: positions shown, the impulse listed and refused,
 // and no control on it that could move a door.
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -59,6 +61,7 @@ class _Fake implements BiSecurClient {
     ),
   ];
   final calls = <(String, String)>[];
+  Completer<void>? gate;
 
   @override
   Future<List<BiSecurPortReading>> read({
@@ -66,6 +69,7 @@ class _Fake implements BiSecurClient {
     required String password,
   }) async {
     calls.add((user, password));
+    await gate?.future;
     if (error != null) throw error!;
     return readings;
   }
@@ -147,6 +151,22 @@ void main() {
     expect(find.text('92% open'), findsOneWidget);
     expect(find.text('Moving towards closed'), findsOneWidget);
     expect(find.text('Port 0 · Impulse'), findsOneWidget);
+  });
+
+  testWidgets('a read in progress cannot be started again', (tester) async {
+    final gate = Completer<void>();
+    final client = _Fake()..gate = gate;
+    await pump(tester, client);
+    await readDoors(tester);
+    expect(find.text('Reading…'), findsOneWidget);
+    await tester.tap(find.text('Reading…'), warnIfMissed: false);
+    await tester.pump(const Duration(minutes: 1));
+    expect(client.calls, hasLength(1), reason: 'and it never polls by itself');
+    gate.complete();
+    await tester.pump();
+    await tester.pump();
+    expect(find.text('92% open'), findsOneWidget);
+    expect(client.calls, hasLength(1));
   });
 
   testWidgets('offers nothing that could move a door', (tester) async {

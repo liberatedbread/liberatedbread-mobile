@@ -355,7 +355,9 @@ pub fn decode_status(frame: &[u8]) -> Result<AcInfinityStatusDto, ProtocolError>
         )));
     }
     let ports = frame[FIRST_PORT_BLOCK..]
-        .chunks_exact(PORT_BLOCK)
+        .as_chunks::<PORT_BLOCK>()
+        .0
+        .iter()
         .take(DECLARED_PORTS)
         .enumerate()
         .map(|(index, block)| port_block(index as u8 + 1, block))

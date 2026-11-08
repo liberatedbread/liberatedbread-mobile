@@ -61,10 +61,22 @@ class _FakeSunSpec implements SunSpecClient {
   Object? error;
   SunSpecMeterPowerDto? power;
   var reads = 0;
+  var active = 0;
+  var mostActive = 0;
+
+  /// When set, a read waits here, the way one slow inverter holds a read open.
+  Completer<void>? gate;
 
   @override
   Future<SunSpecReading> read() async {
     reads++;
+    active++;
+    if (active > mostActive) mostActive = active;
+    try {
+      await gate?.future;
+    } finally {
+      active--;
+    }
     if (error != null) throw error!;
     return SunSpecReading(
       common: _common,
@@ -86,11 +98,15 @@ class _FakeSunSpec implements SunSpecClient {
 class _FakeYummly implements YummlyClient {
   final _controller = StreamController<YummlyReading>.broadcast();
   var closed = false;
+  var watches = 0;
 
   void push(YummlyReading reading) => _controller.add(reading);
 
   @override
-  Stream<YummlyReading> watch() => _controller.stream;
+  Stream<YummlyReading> watch() {
+    watches++;
+    return _controller.stream;
+  }
 
   @override
   Future<void> close() async {
@@ -224,6 +240,57 @@ void main() {
       await leave(tester);
     });
 
+    testWidgets('a read that outlasts the interval is never doubled', (
+      tester,
+    ) async {
+      final gate = Completer<void>();
+      final client = _FakeSunSpec()..gate = gate;
+      await pump(tester, client);
+      expect(client.reads, 1);
+
+      // Well past several intervals, with the first read still open.
+      await tester.pump(const Duration(seconds: 60));
+      await tester.tap(find.byTooltip('Refresh'), warnIfMissed: false);
+      await tester.pump();
+      expect(client.reads, 1, reason: 'the inverter takes one client');
+
+      gate.complete();
+      await tester.pump();
+      await tester.pump();
+      expect(find.text('8650 W'), findsOneWidget);
+      expect(client.reads, 1, reason: 'the next read waits its interval');
+
+      await tester.pump(const Duration(seconds: 11));
+      await tester.pump();
+      expect(client.reads, 2);
+      expect(client.mostActive, 1);
+      await leave(tester);
+    });
+
+    testWidgets('a failed read still schedules the next, one at a time', (
+      tester,
+    ) async {
+      final client = _FakeSunSpec()..error = StateError('no answer');
+      await pump(tester, client);
+      expect(client.reads, 1);
+      await tester.pump(const Duration(seconds: 11));
+      await tester.pump();
+      expect(client.reads, 2);
+      expect(client.mostActive, 1);
+      await leave(tester);
+    });
+
+    testWidgets('leaving during a read schedules nothing more', (tester) async {
+      final gate = Completer<void>();
+      final client = _FakeSunSpec()..gate = gate;
+      await pump(tester, client);
+      await leave(tester);
+      gate.complete();
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 30));
+      expect(client.reads, 1);
+    });
+
     testWidgets('polls while open and stops after', (tester) async {
       final client = _FakeSunSpec();
       await pump(tester, client);
@@ -346,6 +413,30 @@ void main() {
         yummly: yummly,
       );
       expect(find.textContaining('never been run'), findsOneWidget);
+      expect(find.text('Start reading'), findsNothing);
+      // Press everything there is to press. Nothing may open a session.
+      final buttons = find.byWidgetPredicate((w) => w is ButtonStyleButton);
+      for (final button in buttons.evaluate().toList()) {
+        await tester.tap(find.byWidget(button.widget), warnIfMissed: false);
+        await tester.pump();
+      }
+      expect(yummly.watches, 0);
+      await tester.pumpWidget(const SizedBox());
+      await tester.pump();
+      expect(yummly.closed, isFalse, reason: 'there was never a client');
+    });
+
+    testWidgets('a T1 still offers the start action', (tester) async {
+      final yummly = _FakeYummly();
+      await pump(
+        tester,
+        profile: yummlyProfile,
+        name: 'Yummly T1',
+        yummly: yummly,
+      );
+      await tester.tap(find.text('Start reading'));
+      await tester.pump();
+      expect(yummly.watches, 1);
       await tester.pumpWidget(const SizedBox());
       await tester.pump();
     });

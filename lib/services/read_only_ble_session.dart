@@ -33,6 +33,7 @@ class ReadOnlyBleSession {
   final String notifyUuid;
 
   StreamSubscription<List<int>>? _subscription;
+  bool _connecting = false;
   bool _connected = false;
   bool _closed = false;
 
@@ -53,9 +54,20 @@ class ReadOnlyBleSession {
     required void Function(Object error) onError,
     required String missingService,
   }) async {
-    await ble.connect(deviceId);
+    _connecting = true;
+    try {
+      await ble.connect(deviceId);
+    } finally {
+      _connecting = false;
+    }
+    if (_closed) {
+      // Closed while the connect was pending, and the connect won the race. It
+      // took a claim nobody else will release, and a peripheral left holding a
+      // connection stops advertising.
+      await _release();
+      return;
+    }
     _connected = true;
-    if (_closed) return;
     final services = await ble.discoverServices(deviceId);
     final wanted = normalizeUuid(serviceUuid);
     if (!services.any((s) => normalizeUuid(s.uuid) == wanted)) {
@@ -102,8 +114,25 @@ class ReadOnlyBleSession {
     _closed = true;
     await _subscription?.cancel();
     _subscription = null;
+    if (_connecting) {
+      // No claim yet, so disconnect here could release someone else's. Ask for
+      // the pending connect to be dropped; if it lands anyway, open() releases
+      // what it took.
+      if (ble case BleConnectCanceller canceller) {
+        try {
+          await canceller.cancelConnect(deviceId);
+        } on Object catch (e) {
+          Log.ble.debug('read-only session cancel failed', error: e);
+        }
+      }
+      return;
+    }
     if (!_connected) return;
     _connected = false;
+    await _release();
+  }
+
+  Future<void> _release() async {
     try {
       await ble.disconnect(deviceId);
     } on Object catch (e) {

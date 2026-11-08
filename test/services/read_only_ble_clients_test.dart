@@ -7,6 +7,7 @@
 import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:liberated_bread_mobile/services/ble_service.dart';
 import 'package:liberated_bread_mobile/models/ble_discovered_service.dart';
 import 'package:liberated_bread_mobile/services/acinfinity_ble_client.dart';
 import 'package:liberated_bread_mobile/services/read_only_ble_session.dart';
@@ -73,6 +74,106 @@ void main() {
     if (!await initHostRustLib()) {
       markTestSkipped('host Rust library not available');
     }
+  });
+
+  group('closing while the connect is pending', () {
+    const notify = '6e40aa03-b5a3-f393-e0a9-e50e4159414d';
+
+    ReadOnlyBleSession session(BleService ble) => ReadOnlyBleSession(
+      ble: ble,
+      deviceId: 'dock',
+      serviceUuid: _yummlyService,
+      writeUuid: '6e40aa02-b5a3-f393-e0a9-e50e4159414d',
+      notifyUuid: notify,
+    );
+
+    Future<void> open(ReadOnlyBleSession session) => session.open(
+      onBytes: (_) {},
+      onError: (_) {},
+      missingService: 'missing',
+    );
+
+    test('a connect that lands afterwards is released', () async {
+      final gate = Completer<void>();
+      final ble = FakeBleService(connectGate: gate);
+      final reader = session(ble);
+      final opening = open(reader);
+      await reader.close();
+
+      // A pending connect holds no claim, so nothing may be released yet: that
+      // disconnect would land on whoever else holds this peripheral.
+      expect(ble.disconnectedIds, isEmpty);
+      expect(ble.events, contains('cancel:dock'));
+
+      gate.complete();
+      await opening;
+      expect(ble.connectedIds, ['dock']);
+      expect(ble.disconnectedIds, ['dock']);
+      expect(ble.subscriptions, isEmpty);
+      expect(ble.writes, isEmpty);
+    });
+
+    test('a connect that fails afterwards has nothing to release', () async {
+      final gate = Completer<void>();
+      final ble = FakeBleService(connectGate: gate)
+        ..connectError = StateError('cancelled');
+      final reader = session(ble);
+      final opening = open(reader);
+      await reader.close();
+      gate.complete();
+      await expectLater(opening, throwsStateError);
+      expect(ble.disconnectedIds, isEmpty);
+    });
+
+    test('closing twice afterwards releases once', () async {
+      final gate = Completer<void>();
+      final ble = FakeBleService(connectGate: gate);
+      final reader = session(ble);
+      final opening = open(reader);
+      await reader.close();
+      gate.complete();
+      await opening;
+      await reader.close();
+      expect(ble.disconnectedIds, ['dock']);
+    });
+
+    test('an open connection is still released by close', () async {
+      final ble = FakeBleService(
+        servicesToReturn: [
+          const BleDiscoveredService(uuid: _yummlyService, characteristics: []),
+        ],
+      );
+      final reader = session(ble);
+      await open(reader);
+      expect(ble.subscriptions, [notify]);
+      await reader.close();
+      await reader.close();
+      expect(ble.disconnectedIds, ['dock']);
+    });
+
+    test('stopping a Yummly read mid-connect lets the dock go', () async {
+      final gate = Completer<void>();
+      final ble = FakeBleService(connectGate: gate);
+      final yummly = YummlyBleClient(ble: ble, deviceId: 'dock');
+      unawaited(yummly.watch().drain<void>().catchError((Object _) {}));
+      await yummly.close();
+      gate.complete();
+      await _settle();
+      expect(ble.disconnectedIds, ['dock']);
+      expect(ble.writes, isEmpty);
+    });
+
+    test('stopping an AC Infinity read mid-connect lets it go', () async {
+      final gate = Completer<void>();
+      final ble = FakeBleService(connectGate: gate);
+      final controller = AcInfinityBleClient(ble: ble, deviceId: 'dock');
+      unawaited(controller.watch().drain<void>().catchError((Object _) {}));
+      await controller.close();
+      gate.complete();
+      await _settle();
+      expect(ble.disconnectedIds, ['dock']);
+      expect(ble.writes, isEmpty);
+    });
   });
 
   group('Yummly T1', () {

@@ -217,8 +217,10 @@ fn registers(
         )));
     }
     Ok(reply[MBAP_AND_UNIT + 2..]
-        .chunks_exact(2)
-        .map(|word| u16::from_be_bytes([word[0], word[1]]))
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|word| u16::from_be_bytes(*word))
         .collect())
 }
 
@@ -615,8 +617,10 @@ mod tests {
     #[test]
     fn not_implemented_sentinels_are_absent_rather_than_numbers() {
         let mut r = hex(INVERTER_REPLY)[9..]
-            .chunks_exact(2)
-            .map(|w| u16::from_be_bytes([w[0], w[1]]))
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|word| u16::from_be_bytes(*word))
             .collect::<Vec<_>>();
         r[2] = 0xFFFF; // I_AC_Current uint16
         r[14] = 0x8000; // I_AC_Power int16
