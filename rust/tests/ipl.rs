@@ -51,11 +51,10 @@ services:
             value: [2]
 "#;
     let spec = parse_device_spec(yaml).unwrap();
-    assert!(
-        spec.find_writable_characteristic_in(
+    assert!(spec
+        .find_writable_characteristic_in(
             "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
             "0000fff1-0000-1000-8000-00805f9b34fb",
         )
-        .is_none()
-    );
+        .is_none());
 }
