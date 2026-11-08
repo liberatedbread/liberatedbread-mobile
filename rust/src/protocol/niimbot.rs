@@ -54,6 +54,8 @@ const ERROR_REPLIES: [u8; 2] = [0xDB, 0x00];
 /// records a printer powering off when sent more that way.
 const MAX_INDEXED_DOTS: usize = 6;
 
+/// niimbluelib leaves this gap between BLE writes, rows included.
+const INTER_WRITE_DELAY_MS: u32 = 10;
 /// How long a control packet's reply may take.
 const REPLY_TIMEOUT_MS: u32 = 3_000;
 /// PrintStatus cadence and ceiling (`status_reply`: ~300 ms, 5 s per reply;
@@ -191,7 +193,7 @@ fn print_characteristic(spec: &DeviceSpec) -> Result<String, ProtocolError> {
 
 /// Encode one label as the D110 print task. `frame_index` is unused (the
 /// protocol numbers rows, not frames); `max_payload_per_write` splits a
-/// packet longer than one write across several, back to back.
+/// packet longer than one write across several, with the documented pacing.
 pub fn encode_print_job(
     spec: &DeviceSpec,
     rgb: &[u8],
@@ -225,7 +227,10 @@ pub fn encode_print_job(
     let char_uuid = print_characteristic(spec)?;
     let protocol = GenericProtocol::new(Arc::new(spec.clone()));
 
-    let mut frame = EncodedFrame::default();
+    let mut frame = EncodedFrame {
+        inter_write_delay_ms: INTER_WRITE_DELAY_MS,
+        ..EncodedFrame::default()
+    };
     let push = |frame: &mut EncodedFrame, bytes: Vec<u8>| {
         for chunk in bytes.chunks(max_payload_per_write) {
             frame.writes.push(EncodedWrite {
@@ -390,6 +395,7 @@ mod tests {
         let mut rgb = white(w as usize, h as usize);
         rgb[..3].copy_from_slice(&[0, 0, 0]);
         let frame = encode_print_job(&spec, &rgb, w, h, 0, 180).unwrap();
+        assert_eq!(frame.inter_write_delay_ms, 10);
 
         // The first writes are the spec's own fixed packets.
         assert_eq!(

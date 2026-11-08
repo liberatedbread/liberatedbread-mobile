@@ -6,6 +6,8 @@
 import 'dart:async';
 import 'dart:typed_data';
 
+import 'package:clock/clock.dart';
+import 'package:fake_async/fake_async.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:liberated_bread_mobile/services/ble_write_plan_runner.dart';
 import 'package:liberated_bread_mobile/services/spec_codec.dart';
@@ -25,6 +27,7 @@ class _ScriptedPrinter extends FakeBleService {
 
   static late StreamController<List<int>> _notify;
   final written = <List<int>>[];
+  final writeTimes = <DateTime>[];
 
   static _ScriptedPrinter create(Map<int, List<List<int>>> replies) {
     _notify = StreamController<List<int>>.broadcast();
@@ -39,6 +42,7 @@ class _ScriptedPrinter extends FakeBleService {
     List<int> value,
   ) async {
     written.add(value);
+    writeTimes.add(clock.now());
     if (value.length < 3) return;
     final queue = replies[value[2]];
     if (queue == null || queue.isEmpty) return;
@@ -83,6 +87,50 @@ void main() {
       expect(ble.subscriptions, isEmpty);
     },
   );
+
+  test('a paced plan leaves 10 ms between control and row writes', () {
+    fakeAsync((async) {
+      final ble = _ScriptedPrinter.create({
+        0x21: [
+          [0x55, 0x55, 0x31, 0x01, 0x01, 0x31, 0xAA, 0xAA],
+        ],
+        0x23: [
+          [0x55, 0x55, 0x33, 0x01, 0x01, 0x33, 0xAA, 0xAA],
+        ],
+      });
+      unawaited(
+        runImageWritePlan(
+          subscribeSettle: Duration.zero,
+          ble,
+          'dev',
+          ImageWritePlanDto(
+            serviceUuid: 'srv',
+            writes: [_w(0x21), _w(0x85), _w(0x23)],
+            nextFrameIndex: 0,
+            replyWaits: [_wait(0, 0x31), _wait(2, 0x33)],
+            interWriteDelayMs: 10,
+          ),
+        ),
+      );
+
+      async.elapse(Duration.zero);
+      async.flushMicrotasks();
+      expect(ble.written.map((w) => w[2]), [0x21]);
+      async.elapse(const Duration(milliseconds: 9));
+      expect(ble.written, hasLength(1));
+      async.elapse(const Duration(milliseconds: 1));
+      expect(ble.written.map((w) => w[2]), [0x21, 0x85]);
+      async.elapse(const Duration(milliseconds: 10));
+      async.flushMicrotasks();
+      expect(ble.written.map((w) => w[2]), [0x21, 0x85, 0x23]);
+      for (var i = 1; i < ble.writeTimes.length; i++) {
+        expect(
+          ble.writeTimes[i].difference(ble.writeTimes[i - 1]),
+          const Duration(milliseconds: 10),
+        );
+      }
+    });
+  });
 
   test('each wait holds the next write until its reply arrives', () async {
     final ble = _ScriptedPrinter.create({

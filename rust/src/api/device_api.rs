@@ -349,24 +349,28 @@ pub struct EffectEntryDto {
 }
 
 /// The BLE writes that push one image frame to a device, in send order.
+#[frb]
 #[derive(Debug, Clone)]
 pub struct ImageWritePlanDto {
     /// The GATT service every write's characteristic belongs to.
     pub service_uuid: String,
-    /// Ordered writes. The caller sends them back-to-back, each to its own
-    /// characteristic; ordering is part of the protocol (fragment reassembly).
+    /// Ordered writes, each to its own characteristic; ordering is part of
+    /// the protocol (fragment reassembly).
     pub writes: Vec<ImageWriteDto>,
     /// The frame index to pass for the NEXT frame. A frame spanning P wire
     /// packets consumes P sequence numbers, so advancing by 1 would make the
     /// next frame's serials collide with this one's and corrupt fragment
     /// reassembly on the device — always continue from this value.
     pub next_frame_index: u32,
-    /// Replies to wait for between writes. Empty for a write-only stream —
-    /// then the writes go back to back, as they always have.
+    /// Replies to wait for between writes. Empty for a stream that needs no
+    /// replies; inter_write_delay_ms controls pacing independently.
     pub reply_waits: Vec<ReplyWaitDto>,
     /// A status request to repeat before one write until the device reports
     /// it is done, when the protocol needs one.
     pub completion_poll: Option<CompletionPollDto>,
+    /// Minimum gap between consecutive BLE writes; zero writes back to back.
+    #[frb(default = "0")]
+    pub inter_write_delay_ms: u32,
 }
 
 /// After write `after_write`, wait up to `timeout_ms` for a notification on
@@ -5451,6 +5455,7 @@ pub fn encode_image_frame(
         })?;
     Ok(ImageWritePlanDto {
         service_uuid,
+        inter_write_delay_ms: frame.inter_write_delay_ms,
         next_frame_index: frame_index.wrapping_add(frame.packets),
         writes: frame
             .writes

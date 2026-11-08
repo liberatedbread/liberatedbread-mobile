@@ -8312,12 +8312,14 @@ impl SseDecode for crate::api::device_api::ImageWritePlanDto {
             <Vec<crate::api::device_api::ReplyWaitDto>>::sse_decode(deserializer);
         let mut var_completionPoll =
             <Option<crate::api::device_api::CompletionPollDto>>::sse_decode(deserializer);
+        let mut var_interWriteDelayMs = <u32>::sse_decode(deserializer);
         return crate::api::device_api::ImageWritePlanDto {
             service_uuid: var_serviceUuid,
             writes: var_writes,
             next_frame_index: var_nextFrameIndex,
             reply_waits: var_replyWaits,
             completion_poll: var_completionPoll,
+            inter_write_delay_ms: var_interWriteDelayMs,
         };
     }
 }
@@ -13200,6 +13202,7 @@ impl flutter_rust_bridge::IntoDart for crate::api::device_api::ImageWritePlanDto
             self.next_frame_index.into_into_dart().into_dart(),
             self.reply_waits.into_into_dart().into_dart(),
             self.completion_poll.into_into_dart().into_dart(),
+            self.inter_write_delay_ms.into_into_dart().into_dart(),
         ]
         .into_dart()
     }
@@ -15892,6 +15895,7 @@ impl SseEncode for crate::api::device_api::ImageWritePlanDto {
             self.completion_poll,
             serializer,
         );
+        <u32>::sse_encode(self.inter_write_delay_ms, serializer);
     }
 }
 

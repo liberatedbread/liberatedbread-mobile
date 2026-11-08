@@ -239,6 +239,8 @@ pub struct EncodedWrite {
 pub struct EncodedFrame {
     pub writes: Vec<EncodedWrite>,
     pub packets: u32,
+    /// Minimum gap between consecutive BLE writes; zero writes back to back.
+    pub inter_write_delay_ms: u32,
     /// Replies the device must send before the writes after them go out —
     /// a request/response protocol (NIIMBOT) where a packet sent before the
     /// last one was acknowledged is dropped. Empty for a write-only stream,

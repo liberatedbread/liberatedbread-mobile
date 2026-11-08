@@ -8548,14 +8548,15 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   ImageWritePlanDto dco_decode_image_write_plan_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 5)
-      throw Exception('unexpected arr length: expect 5 but see ${arr.length}');
+    if (arr.length != 6)
+      throw Exception('unexpected arr length: expect 6 but see ${arr.length}');
     return ImageWritePlanDto(
       serviceUuid: dco_decode_String(arr[0]),
       writes: dco_decode_list_image_write_dto(arr[1]),
       nextFrameIndex: dco_decode_u_32(arr[2]),
       replyWaits: dco_decode_list_reply_wait_dto(arr[3]),
       completionPoll: dco_decode_opt_box_autoadd_completion_poll_dto(arr[4]),
+      interWriteDelayMs: dco_decode_u_32(arr[5]),
     );
   }
 
@@ -11783,12 +11784,14 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var var_completionPoll = sse_decode_opt_box_autoadd_completion_poll_dto(
       deserializer,
     );
+    var var_interWriteDelayMs = sse_decode_u_32(deserializer);
     return ImageWritePlanDto(
       serviceUuid: var_serviceUuid,
       writes: var_writes,
       nextFrameIndex: var_nextFrameIndex,
       replyWaits: var_replyWaits,
       completionPoll: var_completionPoll,
+      interWriteDelayMs: var_interWriteDelayMs,
     );
   }
 
@@ -15703,6 +15706,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       self.completionPoll,
       serializer,
     );
+    sse_encode_u_32(self.interWriteDelayMs, serializer);
   }
 
   @protected

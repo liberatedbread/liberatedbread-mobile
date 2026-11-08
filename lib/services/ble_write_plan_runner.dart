@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 import 'dart:async';
 
+import 'package:clock/clock.dart';
+
 import 'ble_service.dart';
 import 'spec_codec.dart';
 
@@ -43,8 +45,9 @@ class DeviceRefusedException implements Exception {
 /// runner waits for its reply, and before the plan's completion-poll write
 /// it asks for status until the device says it is done. A reply that does
 /// not come is a [TimeoutException]; one the plan names as an error is a
-/// [DeviceRefusedException]. A plan without either — every image upload but
-/// NIIMBOT's — writes back to back, exactly as before.
+/// [DeviceRefusedException]. The plan's inter-write delay, when nonzero, also
+/// applies to rows, retries, and completion polls; zero preserves back-to-back
+/// writes for protocols that need no pacing.
 Future<void> runImageWritePlan(
   BleService ble,
   String deviceId,
@@ -53,14 +56,28 @@ Future<void> runImageWritePlan(
   Duration pollReplyTimeout = const Duration(seconds: 5),
 }) async {
   final poll = plan.completionPoll;
+  final interval = Duration(milliseconds: plan.interWriteDelayMs);
+  DateTime? lastWrite;
+  Future<void> send(ImageWriteDto write) async {
+    final previous = lastWrite;
+    if (previous != null && interval > Duration.zero) {
+      final remaining = interval - clock.now().difference(previous);
+      if (remaining > Duration.zero) {
+        await Future<void>.delayed(remaining);
+      }
+    }
+    await ble.writeCharacteristic(
+      deviceId,
+      plan.serviceUuid,
+      write.characteristicUuid,
+      write.bytes,
+    );
+    lastWrite = clock.now();
+  }
+
   if (plan.replyWaits.isEmpty && poll == null) {
     for (final write in plan.writes) {
-      await ble.writeCharacteristic(
-        deviceId,
-        plan.serviceUuid,
-        write.characteristicUuid,
-        write.bytes,
-      );
+      await send(write);
     }
     return;
   }
@@ -89,9 +106,7 @@ Future<void> runImageWritePlan(
     for (var i = 0; i < plan.writes.length; i++) {
       if (poll != null && poll.beforeWrite == i) {
         await _pollUntilDone(
-          ble,
-          deviceId,
-          plan.serviceUuid,
+          send,
           poll,
           replies,
           // A refusal mid-page (lid open, out of labels) comes as the same
@@ -105,12 +120,7 @@ Future<void> runImageWritePlan(
         );
       }
       final write = plan.writes[i];
-      await ble.writeCharacteristic(
-        deviceId,
-        plan.serviceUuid,
-        write.characteristicUuid,
-        write.bytes,
-      );
+      await send(write);
       for (final wait in waitsAfter[i] ?? const <ReplyWaitDto>[]) {
         try {
           await replies.take(
@@ -120,12 +130,7 @@ Future<void> runImageWritePlan(
           );
         } on TimeoutException {
           if (i != 0) rethrow;
-          await ble.writeCharacteristic(
-            deviceId,
-            plan.serviceUuid,
-            write.characteristicUuid,
-            write.bytes,
-          );
+          await send(write);
           await replies.take(
             wait.expectPrefix,
             errors: wait.errorPrefixes,
@@ -143,9 +148,7 @@ Future<void> runImageWritePlan(
 }
 
 Future<void> _pollUntilDone(
-  BleService ble,
-  String deviceId,
-  String serviceUuid,
+  Future<void> Function(ImageWriteDto) send,
   CompletionPollDto poll,
   _ReplyBuffer replies, {
   required List<List<int>> errors,
@@ -153,12 +156,7 @@ Future<void> _pollUntilDone(
 }) async {
   final deadline = DateTime.now().add(Duration(milliseconds: poll.timeoutMs));
   while (true) {
-    await ble.writeCharacteristic(
-      deviceId,
-      serviceUuid,
-      poll.request.characteristicUuid,
-      poll.request.bytes,
-    );
+    await send(poll.request);
     final remaining = deadline.difference(DateTime.now());
     if (remaining <= Duration.zero) {
       throw TimeoutException('the device never reported done', remaining);

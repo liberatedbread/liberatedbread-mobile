@@ -2902,8 +2902,8 @@ class ImageWritePlanDto {
   /// The GATT service every write's characteristic belongs to.
   final String serviceUuid;
 
-  /// Ordered writes. The caller sends them back-to-back, each to its own
-  /// characteristic; ordering is part of the protocol (fragment reassembly).
+  /// Ordered writes, each to its own characteristic; ordering is part of
+  /// the protocol (fragment reassembly).
   final List<ImageWriteDto> writes;
 
   /// The frame index to pass for the NEXT frame. A frame spanning P wire
@@ -2912,13 +2912,16 @@ class ImageWritePlanDto {
   /// reassembly on the device — always continue from this value.
   final int nextFrameIndex;
 
-  /// Replies to wait for between writes. Empty for a write-only stream —
-  /// then the writes go back to back, as they always have.
+  /// Replies to wait for between writes. Empty for a stream that needs no
+  /// replies; inter_write_delay_ms controls pacing independently.
   final List<ReplyWaitDto> replyWaits;
 
   /// A status request to repeat before one write until the device reports
   /// it is done, when the protocol needs one.
   final CompletionPollDto? completionPoll;
+
+  /// Minimum gap between consecutive BLE writes; zero writes back to back.
+  final int interWriteDelayMs;
 
   const ImageWritePlanDto({
     required this.serviceUuid,
@@ -2926,6 +2929,7 @@ class ImageWritePlanDto {
     required this.nextFrameIndex,
     required this.replyWaits,
     this.completionPoll,
+    this.interWriteDelayMs = 0,
   });
 
   @override
@@ -2934,7 +2938,8 @@ class ImageWritePlanDto {
       writes.hashCode ^
       nextFrameIndex.hashCode ^
       replyWaits.hashCode ^
-      completionPoll.hashCode;
+      completionPoll.hashCode ^
+      interWriteDelayMs.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -2945,7 +2950,8 @@ class ImageWritePlanDto {
           writes == other.writes &&
           nextFrameIndex == other.nextFrameIndex &&
           replyWaits == other.replyWaits &&
-          completionPoll == other.completionPoll;
+          completionPoll == other.completionPoll &&
+          interWriteDelayMs == other.interWriteDelayMs;
 }
 
 /// A rendered Kasa request: the JSON to send, before the cipher and framing.
