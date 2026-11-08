@@ -97,6 +97,11 @@ pub enum ProtocolError {
         declared: String,
     },
 
+    /// A spec-driven send reached a device this app only ever reads. See
+    /// `protocol::readonly`: its own module is the only thing that writes to it.
+    #[error("this app is read-only for {handler}, so command '{command}' is not sendable")]
+    ReadOnlyCommandRefused { handler: String, command: String },
+
     #[error("failed to parse device spec: {0}")]
     SpecParse(#[from] SpecError),
 }

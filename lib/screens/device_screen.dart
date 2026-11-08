@@ -13,6 +13,7 @@ import '../providers/device_description_provider.dart';
 import '../providers/device_setup_help_provider.dart';
 import '../providers/device_spec_match_provider.dart';
 import '../providers/enphase_provider.dart';
+import '../providers/read_only_ble_provider.dart';
 import '../providers/ha_provider.dart';
 import '../providers/spec_codec_provider.dart';
 import '../providers/saved_device_provider.dart';
@@ -25,6 +26,7 @@ import '../widgets/ad_banner_bar.dart';
 import '../widgets/classic_printer_setup_panel.dart';
 import '../widgets/device_control_panel.dart';
 import '../widgets/enphase_setup_panel.dart';
+import '../widgets/read_only_ble_panels.dart';
 import '../widgets/safety_advisory_gate.dart';
 import '../widgets/unexpected_services_banner.dart';
 import '../widgets/radar_scanner.dart';
@@ -43,6 +45,7 @@ enum _ScreenState {
   disconnected,
   classicPrinter,
   enphase,
+  readOnly,
 }
 
 /// How long the screen keeps retrying a connect the device did not answer.
@@ -230,6 +233,7 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
   StreamSubscription<BleConnectionState>? _connSub;
   ClassicPrinterProfile? _classicProfile;
   String? _enphaseSpecKey;
+  ReadOnlyBleProfile? _readOnlyProfile;
 
   /// Notification streams the spec's connect-time handshake asked to be
   /// opened, held for the life of THIS connection. A handshake that says
@@ -342,6 +346,17 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
         _state = _ScreenState.enphase;
         _adCategory = 'energy';
         _adSpecKey = enphaseKey;
+        return;
+      }
+      // Before anything connects, and before the generic client could draw a
+      // reading of a still-packed field or anything else: these devices are
+      // read by their handler alone.
+      final readOnly = ref.read(readOnlyBleProfileProvider(request));
+      if (readOnly != null) {
+        _readOnlyProfile = readOnly;
+        _state = _ScreenState.readOnly;
+        _adCategory = readOnly.category;
+        _adSpecKey = readOnly.specKey;
         return;
       }
       final profile = ref.read(classicPrinterProfileProvider(request));
@@ -990,6 +1005,7 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
     _ScreenState.disconnected => 'Disconnected',
     _ScreenState.classicPrinter => 'Bluetooth Classic',
     _ScreenState.enphase => 'XBee Bluetooth',
+    _ScreenState.readOnly => 'Read-only',
   };
 
   /// The dot beside [_statusLabel]. It used to be the app bar's foreground
@@ -999,7 +1015,8 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
   Color _statusDotColor(ColorScheme scheme) => switch (_state) {
     _ScreenState.ready ||
     _ScreenState.classicPrinter ||
-    _ScreenState.enphase => scheme.secondary,
+    _ScreenState.enphase ||
+    _ScreenState.readOnly => scheme.secondary,
     _ScreenState.error => scheme.error,
     _ScreenState.connecting ||
     _ScreenState.discovering ||
@@ -1044,6 +1061,12 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
         return EnphaseSetupPanel(
           device: widget.device,
           specKey: _enphaseSpecKey!,
+        );
+
+      case _ScreenState.readOnly:
+        return ReadOnlyBlePanel(
+          device: widget.device,
+          profile: _readOnlyProfile!,
         );
 
       // Both dead-end states carry the find affordance too: a failed or lost
