@@ -19,7 +19,7 @@ device:
       without a bearer token answers 401
       {"error":{"code":"UnauthorizedError","message":"authentication is
       required for rate limited endpoints"}}, and its TLS certificate CN
-      embeds the hub UUID (hla-tcp.d5799221-24fc-4ada-b0e1-2ad8225d16d5.st,
+      embeds the hub UUID (hla-tcp.<hub-uuid>.st,
       matching the hedge instance name) — corroborating the CLI's
       cert-pinning behavior. Port 9495 (CLI logcat API) answers the same 401
       JSON with an O=SmartThings Inc. self-signed cert. Port 8081, despite
@@ -51,6 +51,18 @@ device:
     Security note: Cisco Talos disclosed 20 vulnerabilities (incl. RCE
     chains) in SmartThings Hub firmware 0.20.17 in 2018
     (TALOS-2018-0539 … TALOS-2018-0581).
+    Going local: where this hub is on the LAN, the Samsung appliances on the
+    same account usually are too, and for those a cloud-free route exists. The
+    LocalThings Home Assistant integration (HACS, domain `localthings`) drives
+    Samsung SmartThings-compatible washers, dryers, refrigerators, air
+    conditioners, ovens and similar appliances directly over the LAN — OCF
+    resources over CoAP/DTLS with a locally minted client certificate (older
+    2018–2022 units: HTTPS on TCP 8888) — and needs Samsung's servers only
+    once, unauthenticated, for the first appliance. It does NOT drive this
+    hub or the Zigbee/Z-Wave devices paired to it; those stay on the hub (or
+    move to a local coordinator). A consumer that sees this hub and a Home
+    Assistant server on the same network should point the user at
+    LocalThings rather than at the cloud SmartThings integration.
   identification:
     mdns_service_type: "_smartthings._tcp.local."
     default_port: 8081
@@ -276,9 +288,28 @@ entities:
 
 
 helpful_urls:
+  - title: "LocalThings — local Home Assistant integration for Samsung SmartThings appliances"
+    url: "https://github.com/mbillow/localthings"
+    kind: "implementation"
+    description: >
+      The recommended route off the SmartThings cloud for the Samsung
+      appliances on this hub's account (washers, dryers, refrigerators, air
+      conditioners, ovens and more): a HACS integration, domain `localthings`,
+      that talks to each appliance over the LAN (OCF over CoAP/DTLS; HTTPS on
+      TCP 8888 for 2018–2022 units) with no Samsung account. It does not drive
+      the hub itself or its Zigbee/Z-Wave children. Install in one tap with
+      https://my.home-assistant.io/redirect/hacs_repository/?owner=mbillow&repository=localthings&category=integration
+  - title: "smartthings-local — the Python library under LocalThings"
+    url: "https://github.com/QuiteYellow/SmartThings-Local"
+    kind: "implementation"
+    description: >
+      The OCF-over-CoAP/DTLS transport LocalThings is built on (PyPI
+      `smartthings-local`), including OCF multicast discovery on UDP 5683
+      and the client-certificate setup. The place to start for a non-Home
+      Assistant client.
   - title: "Home Assistant SmartThings integration"
     url: "https://www.home-assistant.io/integrations/smartthings/"
-    description: "HA core integration for the SmartThings platform (cloud API; not the local hub protocol documented here)."
+    description: "HA core integration for the SmartThings platform. Cloud API, and not the local hub protocol documented here: prefer LocalThings (above) for Samsung appliances."
   - title: "SmartThings Hub quick start guide (PDF)"
     url: "http://pdf.lowes.com/useandcareguides/887276268354_use.pdf"
     kind: "manual"

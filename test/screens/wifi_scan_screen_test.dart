@@ -583,7 +583,7 @@ void main() {
     // sheet already carries the vendor in its description; the label is what
     // is unique to the sheet.
     expect(find.text('Address block'), findsOneWidget);
-    expect(find.text('Philips Lighting BV'), findsWidgets);
+    expect(find.text('Philips Lighting'), findsWidgets);
   });
 
   testWidgets("the catalogue's vendor SSDP targets ride along with the scan", (

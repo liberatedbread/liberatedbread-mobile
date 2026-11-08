@@ -400,7 +400,9 @@ void main() {
         ),
       ),
     );
-    await _soak(tester, const Duration(seconds: 2));
+    // Waited for rather than soaked: the screen retries a failure like this
+    // by itself (deviceConnectAutoRetries) before the error card appears.
+    await _waitFor(tester, find.text('Retry'));
     expect(find.text('Retry'), findsOneWidget);
     // An untyped failure takes the generic path: guidance, never the raw
     // exception text the fake threw.

@@ -63,6 +63,26 @@ class _CountingBleService extends FakeBleService {
   }
 }
 
+/// Fail the screen's opening connect on [fake] and each automatic retry that
+/// follows it (see [deviceConnectAutoRetries]), leaving the error card up.
+///
+/// Pumped by hand: the connecting screen ticks its clock every second, so a
+/// pumpAndSettle while a gate is still shut would never settle.
+Future<void> _failOpeningAttempts(
+  WidgetTester tester,
+  _GatedBleService fake,
+) async {
+  for (var i = 0; i <= deviceConnectAutoRetries; i++) {
+    while (fake.gates.length <= i) {
+      await tester.pump(const Duration(milliseconds: 500));
+    }
+    fake.failAt.add(i);
+    fake.gates[i].complete();
+    await tester.pump();
+  }
+  await tester.pumpAndSettle();
+}
+
 /// A [FakeBleService] whose connects are held open, one completer per call,
 /// so a test can overlap two of the screen's connect attempts and choose
 /// which resolves first — and which of them fails.
@@ -196,6 +216,29 @@ class _SlowToAnswerBleService extends FakeBleService {
   }
 }
 
+/// A [FakeBleService] whose first [failures] connects fail at once with
+/// [error] — by default a plain error, as a platform's GATT failure arrives.
+class _FlakyBleService extends FakeBleService {
+  _FlakyBleService({
+    required this.failures,
+    this.error,
+    super.servicesToReturn,
+  });
+
+  final int failures;
+  final Object? error;
+  int attempts = 0;
+
+  @override
+  Future<void> connect(String deviceId) async {
+    attempts++;
+    if (attempts <= failures) {
+      throw error ?? StateError('GATT_ERROR 133');
+    }
+    return super.connect(deviceId);
+  }
+}
+
 const _batteryService = BleDiscoveredService(
   uuid: '0000180f-0000-1000-8000-00805f9b34fb',
   characteristics: [],
@@ -318,7 +361,9 @@ void main() {
     final fake = _CountingBleService(connectError: StateError('boom'));
     await tester.pumpWidget(_wrap(fake));
     await tester.pumpAndSettle();
-    expect(fake.connectAttempts, ['01']);
+    // The opening attempt and the screen's own retries of it.
+    const perTap = deviceConnectAutoRetries + 1;
+    expect(fake.connectAttempts, hasLength(perTap));
     expect(fake.connectedIds, isEmpty);
 
     await tester.tap(find.text('Retry'));
@@ -326,7 +371,7 @@ void main() {
 
     // A second attempt was made, and it still failed, so the error state and
     // the button are still there for a third.
-    expect(fake.connectAttempts, ['01', '01']);
+    expect(fake.connectAttempts, hasLength(2 * perTap));
     expect(
       find.textContaining('Could not connect to this device'),
       findsOneWidget,
@@ -339,7 +384,7 @@ void main() {
     await tester.tap(find.text('Retry'));
     await tester.pumpAndSettle();
 
-    expect(fake.connectAttempts, ['01', '01', '01']);
+    expect(fake.connectAttempts, hasLength(2 * perTap + 1));
     expect(fake.connectedIds, ['01']);
     expect(
       find.textContaining('Could not connect to this device'),
@@ -363,10 +408,12 @@ void main() {
     expect(find.textContaining('gatt fail'), findsNothing);
     expect(find.textContaining('Bad state'), findsNothing);
     expect(find.text('Retry'), findsOneWidget);
-    // ...and the half-open link we established was torn down exactly once, so
-    // nothing is left connected behind the error state.
-    expect(fake.connectedIds, ['01']);
-    expect(fake.disconnectedIds, ['01']);
+    // ...and every half-open link we established — the opening attempt's and
+    // each automatic retry's — was torn down exactly once, so nothing is
+    // left connected behind the error state.
+    const attempts = deviceConnectAutoRetries + 1;
+    expect(fake.connectedIds, List.filled(attempts, '01'));
+    expect(fake.disconnectedIds, List.filled(attempts, '01'));
   });
 
   testWidgets('unmount during pending connect still disconnects (no leak)', (
@@ -462,14 +509,13 @@ void main() {
         ),
       ],
     );
-    fake.failAt.addAll({0, 1});
-
     await tester.pumpWidget(_wrap(fake));
     await tester.pump();
     // The opening attempt fails, leaving the error state and its buttons.
-    fake.gates[0].complete();
-    await tester.pumpAndSettle();
+    await _failOpeningAttempts(tester, fake);
     expect(find.text('Retry'), findsOneWidget);
+    const stale = deviceConnectAutoRetries + 1, newer = stale + 1;
+    fake.failAt.add(stale);
 
     // Two taps before the rebuild greys the button out: attempt 1 (which
     // will fail) and attempt 2 (which will not). This is the race — two
@@ -477,16 +523,17 @@ void main() {
     await tester.tap(find.text('Retry'));
     await tester.tap(find.text('Retry'), warnIfMissed: false);
     await tester.pump();
-    expect(fake.gates, hasLength(3));
+    expect(fake.gates, hasLength(newer + 1));
 
     // The newer attempt lands first and takes the screen to ready.
-    fake.gates[2].complete();
+    fake.gates[newer].complete();
     await tester.pumpAndSettle();
     expect(find.text('Battery Service'), findsOneWidget);
     expect(fake.connectedIds, ['01']);
 
-    // Now the stale attempt fails. It must do nothing at all.
-    fake.gates[1].complete();
+    // Now the stale attempt fails. It must do nothing at all — not even
+    // retry by itself.
+    fake.gates[stale].complete();
     await tester.pumpAndSettle();
 
     expect(
@@ -500,6 +547,7 @@ void main() {
       isEmpty,
       reason: 'the live link belongs to the newer attempt',
     );
+    expect(fake.gates, hasLength(newer + 1));
   });
 
   testWidgets('a stale attempt that connected releases its own claim', (
@@ -511,26 +559,25 @@ void main() {
     // the peripheral stayed connected (and invisible to every other phone)
     // until the app died.
     final fake = _GatedBleService(servicesToReturn: const [_batteryService]);
-    fake.failAt.add(0);
 
     await tester.pumpWidget(_wrap(fake));
     await tester.pump();
-    fake.gates[0].complete();
-    await tester.pumpAndSettle();
+    await _failOpeningAttempts(tester, fake);
     expect(find.text('Retry'), findsOneWidget);
+    const stale = deviceConnectAutoRetries + 1, newer = stale + 1;
 
     await tester.tap(find.text('Retry'));
     await tester.tap(find.text('Retry'), warnIfMissed: false);
     await tester.pump();
-    expect(fake.gates, hasLength(3));
+    expect(fake.gates, hasLength(newer + 1));
 
-    fake.gates[2].complete();
+    fake.gates[newer].complete();
     await tester.pumpAndSettle();
     expect(find.text('Battery Service'), findsOneWidget);
 
     // The stale attempt connects too. It releases what it took, and the
     // screen stays on the newer attempt's working panel.
-    fake.gates[1].complete();
+    fake.gates[stale].complete();
     await tester.pumpAndSettle();
     expect(fake.events, ['connect:01', 'connect:01', 'disconnect:01']);
     expect(find.text('Battery Service'), findsOneWidget);
@@ -541,6 +588,62 @@ void main() {
     await tester.pump();
     expect(fake.connectedIds, hasLength(2));
     expect(fake.disconnectedIds, hasLength(2));
+  });
+
+  testWidgets('a connect that fails transiently is retried by itself', (
+    tester,
+  ) async {
+    // Android's GATT 133 and BlueZ's connection aborts fail a connect that
+    // works when tried again a second later. The user used to see "Could not
+    // connect" and tap Retry; the screen now does that itself.
+    final fake = _FlakyBleService(
+      failures: deviceConnectAutoRetries,
+      servicesToReturn: const [_batteryService],
+    );
+    await tester.pumpWidget(_wrap(fake));
+    await tester.pump();
+    expect(find.text('Trying again...'), findsOneWidget);
+    for (var i = 0; i < 6; i++) {
+      await tester.pump(const Duration(seconds: 1));
+      expect(find.text('Connection failed'), findsNothing);
+    }
+    await tester.pumpAndSettle();
+
+    expect(fake.attempts, deviceConnectAutoRetries + 1);
+    expect(find.text('Battery Service'), findsOneWidget);
+    expect(find.text('Retry'), findsNothing);
+  });
+
+  testWidgets('a connect failure that is an answer is not retried', (
+    tester,
+  ) async {
+    // Bluetooth off: asking again gets the same answer, so the advice that
+    // fixes it comes at once instead of after the retries.
+    final fake = _FlakyBleService(
+      failures: 1000,
+      error: const BleUnavailableException(),
+    );
+    await tester.pumpWidget(_wrap(fake));
+    await tester.pumpAndSettle();
+
+    expect(fake.attempts, 1);
+    expect(find.text('Retry'), findsOneWidget);
+  });
+
+  test('isTransientConnectFailure keeps the answers out of the retry', () {
+    expect(isTransientConnectFailure(StateError('GATT 133')), isTrue);
+    expect(isTransientConnectFailure(TimeoutException('slow')), isTrue);
+    expect(isTransientConnectFailure(const BleLinkDroppedException()), isTrue);
+    for (final answer in <Object>[
+      const BleUnavailableException(),
+      const BleNoRadioException(),
+      const BlePermissionDeniedException(),
+      const BlePairingRequiredException(),
+      const BleDeviceUnheardException(),
+      const BleCharacteristicSilentException(),
+    ]) {
+      expect(isTransientConnectFailure(answer), isFalse, reason: '$answer');
+    }
   });
 
   testWidgets('a connect the device did not answer is retried on screen', (
@@ -1073,12 +1176,16 @@ void main() {
       await tester.pumpAndSettle();
     }
 
-    testWidgets('shows the address and the block that owns it', (tester) async {
+    testWidgets('shows the address and the radio maker whose block it is', (
+      tester,
+    ) async {
       await pumpReady(tester, deviceWith());
 
       expect(find.text('Address'), findsOneWidget);
       expect(find.text('B8:94:D9:11:22:33'), findsOneWidget);
-      expect(find.text('Address block'), findsOneWidget);
+      // TI made the radio module, not the device, and the label says so.
+      expect(find.text('Radio made by'), findsOneWidget);
+      expect(find.text('Address block'), findsNothing);
       expect(find.text('Texas Instruments'), findsOneWidget);
     });
 
@@ -1093,7 +1200,9 @@ void main() {
 
       expect(find.text('Advertises as'), findsOneWidget);
       expect(find.text('Ember Technologies'), findsOneWidget);
-      expect(find.text('Address block'), findsOneWidget);
+      // TI made the radio module, not the device, and the label says so.
+      expect(find.text('Radio made by'), findsOneWidget);
+      expect(find.text('Address block'), findsNothing);
       expect(find.text('Texas Instruments'), findsOneWidget);
     });
 
@@ -1102,6 +1211,7 @@ void main() {
 
       expect(find.text('Address'), findsOneWidget);
       expect(find.text('Address block'), findsNothing);
+      expect(find.text('Radio made by'), findsNothing);
     });
 
     testWidgets('a CoreBluetooth UUID is not offered as an address', (
@@ -1118,6 +1228,7 @@ void main() {
 
       expect(find.text('Address'), findsNothing);
       expect(find.text('Address block'), findsNothing);
+      expect(find.text('Radio made by'), findsNothing);
     });
   });
 

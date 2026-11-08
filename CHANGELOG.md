@@ -223,6 +223,29 @@ heading.
   catalogue's specs get one. A spec's own `pictogram` still wins, and an
   inferred one is drawn only when every tied match agrees on it.
 
+- **Vendor names read as names, and a radio's maker is not called the
+  device's.** The IEEE and Bluetooth SIG registries hold names as filed
+  ("Hon Hai Precision Ind. Co.,Ltd.", "SHENZHEN BILIAN ELECTRONIC CO.，LTD"),
+  and the scan row, saved list, Wi-Fi tile and device header printed them raw.
+  They now drop the legal form and parenthesised asides and stop shouting
+  (`displayVendorName`). The chip and module houses that hold the address
+  blocks of countless brands (Espressif, Texas Instruments, Nordic, Realtek,
+  Foxconn, AzureWave, Tuya and others) get one short name each and are said
+  as the radio's: "Espressif radio", a nameless device titled "Device with an
+  Espressif radio", and "Radio made by" in place of "Address block" on the
+  device header. A product vendor's block or company ID now wins over a
+  radio vendor's when both are present.
+
+- **The device screen retries a failed BLE connect by itself.** Only a
+  connect the device never answered was retried; any other failure (Android's
+  GATT 133, a BlueZ connection abort, a discovery the stack gave up on) went
+  straight to "Could not connect" and a manual Retry that usually worked. The
+  whole connect + discover now starts over up to twice more, after 1 s and
+  then 2 s, inside the existing one-minute budget, with "Trying again..." on
+  screen. Failures that are answers (Bluetooth off or absent, permission
+  withheld, pairing required, an identifier the system forgot) still show at
+  once.
+
 - **The first-launch gate and the About screen ask for caution with
   everything in the app, and say not to rely on it for anything
   safety-critical.** A reading or a control can be wrong, late or

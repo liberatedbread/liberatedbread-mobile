@@ -25,6 +25,7 @@ import '../widgets/unexpected_services_banner.dart';
 import '../widgets/radar_scanner.dart';
 import '../core/error_text.dart';
 import '../core/log.dart';
+import '../core/vendor_names.dart';
 import '../widgets/rabbit_air_setup_info_panel.dart';
 import 'find_device_screen.dart';
 import 'setup_instructions_screen.dart';
@@ -45,6 +46,37 @@ const deviceConnectBudget = Duration(seconds: 60);
 
 /// The breather between one timed-out connect attempt and the next.
 const deviceConnectRetryPause = Duration(seconds: 1);
+
+/// How many times the screen starts the whole connect + discover over by
+/// itself after a failure that was not a timeout, before showing the error.
+///
+/// BLE connects fail transiently far more often than they fail for good:
+/// Android's catch-all GATT 133, BlueZ's `le-connection-abort-by-local`, a
+/// discovery the stack gives up on halfway, a peripheral still releasing the
+/// previous central's link. The identical attempt a second later usually
+/// works, so the user was tapping Retry for something the screen could do.
+/// Two, with a growing pause between, inside [deviceConnectBudget]: enough
+/// to ride out a flaky stack, few enough that a device which really is gone
+/// still reaches the error card in seconds.
+const deviceConnectAutoRetries = 2;
+
+/// Whether a failed connect or discovery is worth the screen trying again by
+/// itself (see [deviceConnectAutoRetries]).
+///
+/// Everything is, except the failures that are answers: Bluetooth off or
+/// absent, permission withheld, a device demanding pairing, an identifier the
+/// system has forgotten, and a characteristic that never replies. Asking
+/// those again gets the same answer and only delays the advice that fixes
+/// them. A link that dropped is not decided here — the screen shows it as a
+/// disconnect, not a failed connect.
+bool isTransientConnectFailure(Object error) => switch (error) {
+  BlePermissionDeniedException() ||
+  BleUnavailableException() ||
+  BlePairingRequiredException() ||
+  BleDeviceUnheardException() ||
+  BleCharacteristicSilentException() => false,
+  _ => true,
+};
 
 /// When the connecting screen starts saying that this can take a while.
 ///
@@ -268,6 +300,11 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
   Timer? _retryPauseTimer;
   Completer<void>? _retryPause;
 
+  /// Automatic restarts of the current connect after a transient failure;
+  /// reset by every connect the user or the watcher starts. See
+  /// [deviceConnectAutoRetries].
+  int _autoRetries = 0;
+
   /// Bumped by every [_connect]. Retry, Try-to-find and the reconnect the
   /// connection watcher fires all call it, and nothing stopped a second call
   /// from overlapping the first: the older attempt was left suspended inside
@@ -296,8 +333,11 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
     _connect();
   }
 
-  Future<void> _connect() async {
+  /// [autoRetry] is the screen restarting its own failed attempt: it keeps
+  /// the attempt's clock and retry count rather than starting both afresh.
+  Future<void> _connect({bool autoRetry = false}) async {
     final generation = ++_connectGeneration;
+    if (!autoRetry) _autoRetries = 0;
     // Drop any connection this screen still owns + cached services first, so a
     // retry or reconnect doesn't run against an already-connected peripheral
     // with a stale service cache.
@@ -310,7 +350,9 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
       _state = _ScreenState.connecting;
       _error = null;
     });
-    _startElapsedTicker();
+    // The pause before an automatic retry held the state at connecting, so
+    // the ticker is still running and the budget still counting.
+    if (!autoRetry || _elapsedTicker == null) _startElapsedTicker();
 
     try {
       if (!await _connectRetryingTimeouts(generation)) return;
@@ -419,8 +461,10 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
       // Drop any half-open link + cached services so the error path / Retry
       // starts from a clean slate (no-op if we never connected).
       await _cleanupConnection();
-      _openFindWhenReady = false;
-      if (!mounted) return;
+      if (!mounted) {
+        _openFindWhenReady = false;
+        return;
+      }
       // A link that dropped during discovery is a device that hung up, not a
       // connect that failed: the watcher had already painted "Device
       // disconnected" and this catch used to overwrite it with "Could not
@@ -429,12 +473,33 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
       // both ways because either can arrive first: the service's typed drop,
       // or the watcher's state event.
       if (e is BleLinkDroppedException || _state == _ScreenState.disconnected) {
+        _openFindWhenReady = false;
         setState(() {
           _error = null;
           _state = _ScreenState.disconnected;
         });
         return;
       }
+      // A failure that is not an answer gets the identical attempt again
+      // before the error card: see [deviceConnectAutoRetries]. A timeout
+      // reaching here has already spent the budget, so the budget check
+      // also keeps those from being retried twice over.
+      if (_autoRetries < deviceConnectAutoRetries &&
+          _elapsedSeconds < deviceConnectBudget.inSeconds &&
+          isTransientConnectFailure(e)) {
+        _autoRetries++;
+        Log.ble.info(
+          'connect ${widget.device.id} failed after ${_elapsedSeconds}s; '
+          'trying again ($_autoRetries of $deviceConnectAutoRetries)',
+          error: e,
+        );
+        setState(() => _state = _ScreenState.connecting);
+        await _pauseBeforeRetry(deviceConnectRetryPause * _autoRetries);
+        if (_superseded(generation) || !mounted) return;
+        unawaited(_connect(autoRetry: true));
+        return;
+      }
+      _openFindWhenReady = false;
       final String message;
       if (e is TimeoutException) {
         Log.ble.warning(
@@ -493,12 +558,12 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
     }
   }
 
-  Future<void> _pauseBeforeRetry() {
+  Future<void> _pauseBeforeRetry([Duration length = deviceConnectRetryPause]) {
     // Ends an older attempt's pause first (it then sees it was superseded):
     // left running, its timer would cut THIS pause short.
     _endRetryPause();
     final pause = _retryPause = Completer<void>();
-    _retryPauseTimer = Timer(deviceConnectRetryPause, _endRetryPause);
+    _retryPauseTimer = Timer(length, _endRetryPause);
     return pause.future;
   }
 
@@ -919,7 +984,9 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
       // when it stalls, the user can see *which* step stalled.
       case _ScreenState.connecting:
         return _PairingProgress(
-          label: 'Connecting...',
+          // Said, so the step list going back to "Connecting" after it had
+          // reached "Connected" reads as the screen retrying, not stuttering.
+          label: _autoRetries > 0 ? 'Trying again...' : 'Connecting...',
           step: 0,
           deviceName: null,
           elapsedSeconds: _elapsedSeconds,
@@ -1208,8 +1275,13 @@ class _ConnectedHeader extends StatelessWidget {
       (label: 'Address', value: device.macAddress!),
     for (final company in description.companies.take(1))
       (label: 'Advertises as', value: company),
-    if (description.addressVendor != null)
-      (label: 'Address block', value: description.addressVendor!),
+    // A chip or module vendor's block says who made the radio, and is
+    // labelled so: "Address block: Espressif" read as the device's brand.
+    if (description.addressVendor case final vendor?)
+      (
+        label: isRadioVendor(vendor) ? 'Radio made by' : 'Address block',
+        value: vendor,
+      ),
   ];
 
   @override
