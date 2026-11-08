@@ -230,7 +230,9 @@ class _PrintLabelScreenState extends ConsumerState<PrintLabelScreen> {
   /// — for sticker sheets on an office printer.
   Future<void> _printOnPaper() async {
     final preview = _preview;
-    if (preview == null) return;
+    if (preview == null || !_hasContent || _rendering || _renderPending) {
+      return;
+    }
     try {
       await ref
           .read(osPrintServiceProvider)
@@ -352,7 +354,11 @@ class _PrintLabelScreenState extends ConsumerState<PrintLabelScreen> {
           IconButton(
             tooltip: 'Print on a regular printer',
             icon: const Icon(Icons.local_printshop_outlined),
-            onPressed: _preview != null && _hasContent
+            onPressed:
+                _preview != null &&
+                    _hasContent &&
+                    !_rendering &&
+                    !_renderPending
                 ? () => unawaited(_printOnPaper())
                 : null,
           ),

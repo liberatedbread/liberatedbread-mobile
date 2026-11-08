@@ -6,6 +6,7 @@ import 'dart:typed_data';
 import 'package:flutter/foundation.dart' show immutable;
 
 import '../../core/log.dart';
+import '../ble_connect_within.dart';
 import '../ble_service.dart';
 import '../ble_write_plan_runner.dart';
 import '../brother_ql_print_service.dart';
@@ -276,19 +277,21 @@ class ConnectingBleTarget implements LabelPrintTarget {
   }) async {
     final ble = inner.ble;
     final id = inner.deviceId;
+    var connected = false;
     try {
       await ble.stopScan().catchError((Object _) {});
-      await ble.connect(id).timeout(connectTimeout);
+      await connectWithin(ble, id, connectTimeout);
+      connected = true;
       await ble.discoverServices(id).timeout(connectTimeout);
     } on Object catch (e) {
       Log.ble.warning('print connect failed for $id', error: e);
-      await ble.disconnect(id).catchError((Object _) {});
+      if (connected) await ble.disconnect(id).catchError((Object _) {});
       return PrintFailed('Could not connect to ${inner.name}. Is it on?');
     }
     try {
       return await inner.printMono(rgb, width, height, copies: copies);
     } finally {
-      await ble.disconnect(id).catchError((Object _) {});
+      if (connected) await ble.disconnect(id).catchError((Object _) {});
     }
   }
 }

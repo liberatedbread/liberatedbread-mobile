@@ -263,6 +263,40 @@ void main() {
     expect(target.prints, isEmpty, reason: 'not sent to the label printer');
   });
 
+  testWidgets('paper printing waits for the current label render', (
+    tester,
+  ) async {
+    final osPrint = FakeOsPrintService();
+    final target = _RecordingTarget();
+    await _pump(tester, target, osPrint: osPrint);
+    await tester.enterText(find.byKey(const ValueKey('label-line-0')), 'Oats');
+    await _settleRender(tester);
+    await tester.tap(find.byTooltip('Print on a regular printer'));
+    await tester.runAsync(() => Future<void>.delayed(Duration.zero));
+    await tester.pump();
+    expect(osPrint.jobs, hasLength(1));
+
+    await tester.enterText(find.byKey(const ValueKey('label-line-0')), 'Rye');
+    await tester.pump();
+    final button = tester.widget<IconButton>(
+      find.ancestor(
+        of: find.byTooltip('Print on a regular printer'),
+        matching: find.byType(IconButton),
+      ),
+    );
+    expect(button.onPressed, isNull);
+    await tester.tap(find.byTooltip('Print on a regular printer'));
+    await tester.pump();
+    expect(osPrint.jobs, hasLength(1));
+
+    await _settleRender(tester);
+    await tester.tap(find.byTooltip('Print on a regular printer'));
+    await tester.runAsync(() => Future<void>.delayed(Duration.zero));
+    await tester.pump();
+    expect(osPrint.jobs, hasLength(2));
+    expect(osPrint.jobs[1].pdf, isNot(equals(osPrint.jobs[0].pdf)));
+  });
+
   testWidgets('a PDF becomes its first page, at the printer resolution', (
     tester,
   ) async {

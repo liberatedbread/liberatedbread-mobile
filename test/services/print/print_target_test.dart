@@ -3,6 +3,7 @@
 //
 // The label print targets: what reaches the wire for a composed label, and
 // that every failure comes back as a result instead of an exception.
+import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -198,8 +199,38 @@ void main() {
       final outcome = await target.printMono(Uint8List(384 * 3), 384, 1);
       expect(outcome, isA<PrintFailed>());
       expect((outcome as PrintFailed).reason, contains('Cat printer'));
-      expect(ble.calls, isNot(contains('write')));
-      expect(ble.calls.last, 'disconnect');
+      expect(ble.calls, ['stopScan', 'connect']);
+    });
+
+    test('a connect timeout releases a late successful connection', () async {
+      final gate = Completer<void>();
+      final ble = FakeBleService(connectGate: gate);
+      final target = ConnectingBleTarget(
+        BleRasterTarget(
+          codec: FakeSpecCodec(),
+          ble: ble,
+          deviceId: 'AA:BB',
+          specYaml: 'cat-yaml',
+          name: 'Cat printer',
+          raster: _cat,
+        ),
+        connectTimeout: const Duration(milliseconds: 1),
+      );
+
+      final outcome = await target.printMono(Uint8List(384 * 3), 384, 1);
+      expect(outcome, isA<PrintFailed>());
+      expect(ble.events, contains('cancel:AA:BB'));
+      expect(ble.disconnectedIds, isEmpty);
+
+      gate.complete();
+      for (var i = 0; i < 20 && ble.disconnectedIds.isEmpty; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+      expect(ble.disconnectedIds, ['AA:BB']);
+      expect(
+        ble.events.where((event) => event == 'disconnect:AA:BB').length,
+        1,
+      );
     });
   });
 }
