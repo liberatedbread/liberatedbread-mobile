@@ -575,6 +575,8 @@ services:
       service, and switchbot-ble lists the same UUID as an OTA service, so
       a generic client should leave it alone rather than probe it.
 
+protocol_handler: "ipl_foreo"
+
 features:
   - type: "firmware_update"
     dfu:
