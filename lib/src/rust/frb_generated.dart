@@ -10609,14 +10609,16 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   ReplyWaitDto dco_decode_reply_wait_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 5)
-      throw Exception('unexpected arr length: expect 5 but see ${arr.length}');
+    if (arr.length != 7)
+      throw Exception('unexpected arr length: expect 7 but see ${arr.length}');
     return ReplyWaitDto(
       afterWrite: dco_decode_u_32(arr[0]),
       characteristicUuid: dco_decode_String(arr[1]),
       expectPrefix: dco_decode_list_prim_u_8_strict(arr[2]),
       errorPrefixes: dco_decode_list_list_prim_u_8_strict(arr[3]),
       timeoutMs: dco_decode_u_32(arr[4]),
+      mustCarryOffset: dco_decode_u_32(arr[5]),
+      mustCarry: dco_decode_opt_list_prim_u_8_strict(arr[6]),
     );
   }
 
@@ -14839,12 +14841,16 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var var_expectPrefix = sse_decode_list_prim_u_8_strict(deserializer);
     var var_errorPrefixes = sse_decode_list_list_prim_u_8_strict(deserializer);
     var var_timeoutMs = sse_decode_u_32(deserializer);
+    var var_mustCarryOffset = sse_decode_u_32(deserializer);
+    var var_mustCarry = sse_decode_opt_list_prim_u_8_strict(deserializer);
     return ReplyWaitDto(
       afterWrite: var_afterWrite,
       characteristicUuid: var_characteristicUuid,
       expectPrefix: var_expectPrefix,
       errorPrefixes: var_errorPrefixes,
       timeoutMs: var_timeoutMs,
+      mustCarryOffset: var_mustCarryOffset,
+      mustCarry: var_mustCarry,
     );
   }
 
@@ -18673,6 +18679,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_list_prim_u_8_strict(self.expectPrefix, serializer);
     sse_encode_list_list_prim_u_8_strict(self.errorPrefixes, serializer);
     sse_encode_u_32(self.timeoutMs, serializer);
+    sse_encode_u_32(self.mustCarryOffset, serializer);
+    sse_encode_opt_list_prim_u_8_strict(self.mustCarry, serializer);
   }
 
   @protected

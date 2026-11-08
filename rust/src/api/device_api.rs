@@ -384,7 +384,9 @@ pub struct ImageWritePlanDto {
 
 /// After write `after_write`, wait up to `timeout_ms` for a notification on
 /// `characteristic_uuid` containing `expect_prefix`; one containing any of
-/// `error_prefixes` first is the device refusing the job.
+/// `error_prefixes` first is the device refusing the job, and so is a reply
+/// that does not hold `must_carry` at `must_carry_offset` from its start.
+#[frb]
 #[derive(Debug, Clone)]
 pub struct ReplyWaitDto {
     pub after_write: u32,
@@ -392,6 +394,9 @@ pub struct ReplyWaitDto {
     pub expect_prefix: Vec<u8>,
     pub error_prefixes: Vec<Vec<u8>>,
     pub timeout_ms: u32,
+    #[frb(default = "0")]
+    pub must_carry_offset: u32,
+    pub must_carry: Option<Vec<u8>>,
 }
 
 /// Before write `before_write`, send `request` every `interval_ms` until a
@@ -1859,6 +1864,7 @@ pub(crate) fn encode_entity_value_with_spec(
         anyhow::anyhow!("entity '{entity_name}' declares scale 0, which cannot be inverted")
     })?;
 
+    let mut sent_command = None;
     let bytes = match action.command_name {
         // The command owns the byte layout; hand it the raw value for its one
         // un-defaulted parameter and let the encoder place it, defaults and
@@ -1877,6 +1883,7 @@ pub(crate) fn encode_entity_value_with_spec(
                 .first()
                 .map(|name| HashMap::from([((*name).to_string(), raw)]))
                 .unwrap_or_default();
+            sent_command = Some(command);
             crate::codec::types::encode_command(command, &params)?
         }
         // Direct write: the value IS the payload, at the width — and byte
@@ -1893,9 +1900,17 @@ pub(crate) fn encode_entity_value_with_spec(
     };
 
     // Wrap in the characteristic's framing when it declares an implemented
-    // scheme, matching the generic command path. A one-shot setpoint uses
-    // fragment serial 0.
-    let bytes = crate::protocol::image_upload::frame_command(action.characteristic, bytes, 0)?;
+    // scheme, matching the generic command path. A one-shot setpoint names no
+    // serial, so it uses fragment serial 0 unless the scheme owns its sequence.
+    let bytes = match sent_command {
+        Some(command) => crate::protocol::image_upload::frame_sent_command(
+            action.characteristic,
+            command,
+            bytes,
+            None,
+        )?,
+        None => crate::protocol::image_upload::frame_command(action.characteristic, bytes, 0)?,
+    };
 
     Ok(EntityWriteDto {
         service_uuid: action.service.uuid.clone(),
@@ -5574,6 +5589,8 @@ fn image_plan_dto(
                 expect_prefix: w.expect_prefix,
                 error_prefixes: w.error_prefixes,
                 timeout_ms: w.timeout_ms,
+                must_carry_offset: w.must_carry.as_ref().map_or(0, |f| f.offset as u32),
+                must_carry: w.must_carry.map(|f| f.bytes),
             })
             .collect(),
         completion_poll: frame.completion_poll.map(|p| CompletionPollDto {

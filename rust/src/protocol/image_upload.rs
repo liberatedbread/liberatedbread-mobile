@@ -40,9 +40,9 @@
 //! of the pipeline, which is what this module exists to stop.
 
 use super::{EncodedFrame, EncodedWrite};
-use crate::codec::types::encode_command;
+use crate::codec::types::{encode_command, framing_scheme_name};
 use crate::error::ProtocolError;
-use crate::spec::types::{Characteristic, CharacteristicProperty, DeviceSpec, Feature};
+use crate::spec::types::{Characteristic, CharacteristicProperty, Command, DeviceSpec, Feature};
 use serde::Deserialize;
 use std::collections::HashMap;
 
@@ -64,6 +64,9 @@ pub struct FragmentRequest<'a> {
     pub tag: u8,
     /// Usable bytes per BLE write AFTER the scheme's own header.
     pub capacity: usize,
+    /// The command's `protocol_id`, where the scheme carries one. Zero for
+    /// every packet that is not a command.
+    pub protocol_id: u8,
 }
 
 /// Turns a canvas into the ordered packet payloads that draw it.
@@ -107,6 +110,11 @@ const SCHEMES: &[RegisteredScheme] = &[
         name: super::popled::FRAME_SCHEME,
         header_len: super::popled::FRAME_HEADER_LEN,
         fragment: super::popled::fragment_packet,
+    },
+    RegisteredScheme {
+        name: super::seeblue::SCHEME,
+        header_len: super::seeblue::ENVELOPE_LEN,
+        fragment: super::seeblue::fragment_packet,
     },
 ];
 
@@ -175,11 +183,47 @@ fn framing_of(c: &Characteristic) -> Option<Framing> {
 /// say) used to slip an UNFRAMED write onto the wire — which Daniao
 /// hardware silently ignores. A dead control with no error, triggerable by
 /// one bad spec field.
+///
+/// A characteristic that declares `encryption` takes its packet through
+/// `protocol::static_ecb` instead, and the same rule holds: encrypted or an
+/// error, never plaintext.
 pub fn frame_command(
     characteristic: &Characteristic,
     packet: Vec<u8>,
     serial: u8,
 ) -> Result<Vec<u8>, ProtocolError> {
+    frame_packet(characteristic, packet, serial, None)
+}
+
+/// [`frame_command`] for a packet a spec `command` rendered, so a scheme can
+/// read what the command states about its envelope. `serial` is what the caller
+/// named, if anything: a scheme that owns its sequence fills in for one left
+/// out, and the rest take 0.
+pub fn frame_sent_command(
+    characteristic: &Characteristic,
+    command: &Command,
+    packet: Vec<u8>,
+    serial: Option<u8>,
+) -> Result<Vec<u8>, ProtocolError> {
+    let serial = serial.unwrap_or_else(|| {
+        if framing_scheme_name(characteristic).as_deref() == Some(super::seeblue::SCHEME) {
+            super::seeblue::next_message_index()
+        } else {
+            0
+        }
+    });
+    frame_packet(characteristic, packet, serial, command.protocol_id_byte())
+}
+
+fn frame_packet(
+    characteristic: &Characteristic,
+    packet: Vec<u8>,
+    serial: u8,
+    protocol_id: Option<u8>,
+) -> Result<Vec<u8>, ProtocolError> {
+    if characteristic.encryption.is_some() {
+        return super::static_ecb::encrypt_command(characteristic, &packet);
+    }
     let Some(raw) = characteristic.framing.as_ref() else {
         return Ok(packet);
     };
@@ -197,11 +241,15 @@ pub fn frame_command(
             reason: format!("scheme '{scheme_name}' is not implemented"),
         });
     };
+    if scheme_name == super::seeblue::SCHEME {
+        super::seeblue::check_packet(&packet, protocol_id)?;
+    }
     let mut parts = (scheme.fragment)(FragmentRequest {
         packet: &packet,
         serial: serial as u32,
         tag: framing.channel_tag.unwrap_or(0),
         capacity: packet.len().max(1),
+        protocol_id: protocol_id.unwrap_or(0),
     });
     // capacity >= packet.len() forces a single fragment.
     Ok(if parts.is_empty() {
@@ -598,6 +646,7 @@ pub fn encode_frame_with(
             serial: *serial,
             tag,
             capacity,
+            protocol_id: 0,
         });
         *serial = serial.wrapping_add(1);
         for bytes in parts {

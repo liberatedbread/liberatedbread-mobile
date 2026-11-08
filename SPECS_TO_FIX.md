@@ -11,6 +11,29 @@ plus the finders' incidental spec notes). Verified items were put to an adversar
 **Open: 2 verified, 9 unverified.** Five more were delivered upstream; see
 below.
 
+## Found 2026-11-08, implementing static-key AES and the SEEBlue envelope
+
+None of this was checked against hardware. The app's reading is in
+`rust/src/protocol/static_ecb.rs` and `rust/src/protocol/seeblue.rs`.
+
+- The `encryption` schema has no way to state block padding, which is how
+  `static_ecb` comes to key it on `protocol_handler`. A `padding` field would
+  let the specs say it.
+- shining-glasses never states its own padding, and says two things about whose
+  it shares: `device.notes` and its doc call the protocol identical to Shining
+  Mask (random tail), while its `protocol_handler` comment says the framing is
+  shared with Magic Display (zeros). The app sends zeros.
+- shining-glasses `device.notes` says its key "matches the published family key
+  (same cdbwsoft codebase as Magic Display)". Its key is `32672f79…`, the mask's;
+  Magic Display's is `34522a5b…`.
+- `docs/devices/shining-mask.md` gives FC and BC as R,B,G; the YAML says R,G,B
+  and calls the R,B,G reading dead. `docs/devices/shining-glasses.md` spells
+  ANIM as `'A',0x35,'I',0x34` and IMAG as `'I',0x34,'A',0x47`; the YAML has the
+  real ASCII.
+- seeblue-motorcycle-led tells a client to send a post-connect handshake on
+  protocol 0x00 "to be safe" but declares no command for it, so a spec-driven
+  client cannot. It also gives no captured frame and no first `message_index`.
+
 ## LOY SPACE panels: facts measured on a real backpack, 2026-11-08
 
 On a `YS525C110340` (`EXYC-A#CXB3BRI7BTVOICE3`, firmware `V2.8.8#V01`, 64x64),

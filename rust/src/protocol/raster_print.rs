@@ -11,7 +11,7 @@
 //!   Brother QL raster language on port 9100). The caller opens a socket and
 //!   writes what the job encoder returns.
 //! - [`RasterTransport::BleWritePlan`] — a GATT write plan from the
-//!   image-upload registry (cat printer, Fichero D11). The caller runs the
+//!   image-upload registry (cat printers, Fichero D11). The caller runs the
 //!   plan's writes against the connected device.
 //!
 //! BLE printers are not listed twice: any `image_upload` handler a
@@ -125,8 +125,10 @@ mod tests {
             transport_for("fichero_d11"),
             Some(RasterTransport::BleWritePlan)
         );
-        // Named by its spec, not implemented in this build.
-        assert_eq!(transport_for("cat_printer_mxw01"), None);
+        assert_eq!(
+            transport_for("cat_printer_mxw01"),
+            Some(RasterTransport::BleWritePlan)
+        );
         assert_eq!(transport_for("nope"), None);
     }
 

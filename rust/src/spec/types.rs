@@ -2436,7 +2436,8 @@ pub struct Characteristic {
     /// Free-form documentation about the characteristic.
     #[serde(default)]
     pub notes: Option<String>,
-    /// Encryption declaration (algorithm/key derivation). Not yet executed.
+    /// Encryption declaration (algorithm/key derivation). Executed for
+    /// commands where `protocol::static_ecb` can, and refused otherwise.
     #[serde(default)]
     pub encryption: Option<serde_yaml::Value>,
     /// Packet framing declaration (length prefix/checksum/chunking). Not yet
@@ -2526,6 +2527,13 @@ pub struct Command {
     /// on the wire is worse than none.
     #[serde(default)]
     pub fixed_length: Option<usize>,
+    /// Which of a framing scheme's protocols this command's packet goes under
+    /// (`seeblue_envelope` byte 3). Part of the envelope, not the packet.
+    /// Untyped for the usual tolerance reason: read through
+    /// [`Self::protocol_id_byte`], a bad value makes the command unsendable
+    /// rather than failing the whole spec.
+    #[serde(default)]
+    pub protocol_id: Option<serde_yaml::Value>,
 }
 
 /// What a locator command does to make the device noticeable.
@@ -2558,6 +2566,11 @@ impl LocateKind {
 }
 
 impl Command {
+    /// The declared `protocol_id`, when it is one byte.
+    pub fn protocol_id_byte(&self) -> Option<u8> {
+        u8::try_from(self.protocol_id.as_ref()?.as_u64()?).ok()
+    }
+
     /// The declared locator modality, or `None` when this is not a locator.
     ///
     /// An unrecognised spelling is `None`: offering a button that writes an
