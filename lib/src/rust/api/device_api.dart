@@ -4565,13 +4565,16 @@ class RejoinDto {
 
 /// After write `after_write`, wait up to `timeout_ms` for a notification on
 /// `characteristic_uuid` containing `expect_prefix`; one containing any of
-/// `error_prefixes` first is the device refusing the job.
+/// `error_prefixes` first is the device refusing the job, and so is a reply
+/// that does not hold `must_carry` at `must_carry_offset` from its start.
 class ReplyWaitDto {
   final int afterWrite;
   final String characteristicUuid;
   final Uint8List expectPrefix;
   final List<Uint8List> errorPrefixes;
   final int timeoutMs;
+  final int mustCarryOffset;
+  final Uint8List? mustCarry;
 
   const ReplyWaitDto({
     required this.afterWrite,
@@ -4579,6 +4582,8 @@ class ReplyWaitDto {
     required this.expectPrefix,
     required this.errorPrefixes,
     required this.timeoutMs,
+    this.mustCarryOffset = 0,
+    this.mustCarry,
   });
 
   @override
@@ -4587,7 +4592,9 @@ class ReplyWaitDto {
       characteristicUuid.hashCode ^
       expectPrefix.hashCode ^
       errorPrefixes.hashCode ^
-      timeoutMs.hashCode;
+      timeoutMs.hashCode ^
+      mustCarryOffset.hashCode ^
+      mustCarry.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -4598,7 +4605,9 @@ class ReplyWaitDto {
           characteristicUuid == other.characteristicUuid &&
           expectPrefix == other.expectPrefix &&
           errorPrefixes == other.errorPrefixes &&
-          timeoutMs == other.timeoutMs;
+          timeoutMs == other.timeoutMs &&
+          mustCarryOffset == other.mustCarryOffset &&
+          mustCarry == other.mustCarry;
 }
 
 /// One robot's answer to the UDP-5678 discovery probe.

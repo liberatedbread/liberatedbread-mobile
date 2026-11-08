@@ -385,6 +385,7 @@ fn upload_plan(
             after_write: plan.writes.len() - 1,
             characteristic_uuid: notify.uuid.clone(),
             expect_prefix: ack(0),
+            must_carry: None,
             error_prefixes: (1..=0x0F).map(ack).collect(),
             timeout_ms: ACK_TIMEOUT_MS,
         });

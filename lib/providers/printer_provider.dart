@@ -35,8 +35,8 @@ class SavedPrinter {
 
 /// The saved devices that are label printers this build can drive: a BLE
 /// printer whose handler writes a GATT plan, or a network printer that takes
-/// a raw stream. A printer whose spec names an encoder this build lacks (the
-/// MXW01) is left out rather than offered and failed.
+/// a raw stream. A printer whose spec names an encoder this build lacks is
+/// left out rather than offered and failed.
 final savedPrintersProvider = FutureProvider.autoDispose<List<SavedPrinter>>((
   ref,
 ) async {

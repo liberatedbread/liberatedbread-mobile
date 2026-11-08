@@ -2723,6 +2723,48 @@ entities:
         }
     }
 
+    /// A complete static block and a stated padding are the case the gate lets
+    /// through, for a command. The test above covers the incomplete block.
+    #[test]
+    fn a_complete_static_key_lets_a_command_resolve() {
+        let mut spec = spec_with(
+            r#"
+  - name: Mask Display
+    platform: light
+    commands:
+      set_brightness: set_brightness
+"#,
+            r#"
+  - uuid: "0000fff0-0000-1000-8000-00805f9b34fb"
+    name: Control
+    characteristics:
+      - uuid: "0000fff1-0000-1000-8000-00805f9b34fb"
+        name: Command
+        properties: [write]
+        encryption:
+          algorithm: "aes-128-ecb"
+          key_derivation: "static"
+          static_key: "34522a5b7a6e492c08090a9d8d2a23f8"
+          padding: "zero"
+        commands:
+          set_brightness:
+            description: Brightness
+            template: [6, "{brightness}"]
+            parameters:
+              brightness: {type: uint8, min: 0, max: 255}
+"#,
+        );
+        assert_eq!(actions_for(&spec).len(), 1);
+
+        // Derived keys do not.
+        let block = spec.services[0].characteristics[0]
+            .encryption
+            .as_mut()
+            .unwrap();
+        block["key_derivation"] = "device-specific".into();
+        assert!(actions_for(&spec).is_empty());
+    }
+
     /// The same gate applies to a direct write: the value would land as the
     /// wrong bytes just as surely as a command would.
     #[test]
@@ -2742,6 +2784,9 @@ entities:
         properties: [read, write]
         encryption:
           algorithm: "aes-128-ecb"
+          key_derivation: "static"
+          static_key: "34522a5b7a6e492c08090a9d8d2a23f8"
+          padding: "zero"
         format:
           - offset: 0
             length: 1
@@ -2749,7 +2794,61 @@ entities:
             type: uint8
 "#,
         );
-        assert!(actions_for(&spec).is_empty());
+        assert!(
+            actions_for(&spec).is_empty(),
+            "even a key this build can run: a bare value is not a command block"
+        );
+    }
+
+    /// A SEEBlue envelope carries the protocol id a command states, so a command
+    /// without one, and a direct write, have nothing to put there.
+    #[test]
+    fn the_seeblue_envelope_needs_a_commands_protocol_id() {
+        let services = |protocol_id: &str| {
+            format!(
+                r#"
+  - uuid: "0000ffe5-0000-1000-8000-00805f9b34fb"
+    name: Data
+    characteristics:
+      - uuid: "0000ffe9-0000-1000-8000-00805f9b34fb"
+        name: TX
+        properties: [write]
+        framing:
+          scheme: "seeblue_envelope"
+        format:
+          - offset: 0
+            length: 1
+            name: level
+            type: uint8
+        commands:
+          set_brightness:
+            description: Brightness
+            {protocol_id}
+            template: [2, "{{brightness}}"]
+            parameters:
+              brightness: {{type: uint8, min: 0, max: 255}}
+"#
+            )
+        };
+        let light = r#"
+  - name: Light
+    platform: light
+    commands:
+      set_brightness: set_brightness
+"#;
+        assert_eq!(
+            actions_for(&spec_with(light, &services("protocol_id: 1"))).len(),
+            1
+        );
+        assert!(actions_for(&spec_with(light, &services(""))).is_empty());
+        assert!(actions_for(&spec_with(light, &services("protocol_id: 300"))).is_empty());
+
+        let direct = r#"
+  - name: Level
+    platform: number
+    command_characteristic: "0000ffe9-0000-1000-8000-00805f9b34fb"
+"#;
+        assert!(actions_for(&spec_with(direct, &services("protocol_id: 1"))).is_empty());
     }
 
     /// The Orba's BLE-MIDI framing is executed — but only as SEVERAL ordered

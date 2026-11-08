@@ -142,19 +142,11 @@ Future<void> runImageWritePlan(
       await send(write);
       for (final wait in waitsAfter[i] ?? const <ReplyWaitDto>[]) {
         try {
-          await replies.take(
-            wait.expectPrefix,
-            errors: wait.errorPrefixes,
-            timeout: Duration(milliseconds: wait.timeoutMs),
-          );
+          await _takeReply(replies, wait);
         } on TimeoutException {
           if (i != 0) rethrow;
           await send(write);
-          await replies.take(
-            wait.expectPrefix,
-            errors: wait.errorPrefixes,
-            timeout: Duration(milliseconds: wait.timeoutMs),
-          );
+          await _takeReply(replies, wait);
         }
       }
     }
@@ -163,6 +155,21 @@ Future<void> runImageWritePlan(
       await s.cancel();
     }
     replies.close();
+  }
+}
+
+/// Wait for [wait]'s reply and hold it to what the plan says it must carry:
+/// a reply without that is the device answering no.
+Future<void> _takeReply(_ReplyBuffer replies, ReplyWaitDto wait) async {
+  final mustCarry = wait.mustCarry;
+  final reply = await replies.take(
+    wait.expectPrefix,
+    errors: wait.errorPrefixes,
+    minLength: mustCarry == null ? 0 : wait.mustCarryOffset + mustCarry.length,
+    timeout: Duration(milliseconds: wait.timeoutMs),
+  );
+  if (mustCarry != null && !_carries(reply, wait.mustCarryOffset, mustCarry)) {
+    throw DeviceRefusedException(reply);
   }
 }
 
