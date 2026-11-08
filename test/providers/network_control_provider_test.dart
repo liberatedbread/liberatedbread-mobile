@@ -16,7 +16,12 @@ import 'package:liberated_bread_mobile/services/spec_codec.dart';
 
 import '../fakes/fake_spec_codec.dart';
 
-DeviceSpecDto _spec(String name, String manufacturer) => DeviceSpecDto(
+DeviceSpecDto _spec(
+  String name,
+  String manufacturer, {
+  String? protocolHandler,
+}) => DeviceSpecDto(
+  protocolHandler: protocolHandler,
   nameMatchers: const [],
   platformFallbackTypes: const [],
   txtMatchGroups: const [],
@@ -269,6 +274,72 @@ void main() {
         ),
       );
       expect(controls, isNull);
+    });
+  });
+
+  group('the read-only Modbus handler', () {
+    const request = NetworkControlRequest(
+      deviceName: 'Inverter',
+      manufacturer: 'SolarEdge',
+      ssdpTargets: [],
+    );
+
+    test('routes to its status screen, even with no entities', () async {
+      final container = _container(
+        FakeSpecCodec(networkEntities: (_) => const []),
+        parsed: [
+          (
+            spec: _spec(
+              'Inverter',
+              'SolarEdge',
+              protocolHandler: sunSpecHandler,
+            ),
+            yaml: 'solaredge',
+          ),
+        ],
+      );
+      final controls = await container.read(
+        networkControlsProvider(request).future,
+      );
+      expect(controls, isNotNull);
+      expect(controls!.sunSpecStatus, isTrue);
+    });
+
+    test('admits a BiSecur gateway, whose spec binds no entities', () async {
+      final container = _container(
+        FakeSpecCodec(networkEntities: (_) => const []),
+        parsed: [
+          (
+            spec: _spec(
+              'Inverter',
+              'SolarEdge',
+              protocolHandler: biSecurHandler,
+            ),
+            yaml: 'bisecur',
+          ),
+        ],
+      );
+      final controls = await container.read(
+        networkControlsProvider(request).future,
+      );
+      expect(controls!.biSecurStatus, isTrue);
+      expect(controls.sunSpecStatus, isFalse);
+    });
+
+    test('is not claimed by a spec under another handler', () async {
+      final container = _container(
+        FakeSpecCodec(networkEntities: (_) => const [_plugEntity]),
+        parsed: [
+          (
+            spec: _spec('Inverter', 'SolarEdge', protocolHandler: 'other'),
+            yaml: 'other',
+          ),
+        ],
+      );
+      final controls = await container.read(
+        networkControlsProvider(request).future,
+      );
+      expect(controls!.sunSpecStatus, isFalse);
     });
   });
 

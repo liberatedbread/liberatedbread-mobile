@@ -121,6 +121,30 @@ void main() {
     expect(find.byType(DecodedValueWidget), findsNothing);
   });
 
+  testWidgets('excluded commands never fall back to raw writes', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      _wrap(
+        const TypedCharacteristicWidget(
+          deviceId: 'd',
+          serviceUuid: 's',
+          specYaml: 'y',
+          specChar: _cmdChar,
+          discovered: BleDiscoveredCharacteristic(
+            uuid: 'c',
+            canRead: false,
+            canWrite: true,
+            canNotify: false,
+          ),
+          excludedCommands: {'power_on'},
+        ),
+      ),
+    );
+    expect(find.byType(TypedCommandWidget), findsNothing);
+    expect(find.byType(RawCharacteristicWidget), findsNothing);
+  });
+
   testWidgets('readable + format fields renders DecodedValueWidget', (
     tester,
   ) async {

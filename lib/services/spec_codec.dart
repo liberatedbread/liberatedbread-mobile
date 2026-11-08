@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import 'package:flutter/foundation.dart' show immutable;
 
 import '../src/rust/api/device_api.dart';
+import '../src/rust/api/readonly_api.dart' show ReadOnlySurfaceDto;
 import '../src/rust/api/print_api.dart'
     show IppPrinterStatusDto, LabelCanvasDto, PrintDither, RasterPrintDto;
 import '../src/rust/api/spec_handle.dart'
@@ -16,6 +17,8 @@ import '../src/rust/api/spec_handle.dart'
 // without the native library. (Their generated `==` compares List fields by
 // reference, not deeply — see device_spec_match_provider for where the match
 // lookup works around that.)
+export '../src/rust/api/readonly_api.dart' show ReadOnlySurfaceDto;
+export '../src/rust/protocol/readonly.dart' show ReadOnlyCommandDto;
 export '../src/rust/api/device_api.dart'
     show
         DeviceSpecDto,
@@ -1147,6 +1150,9 @@ abstract class SpecCodec {
     required String specYaml,
     required BrotherQlJobParamsDto params,
   });
+
+  /// The spec's read-only surface, or null when its handler is not read-only.
+  Future<ReadOnlySurfaceDto?> readOnlySurface({required String specYaml});
 
   /// Whether the spec reads its status over IPP Get-Printer-Attributes.
   Future<bool> ippStatusSupported({required String specYaml});

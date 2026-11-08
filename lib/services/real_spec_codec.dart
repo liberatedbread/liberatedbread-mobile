@@ -8,6 +8,7 @@ import 'package:flutter/foundation.dart' show visibleForTesting;
 
 import '../src/rust/api/device_api.dart' as rust;
 import '../src/rust/api/print_api.dart' as print_rust;
+import '../src/rust/api/readonly_api.dart' as readonly_rust;
 import '../src/rust/api/spec_handle.dart' as handles;
 import 'spec_codec.dart';
 
@@ -1243,6 +1244,10 @@ class RealSpecCodec implements SpecCodec {
     dither: dither,
     threshold: threshold,
   );
+
+  @override
+  Future<ReadOnlySurfaceDto?> readOnlySurface({required String specYaml}) =>
+      readonly_rust.readOnlySurface(specYaml: specYaml);
 
   @override
   Future<bool> ippStatusSupported({required String specYaml}) =>

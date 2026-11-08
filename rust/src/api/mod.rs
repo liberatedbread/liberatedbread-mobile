@@ -4,9 +4,11 @@
 pub mod device_api;
 pub mod enphase_api;
 pub mod health_api;
+pub mod ipl_api;
 pub mod mock_api;
 pub mod print_api;
 pub mod radio_api;
+pub mod readonly_api;
 pub mod sdp_api;
 pub mod serial_api;
 pub mod spec_handle;

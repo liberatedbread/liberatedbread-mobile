@@ -445,6 +445,8 @@ services:
         name: "Serial Number String"
         properties: ["read"]
 
+protocol_handler: "ipl_silkn"
+
 protocol_details:
   treatment_dynamic_information:
     variant_selection: >

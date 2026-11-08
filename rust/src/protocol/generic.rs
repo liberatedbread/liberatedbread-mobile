@@ -53,6 +53,10 @@ impl GenericProtocol {
         command_name: &str,
         params: &HashMap<String, f64>,
     ) -> Result<(&Characteristic, &Command, Vec<u8>), ProtocolError> {
+        // First, before a lookup can answer anything else: every send on the
+        // spec-driven path comes through here, and a read-only handler's spec
+        // has nothing that may leave by it.
+        super::readonly::refuse_generic_send(&self.spec, command_name)?;
         let found = match self.service_scope.as_deref() {
             Some(scope) => self.spec.find_writable_characteristic_in(scope, char_uuid),
             None => self.spec.find_writable_characteristic(char_uuid),
