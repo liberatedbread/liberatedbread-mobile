@@ -12,6 +12,7 @@ import '../core/device_pictogram.dart';
 import '../core/error_text.dart';
 import '../core/localthings.dart';
 import '../core/log.dart';
+import '../core/vendor_names.dart';
 import '../core/web_link.dart';
 import '../models/network_device.dart';
 import '../widgets/power_strip_icon.dart';
@@ -403,10 +404,16 @@ class _WifiScanScreenState extends ConsumerState<WifiScanScreen> {
     // A network device rarely publishes a MAC, but when it does (Hue's
     // bridgeid, Lutron's MACADDR TXT record) it is the one thing here the IEEE
     // registry can name — and unlike the IP, it does not move.
-    final vendor = registry.maybeWhen(
+    // In display form, and said as the radio's when a module house holds
+    // the block: "Espressif radio", never "Espressif Inc." as though it made
+    // the plug.
+    final rawVendor = registry.maybeWhen(
       data: (r) => r.vendorForMac(device.advertisedMac),
       orElse: () => null,
     );
+    final vendor = rawVendor == null
+        ? null
+        : vendorPhrase(displayVendorName(rawVendor));
     // A matched spec may declare controls for this device (a Wemo plug's
     // toggle, the Crock-Pot's cook mode). Resolved here, per tile, so the tap
     // can go straight to a control screen — and stays on the details sheet

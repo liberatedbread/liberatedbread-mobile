@@ -299,7 +299,11 @@ buying again.
   unclaimed hub and distributing drivers both require the cloud**, and there
   is no documented alternative. Samsung already bricked the hub v1 fleet on
   2021-06-30, so this risk has precedent. If you depend on it: pair critical
-  Zigbee/Z-Wave devices to a local stick as insurance. See
+  Zigbee/Z-Wave devices to a local stick as insurance. The Samsung
+  *appliances* on the same account are a different story: the
+  [LocalThings](https://github.com/mbillow/localthings) Home Assistant
+  integration (HACS) drives them over the LAN with no Samsung account, so
+  move those first. See
   [devices/smartthings-hub-v2.md](devices/smartthings-hub-v2.md).
 - **Withings** — not covered by this knowledge base (no spec). Their devices
   are known to be cloud-keyed with no documented local API; treat as blocked

@@ -25,6 +25,7 @@ import '../widgets/unexpected_services_banner.dart';
 import '../widgets/radar_scanner.dart';
 import '../core/error_text.dart';
 import '../core/log.dart';
+import '../core/vendor_names.dart';
 import '../widgets/rabbit_air_setup_info_panel.dart';
 import 'find_device_screen.dart';
 import 'setup_instructions_screen.dart';
@@ -1274,8 +1275,13 @@ class _ConnectedHeader extends StatelessWidget {
       (label: 'Address', value: device.macAddress!),
     for (final company in description.companies.take(1))
       (label: 'Advertises as', value: company),
-    if (description.addressVendor != null)
-      (label: 'Address block', value: description.addressVendor!),
+    // A chip or module vendor's block says who made the radio, and is
+    // labelled so: "Address block: Espressif" read as the device's brand.
+    if (description.addressVendor case final vendor?)
+      (
+        label: isRadioVendor(vendor) ? 'Radio made by' : 'Address block',
+        value: vendor,
+      ),
   ];
 
   @override

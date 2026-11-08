@@ -1176,12 +1176,16 @@ void main() {
       await tester.pumpAndSettle();
     }
 
-    testWidgets('shows the address and the block that owns it', (tester) async {
+    testWidgets('shows the address and the radio maker whose block it is', (
+      tester,
+    ) async {
       await pumpReady(tester, deviceWith());
 
       expect(find.text('Address'), findsOneWidget);
       expect(find.text('B8:94:D9:11:22:33'), findsOneWidget);
-      expect(find.text('Address block'), findsOneWidget);
+      // TI made the radio module, not the device, and the label says so.
+      expect(find.text('Radio made by'), findsOneWidget);
+      expect(find.text('Address block'), findsNothing);
       expect(find.text('Texas Instruments'), findsOneWidget);
     });
 
@@ -1196,7 +1200,9 @@ void main() {
 
       expect(find.text('Advertises as'), findsOneWidget);
       expect(find.text('Ember Technologies'), findsOneWidget);
-      expect(find.text('Address block'), findsOneWidget);
+      // TI made the radio module, not the device, and the label says so.
+      expect(find.text('Radio made by'), findsOneWidget);
+      expect(find.text('Address block'), findsNothing);
       expect(find.text('Texas Instruments'), findsOneWidget);
     });
 
@@ -1205,6 +1211,7 @@ void main() {
 
       expect(find.text('Address'), findsOneWidget);
       expect(find.text('Address block'), findsNothing);
+      expect(find.text('Radio made by'), findsNothing);
     });
 
     testWidgets('a CoreBluetooth UUID is not offered as an address', (
@@ -1221,6 +1228,7 @@ void main() {
 
       expect(find.text('Address'), findsNothing);
       expect(find.text('Address block'), findsNothing);
+      expect(find.text('Radio made by'), findsNothing);
     });
   });
 

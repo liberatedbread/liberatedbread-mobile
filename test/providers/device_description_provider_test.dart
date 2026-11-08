@@ -17,12 +17,19 @@ final _registry = NumberRegistry(
       keyWidth: 7,
     ),
     RegistryTable.parse(
-      _table({'A4CF12': 'Espressif Inc.', 'B894D9': 'Texas Instruments'}),
+      _table({
+        'A4CF12': 'Espressif Inc.',
+        'B894D9': 'Texas Instruments',
+        '001788': 'Philips Lighting BV',
+      }),
       keyWidth: 6,
     ),
   ],
   companyIds: RegistryTable.parse(
-    _table({'00961': 'Ember Technologies'}),
+    _table({
+      '00961': 'Ember Technologies',
+      '00089': 'Nordic Semiconductor ASA',
+    }),
     keyWidth: 5,
   ),
   serviceUuids: RegistryTable.parse(
@@ -51,10 +58,33 @@ void main() {
     test('names the maker of a device that advertises nothing at all', () {
       // The case the scan list handled worst: no name, no services, no
       // manufacturer data. The address block is the only thing left.
+      // Espressif made the radio, not the device, so it is not the maker:
+      // it is said as the radio's, in its display form.
       final d = describeDevice(_device(), _registry);
-      expect(d.addressVendor, 'Espressif Inc.');
-      expect(d.maker, 'Espressif Inc.');
-      expect(d.summary, 'Espressif Inc.');
+      expect(d.addressVendor, 'Espressif');
+      expect(d.maker, isNull);
+      expect(d.radioVendor, 'Espressif');
+      expect(d.summary, 'Espressif radio');
+    });
+
+    test('a block registered to a product vendor names the maker', () {
+      final d = describeDevice(_device(id: '00:17:88:11:22:33'), _registry);
+      expect(d.addressVendor, 'Philips Lighting');
+      expect(d.maker, 'Philips Lighting');
+      expect(d.radioVendor, isNull);
+      expect(d.summary, 'Philips Lighting');
+    });
+
+    test('a radio vendor company id yields to a product vendor block', () {
+      // Nordic's company ID is the SDK default a firmware never changed; the
+      // address block is the better answer to whose device this is.
+      final d = describeDevice(
+        _device(id: '00:17:88:11:22:33', companyIds: [0x0059]),
+        _registry,
+      );
+      expect(d.companies, ['Nordic']);
+      expect(d.maker, 'Philips Lighting');
+      expect(d.radioVendor, isNull);
     });
 
     test('names standard services when capabilities are advertised', () {
@@ -71,7 +101,7 @@ void main() {
       expect(d.vendorServiceCount, 0);
       expect(
         d.summary,
-        'Espressif Inc. · Battery Service, Environmental Sensing',
+        'Espressif radio · Battery Service, Environmental Sensing',
       );
     });
 
@@ -87,7 +117,7 @@ void main() {
       );
       expect(d.standardServices, isEmpty);
       expect(d.vendorServiceCount, 2);
-      expect(d.summary, 'Espressif Inc. · 2 custom services');
+      expect(d.summary, 'Espressif radio · 2 custom services');
     });
 
     test('a single custom service is singular', () {
@@ -95,7 +125,7 @@ void main() {
         _device(serviceUuids: const ['fc543622-236c-4c94-8fa9-944a3e5353fa']),
         _registry,
       );
-      expect(d.summary, 'Espressif Inc. · 1 custom service');
+      expect(d.summary, 'Espressif radio · 1 custom service');
     });
 
     test('the advertised company id outranks the address block', () {
@@ -146,11 +176,11 @@ void main() {
       );
     });
 
-    test('a nameless device is titled by its maker', () {
+    test('a nameless device is titled by its radio, not as its brand', () {
       final device = _device();
       expect(
         deviceTitle(device, describeDevice(device, _registry)),
-        'Espressif Inc.',
+        'Device with an Espressif radio',
       );
     });
 
@@ -188,7 +218,7 @@ void main() {
       );
       expect(
         deviceSubtitle(device, describeDevice(device, _registry)),
-        'Espressif Inc. · Battery Service',
+        'Espressif radio · Battery Service',
       );
     });
 
