@@ -349,6 +349,11 @@ class NetworkControls {
   /// screen. Printing itself stays with the OS print dialog.
   final bool ippStatus;
 
+  /// True when the device is read through the read-only Modbus TCP handler.
+  /// It routes to the inverter status screen and never to the entity control
+  /// screen, whose generic poll cannot speak Modbus.
+  final bool sunSpecStatus;
+
   const NetworkControls({
     required this.specYaml,
     required this.entities,
@@ -357,6 +362,7 @@ class NetworkControls {
     this.rasterPrintHandler,
     this.stateProbes = const [],
     this.ippStatus = false,
+    this.sunSpecStatus = false,
   });
 
   /// Whether these controls describe a hub — a device fronting children that
@@ -380,6 +386,9 @@ class NetworkControls {
     (e) => e.isInstanced && e.actions.any((a) => a.credentials.isNotEmpty),
   );
 }
+
+/// The `protocol_handler` of the read-only SolarEdge Modbus TCP reader.
+const sunSpecHandler = 'modbus_tcp_sunspec';
 
 /// Resolve what the catalogue lets us control on one network device.
 ///
@@ -421,9 +430,11 @@ final networkControlsProvider = FutureProvider.autoDispose
         final rasterPrintHandler = rasterPrint?.transport == 'raw_stream'
             ? rasterPrint!.handler
             : null;
+        final sunSpecStatus = spec.protocolHandler == sunSpecHandler;
         if (surface.entities.isEmpty &&
             rasterPrintHandler == null &&
-            !ippStatus) {
+            !ippStatus &&
+            !sunSpecStatus) {
           return null;
         }
         return NetworkControls(
@@ -434,6 +445,7 @@ final networkControlsProvider = FutureProvider.autoDispose
           rasterPrintHandler: rasterPrintHandler,
           stateProbes: surface.stateProbes,
           ippStatus: ippStatus,
+          sunSpecStatus: sunSpecStatus,
         );
       } catch (e) {
         Log.spec.warning(

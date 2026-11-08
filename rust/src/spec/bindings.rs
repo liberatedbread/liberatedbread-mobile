@@ -359,6 +359,13 @@ pub fn resolve_entity_actions<'a>(
     spec: &'a DeviceSpec,
     entity: &'a Entity,
 ) -> Vec<ResolvedAction<'a>> {
+    // A read-only handler's device gets no controls, whatever its spec binds.
+    // AC Infinity's outlet switches are bound to a real command on a real
+    // characteristic; only this keeps them off the screen on principle rather
+    // than because of how a template happens to be shaped today.
+    if crate::protocol::readonly::is_read_only(spec) {
+        return Vec::new();
+    }
     // `number` and `climate` resolve a single setpoint action, which is
     // structural rather than vocabulary-based — see `resolve_set_value`.
     if matches!(entity.platform.as_deref(), Some("number") | Some("climate")) {
@@ -977,7 +984,7 @@ pub fn resolve_network_actions<'a>(
     spec: &'a DeviceSpec,
     entity: &'a Entity,
 ) -> Vec<NetworkAction<'a>> {
-    if !on_network_surface(spec, entity) {
+    if crate::protocol::readonly::is_read_only(spec) || !on_network_surface(spec, entity) {
         return Vec::new();
     }
     let Some(roles) = platform_roles(entity.platform.as_deref()) else {

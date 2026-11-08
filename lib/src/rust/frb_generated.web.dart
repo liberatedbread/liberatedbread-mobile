@@ -14,6 +14,7 @@ import 'api/health_api.dart';
 import 'api/mock_api.dart';
 import 'api/print_api.dart';
 import 'api/radio_api.dart';
+import 'api/readonly_api.dart';
 import 'api/sdp_api.dart';
 import 'api/serial_api.dart';
 import 'api/spec_handle.dart';
@@ -22,7 +23,11 @@ import 'dart:convert';
 import 'error.dart';
 import 'frb_generated.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated_web.dart';
+import 'protocol/acinfinity.dart';
 import 'protocol/enphase.dart';
+import 'protocol/modbus_sunspec.dart';
+import 'protocol/readonly.dart';
+import 'protocol/yummly.dart';
 import 'spec/types.dart';
 
 abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
@@ -116,6 +121,18 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   String dco_decode_String(dynamic raw);
 
   @protected
+  AcInfinityFeedDto dco_decode_ac_infinity_feed_dto(dynamic raw);
+
+  @protected
+  AcInfinityPortDto dco_decode_ac_infinity_port_dto(dynamic raw);
+
+  @protected
+  AcInfinityStatusDto dco_decode_ac_infinity_status_dto(dynamic raw);
+
+  @protected
+  AcInfinityStoredDto dco_decode_ac_infinity_stored_dto(dynamic raw);
+
+  @protected
   BandLimitDto dco_decode_band_limit_dto(dynamic raw);
 
   @protected
@@ -173,6 +190,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   HealthClockDto dco_decode_box_autoadd_health_clock_dto(dynamic raw);
 
   @protected
+  int dco_decode_box_autoadd_i_16(dynamic raw);
+
+  @protected
   PlatformInt64 dco_decode_box_autoadd_i_64(dynamic raw);
 
   @protected
@@ -211,6 +231,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   RasterPrintDto dco_decode_box_autoadd_raster_print_dto(dynamic raw);
+
+  @protected
+  ReadOnlySurfaceDto dco_decode_box_autoadd_read_only_surface_dto(dynamic raw);
 
   @protected
   RejoinDto dco_decode_box_autoadd_rejoin_dto(dynamic raw);
@@ -346,6 +369,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   HttpRequestDto dco_decode_http_request_dto(dynamic raw);
 
   @protected
+  int dco_decode_i_16(dynamic raw);
+
+  @protected
   int dco_decode_i_32(dynamic raw);
 
   @protected
@@ -389,6 +415,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   List<String> dco_decode_list_String(dynamic raw);
+
+  @protected
+  List<AcInfinityPortDto> dco_decode_list_ac_infinity_port_dto(dynamic raw);
 
   @protected
   List<BleHandshakeStepDto> dco_decode_list_ble_handshake_step_dto(dynamic raw);
@@ -554,6 +583,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   List<RadioModelDto> dco_decode_list_radio_model_dto(dynamic raw);
+
+  @protected
+  List<ReadOnlyCommandDto> dco_decode_list_read_only_command_dto(dynamic raw);
 
   @protected
   List<ReadRequestDto> dco_decode_list_read_request_dto(dynamic raw);
@@ -752,6 +784,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   HealthClockDto? dco_decode_opt_box_autoadd_health_clock_dto(dynamic raw);
 
   @protected
+  int? dco_decode_opt_box_autoadd_i_16(dynamic raw);
+
+  @protected
   PlatformInt64? dco_decode_opt_box_autoadd_i_64(dynamic raw);
 
   @protected
@@ -791,6 +826,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   RasterPrintDto? dco_decode_opt_box_autoadd_raster_print_dto(dynamic raw);
+
+  @protected
+  ReadOnlySurfaceDto? dco_decode_opt_box_autoadd_read_only_surface_dto(
+    dynamic raw,
+  );
 
   @protected
   RejoinDto? dco_decode_opt_box_autoadd_rejoin_dto(dynamic raw);
@@ -906,6 +946,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   RasterPrintDto dco_decode_raster_print_dto(dynamic raw);
 
   @protected
+  ReadOnlyCommandDto dco_decode_read_only_command_dto(dynamic raw);
+
+  @protected
+  ReadOnlySurfaceDto dco_decode_read_only_surface_dto(dynamic raw);
+
+  @protected
   ReadRequestDto dco_decode_read_request_dto(dynamic raw);
 
   @protected
@@ -998,6 +1044,21 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   StoredUploadPlanDto dco_decode_stored_upload_plan_dto(dynamic raw);
 
   @protected
+  SunSpecCommonDto dco_decode_sun_spec_common_dto(dynamic raw);
+
+  @protected
+  SunSpecInverterDto dco_decode_sun_spec_inverter_dto(dynamic raw);
+
+  @protected
+  SunSpecMeterDto dco_decode_sun_spec_meter_dto(dynamic raw);
+
+  @protected
+  SunSpecMeterPowerDto dco_decode_sun_spec_meter_power_dto(dynamic raw);
+
+  @protected
+  SunSpecReadKind dco_decode_sun_spec_read_kind(dynamic raw);
+
+  @protected
   ToneDto dco_decode_tone_dto(dynamic raw);
 
   @protected
@@ -1062,6 +1123,15 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   XBeeFrameDto dco_decode_x_bee_frame_dto(dynamic raw);
+
+  @protected
+  YummlyFrameDto dco_decode_yummly_frame_dto(dynamic raw);
+
+  @protected
+  YummlyFrameKind dco_decode_yummly_frame_kind(dynamic raw);
+
+  @protected
+  YummlyReadKind dco_decode_yummly_read_kind(dynamic raw);
 
   @protected
   AnyhowException sse_decode_AnyhowException(SseDeserializer deserializer);
@@ -1140,6 +1210,26 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   String sse_decode_String(SseDeserializer deserializer);
 
   @protected
+  AcInfinityFeedDto sse_decode_ac_infinity_feed_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  AcInfinityPortDto sse_decode_ac_infinity_port_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  AcInfinityStatusDto sse_decode_ac_infinity_status_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  AcInfinityStoredDto sse_decode_ac_infinity_stored_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   BandLimitDto sse_decode_band_limit_dto(SseDeserializer deserializer);
 
   @protected
@@ -1211,6 +1301,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  int sse_decode_box_autoadd_i_16(SseDeserializer deserializer);
+
+  @protected
   PlatformInt64 sse_decode_box_autoadd_i_64(SseDeserializer deserializer);
 
   @protected
@@ -1271,6 +1364,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   RasterPrintDto sse_decode_box_autoadd_raster_print_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  ReadOnlySurfaceDto sse_decode_box_autoadd_read_only_surface_dto(
     SseDeserializer deserializer,
   );
 
@@ -1432,6 +1530,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   HttpRequestDto sse_decode_http_request_dto(SseDeserializer deserializer);
 
   @protected
+  int sse_decode_i_16(SseDeserializer deserializer);
+
+  @protected
   int sse_decode_i_32(SseDeserializer deserializer);
 
   @protected
@@ -1481,6 +1582,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   List<String> sse_decode_list_String(SseDeserializer deserializer);
+
+  @protected
+  List<AcInfinityPortDto> sse_decode_list_ac_infinity_port_dto(
+    SseDeserializer deserializer,
+  );
 
   @protected
   List<BleHandshakeStepDto> sse_decode_list_ble_handshake_step_dto(
@@ -1706,6 +1812,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   List<RadioModelDto> sse_decode_list_radio_model_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  List<ReadOnlyCommandDto> sse_decode_list_read_only_command_dto(
     SseDeserializer deserializer,
   );
 
@@ -1976,6 +2087,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  int? sse_decode_opt_box_autoadd_i_16(SseDeserializer deserializer);
+
+  @protected
   PlatformInt64? sse_decode_opt_box_autoadd_i_64(SseDeserializer deserializer);
 
   @protected
@@ -2031,6 +2145,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   RasterPrintDto? sse_decode_opt_box_autoadd_raster_print_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  ReadOnlySurfaceDto? sse_decode_opt_box_autoadd_read_only_surface_dto(
     SseDeserializer deserializer,
   );
 
@@ -2166,6 +2285,16 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   RasterPrintDto sse_decode_raster_print_dto(SseDeserializer deserializer);
 
   @protected
+  ReadOnlyCommandDto sse_decode_read_only_command_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  ReadOnlySurfaceDto sse_decode_read_only_surface_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   ReadRequestDto sse_decode_read_request_dto(SseDeserializer deserializer);
 
   @protected
@@ -2282,6 +2411,25 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  SunSpecCommonDto sse_decode_sun_spec_common_dto(SseDeserializer deserializer);
+
+  @protected
+  SunSpecInverterDto sse_decode_sun_spec_inverter_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  SunSpecMeterDto sse_decode_sun_spec_meter_dto(SseDeserializer deserializer);
+
+  @protected
+  SunSpecMeterPowerDto sse_decode_sun_spec_meter_power_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  SunSpecReadKind sse_decode_sun_spec_read_kind(SseDeserializer deserializer);
+
+  @protected
   ToneDto sse_decode_tone_dto(SseDeserializer deserializer);
 
   @protected
@@ -2362,6 +2510,15 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   XBeeFrameDto sse_decode_x_bee_frame_dto(SseDeserializer deserializer);
+
+  @protected
+  YummlyFrameDto sse_decode_yummly_frame_dto(SseDeserializer deserializer);
+
+  @protected
+  YummlyFrameKind sse_decode_yummly_frame_kind(SseDeserializer deserializer);
+
+  @protected
+  YummlyReadKind sse_decode_yummly_read_kind(SseDeserializer deserializer);
 
   @protected
   void sse_encode_AnyhowException(
@@ -2454,6 +2611,30 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   void sse_encode_String(String self, SseSerializer serializer);
 
   @protected
+  void sse_encode_ac_infinity_feed_dto(
+    AcInfinityFeedDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_ac_infinity_port_dto(
+    AcInfinityPortDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_ac_infinity_status_dto(
+    AcInfinityStatusDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_ac_infinity_stored_dto(
+    AcInfinityStoredDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_band_limit_dto(BandLimitDto self, SseSerializer serializer);
 
   @protected
@@ -2541,6 +2722,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_box_autoadd_i_16(int self, SseSerializer serializer);
+
+  @protected
   void sse_encode_box_autoadd_i_64(
     PlatformInt64 self,
     SseSerializer serializer,
@@ -2615,6 +2799,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_box_autoadd_raster_print_dto(
     RasterPrintDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_box_autoadd_read_only_surface_dto(
+    ReadOnlySurfaceDto self,
     SseSerializer serializer,
   );
 
@@ -2838,6 +3028,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_i_16(int self, SseSerializer serializer);
+
+  @protected
   void sse_encode_i_32(int self, SseSerializer serializer);
 
   @protected
@@ -2905,6 +3098,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_list_String(List<String> self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_list_ac_infinity_port_dto(
+    List<AcInfinityPortDto> self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_list_ble_handshake_step_dto(
@@ -3194,6 +3393,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_list_radio_model_dto(
     List<RadioModelDto> self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_list_read_only_command_dto(
+    List<ReadOnlyCommandDto> self,
     SseSerializer serializer,
   );
 
@@ -3537,6 +3742,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_opt_box_autoadd_i_16(int? self, SseSerializer serializer);
+
+  @protected
   void sse_encode_opt_box_autoadd_i_64(
     PlatformInt64? self,
     SseSerializer serializer,
@@ -3605,6 +3813,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_opt_box_autoadd_raster_print_dto(
     RasterPrintDto? self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_opt_box_autoadd_read_only_surface_dto(
+    ReadOnlySurfaceDto? self,
     SseSerializer serializer,
   );
 
@@ -3780,6 +3994,18 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_read_only_command_dto(
+    ReadOnlyCommandDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_read_only_surface_dto(
+    ReadOnlySurfaceDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_read_request_dto(
     ReadRequestDto self,
     SseSerializer serializer,
@@ -3936,6 +4162,36 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_sun_spec_common_dto(
+    SunSpecCommonDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_sun_spec_inverter_dto(
+    SunSpecInverterDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_sun_spec_meter_dto(
+    SunSpecMeterDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_sun_spec_meter_power_dto(
+    SunSpecMeterPowerDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_sun_spec_read_kind(
+    SunSpecReadKind self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_tone_dto(ToneDto self, SseSerializer serializer);
 
   @protected
@@ -4033,6 +4289,24 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_x_bee_frame_dto(XBeeFrameDto self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_yummly_frame_dto(
+    YummlyFrameDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_yummly_frame_kind(
+    YummlyFrameKind self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_yummly_read_kind(
+    YummlyReadKind self,
+    SseSerializer serializer,
+  );
 }
 
 // Section: wire_class

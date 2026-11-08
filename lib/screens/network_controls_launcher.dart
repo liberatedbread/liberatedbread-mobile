@@ -15,6 +15,7 @@ import 'label_printer_screen.dart';
 import 'network_device_screen.dart';
 import 'roomba_adoption_screen.dart';
 import 'roomba_identity.dart';
+import 'sunspec_status_screen.dart';
 
 /// Open whatever this device's controls need, from wherever the user tapped.
 ///
@@ -63,6 +64,13 @@ Future<void> openNetworkControls({
             )
           : controls.ippStatus
           ? IppPrinterScreen(
+              device: device,
+              controls: controls,
+              category: category,
+              specKey: specKey,
+            )
+          : controls.sunSpecStatus
+          ? SunSpecStatusScreen(
               device: device,
               controls: controls,
               category: category,

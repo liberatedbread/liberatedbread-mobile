@@ -13,6 +13,20 @@ heading.
 
 ### Added
 
+- **SolarEdge inverters over Modbus TCP, read-only (`modbus_tcp_sunspec`).**
+  AC and DC power, lifetime energy, heat-sink temperature, operating state and
+  meter 1 power, read with function 03 only. Meter power is shown as a magnitude
+  because no source says which sign means export. The spec's power-control
+  writes stay listed and refused. Not verified against hardware.
+- **Yummly T1 + P1 thermometers, read-only (`yummly_xw2_tlv`).** Probe core and
+  body temperature and battery bars, with a reading pinned at its limit flagged
+  as one. The firmware-update request cannot be sent, and the T3 + P3 generation,
+  which nobody has run, is not connected to. Not verified against hardware.
+- **AC Infinity UIS controllers, read-only (`acinfinity_a5`).** Climate and port
+  state from the status stream, plus stored levels through the `get_model_data`
+  read. Every port write and settings bundle stays listed and refused, because
+  ports switch mains equipment such as heaters. The power strip's status layout
+  is not decoded. Not verified against hardware.
 - **Pride mode for groups.** One button: displays show pride flags, each
   starting from a different one and cycling by themselves where the panel can
   hold an animation, and lights take the rainbow — along the string where it

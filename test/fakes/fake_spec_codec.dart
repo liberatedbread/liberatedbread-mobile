@@ -264,6 +264,7 @@ class FakeSpecCodec implements SpecCodec {
     this.brotherLabelCanvas,
     this.ippStatus = false,
     this.ippStatusResult,
+    this.readOnlySurfaceResult,
     this.networkEntitiesForState,
     this.networkRequest,
     this.networkHttpRequest,
@@ -1964,6 +1965,14 @@ class FakeSpecCodec implements SpecCodec {
     }
     return out;
   }
+
+  /// Returned by [readOnlySurface].
+  final ReadOnlySurfaceDto? readOnlySurfaceResult;
+
+  @override
+  Future<ReadOnlySurfaceDto?> readOnlySurface({
+    required String specYaml,
+  }) async => readOnlySurfaceResult;
 
   /// Returned by [ippStatusSupported].
   final bool ippStatus;

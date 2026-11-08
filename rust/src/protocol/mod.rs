@@ -1,6 +1,7 @@
 // Copyright 2026 Pigs Can Fly Labs LLC
 // SPDX-License-Identifier: Apache-2.0
 
+pub mod acinfinity;
 pub mod brother_ql;
 pub mod cat_printer;
 pub mod cdbwsoft_ecb;
@@ -20,6 +21,7 @@ pub mod ipp;
 pub mod kasa;
 pub mod ledbadge_bitmap;
 pub mod lifx;
+pub mod modbus_sunspec;
 pub mod mqtt;
 pub mod niimbot;
 pub mod orba_midi;
@@ -29,6 +31,7 @@ pub mod rabbit_air;
 pub mod rabbit_air_ble;
 pub mod radio;
 pub mod raster_print;
+pub mod readonly;
 pub mod roomba;
 pub mod sdp;
 pub mod soap;
@@ -37,6 +40,7 @@ pub mod traits;
 pub mod tuya;
 pub mod websocket;
 pub mod wemo_setup;
+pub mod yummly;
 
 use crate::error::ProtocolError;
 use crate::spec::types::{DeviceSpec, SpecCommand};
@@ -61,6 +65,10 @@ pub fn top_level_command<'a>(
     spec: &'a DeviceSpec,
     command_name: &str,
 ) -> Result<&'a SpecCommand, ProtocolError> {
+    // The network renderers all arrive here, so this is their one gate. An
+    // inverter's power limit is a declared command with a template that a
+    // renderer would fill in without complaint.
+    readonly::refuse_generic_send(spec, command_name)?;
     spec.commands
         .get(command_name)
         .ok_or_else(|| ProtocolError::CommandNotFound {
