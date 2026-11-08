@@ -211,6 +211,19 @@ heading.
 
 ### Changed
 
+- **Vendor names read as names, and a radio's maker is not called the
+  device's.** The IEEE and Bluetooth SIG registries hold names as filed
+  ("Hon Hai Precision Ind. Co.,Ltd.", "SHENZHEN BILIAN ELECTRONIC CO.，LTD"),
+  and the scan row, saved list, Wi-Fi tile and device header printed them raw.
+  They now drop the legal form and parenthesised asides and stop shouting
+  (`displayVendorName`). The chip and module houses that hold the address
+  blocks of countless brands (Espressif, Texas Instruments, Nordic, Realtek,
+  Foxconn, AzureWave, Tuya and others) get one short name each and are said
+  as the radio's: "Espressif radio", a nameless device titled "Device with an
+  Espressif radio", and "Radio made by" in place of "Address block" on the
+  device header. A product vendor's block or company ID now wins over a
+  radio vendor's when both are present.
+
 - **The first-launch gate and the About screen ask for caution with
   everything in the app, and say not to rely on it for anything
   safety-critical.** A reading or a control can be wrong, late or

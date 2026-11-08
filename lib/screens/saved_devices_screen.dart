@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/device_category.dart';
 import '../core/error_text.dart';
+import '../core/vendor_names.dart';
 import '../models/iot_device.dart';
 import '../models/radio_profile.dart';
 import '../models/radio_target.dart';
@@ -354,7 +355,8 @@ class SavedDevicesScreen extends ConsumerWidget {
     AsyncValue<NumberRegistry> registry,
     SavedDevice device,
   ) {
-    final vendor = registry.valueOrNull?.vendorForMac(device.id);
+    final raw = registry.valueOrNull?.vendorForMac(device.id);
+    final vendor = raw == null ? null : vendorPhrase(displayVendorName(raw));
     return [device.id, ?vendor].join(' · ');
   }
 }

@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../core/vendor_names.dart';
 import '../models/iot_device.dart';
 import '../services/number_registry.dart';
 
@@ -21,12 +22,14 @@ final numberRegistryProvider = FutureProvider<NumberRegistry>(
 @immutable
 class DeviceDescription {
   /// Who registered the device's address block, when the address is available
-  /// and falls in a known one. Frequently the chip vendor rather than the
-  /// product vendor — see [NumberRegistry.vendorForMac].
+  /// and falls in a known one, in display form ([displayVendorName]).
+  /// Frequently the chip vendor rather than the product vendor — see
+  /// [NumberRegistry.vendorForMac] and [isRadioVendor].
   final String? addressVendor;
 
   /// Companies behind the advertised manufacturer-data records, in advertised
-  /// order. Empty when the device advertises none, or none are known.
+  /// order and display form. Empty when the device advertises none, or none
+  /// are known.
   final List<String> companies;
 
   /// Human names for advertised standard services, e.g. "Battery Service".
@@ -55,13 +58,36 @@ class DeviceDescription {
       vendorServiceCount == 0;
 
   /// The most specific maker we can name, preferring the advertised company ID
-  /// over the address block.
+  /// over the address block, and never a radio vendor.
   ///
   /// A company ID is chosen by whoever wrote the firmware; an address block is
   /// bought by whoever assembled the radio. When they disagree the firmware is
   /// the better answer to "whose device is this?" — a Texas Instruments block
-  /// under an Ember company ID is an Ember mug, not a TI product.
-  String? get maker => companies.isNotEmpty ? companies.first : addressVendor;
+  /// under an Ember company ID is an Ember mug, not a TI product. And a chip
+  /// or module vendor is not an answer at all: an Espressif block is inside
+  /// thousands of brands' plugs, and a Nordic company ID is the SDK default a
+  /// firmware never changed. Those are [radioVendor] instead.
+  String? get maker {
+    for (final name in [...companies, ?addressVendor]) {
+      if (!isRadioVendor(name)) return name;
+    }
+    return null;
+  }
+
+  /// Who made the radio inside, when that is all the registries can say:
+  /// null whenever there is a [maker], which is the better answer.
+  String? get radioVendor {
+    if (maker != null) return null;
+    for (final name in [...companies, ?addressVendor]) {
+      if (isRadioVendor(name)) return name;
+    }
+    return null;
+  }
+
+  /// [maker], or failing that the radio said as the radio's ("Espressif
+  /// radio") so it is never read as the device's brand.
+  String? get makerPhrase =>
+      maker ?? (radioVendor == null ? null : vendorPhrase(radioVendor!));
 
   /// The services half of [summary] on its own: named standard services, else
   /// a count of proprietary ones, else null. Exists so a caller that already
@@ -82,7 +108,7 @@ class DeviceDescription {
   /// Reads as observation rather than identification throughout — every phrase
   /// here is something the device broadcast, not a conclusion about what it is.
   String? get summary {
-    final parts = [?maker, ?servicesLine];
+    final parts = [?makerPhrase, ?servicesLine];
     return parts.isEmpty ? null : parts.join(' · ');
   }
 }
@@ -93,7 +119,8 @@ class DeviceDescription {
 DeviceDescription describeDevice(IoTDevice device, NumberRegistry registry) {
   final companies = <String>[];
   for (final id in device.companyIds) {
-    final name = registry.companyName(id);
+    final raw = registry.companyName(id);
+    final name = raw == null ? null : displayVendorName(raw);
     if (name != null && !companies.contains(name)) companies.add(name);
   }
 
@@ -108,8 +135,11 @@ DeviceDescription describeDevice(IoTDevice device, NumberRegistry registry) {
     }
   }
 
+  final addressVendor = registry.vendorForMac(device.macAddress);
   return DeviceDescription(
-    addressVendor: registry.vendorForMac(device.macAddress),
+    addressVendor: addressVendor == null
+        ? null
+        : displayVendorName(addressVendor),
     companies: companies,
     standardServices: standardServices,
     vendorServiceCount: vendorServiceCount,
@@ -120,11 +150,21 @@ DeviceDescription describeDevice(IoTDevice device, NumberRegistry registry) {
 ///
 /// An advertised name always wins — it is what the owner will recognise. Only
 /// when there is none does the registry get a say, and then it names the maker
-/// rather than inventing a product: "Espressif Inc." tells someone far more
-/// than "Unknown (A4:CF:12:…)", without pretending to know what the thing is.
+/// rather than inventing a product: "Ember Technologies" tells someone far
+/// more than "Unknown (A4:CF:12:…)", without pretending to know what the thing
+/// is. A radio vendor is not the maker, so it is said as what it is: "Device
+/// with an Espressif radio", not "Espressif", which read as a product of
+/// Espressif's for every unnamed smart plug on the network.
 String deviceTitle(IoTDevice device, DeviceDescription description) {
   if (device.name.isNotEmpty) return device.name;
-  return description.maker ?? 'Unknown device';
+  final maker = description.maker;
+  if (maker != null) return maker;
+  final radio = description.radioVendor;
+  if (radio != null) {
+    final article = 'AEIOU'.contains(radio[0].toUpperCase()) ? 'an' : 'a';
+    return 'Device with $article $radio radio';
+  }
+  return 'Unknown device';
 }
 
 /// The supporting line under a device with no matched spec.
