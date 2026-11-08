@@ -8,6 +8,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- **SmartThings owners with Home Assistant are pointed at LocalThings.** The
+  SmartThings Hub v2 spec and guide now name
+  [LocalThings](https://github.com/mbillow/localthings) (HACS, domain
+  `localthings`) as the cloud-free route for the Samsung appliances on the
+  hub's account: OCF over CoAP/DTLS (HTTPS on TCP 8888 for 2018–2022 units),
+  no Samsung account, and not the hub or its Zigbee/Z-Wave children. The
+  spec's `notes` tell a consumer that sees the hub and a Home Assistant server
+  on one network to recommend it over the cloud SmartThings integration, and
+  `helpful_urls` carries LocalThings and its `smartthings-local` library. The
+  hub guide's stale "Edge WebSocket" and "Matter bridge" wording is corrected
+  to HTTPS and controller, matching the spec, and the hub's TLS UUID in the
+  verification notes is replaced with a placeholder.
+
 - **"Use caution, especially for anything safety-critical", said where it
   will be read.** The README, the docs home and the clean-room scope rule now
   state the line the project had been assuming: these specs are
