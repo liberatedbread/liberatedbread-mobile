@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 pub mod acinfinity;
+pub mod bisecur;
 pub mod brother_ql;
 pub mod cat_printer;
 pub mod cdbwsoft_ecb;

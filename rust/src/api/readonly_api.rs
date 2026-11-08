@@ -6,10 +6,14 @@
 //! opcode or an address. See [`crate::protocol::readonly`].
 
 use crate::api::device_api::SafetyAdvisoryDto;
-use crate::protocol::{acinfinity, modbus_sunspec, readonly, yummly};
+use crate::protocol::{acinfinity, bisecur, modbus_sunspec, readonly, yummly};
 
 pub use crate::protocol::acinfinity::{
     AcInfinityFeedDto, AcInfinityPortDto, AcInfinityStatusDto, AcInfinityStoredDto,
+};
+pub use crate::protocol::bisecur::{
+    BiSecurGroupDto, BiSecurPortDto, BiSecurReplyDto, BiSecurReplyKind, BiSecurSplitDto,
+    BiSecurTransitionDto,
 };
 pub use crate::protocol::modbus_sunspec::{
     SunSpecCommonDto, SunSpecInverterDto, SunSpecMeterDto, SunSpecMeterPowerDto,
@@ -205,6 +209,94 @@ pub fn acinfinity_feed(
     chunk: Vec<u8>,
 ) -> AcInfinityFeedDto {
     acinfinity::feed(&frame_buffer, &status_buffer, &chunk)
+}
+
+/// What a BiSecur caller is waiting for. Named, so nothing here takes a
+/// command id; `SET_STATE` is not one of these.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BiSecurExchangeKind {
+    Login,
+    GetGroups,
+    GetTransition,
+}
+
+impl From<BiSecurExchangeKind> for bisecur::BiSecurExchange {
+    fn from(kind: BiSecurExchangeKind) -> Self {
+        match kind {
+            BiSecurExchangeKind::Login => Self::Login,
+            BiSecurExchangeKind::GetGroups => Self::GetGroups,
+            BiSecurExchangeKind::GetTransition => Self::GetTransition,
+        }
+    }
+}
+
+pub fn bisecur_encode_login(
+    gateway_mac: String,
+    tag: u8,
+    user: String,
+    password: String,
+) -> anyhow::Result<Vec<u8>> {
+    Ok(bisecur::encode_login(&gateway_mac, tag, &user, &password)?)
+}
+
+pub fn bisecur_encode_get_groups(
+    gateway_mac: String,
+    tag: u8,
+    token: u32,
+) -> anyhow::Result<Vec<u8>> {
+    Ok(bisecur::encode_get_groups(&gateway_mac, tag, token)?)
+}
+
+pub fn bisecur_encode_get_transition(
+    gateway_mac: String,
+    tag: u8,
+    token: u32,
+    port: u8,
+) -> anyhow::Result<Vec<u8>> {
+    Ok(bisecur::encode_get_transition(
+        &gateway_mac,
+        tag,
+        token,
+        port,
+    )?)
+}
+
+pub fn bisecur_encode_logout(gateway_mac: String, tag: u8, token: u32) -> anyhow::Result<Vec<u8>> {
+    Ok(bisecur::encode_logout(&gateway_mac, tag, token)?)
+}
+
+pub fn bisecur_split_stream(buffer: Vec<u8>) -> anyhow::Result<BiSecurSplitDto> {
+    Ok(bisecur::split_stream(&buffer)?)
+}
+
+pub fn bisecur_decode_reply(
+    frame: Vec<u8>,
+    expected_tag: u8,
+    exchange: BiSecurExchangeKind,
+) -> anyhow::Result<BiSecurReplyDto> {
+    let exchange: bisecur::BiSecurExchange = exchange.into();
+    Ok(bisecur::decode_reply(
+        &frame,
+        expected_tag,
+        exchange.command(),
+    )?)
+}
+
+pub fn bisecur_decode_login(payload: Vec<u8>) -> anyhow::Result<u32> {
+    Ok(bisecur::decode_login(&payload)?)
+}
+
+pub fn bisecur_decode_groups(payload: Vec<u8>) -> anyhow::Result<Vec<BiSecurGroupDto>> {
+    Ok(bisecur::decode_groups(&payload)?)
+}
+
+pub fn bisecur_decode_transition(payload: Vec<u8>) -> anyhow::Result<BiSecurTransitionDto> {
+    Ok(bisecur::decode_transition(&payload)?)
+}
+
+#[flutter_rust_bridge::frb(sync)]
+pub fn bisecur_error_meaning(code: u8) -> String {
+    bisecur::error_meaning(code).to_string()
 }
 
 #[cfg(test)]

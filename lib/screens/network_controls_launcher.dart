@@ -9,6 +9,7 @@ import '../models/network_device.dart';
 import '../providers/network_control_provider.dart';
 import '../providers/roomba_provider.dart';
 import '../services/roomba_credential_store.dart';
+import 'bisecur_status_screen.dart';
 import 'hub_device_screen.dart';
 import 'ipp_printer_screen.dart';
 import 'label_printer_screen.dart';
@@ -71,6 +72,13 @@ Future<void> openNetworkControls({
             )
           : controls.sunSpecStatus
           ? SunSpecStatusScreen(
+              device: device,
+              controls: controls,
+              category: category,
+              specKey: specKey,
+            )
+          : controls.biSecurStatus
+          ? BiSecurStatusScreen(
               device: device,
               controls: controls,
               category: category,

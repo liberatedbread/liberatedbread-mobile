@@ -354,6 +354,10 @@ class NetworkControls {
   /// screen, whose generic poll cannot speak Modbus.
   final bool sunSpecStatus;
 
+  /// True when the device is read through the read-only BiSecur handler. Its
+  /// spec binds nothing the entity screen can read, so this is what admits it.
+  final bool biSecurStatus;
+
   const NetworkControls({
     required this.specYaml,
     required this.entities,
@@ -363,6 +367,7 @@ class NetworkControls {
     this.stateProbes = const [],
     this.ippStatus = false,
     this.sunSpecStatus = false,
+    this.biSecurStatus = false,
   });
 
   /// Whether these controls describe a hub — a device fronting children that
@@ -389,6 +394,9 @@ class NetworkControls {
 
 /// The `protocol_handler` of the read-only SolarEdge Modbus TCP reader.
 const sunSpecHandler = 'modbus_tcp_sunspec';
+
+/// The `protocol_handler` of the read-only Hörmann BiSecur reader.
+const biSecurHandler = 'bisecur_mcp';
 
 /// Resolve what the catalogue lets us control on one network device.
 ///
@@ -431,10 +439,12 @@ final networkControlsProvider = FutureProvider.autoDispose
             ? rasterPrint!.handler
             : null;
         final sunSpecStatus = spec.protocolHandler == sunSpecHandler;
+        final biSecurStatus = spec.protocolHandler == biSecurHandler;
         if (surface.entities.isEmpty &&
             rasterPrintHandler == null &&
             !ippStatus &&
-            !sunSpecStatus) {
+            !sunSpecStatus &&
+            !biSecurStatus) {
           return null;
         }
         return NetworkControls(
@@ -446,6 +456,7 @@ final networkControlsProvider = FutureProvider.autoDispose
           stateProbes: surface.stateProbes,
           ippStatus: ippStatus,
           sunSpecStatus: sunSpecStatus,
+          biSecurStatus: biSecurStatus,
         );
       } catch (e) {
         Log.spec.warning(

@@ -27,6 +27,11 @@ heading.
   read. Every port write and settings bundle stays listed and refused, because
   ports switch mains equipment such as heaters. The power strip's status layout
   is not decoded. Not verified against hardware.
+- **Hörmann BiSecur gateways, read-only (`bisecur_mcp`).** Door position and
+  status, read on request with a gateway user's name and password. The password
+  is not stored, and the screen says it crosses the network unencrypted. The
+  impulse that moves a door cannot be sent: it stays listed and refused. Not
+  verified against hardware.
 - **Pride mode for groups.** One button: displays show pride flags, each
   starting from a different one and cycling by themselves where the panel can
   hold an animation, and lights take the rainbow — along the string where it

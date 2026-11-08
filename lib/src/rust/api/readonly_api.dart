@@ -8,13 +8,14 @@
 import '../error.dart';
 import '../frb_generated.dart';
 import '../protocol/acinfinity.dart';
+import '../protocol/bisecur.dart';
 import '../protocol/modbus_sunspec.dart';
 import '../protocol/readonly.dart';
 import '../protocol/yummly.dart';
 import 'device_api.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_fields_are_eq`, `assert_fields_are_eq`, `clone`, `clone`, `clone`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `from`, `from`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `clone`, `clone`, `clone`, `clone`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`
 
 /// The read-only surface of a spec, or `None` if its handler is not one.
 Future<ReadOnlySurfaceDto?> readOnlySurface({required String specYaml}) =>
@@ -136,6 +137,87 @@ Future<AcInfinityFeedDto> acinfinityFeed({
   statusBuffer: statusBuffer,
   chunk: chunk,
 );
+
+Future<Uint8List> bisecurEncodeLogin({
+  required String gatewayMac,
+  required int tag,
+  required String user,
+  required String password,
+}) => RustLib.instance.api.crateApiReadonlyApiBisecurEncodeLogin(
+  gatewayMac: gatewayMac,
+  tag: tag,
+  user: user,
+  password: password,
+);
+
+Future<Uint8List> bisecurEncodeGetGroups({
+  required String gatewayMac,
+  required int tag,
+  required int token,
+}) => RustLib.instance.api.crateApiReadonlyApiBisecurEncodeGetGroups(
+  gatewayMac: gatewayMac,
+  tag: tag,
+  token: token,
+);
+
+Future<Uint8List> bisecurEncodeGetTransition({
+  required String gatewayMac,
+  required int tag,
+  required int token,
+  required int port,
+}) => RustLib.instance.api.crateApiReadonlyApiBisecurEncodeGetTransition(
+  gatewayMac: gatewayMac,
+  tag: tag,
+  token: token,
+  port: port,
+);
+
+Future<Uint8List> bisecurEncodeLogout({
+  required String gatewayMac,
+  required int tag,
+  required int token,
+}) => RustLib.instance.api.crateApiReadonlyApiBisecurEncodeLogout(
+  gatewayMac: gatewayMac,
+  tag: tag,
+  token: token,
+);
+
+Future<BiSecurSplitDto> bisecurSplitStream({required List<int> buffer}) =>
+    RustLib.instance.api.crateApiReadonlyApiBisecurSplitStream(buffer: buffer);
+
+Future<BiSecurReplyDto> bisecurDecodeReply({
+  required List<int> frame,
+  required int expectedTag,
+  required BiSecurExchangeKind exchange,
+}) => RustLib.instance.api.crateApiReadonlyApiBisecurDecodeReply(
+  frame: frame,
+  expectedTag: expectedTag,
+  exchange: exchange,
+);
+
+Future<int> bisecurDecodeLogin({required List<int> payload}) => RustLib
+    .instance
+    .api
+    .crateApiReadonlyApiBisecurDecodeLogin(payload: payload);
+
+Future<List<BiSecurGroupDto>> bisecurDecodeGroups({
+  required List<int> payload,
+}) => RustLib.instance.api.crateApiReadonlyApiBisecurDecodeGroups(
+  payload: payload,
+);
+
+Future<BiSecurTransitionDto> bisecurDecodeTransition({
+  required List<int> payload,
+}) => RustLib.instance.api.crateApiReadonlyApiBisecurDecodeTransition(
+  payload: payload,
+);
+
+String bisecurErrorMeaning({required int code}) =>
+    RustLib.instance.api.crateApiReadonlyApiBisecurErrorMeaning(code: code);
+
+/// What a BiSecur caller is waiting for. Named, so nothing here takes a
+/// command id; `SET_STATE` is not one of these.
+enum BiSecurExchangeKind { login, getGroups, getTransition }
 
 /// What a read-only spec's screen needs to know before it reads anything.
 class ReadOnlySurfaceDto {

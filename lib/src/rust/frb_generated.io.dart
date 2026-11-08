@@ -22,6 +22,7 @@ import 'error.dart';
 import 'frb_generated.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated_io.dart';
 import 'protocol/acinfinity.dart';
+import 'protocol/bisecur.dart';
 import 'protocol/enphase.dart';
 import 'protocol/modbus_sunspec.dart';
 import 'protocol/readonly.dart';
@@ -135,6 +136,27 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   BandLimitsDto dco_decode_band_limits_dto(dynamic raw);
+
+  @protected
+  BiSecurExchangeKind dco_decode_bi_secur_exchange_kind(dynamic raw);
+
+  @protected
+  BiSecurGroupDto dco_decode_bi_secur_group_dto(dynamic raw);
+
+  @protected
+  BiSecurPortDto dco_decode_bi_secur_port_dto(dynamic raw);
+
+  @protected
+  BiSecurReplyDto dco_decode_bi_secur_reply_dto(dynamic raw);
+
+  @protected
+  BiSecurReplyKind dco_decode_bi_secur_reply_kind(dynamic raw);
+
+  @protected
+  BiSecurSplitDto dco_decode_bi_secur_split_dto(dynamic raw);
+
+  @protected
+  BiSecurTransitionDto dco_decode_bi_secur_transition_dto(dynamic raw);
 
   @protected
   BleHandshakeDto dco_decode_ble_handshake_dto(dynamic raw);
@@ -416,6 +438,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   List<AcInfinityPortDto> dco_decode_list_ac_infinity_port_dto(dynamic raw);
+
+  @protected
+  List<BiSecurGroupDto> dco_decode_list_bi_secur_group_dto(dynamic raw);
+
+  @protected
+  List<BiSecurPortDto> dco_decode_list_bi_secur_port_dto(dynamic raw);
 
   @protected
   List<BleHandshakeStepDto> dco_decode_list_ble_handshake_step_dto(dynamic raw);
@@ -1234,6 +1262,31 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   BandLimitsDto sse_decode_band_limits_dto(SseDeserializer deserializer);
 
   @protected
+  BiSecurExchangeKind sse_decode_bi_secur_exchange_kind(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  BiSecurGroupDto sse_decode_bi_secur_group_dto(SseDeserializer deserializer);
+
+  @protected
+  BiSecurPortDto sse_decode_bi_secur_port_dto(SseDeserializer deserializer);
+
+  @protected
+  BiSecurReplyDto sse_decode_bi_secur_reply_dto(SseDeserializer deserializer);
+
+  @protected
+  BiSecurReplyKind sse_decode_bi_secur_reply_kind(SseDeserializer deserializer);
+
+  @protected
+  BiSecurSplitDto sse_decode_bi_secur_split_dto(SseDeserializer deserializer);
+
+  @protected
+  BiSecurTransitionDto sse_decode_bi_secur_transition_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   BleHandshakeDto sse_decode_ble_handshake_dto(SseDeserializer deserializer);
 
   @protected
@@ -1583,6 +1636,16 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   List<AcInfinityPortDto> sse_decode_list_ac_infinity_port_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  List<BiSecurGroupDto> sse_decode_list_bi_secur_group_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  List<BiSecurPortDto> sse_decode_list_bi_secur_port_dto(
     SseDeserializer deserializer,
   );
 
@@ -2639,6 +2702,48 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   void sse_encode_band_limits_dto(BandLimitsDto self, SseSerializer serializer);
 
   @protected
+  void sse_encode_bi_secur_exchange_kind(
+    BiSecurExchangeKind self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_bi_secur_group_dto(
+    BiSecurGroupDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_bi_secur_port_dto(
+    BiSecurPortDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_bi_secur_reply_dto(
+    BiSecurReplyDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_bi_secur_reply_kind(
+    BiSecurReplyKind self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_bi_secur_split_dto(
+    BiSecurSplitDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_bi_secur_transition_dto(
+    BiSecurTransitionDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_ble_handshake_dto(
     BleHandshakeDto self,
     SseSerializer serializer,
@@ -3100,6 +3205,18 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_list_ac_infinity_port_dto(
     List<AcInfinityPortDto> self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_list_bi_secur_group_dto(
+    List<BiSecurGroupDto> self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_list_bi_secur_port_dto(
+    List<BiSecurPortDto> self,
     SseSerializer serializer,
   );
 

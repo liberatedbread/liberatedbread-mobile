@@ -305,6 +305,27 @@ void main() {
       expect(controls!.sunSpecStatus, isTrue);
     });
 
+    test('admits a BiSecur gateway, whose spec binds no entities', () async {
+      final container = _container(
+        FakeSpecCodec(networkEntities: (_) => const []),
+        parsed: [
+          (
+            spec: _spec(
+              'Inverter',
+              'SolarEdge',
+              protocolHandler: biSecurHandler,
+            ),
+            yaml: 'bisecur',
+          ),
+        ],
+      );
+      final controls = await container.read(
+        networkControlsProvider(request).future,
+      );
+      expect(controls!.biSecurStatus, isTrue);
+      expect(controls.sunSpecStatus, isFalse);
+    });
+
     test('is not claimed by a spec under another handler', () async {
       final container = _container(
         FakeSpecCodec(networkEntities: (_) => const [_plugEntity]),

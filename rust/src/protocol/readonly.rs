@@ -19,7 +19,7 @@
 use crate::error::ProtocolError;
 use crate::spec::types::DeviceSpec;
 
-use super::{acinfinity, modbus_sunspec, yummly};
+use super::{acinfinity, bisecur, modbus_sunspec, yummly};
 
 /// One command this app's read-only handler actually sends. `characteristic`
 /// narrows the name on a BLE spec, where a name can repeat across generations
@@ -85,6 +85,17 @@ const READ_ONLY_HANDLERS: &[ReadOnlyHandler] = &[
         sent: &[on(ACINFINITY, "get_model_data")],
         refusal: "Read-only in this app: ports switch mains equipment such as \
                   heaters and humidifiers.",
+    },
+    ReadOnlyHandler {
+        name: bisecur::HANDLER_NAME,
+        sent: &[
+            top_level("login"),
+            top_level("get_groups"),
+            top_level("get_transition"),
+            top_level("logout"),
+        ],
+        refusal: "Read-only in this app: an impulse moves a motorised door or \
+                  gate, which can trap or injure.",
     },
 ];
 
@@ -217,6 +228,11 @@ mod tests {
             acinfinity::HANDLER_NAME,
             &["get_model_data"],
         ),
+        (
+            "hormann-bisecur-gateway.yaml",
+            bisecur::HANDLER_NAME,
+            &["login", "get_groups", "get_transition", "logout"],
+        ),
     ];
 
     /// The commands that must never go out, named one by one so that renaming
@@ -250,6 +266,7 @@ mod tests {
                 "write_settings_bundle",
             ],
         ),
+        ("hormann-bisecur-gateway.yaml", &["send_impulse"]),
     ];
 
     /// The pin. Exactly the listed reads are sent; every other command the
@@ -391,6 +408,16 @@ mod tests {
                 .unwrap_or_else(|| panic!("{name} was handed to a renderer"));
             assert!(error.to_string().contains("read-only"), "{name}: {error}");
         }
+    }
+
+    /// The door's impulse has a template-free body, so it is this gate, and not
+    /// the shape of the command, that keeps a renderer from ever seeing it.
+    #[test]
+    fn a_doors_impulse_cannot_be_looked_up_for_rendering() {
+        let spec = parse_device_spec(&spec_text("hormann-bisecur-gateway.yaml")).unwrap();
+        let error = crate::protocol::top_level_command(&spec, "send_impulse")
+            .expect_err("the impulse was handed to a renderer");
+        assert!(error.to_string().contains("read-only"), "{error}");
     }
 
     #[test]
