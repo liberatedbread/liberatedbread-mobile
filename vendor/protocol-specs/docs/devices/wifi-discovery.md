@@ -237,7 +237,7 @@ connection details, not identity.
 | LIFX Z | `_hap._tcp.local.` where `md=LIFX Z` | TXT `id` | UDP LIFX GetService to 56700 |
 | Lutron Caseta Bridge | `_leap._tcp.local.`, `_lutron._tcp.local.` | TXT `MACADDR`, then hostname | LEAP TLS/WebSocket on 8081 |
 | Rachio Controller | `_hap._tcp.local.` where `md` starts with Rachio | TXT `id` | HAP/local control research |
-| SmartThings Hub v2 | `_smartthings._tcp.local.` | TXT `id` | Edge WebSocket on `_smartthings-hedge._tcp` |
+| SmartThings Hub v2 | `_smartthings._tcp.local.` | TXT `id` | Edge HTTPS on `_smartthings-hedge._tcp` (bearer-gated); with Home Assistant also on the LAN, point the user at [LocalThings](smartthings-hub-v2.md#home-assistant) for their Samsung appliances |
 | Denon / Marantz AVR | `_airplay._tcp.local.` for identity; `_spotify-connect._tcp.local.` (TXT `cpath=/goform/spotifyConfig`) to recognise one | TXT `deviceid` on `_airplay._tcp` — a `00:05:CD` MAC. `cpath` is a constant, never an identity | `GET /goform/formMainZone_MainZoneXmlStatusLite.xml` on port 80 |
 
 Use the local tools:
