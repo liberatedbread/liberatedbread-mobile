@@ -31,6 +31,7 @@ class TypedCharacteristicWidget extends StatelessWidget {
   final String specYaml;
   final CharacteristicDto specChar;
   final BleDiscoveredCharacteristic discovered;
+  final Set<String> excludedCommands;
 
   const TypedCharacteristicWidget({
     super.key,
@@ -39,14 +40,22 @@ class TypedCharacteristicWidget extends StatelessWidget {
     required this.specYaml,
     required this.specChar,
     required this.discovered,
+    this.excludedCommands = const {},
   });
 
   @override
   Widget build(BuildContext context) {
+    final availableCommands = specChar.commands
+        .where((command) => !excludedCommands.contains(command.name))
+        .toList(growable: false);
+    final managedOnly =
+        discovered.canWrite &&
+        specChar.commands.isNotEmpty &&
+        availableCommands.isEmpty;
     // Don't route through typed controls when every command has an encoding
     // (protobuf, JSON, TLV) that can't be serialised to bytes yet — the
     // raw-byte fallback must stay visible.
-    final encodable = specChar.commands
+    final encodable = availableCommands
         .where((c) => c.isEncodable)
         .toList(growable: false);
     final writes = discovered.canWrite && encodable.isNotEmpty;
@@ -55,6 +64,7 @@ class TypedCharacteristicWidget extends StatelessWidget {
         specChar.formatFields.isNotEmpty;
 
     if (!writes && !reads) {
+      if (managedOnly) return const SizedBox.shrink();
       return RawCharacteristicWidget(
         deviceId: deviceId,
         serviceUuid: serviceUuid,
@@ -72,12 +82,13 @@ class TypedCharacteristicWidget extends StatelessWidget {
             canNotify: discovered.canNotify,
           )
         : null;
-    final commands = writes
+    final commandControls = writes
         ? TypedCommandWidget(
             deviceId: deviceId,
             serviceUuid: serviceUuid,
             specYaml: specYaml,
             specChar: specChar,
+            excludedCommands: excludedCommands,
           )
         : null;
 
@@ -89,7 +100,7 @@ class TypedCharacteristicWidget extends StatelessWidget {
     // write row (write-only: the decoded view already reads and
     // subscribes), and the typed widget's "cannot send yet" note when the
     // spec does document commands.
-    final rawWrite = discovered.canWrite && encodable.isEmpty
+    final rawWrite = discovered.canWrite && encodable.isEmpty && !managedOnly
         ? RawCharacteristicWidget(
             deviceId: deviceId,
             serviceUuid: serviceUuid,
@@ -97,21 +108,22 @@ class TypedCharacteristicWidget extends StatelessWidget {
             writeOnly: true,
           )
         : null;
-    final blockedNote = rawWrite != null && specChar.commands.isNotEmpty
+    final blockedNote = rawWrite != null && availableCommands.isNotEmpty
         ? TypedCommandWidget(
             deviceId: deviceId,
             serviceUuid: serviceUuid,
             specYaml: specYaml,
             specChar: specChar,
+            excludedCommands: excludedCommands,
           )
         : null;
 
-    if (decoded == null) return commands!;
-    if (commands == null && rawWrite == null) return decoded;
+    if (decoded == null) return commandControls!;
+    if (commandControls == null && rawWrite == null) return decoded;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       mainAxisSize: MainAxisSize.min,
-      children: [decoded, ?commands, ?blockedNote, ?rawWrite],
+      children: [decoded, ?commandControls, ?blockedNote, ?rawWrite],
     );
   }
 }

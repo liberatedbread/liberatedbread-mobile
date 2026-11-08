@@ -326,6 +326,57 @@ void main() {
   });
 
   test(
+    'early Braun notification errors reach the session without escaping',
+    () async {
+      final notify = StreamController<List<int>>.broadcast();
+      addTearDown(notify.close);
+      final ready = Completer<void>();
+      final specCodec = FakeSpecCodec();
+      final session = _session(
+        'ipl_braun',
+        FakeBleService(
+          notifyStream: notify.stream,
+          notificationReadyCompleter: ready,
+        ),
+        specCodec,
+        FakeIplCodec(),
+      );
+      addTearDown(session.dispose);
+      session.start();
+      await _settle();
+
+      final pending = session.measureSkinTone();
+      notify.addError(StateError('notifications unavailable'));
+      await _settle();
+      ready.complete();
+      await pending;
+      expect(session.state.phase, IplSetupPhase.error);
+      expect(session.state.error, contains('acknowledge'));
+      expect(specCodec.encodeCalls, isEmpty);
+    },
+  );
+
+  test('Braun notification setup failure prevents the command write', () async {
+    final ready = Completer<void>();
+    final specCodec = FakeSpecCodec();
+    final session = _session(
+      'ipl_braun',
+      FakeBleService(notificationReadyCompleter: ready),
+      specCodec,
+      FakeIplCodec(),
+    );
+    addTearDown(session.dispose);
+    session.start();
+    await _settle();
+
+    final pending = session.measureSkinTone();
+    ready.completeError(StateError('could not enable notifications'));
+    await pending;
+    expect(session.state.phase, IplSetupPhase.error);
+    expect(specCodec.encodeCalls, isEmpty);
+  });
+
+  test(
     'disposing during a Braun command stops writes and notifications',
     () async {
       final specCodec = FakeSpecCodec();

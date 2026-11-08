@@ -211,6 +211,15 @@ class IplSetupSession extends ChangeNotifier {
     const pushChar = 'a0f03c04-5047-4d53-8208-4f72616c2d42';
     final acknowledgement = Completer<int>();
     final completion = Completer<int>();
+    final acknowledgementOutcome = _observeOutcome(acknowledgement);
+    final completionOutcome = _observeOutcome(completion);
+    Object? notificationFailure;
+    void failOutcomes(Object error) {
+      notificationFailure ??= error;
+      if (!acknowledgement.isCompleted) acknowledgement.completeError(error);
+      if (!completion.isCompleted) completion.completeError(error);
+    }
+
     _outcomes.addAll([acknowledgement, completion]);
     final subscriptions = <StreamSubscription<List<int>>>[];
     try {
@@ -232,11 +241,9 @@ class IplSetupSession extends ChangeNotifier {
               acknowledgement.complete(status);
             }
           } catch (error) {
-            if (!acknowledgement.isCompleted) {
-              acknowledgement.completeError(error);
-            }
+            failOutcomes(error);
           }
-        }, onError: acknowledgement.completeError),
+        }, onError: failOutcomes),
       );
       final pushNotifications = ble.subscribeCharacteristic(
         deviceId,
@@ -255,20 +262,24 @@ class IplSetupSession extends ChangeNotifier {
               completion.complete(reason);
             }
           } catch (error) {
-            if (!completion.isCompleted) completion.completeError(error);
+            failOutcomes(error);
           }
-        }, onError: completion.completeError),
+        }, onError: failOutcomes),
       );
       _subscriptions.addAll(subscriptions);
-      for (final notifications in [statusNotifications, pushNotifications]) {
-        if (notifications case final BleReadyNotificationStream ready) {
-          await ready.ready;
-        }
-      }
+      await Future.wait<void>([
+        for (final notifications in [statusNotifications, pushNotifications])
+          if (notifications case final BleReadyNotificationStream ready)
+            ready.ready,
+      ], eagerError: true);
+      final earlyError = notificationFailure;
+      if (earlyError != null) throw earlyError;
       await _send('a0f03c00-5047-4d53-8208-4f72616c2d42', commandName);
-      final status = await acknowledgement.future.timeout(
+      final acknowledged = await acknowledgementOutcome.timeout(
         const Duration(seconds: 10),
       );
+      if (acknowledged.error != null) throw acknowledged.error!;
+      final status = acknowledged.value!;
       if (status != 0) {
         throw _IplError(
           status == 1
@@ -276,9 +287,11 @@ class IplSetupSession extends ChangeNotifier {
               : 'The device refused the command (status $status).',
         );
       }
-      final reason = await completion.future.timeout(
+      final completed = await completionOutcome.timeout(
         const Duration(seconds: 10),
       );
+      if (completed.error != null) throw completed.error!;
+      final reason = completed.value!;
       if (reason != 1) {
         throw const _IplError('The device reported a command-end failure.');
       }
@@ -305,6 +318,7 @@ class IplSetupSession extends ChangeNotifier {
             : 'Patch-test command acknowledged. Follow the device instructions for the observation period.',
       );
     } catch (error) {
+      failOutcomes(error);
       _fail(error, 'The device did not acknowledge the command.');
     } finally {
       _outcomes.removeAll([acknowledgement, completion]);
@@ -313,6 +327,16 @@ class IplSetupSession extends ChangeNotifier {
         await subscription.cancel();
       }
       _busy = false;
+    }
+  }
+
+  Future<({int? value, Object? error})> _observeOutcome(
+    Completer<int> outcome,
+  ) async {
+    try {
+      return (value: await outcome.future, error: null);
+    } catch (error) {
+      return (value: null, error: error);
     }
   }
 

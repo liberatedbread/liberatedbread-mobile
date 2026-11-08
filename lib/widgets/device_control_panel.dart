@@ -1153,12 +1153,35 @@ class _ServiceCardState extends State<_ServiceCard> {
             );
           }
           if (matched != null && specChar != null) {
-            return TypedCharacteristicWidget(
+            final setupOwnedCommands =
+                matched.spec.protocolHandler == 'ipl_braun'
+                ? const {'measure_skin_tone', 'start_patch_test'}
+                : const <String>{};
+            final typed = TypedCharacteristicWidget(
               deviceId: widget.deviceId,
               serviceUuid: service.uuid,
               specYaml: matched.yaml,
               specChar: specChar,
               discovered: char,
+              excludedCommands: setupOwnedCommands,
+            );
+            final hasSetupOwnedCommands = specChar.commands.any(
+              (command) => setupOwnedCommands.contains(command.name),
+            );
+            if (!hasSetupOwnedCommands) return typed;
+            return Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const ListTile(
+                  dense: true,
+                  leading: Icon(Icons.tune),
+                  title: Text('IPL setup commands'),
+                  subtitle: Text(
+                    'Use the setup panel above to measure skin tone or start a patch test.',
+                  ),
+                ),
+                typed,
+              ],
             );
           }
           return RawCharacteristicWidget(
