@@ -398,11 +398,9 @@ pub(crate) enum TypedParam {
 /// [`unsupported_encoding_kind`] answers the same question about the command
 /// alone. That is not enough: a characteristic can declare an `encryption` or
 /// `framing` transform that every payload written to it must pass through, and
-/// this crate executes neither. Seeblue's commands are the case — their
-/// templates are the packet, and the SEEBlue envelope (header, length,
-/// sequence, protocol id, checksum) is the characteristic's job — so writing a
-/// template's bytes straight to the characteristic sends a packet the device
-/// will not answer.
+/// this crate executes only some of them. A template's bytes written straight
+/// to a characteristic with any other transform are a packet the device will
+/// not answer.
 ///
 /// The entity-binding path has always applied this rule. The generic
 /// typed-command path did not, so a spec whose transform lives one level up
@@ -413,6 +411,13 @@ pub fn unsupported_write_kind(
 ) -> Option<String> {
     if let Some(kind) = unsupported_characteristic_transform(characteristic) {
         return Some(kind);
+    }
+    if framing_scheme_name(characteristic).as_deref() == Some(SEEBLUE_ENVELOPE_SCHEME)
+        && command.protocol_id_byte().is_none()
+    {
+        return Some(format!(
+            "characteristic framing ({SEEBLUE_ENVELOPE_SCHEME}) needs a protocol_id on the command"
+        ));
     }
     // Checked here rather than inside `unsupported_encoding_kind` so the
     // low-level encoder keeps reporting the precise
@@ -426,18 +431,21 @@ pub fn unsupported_write_kind(
 /// every payload written to `characteristic` must pass through that this
 /// build does not execute, or `None` when a raw write lands as written.
 ///
-/// `encryption` (shining-mask's AES-128-ECB, pax's OFB) is never executed. A
-/// `framing` scheme this build DOES execute (Daniao's DDP fragment header) is
-/// not a blocker — the generic encoder wraps the template's bytes in it (see
-/// `protocol::image_upload::frame_command`). Anything else — a scheme this
-/// build does not implement, or a framing block that names no scheme at all
-/// (coolledx's length prefix) — makes a raw write wrong.
+/// `encryption` is executed when `protocol::static_ecb` has all it needs (the
+/// Heaton family's static AES-128-ECB) and refused otherwise (pax's OFB, niu's
+/// per-device key). A `framing` scheme this build DOES execute (Daniao's DDP
+/// fragment header) is not a blocker — the generic encoder wraps the template's
+/// bytes in it (see `protocol::image_upload::frame_command`). Anything else — a
+/// scheme this build does not implement, or a framing block that names no
+/// scheme at all (coolledx's length prefix) — makes a raw write wrong.
 ///
 /// Public on its own for the callers with no command to ask about — the
 /// entity binder's direct write of a value to a one-field characteristic,
 /// through [`unsupported_single_write_transform`].
 pub fn unsupported_characteristic_transform(characteristic: &Characteristic) -> Option<String> {
-    if characteristic.encryption.is_some() {
+    if characteristic.encryption.is_some()
+        && !crate::protocol::static_ecb::can_encrypt(characteristic)
+    {
         return Some("characteristic encryption".to_string());
     }
     if characteristic.framing.is_some() {
@@ -460,6 +468,8 @@ pub const ORBA_FRAGMENT_SCHEME: &str = "orba_sysex_ble_midi";
 /// A popled panel's `aa55` frame. Stated by `protocol::popled::bind_commands`
 /// at parse time rather than by any spec.
 pub const POPLED_FRAME_SCHEME: &str = "popled_frame";
+/// The SEEBlue transport envelope, as `seeblue-motorcycle-led.yaml` names it.
+pub const SEEBLUE_ENVELOPE_SCHEME: &str = "seeblue_envelope";
 
 /// Whether `name` is a framing scheme this build wraps packets in, rather than
 /// merely parses. A characteristic whose `framing.scheme` is implemented is
@@ -467,7 +477,10 @@ pub const POPLED_FRAME_SCHEME: &str = "popled_frame";
 pub fn implemented_framing_scheme(name: &str) -> bool {
     matches!(
         name,
-        DANIAO_FRAGMENT_SCHEME | ORBA_FRAGMENT_SCHEME | POPLED_FRAME_SCHEME
+        DANIAO_FRAGMENT_SCHEME
+            | ORBA_FRAGMENT_SCHEME
+            | POPLED_FRAME_SCHEME
+            | SEEBLUE_ENVELOPE_SCHEME
     )
 }
 
@@ -499,7 +512,19 @@ pub fn unsupported_single_write_kind(
 
 /// The characteristic half of [`unsupported_single_write_kind`], for the
 /// direct write of a value that has no command to ask about.
+///
+/// Refuses what the command path can send but a bare value cannot be: an
+/// encrypted block is a whole `[length][opcode]` command that no format field
+/// describes, and a SEEBlue envelope needs the protocol id a command carries.
 pub fn unsupported_single_write_transform(characteristic: &Characteristic) -> Option<String> {
+    if characteristic.encryption.is_some() {
+        return Some("characteristic encryption".to_string());
+    }
+    if framing_scheme_name(characteristic).as_deref() == Some(SEEBLUE_ENVELOPE_SCHEME) {
+        return Some(format!(
+            "characteristic framing ({SEEBLUE_ENVELOPE_SCHEME}) needs a command's protocol_id"
+        ));
+    }
     unsupported_characteristic_transform(characteristic)
         .or_else(|| unsupported_multi_write_framing(characteristic))
 }
@@ -1728,6 +1753,7 @@ mod tests {
             advanced: false,
             advanced_reason: None,
             fixed_length: None,
+            protocol_id: None,
         };
         let bytes = encode_command(&cmd, &HashMap::new()).unwrap();
         assert_eq!(bytes, vec![0x01, 0x01]);
@@ -1759,6 +1785,7 @@ mod tests {
             advanced: false,
             advanced_reason: None,
             fixed_length: None,
+            protocol_id: None,
         };
         cmd.parameters = Some(pset([
             ("zone", param(ValueType::Uint8, None, None)),
@@ -1800,6 +1827,7 @@ mod tests {
             advanced: false,
             advanced_reason: None,
             fixed_length: Some(8),
+            protocol_id: None,
         };
         let params = HashMap::from([("sdk".to_string(), 34.0)]);
         assert_eq!(
@@ -1852,6 +1880,7 @@ mod tests {
             advanced: false,
             advanced_reason: None,
             fixed_length: Some(8),
+            protocol_id: None,
         };
         let bytes = encode_command(&cmd, &HashMap::new()).unwrap();
         assert_eq!(bytes.len(), 8);
@@ -1877,6 +1906,7 @@ mod tests {
             advanced: false,
             advanced_reason: None,
             fixed_length: Some(3),
+            protocol_id: None,
         };
         assert!(matches!(
             encode_command(&cmd, &HashMap::new()),
@@ -1904,6 +1934,7 @@ mod tests {
             advanced: false,
             advanced_reason: None,
             fixed_length: None,
+            protocol_id: None,
         };
         let params = HashMap::from([("brightness".into(), 75.0)]);
         let bytes = encode_command(&cmd, &params).unwrap();
@@ -1930,6 +1961,7 @@ mod tests {
             advanced: false,
             advanced_reason: None,
             fixed_length: None,
+            protocol_id: None,
         };
         let params = HashMap::from([("brightness".into(), 150.0)]);
         assert!(encode_command(&cmd, &params).is_err());
@@ -1953,6 +1985,7 @@ mod tests {
             advanced: false,
             advanced_reason: None,
             fixed_length: None,
+            protocol_id: None,
         }
     }
 
@@ -1997,6 +2030,7 @@ mod tests {
             advanced: false,
             advanced_reason: None,
             fixed_length: None,
+            protocol_id: None,
         };
         // 200 -> two-byte varint [0xC8, 0x01], total length 6 (BE in len).
         let bytes = encode_command(&cmd, &HashMap::from([("brightness".into(), 200.0)])).unwrap();
@@ -2033,6 +2067,7 @@ mod tests {
             advanced: false,
             advanced_reason: None,
             fixed_length: None,
+            protocol_id: None,
         };
         assert!(matches!(
             encode_command(&cmd, &HashMap::new()),
@@ -2068,6 +2103,7 @@ mod tests {
             advanced: false,
             advanced_reason: None,
             fixed_length: None,
+            protocol_id: None,
         }
     }
 
@@ -2124,6 +2160,7 @@ mod tests {
             advanced: false,
             advanced_reason: None,
             fixed_length: None,
+            protocol_id: None,
         };
         let params = HashMap::from([("b".into(), 0x53 as f64), ("c".into(), 0x0A as f64)]);
         assert_eq!(
@@ -2203,6 +2240,7 @@ mod tests {
             advanced: false,
             advanced_reason: None,
             fixed_length: None,
+            protocol_id: None,
         };
         let params = HashMap::from([("b".into(), 0x53 as f64)]);
         assert_eq!(
@@ -2239,6 +2277,7 @@ mod tests {
             advanced: false,
             advanced_reason: None,
             fixed_length: Some(6),
+            protocol_id: None,
         };
         let params = HashMap::from([("b".into(), 0x05 as f64)]);
         assert_eq!(
@@ -2283,6 +2322,7 @@ mod tests {
             advanced: false,
             advanced_reason: None,
             fixed_length: None,
+            protocol_id: None,
         }
     }
 
@@ -2384,6 +2424,7 @@ mod tests {
             advanced: false,
             advanced_reason: None,
             fixed_length: None,
+            protocol_id: None,
         }
     }
 
@@ -2471,6 +2512,7 @@ mod tests {
             advanced: false,
             advanced_reason: None,
             fixed_length: None,
+            protocol_id: None,
         }
     }
 
@@ -2533,6 +2575,7 @@ mod tests {
             advanced: false,
             advanced_reason: None,
             fixed_length: None,
+            protocol_id: None,
         };
         let out = encode_command(&cmd, &HashMap::from([("arg".into(), 0x10 as f64)])).unwrap();
         let sum = (0xAAu32 + 0x55 + 0x10) as u8;
@@ -2661,6 +2704,7 @@ mod tests {
             advanced: false,
             advanced_reason: None,
             fixed_length: None,
+            protocol_id: None,
         };
         let lo = HashMap::from([("n".into(), -128.0)]);
         assert_eq!(encode_command(&cmd, &lo).unwrap(), vec![0x80]);
@@ -2683,6 +2727,7 @@ mod tests {
             advanced: false,
             advanced_reason: None,
             fixed_length: None,
+            protocol_id: None,
         };
         let params = HashMap::from([("n".into(), -2.0)]);
         assert_eq!(
@@ -2711,6 +2756,7 @@ mod tests {
             advanced: false,
             advanced_reason: None,
             fixed_length: None,
+            protocol_id: None,
         };
         let params = HashMap::from([("n".into(), 4_000_000_000.0)]);
         assert_eq!(
@@ -2784,6 +2830,7 @@ mod tests {
             advanced: false,
             advanced_reason: None,
             fixed_length: None,
+            protocol_id: None,
         };
         // Even pathological parameter values should be ignored.
         let params = HashMap::from([("nonsense".into(), f64::NAN)]);
@@ -2808,6 +2855,7 @@ mod tests {
             advanced: false,
             advanced_reason: None,
             fixed_length: None,
+            protocol_id: None,
         }
     }
 
@@ -2961,6 +3009,7 @@ mod tests {
             advanced: false,
             advanced_reason: None,
             fixed_length: None,
+            protocol_id: None,
         }
     }
 

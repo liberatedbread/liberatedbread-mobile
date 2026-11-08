@@ -132,6 +132,64 @@ void main() {
     });
   });
 
+  group('a reply wait that names what the reply must carry', () {
+    // After the second write, as in the MXW01's plan: the first write of a plan
+    // is resent on a timeout, which is a different path from this one.
+    ReplyWaitDto carrying(int reply) => ReplyWaitDto(
+      afterWrite: 1,
+      characteristicUuid: _char,
+      expectPrefix: _b([0x55, 0x55, reply]),
+      errorPrefixes: const [],
+      timeoutMs: 500,
+      mustCarryOffset: 6,
+      mustCarry: _b([0x00]),
+    );
+
+    Future<void> run(_ScriptedPrinter ble) => runImageWritePlan(
+      subscribeSettle: Duration.zero,
+      ble,
+      'dev',
+      ImageWritePlanDto(
+        serviceUuid: 'srv',
+        writes: [_w(0xA2), _w(0xA9), _w(0x85)],
+        nextFrameIndex: 0,
+        replyWaits: [carrying(0xA9)],
+      ),
+    );
+
+    // The byte after the command id varies, which is why a prefix cannot pin
+    // the verdict: the MXW01 sends 0x03 there in some replies.
+    test('goes on when it does', () async {
+      final ble = _ScriptedPrinter.create({
+        0xA9: [
+          [0x55, 0x55, 0xA9, 0x03, 0x01, 0x00, 0x00],
+        ],
+      });
+      await run(ble);
+      expect(ble.written.map((w) => w[2]), [0xA2, 0xA9, 0x85]);
+    });
+
+    test('is refused and sends nothing more when it does not', () async {
+      final ble = _ScriptedPrinter.create({
+        0xA9: [
+          [0x55, 0x55, 0xA9, 0x00, 0x01, 0x00, 0x01],
+        ],
+      });
+      await expectLater(run(ble), throwsA(isA<DeviceRefusedException>()));
+      expect(ble.written.map((w) => w[2]), [0xA2, 0xA9]);
+    });
+
+    test('waits for the field when the reply arrives short', () async {
+      final ble = _ScriptedPrinter.create({
+        0xA9: [
+          [0x55, 0x55, 0xA9, 0x00],
+        ],
+      });
+      await expectLater(run(ble), throwsA(isA<TimeoutException>()));
+      expect(ble.written.map((w) => w[2]), [0xA2, 0xA9]);
+    });
+  });
+
   test('each wait holds the next write until its reply arrives', () async {
     final ble = _ScriptedPrinter.create({
       0x21: [

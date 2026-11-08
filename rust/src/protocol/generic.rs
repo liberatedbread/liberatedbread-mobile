@@ -7,7 +7,7 @@
 use super::traits::{DeviceProtocol, FieldMeta};
 use crate::codec::types::{self, DecodedValues};
 use crate::error::ProtocolError;
-use crate::spec::types::{Characteristic, DeviceSpec};
+use crate::spec::types::{Characteristic, Command, DeviceSpec};
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -52,7 +52,7 @@ impl GenericProtocol {
         char_uuid: &str,
         command_name: &str,
         params: &HashMap<String, f64>,
-    ) -> Result<(&Characteristic, Vec<u8>), ProtocolError> {
+    ) -> Result<(&Characteristic, &Command, Vec<u8>), ProtocolError> {
         // First, before a lookup can answer anything else: every send on the
         // spec-driven path comes through here, and a read-only handler's spec
         // has nothing that may leave by it.
@@ -80,8 +80,17 @@ impl GenericProtocol {
         if let Some(kind) = types::unsupported_write_kind(characteristic, command) {
             return Err(ProtocolError::UnsupportedCommandEncoding(kind));
         }
-        Ok((characteristic, types::encode_command(command, params)?))
+        Ok((
+            characteristic,
+            command,
+            types::encode_command(command, params)?,
+        ))
     }
+}
+
+/// The serial a caller named through the `sn` parameter, as a framing byte.
+fn named_serial(params: &HashMap<String, f64>) -> Option<u8> {
+    params.get("sn").map(|sn| (*sn as u64 % 256) as u8)
 }
 
 impl DeviceProtocol for GenericProtocol {
@@ -91,7 +100,8 @@ impl DeviceProtocol for GenericProtocol {
         command_name: &str,
         params: &HashMap<String, f64>,
     ) -> Result<Vec<u8>, ProtocolError> {
-        let (characteristic, bytes) = self.command_bytes(char_uuid, command_name, params)?;
+        let (characteristic, command, bytes) =
+            self.command_bytes(char_uuid, command_name, params)?;
         // The same predicate the entity/locator gates ask, so nothing they
         // offer can reach this refusal.
         if types::requires_ordered_writes(characteristic) {
@@ -99,8 +109,12 @@ impl DeviceProtocol for GenericProtocol {
                 "BLE-MIDI commands require ordered writes".to_string(),
             ));
         }
-        let serial = (params.get("sn").copied().unwrap_or(0.0) as u64 % 256) as u8;
-        super::image_upload::frame_command(characteristic, bytes, serial)
+        super::image_upload::frame_sent_command(
+            characteristic,
+            command,
+            bytes,
+            named_serial(params),
+        )
     }
 
     fn encode_command_writes(
@@ -109,13 +123,15 @@ impl DeviceProtocol for GenericProtocol {
         command_name: &str,
         params: &HashMap<String, f64>,
     ) -> Result<Vec<Vec<u8>>, ProtocolError> {
-        let (characteristic, bytes) = self.command_bytes(char_uuid, command_name, params)?;
-        let serial = (params.get("sn").copied().unwrap_or(0.0) as u64 % 256) as u8;
+        let (characteristic, command, bytes) =
+            self.command_bytes(char_uuid, command_name, params)?;
+        let serial = named_serial(params);
         if types::framing_scheme_name(characteristic).as_deref() == Some(super::orba_midi::SCHEME) {
-            return super::orba_midi::encode_command(characteristic, &bytes, serial);
+            return super::orba_midi::encode_command(characteristic, &bytes, serial.unwrap_or(0));
         }
-        Ok(vec![super::image_upload::frame_command(
+        Ok(vec![super::image_upload::frame_sent_command(
             characteristic,
+            command,
             bytes,
             serial,
         )?])
