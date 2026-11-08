@@ -20,6 +20,7 @@ import 'binary_sensor_card.dart';
 import 'entity_sensor_card.dart';
 import 'entity_cards/ble_entity_action_card.dart';
 import 'health/health_measurement_panel.dart';
+import 'ipl_setup_panel.dart';
 import 'led_image_widget.dart';
 import 'light_control_card.dart';
 import 'rabbit_air_controls_panel.dart';
@@ -375,6 +376,15 @@ class DeviceControlPanel extends ConsumerWidget {
           specYaml: match.yaml,
           spec: match.spec,
           plan: healthPlan,
+        ),
+      if (match != null &&
+          (match.spec.protocolHandler?.startsWith('ipl_') ?? false))
+        IplSetupPanel(
+          key: const ValueKey('ipl-setup-panel'),
+          deviceId: deviceId,
+          specYaml: match.yaml,
+          spec: match.spec,
+          services: services,
         ),
       // A raster printer gets the label composer ahead of the pixel editor:
       // typing a label is what a printer is for; drawing dots is the
@@ -1123,9 +1133,15 @@ class _ServiceCardState extends State<_ServiceCard> {
         // steady state the always-expanded panel had before folding existed.
         maintainState: true,
         children: service.characteristics.map((char) {
-          final specChar = specService == null
+          var specChar = specService == null
               ? null
               : findCharForUuid(specService, char.uuid);
+          if (specChar == null && matched != null) {
+            specChar = findCharacteristicSpec(
+              matched.spec,
+              char.uuid,
+            )?.characteristic;
+          }
           if (widget.handledCharacteristics.contains(
             normalizeUuid(char.uuid),
           )) {
@@ -1137,12 +1153,35 @@ class _ServiceCardState extends State<_ServiceCard> {
             );
           }
           if (matched != null && specChar != null) {
-            return TypedCharacteristicWidget(
+            final setupOwnedCommands =
+                matched.spec.protocolHandler == 'ipl_braun'
+                ? const {'measure_skin_tone', 'start_patch_test'}
+                : const <String>{};
+            final typed = TypedCharacteristicWidget(
               deviceId: widget.deviceId,
               serviceUuid: service.uuid,
               specYaml: matched.yaml,
               specChar: specChar,
               discovered: char,
+              excludedCommands: setupOwnedCommands,
+            );
+            final hasSetupOwnedCommands = specChar.commands.any(
+              (command) => setupOwnedCommands.contains(command.name),
+            );
+            if (!hasSetupOwnedCommands) return typed;
+            return Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const ListTile(
+                  dense: true,
+                  leading: Icon(Icons.tune),
+                  title: Text('IPL setup commands'),
+                  subtitle: Text(
+                    'Use the setup panel above to measure skin tone or start a patch test.',
+                  ),
+                ),
+                typed,
+              ],
             );
           }
           return RawCharacteristicWidget(

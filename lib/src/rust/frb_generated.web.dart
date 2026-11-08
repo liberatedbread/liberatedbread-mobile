@@ -11,6 +11,7 @@
 import 'api/device_api.dart';
 import 'api/enphase_api.dart';
 import 'api/health_api.dart';
+import 'api/ipl_api.dart';
 import 'api/mock_api.dart';
 import 'api/print_api.dart';
 import 'api/radio_api.dart';
@@ -371,6 +372,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   FactoryResetProcedureDto dco_decode_factory_reset_procedure_dto(dynamic raw);
+
+  @protected
+  ForeoActivationDto dco_decode_foreo_activation_dto(dynamic raw);
+
+  @protected
+  ForeoStatusDto dco_decode_foreo_status_dto(dynamic raw);
 
   @protected
   FormatFieldDto dco_decode_format_field_dto(dynamic raw);
@@ -1563,6 +1570,14 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   FactoryResetProcedureDto sse_decode_factory_reset_procedure_dto(
     SseDeserializer deserializer,
   );
+
+  @protected
+  ForeoActivationDto sse_decode_foreo_activation_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  ForeoStatusDto sse_decode_foreo_status_dto(SseDeserializer deserializer);
 
   @protected
   FormatFieldDto sse_decode_format_field_dto(SseDeserializer deserializer);
@@ -3096,6 +3111,18 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_factory_reset_procedure_dto(
     FactoryResetProcedureDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_foreo_activation_dto(
+    ForeoActivationDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_foreo_status_dto(
+    ForeoStatusDto self,
     SseSerializer serializer,
   );
 

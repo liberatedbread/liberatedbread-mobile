@@ -52,6 +52,7 @@ class TypedCommandWidget extends StatelessWidget {
   final String serviceUuid;
   final String specYaml;
   final CharacteristicDto specChar;
+  final Set<String> excludedCommands;
 
   const TypedCommandWidget({
     super.key,
@@ -59,12 +60,16 @@ class TypedCommandWidget extends StatelessWidget {
     required this.serviceUuid,
     required this.specYaml,
     required this.specChar,
+    this.excludedCommands = const {},
   });
 
   @override
   Widget build(BuildContext context) {
     final encodable = specChar.commands
-        .where((c) => c.isEncodable)
+        .where(
+          (command) =>
+              command.isEncodable && !excludedCommands.contains(command.name),
+        )
         .toList(growable: false);
     // Advanced commands (a treadmill's calibration, a raised speed ceiling)
     // are a signpost, not a gate: they stay sendable, but out of the ordinary
@@ -132,7 +137,10 @@ class TypedCommandWidget extends StatelessWidget {
   /// implemented" apart from "my YAML didn't load".
   List<Widget> _unsupportedNotice(BuildContext context) {
     final blocked = specChar.commands
-        .where((c) => !c.isEncodable)
+        .where(
+          (command) =>
+              !command.isEncodable && !excludedCommands.contains(command.name),
+        )
         .toList(growable: false);
     if (blocked.isEmpty) return const [];
     final kinds = {

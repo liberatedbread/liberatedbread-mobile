@@ -601,6 +601,8 @@ services:
           The FlatBuffers schema was NOT extracted — the app carries parse
           code, so the layout is recoverable, but it is not in this spec yet.
 
+protocol_handler: "ipl_braun"
+
 features:
   - type: "firmware_update"
     dfu:

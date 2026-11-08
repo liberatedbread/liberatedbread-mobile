@@ -698,6 +698,22 @@ ServiceDto? findServiceForUuid(DeviceSpecDto spec, String uuid) {
   return null;
 }
 
+/// Find a characteristic declared exactly once, for a protocol whose real
+/// containing service UUID is unknown until discovery.
+({ServiceDto service, CharacteristicDto characteristic})?
+findCharacteristicSpec(DeviceSpecDto spec, String uuid) {
+  final target = normalizeUuid(uuid);
+  ({ServiceDto service, CharacteristicDto characteristic})? found;
+  for (final service in spec.services) {
+    for (final characteristic in service.characteristics) {
+      if (normalizeUuid(characteristic.uuid) != target) continue;
+      if (found != null) return null;
+      found = (service: service, characteristic: characteristic);
+    }
+  }
+  return found;
+}
+
 /// Find the [CharacteristicDto] in [service] for a discovered characteristic
 /// UUID, or null.
 CharacteristicDto? findCharForUuid(ServiceDto service, String uuid) {
