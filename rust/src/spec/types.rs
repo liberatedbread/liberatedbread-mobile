@@ -1238,6 +1238,9 @@ pub struct DeviceInfo {
     /// older build, or one still being written, must keep loading.
     #[serde(default)]
     pub category: Option<String>,
+    /// Ordered domain/kind/subtype classification used by measurement surfaces.
+    #[serde(default)]
+    pub category_hierarchy: Vec<String>,
     /// Finer-grained glyph token than `category` (`nas`, `power-strip`, `phone`,
     /// `ip-camera`, `router`, …). Kept a `String` for the same
     /// forward-compat reason as `category`: the resolver owns the table, and an

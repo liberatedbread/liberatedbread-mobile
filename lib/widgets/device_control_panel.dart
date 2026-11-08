@@ -9,6 +9,7 @@ import '../core/device_category.dart';
 import '../core/hex.dart';
 import '../core/log.dart';
 import '../models/ble_discovered_service.dart';
+import '../models/health_measurement_plan.dart';
 import '../providers/device_description_provider.dart';
 import '../providers/device_spec_match_provider.dart';
 import '../providers/network_control_provider.dart';
@@ -18,6 +19,7 @@ import '../services/spec_codec.dart';
 import 'binary_sensor_card.dart';
 import 'entity_sensor_card.dart';
 import 'entity_cards/ble_entity_action_card.dart';
+import 'health/health_measurement_panel.dart';
 import 'led_image_widget.dart';
 import 'light_control_card.dart';
 import 'rabbit_air_controls_panel.dart';
@@ -163,6 +165,18 @@ class DeviceControlPanel extends ConsumerWidget {
     // The mock does not: it exposes every service in the YAML at once, and
     // anything else that carries two variants' services would likewise show
     // one reading three times. First spec-order binding that resolved wins.
+    final healthPlan = match == null
+        ? null
+        : healthMeasurementPlan(match.spec, services);
+    bool handledByHealthPanel(EntityDto entity) {
+      final stateChar = entity.stateCharacteristic;
+      return stateChar != null &&
+          (healthPlan?.handledCharacteristicUuids.contains(
+                normalizeUuid(stateChar),
+              ) ??
+              false);
+    }
+
     final seen = <String>{};
     final readings = <({EntityDto entity, String serviceUuid})>[];
     final controls = <({EntityDto entity, String? stateServiceUuid})>[];
@@ -171,6 +185,7 @@ class DeviceControlPanel extends ConsumerWidget {
       // it is not hidden, and it is not counted below. bindings.rs states that
       // rule where variant scoping is decided; this is the BLE end of it.
       if (!forThisDevice(entity)) continue;
+      if (handledByHealthPanel(entity)) continue;
       // The discovered service owning the entity's state characteristic,
       // when it has one and this device carries it.
       final stateChar = entity.stateCharacteristic;
@@ -236,6 +251,10 @@ class DeviceControlPanel extends ConsumerWidget {
     final shownNames = {
       for (final r in readings) r.entity.name,
       for (final c in controls) c.entity.name,
+      ...?match?.spec.entities
+          .where(forThisDevice)
+          .where(handledByHealthPanel)
+          .map((entity) => entity.name),
     };
     final hiddenNames = <String>{
       ...?match?.spec.hiddenEntityNames,
@@ -254,7 +273,8 @@ class DeviceControlPanel extends ConsumerWidget {
     // is radon and CO₂, not the OAD firmware service — still one tap away.
     final category = DeviceCategory.parse(match?.spec.category);
     final foldRawServices =
-        readings.isNotEmpty && category == DeviceCategory.sensor;
+        healthPlan != null ||
+        (readings.isNotEmpty && category == DeviceCategory.sensor);
 
     // A treadmill's Start/Stop/Target Speed are the card's big buttons and
     // slider above everything; listing them again as generic cards under it
@@ -302,6 +322,7 @@ class DeviceControlPanel extends ConsumerWidget {
       for (final r in readings)
         if (r.entity.stateCharacteristic case final state?)
           normalizeUuid(state),
+      ...?healthPlan?.handledCharacteristicUuids,
     };
     bool drawnByReadings(BleDiscoveredService service) =>
         service.characteristics.isNotEmpty &&
@@ -346,6 +367,14 @@ class DeviceControlPanel extends ConsumerWidget {
         _MatchedSpecHeader(
           key: const ValueKey('matched-spec-header'),
           chosen: outcome.chosen!,
+        ),
+      if (match != null && healthPlan != null)
+        HealthMeasurementPanel(
+          key: const ValueKey('health-measurement-panel'),
+          deviceId: deviceId,
+          specYaml: match.yaml,
+          spec: match.spec,
+          plan: healthPlan,
         ),
       // A raster printer gets the label composer ahead of the pixel editor:
       // typing a label is what a printer is for; drawing dots is the
@@ -458,6 +487,8 @@ class DeviceControlPanel extends ConsumerWidget {
           service: service,
           matched: match,
           registry: registry,
+          handledCharacteristics:
+              healthPlan?.handledCharacteristicUuids ?? const {},
           foldedForReadings:
               foldRawServices ||
               drawnByLightCard(service) ||
@@ -1005,6 +1036,7 @@ class _ServiceCard extends StatefulWidget {
   /// on a background load: until it lands the card shows the bare UUID, which
   /// is what it showed for every unlisted service before.
   final AsyncValue<NumberRegistry> registry;
+  final Set<String> handledCharacteristics;
 
   /// Whether this card should sit folded because spec-declared cards above
   /// already present it: readings own the screen (a matched sensor device),
@@ -1018,6 +1050,7 @@ class _ServiceCard extends StatefulWidget {
     required this.service,
     required this.matched,
     required this.registry,
+    required this.handledCharacteristics,
     required this.foldedForReadings,
   });
 
@@ -1093,6 +1126,16 @@ class _ServiceCardState extends State<_ServiceCard> {
           final specChar = specService == null
               ? null
               : findCharForUuid(specService, char.uuid);
+          if (widget.handledCharacteristics.contains(
+            normalizeUuid(char.uuid),
+          )) {
+            return ListTile(
+              dense: true,
+              leading: const Icon(Icons.monitor_heart_outlined),
+              title: Text(specChar?.name ?? 'Health measurement'),
+              subtitle: const Text('Shown in the measurement panel above.'),
+            );
+          }
           if (matched != null && specChar != null) {
             return TypedCharacteristicWidget(
               deviceId: widget.deviceId,

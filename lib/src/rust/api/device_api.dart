@@ -2057,6 +2057,11 @@ class DeviceSpecDto {
   /// decides what to do with a value it does not recognise.
   final String? category;
 
+  /// Ordered domain/kind/subtype classification (`measurement`, `health`,
+  /// `pulse_oximetry`), used to select a measurement surface without matching
+  /// a device's display name. Empty for older catalogue entries.
+  final List<String> categoryHierarchy;
+
   /// Finer-grained glyph token than `category` (`nas`, `power-strip`, `phone`,
   /// …), carried as the raw string; the Dart resolver owns the table and
   /// falls back to the category icon for one it does not know.
@@ -2189,6 +2194,7 @@ class DeviceSpecDto {
     required this.manufacturerStatus,
     required this.protocol,
     this.category,
+    this.categoryHierarchy = const [],
     this.pictogram,
     this.adminUrl,
     this.integration,
@@ -2224,6 +2230,7 @@ class DeviceSpecDto {
       manufacturerStatus.hashCode ^
       protocol.hashCode ^
       category.hashCode ^
+      categoryHierarchy.hashCode ^
       pictogram.hashCode ^
       adminUrl.hashCode ^
       integration.hashCode ^
@@ -2261,6 +2268,7 @@ class DeviceSpecDto {
           manufacturerStatus == other.manufacturerStatus &&
           protocol == other.protocol &&
           category == other.category &&
+          categoryHierarchy == other.categoryHierarchy &&
           pictogram == other.pictogram &&
           adminUrl == other.adminUrl &&
           integration == other.integration &&
