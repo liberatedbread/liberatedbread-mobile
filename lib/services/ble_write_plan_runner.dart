@@ -4,6 +4,7 @@ import 'dart:async';
 
 import 'package:clock/clock.dart';
 
+import '../core/stop_signal.dart';
 import 'ble_service.dart';
 import 'spec_codec.dart';
 
@@ -34,6 +35,14 @@ class DeviceRefusedException implements Exception {
       'DeviceRefusedException(${reply.map((b) => b.toRadixString(16).padLeft(2, '0')).join(' ')})';
 }
 
+/// A plan's [StopSignal] tripped before its last write went out.
+class ImagePlanStoppedException implements Exception {
+  const ImagePlanStoppedException();
+
+  @override
+  String toString() => 'ImagePlanStoppedException';
+}
+
 /// Send an image-upload write plan to a connected device: every write, in
 /// order, each to the characteristic it names. Ordering is part of the
 /// protocol (row streams, fragment reassembly), so the writes are awaited one
@@ -48,17 +57,26 @@ class DeviceRefusedException implements Exception {
 /// [DeviceRefusedException]. The plan's inter-write delay, when nonzero, also
 /// applies to rows, retries, and completion polls; zero preserves back-to-back
 /// writes for protocols that need no pacing.
+///
+/// [stop], when given, is checked before every write: a stopped plan throws
+/// [ImagePlanStoppedException] rather than sending the rest, because a plan
+/// abandoned by its caller and left running would go on to overwrite whatever
+/// was sent next. [writeTimeout] puts a deadline on each write, since a stalled
+/// one would otherwise never reach that check.
 Future<void> runImageWritePlan(
   BleService ble,
   String deviceId,
   ImageWritePlanDto plan, {
   Duration subscribeSettle = const Duration(milliseconds: 250),
   Duration pollReplyTimeout = const Duration(seconds: 5),
+  StopSignal? stop,
+  Duration? writeTimeout,
 }) async {
   final poll = plan.completionPoll;
   final interval = Duration(milliseconds: plan.interWriteDelayMs);
   DateTime? lastWrite;
   Future<void> send(ImageWriteDto write) async {
+    if (stop?.stopped ?? false) throw const ImagePlanStoppedException();
     final previous = lastWrite;
     if (previous != null && interval > Duration.zero) {
       final remaining = interval - clock.now().difference(previous);
@@ -66,12 +84,13 @@ Future<void> runImageWritePlan(
         await Future<void>.delayed(remaining);
       }
     }
-    await ble.writeCharacteristic(
+    final writing = ble.writeCharacteristic(
       deviceId,
       plan.serviceUuid,
       write.characteristicUuid,
       write.bytes,
     );
+    await (writeTimeout == null ? writing : writing.timeout(writeTimeout));
     lastWrite = clock.now();
   }
 

@@ -7,6 +7,7 @@
 
 import 'api/device_api.dart';
 import 'api/enphase_api.dart';
+import 'api/health_api.dart';
 import 'api/mock_api.dart';
 import 'api/print_api.dart';
 import 'api/radio_api.dart';
@@ -130,10 +131,18 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  BloodPressureReadingDto dco_decode_blood_pressure_reading_dto(dynamic raw);
+
+  @protected
   bool dco_decode_bool(dynamic raw);
 
   @protected
   BandLimitsDto dco_decode_box_autoadd_band_limits_dto(dynamic raw);
+
+  @protected
+  BloodPressureReadingDto dco_decode_box_autoadd_blood_pressure_reading_dto(
+    dynamic raw,
+  );
 
   @protected
   bool dco_decode_box_autoadd_bool(dynamic raw);
@@ -157,6 +166,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   FactoryResetDto dco_decode_box_autoadd_factory_reset_dto(dynamic raw);
+
+  @protected
+  HealthClockDto dco_decode_box_autoadd_health_clock_dto(dynamic raw);
 
   @protected
   PlatformInt64 dco_decode_box_autoadd_i_64(dynamic raw);
@@ -188,6 +200,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   PrintChoiceDto dco_decode_box_autoadd_print_choice_dto(dynamic raw);
+
+  @protected
+  PulseOxSampleDto dco_decode_box_autoadd_pulse_ox_sample_dto(dynamic raw);
 
   @protected
   QuerySourceDto dco_decode_box_autoadd_query_source_dto(dynamic raw);
@@ -315,6 +330,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   HandshakeStepDto dco_decode_handshake_step_dto(dynamic raw);
+
+  @protected
+  HealthClockDto dco_decode_health_clock_dto(dynamic raw);
+
+  @protected
+  HealthSampleDto dco_decode_health_sample_dto(dynamic raw);
 
   @protected
   HttpHeaderDto dco_decode_http_header_dto(dynamic raw);
@@ -524,6 +545,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   List<ProfileInfoDto> dco_decode_list_profile_info_dto(dynamic raw);
 
   @protected
+  List<PulseOxSessionDto> dco_decode_list_pulse_ox_session_dto(dynamic raw);
+
+  @protected
   List<RadioChannelDto> dco_decode_list_radio_channel_dto(dynamic raw);
 
   @protected
@@ -697,6 +721,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   String? dco_decode_opt_String(dynamic raw);
 
   @protected
+  BloodPressureReadingDto?
+  dco_decode_opt_box_autoadd_blood_pressure_reading_dto(dynamic raw);
+
+  @protected
   bool? dco_decode_opt_box_autoadd_bool(dynamic raw);
 
   @protected
@@ -717,6 +745,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   FactoryResetDto? dco_decode_opt_box_autoadd_factory_reset_dto(dynamic raw);
+
+  @protected
+  HealthClockDto? dco_decode_opt_box_autoadd_health_clock_dto(dynamic raw);
 
   @protected
   PlatformInt64? dco_decode_opt_box_autoadd_i_64(dynamic raw);
@@ -749,6 +780,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   PrintChoiceDto? dco_decode_opt_box_autoadd_print_choice_dto(dynamic raw);
+
+  @protected
+  PulseOxSampleDto? dco_decode_opt_box_autoadd_pulse_ox_sample_dto(dynamic raw);
 
   @protected
   QuerySourceDto? dco_decode_opt_box_autoadd_query_source_dto(dynamic raw);
@@ -844,6 +878,15 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   ProfileInfoDto dco_decode_profile_info_dto(dynamic raw);
+
+  @protected
+  PulseOxHistoryChunkDto dco_decode_pulse_ox_history_chunk_dto(dynamic raw);
+
+  @protected
+  PulseOxSampleDto dco_decode_pulse_ox_sample_dto(dynamic raw);
+
+  @protected
+  PulseOxSessionDto dco_decode_pulse_ox_session_dto(dynamic raw);
 
   @protected
   QuerySourceDto dco_decode_query_source_dto(dynamic raw);
@@ -1114,10 +1157,20 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  BloodPressureReadingDto sse_decode_blood_pressure_reading_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   bool sse_decode_bool(SseDeserializer deserializer);
 
   @protected
   BandLimitsDto sse_decode_box_autoadd_band_limits_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  BloodPressureReadingDto sse_decode_box_autoadd_blood_pressure_reading_dto(
     SseDeserializer deserializer,
   );
 
@@ -1147,6 +1200,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   FactoryResetDto sse_decode_box_autoadd_factory_reset_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  HealthClockDto sse_decode_box_autoadd_health_clock_dto(
     SseDeserializer deserializer,
   );
 
@@ -1196,6 +1254,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   PrintChoiceDto sse_decode_box_autoadd_print_choice_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  PulseOxSampleDto sse_decode_box_autoadd_pulse_ox_sample_dto(
     SseDeserializer deserializer,
   );
 
@@ -1353,6 +1416,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   HandshakeStepDto sse_decode_handshake_step_dto(SseDeserializer deserializer);
+
+  @protected
+  HealthClockDto sse_decode_health_clock_dto(SseDeserializer deserializer);
+
+  @protected
+  HealthSampleDto sse_decode_health_sample_dto(SseDeserializer deserializer);
 
   @protected
   HttpHeaderDto sse_decode_http_header_dto(SseDeserializer deserializer);
@@ -1624,6 +1693,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  List<PulseOxSessionDto> sse_decode_list_pulse_ox_session_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   List<RadioChannelDto> sse_decode_list_radio_channel_dto(
     SseDeserializer deserializer,
   );
@@ -1863,6 +1937,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   String? sse_decode_opt_String(SseDeserializer deserializer);
 
   @protected
+  BloodPressureReadingDto?
+  sse_decode_opt_box_autoadd_blood_pressure_reading_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   bool? sse_decode_opt_box_autoadd_bool(SseDeserializer deserializer);
 
   @protected
@@ -1885,6 +1965,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   FactoryResetDto? sse_decode_opt_box_autoadd_factory_reset_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  HealthClockDto? sse_decode_opt_box_autoadd_health_clock_dto(
     SseDeserializer deserializer,
   );
 
@@ -1929,6 +2014,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   PrintChoiceDto? sse_decode_opt_box_autoadd_print_choice_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  PulseOxSampleDto? sse_decode_opt_box_autoadd_pulse_ox_sample_dto(
     SseDeserializer deserializer,
   );
 
@@ -2042,6 +2132,19 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   ProfileInfoDto sse_decode_profile_info_dto(SseDeserializer deserializer);
+
+  @protected
+  PulseOxHistoryChunkDto sse_decode_pulse_ox_history_chunk_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  PulseOxSampleDto sse_decode_pulse_ox_sample_dto(SseDeserializer deserializer);
+
+  @protected
+  PulseOxSessionDto sse_decode_pulse_ox_session_dto(
+    SseDeserializer deserializer,
+  );
 
   @protected
   QuerySourceDto sse_decode_query_source_dto(SseDeserializer deserializer);
@@ -2373,11 +2476,23 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_blood_pressure_reading_dto(
+    BloodPressureReadingDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_bool(bool self, SseSerializer serializer);
 
   @protected
   void sse_encode_box_autoadd_band_limits_dto(
     BandLimitsDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_box_autoadd_blood_pressure_reading_dto(
+    BloodPressureReadingDto self,
     SseSerializer serializer,
   );
 
@@ -2414,6 +2529,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_box_autoadd_factory_reset_dto(
     FactoryResetDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_box_autoadd_health_clock_dto(
+    HealthClockDto self,
     SseSerializer serializer,
   );
 
@@ -2474,6 +2595,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_box_autoadd_print_choice_dto(
     PrintChoiceDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_box_autoadd_pulse_ox_sample_dto(
+    PulseOxSampleDto self,
     SseSerializer serializer,
   );
 
@@ -2684,6 +2811,18 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_handshake_step_dto(
     HandshakeStepDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_health_clock_dto(
+    HealthClockDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_health_sample_dto(
+    HealthSampleDto self,
     SseSerializer serializer,
   );
 
@@ -3039,6 +3178,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_list_pulse_ox_session_dto(
+    List<PulseOxSessionDto> self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_list_radio_channel_dto(
     List<RadioChannelDto> self,
     SseSerializer serializer,
@@ -3348,6 +3493,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   void sse_encode_opt_String(String? self, SseSerializer serializer);
 
   @protected
+  void sse_encode_opt_box_autoadd_blood_pressure_reading_dto(
+    BloodPressureReadingDto? self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_opt_box_autoadd_bool(bool? self, SseSerializer serializer);
 
   @protected
@@ -3374,6 +3525,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_opt_box_autoadd_factory_reset_dto(
     FactoryResetDto? self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_opt_box_autoadd_health_clock_dto(
+    HealthClockDto? self,
     SseSerializer serializer,
   );
 
@@ -3428,6 +3585,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_opt_box_autoadd_print_choice_dto(
     PrintChoiceDto? self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_opt_box_autoadd_pulse_ox_sample_dto(
+    PulseOxSampleDto? self,
     SseSerializer serializer,
   );
 
@@ -3566,6 +3729,24 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_profile_info_dto(
     ProfileInfoDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_pulse_ox_history_chunk_dto(
+    PulseOxHistoryChunkDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_pulse_ox_sample_dto(
+    PulseOxSampleDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_pulse_ox_session_dto(
+    PulseOxSessionDto self,
     SseSerializer serializer,
   );
 

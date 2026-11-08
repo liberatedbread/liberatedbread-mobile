@@ -3,6 +3,7 @@
 
 pub mod device_api;
 pub mod enphase_api;
+pub mod health_api;
 pub mod mock_api;
 pub mod print_api;
 pub mod radio_api;

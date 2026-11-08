@@ -12,6 +12,7 @@ pub mod dither;
 pub mod enphase;
 pub mod fichero_d11;
 pub mod generic;
+pub mod health;
 pub mod http;
 pub mod idotmatrix;
 pub mod image_upload;

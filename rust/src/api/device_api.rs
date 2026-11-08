@@ -97,6 +97,11 @@ pub struct DeviceSpecDto {
     /// category added upstream after this build still reaches Dart, which
     /// decides what to do with a value it does not recognise.
     pub category: Option<String>,
+    /// Ordered domain/kind/subtype classification (`measurement`, `health`,
+    /// `pulse_oximetry`), used to select a measurement surface without matching
+    /// a device's display name. Empty for older catalogue entries.
+    #[frb(default = "const []")]
+    pub category_hierarchy: Vec<String>,
     /// Finer-grained glyph token than `category` (`nas`, `power-strip`, `phone`,
     /// …), carried as the raw string; the Dart resolver owns the table and
     /// falls back to the category icon for one it does not know.
@@ -1258,6 +1263,7 @@ impl From<&DeviceSpec> for DeviceSpecDto {
             manufacturer_status: spec.device.manufacturer_status.to_string(),
             protocol: spec.device.protocol.to_string(),
             category: spec.device.category.clone(),
+            category_hierarchy: spec.device.category_hierarchy.clone(),
             pictogram: spec.device.pictogram.clone(),
             admin_url: spec.device.admin_url.clone(),
             integration: spec.device.integration.clone(),

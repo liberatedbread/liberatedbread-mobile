@@ -167,6 +167,9 @@ class GroupRunner {
   /// Between a connect that failed transiently and the one retry.
   final Duration connectRetryPause;
 
+  /// [prideUploadTimeout] unless a test shortens it.
+  final Duration uploadTimeout;
+
   /// A panel's size as remembered from an earlier connection, for a panel that
   /// has no query to ask it with. Null in a fixture.
   final ({int width, int height})? Function(String deviceId)? _rememberedSize;
@@ -181,6 +184,7 @@ class GroupRunner {
     this._rememberedSize,
     this.connectTimeout = defaultConnectTimeout,
     this.connectRetryPause = const Duration(seconds: 2),
+    this.uploadTimeout = prideUploadTimeout,
     this.panelQueryListen = const Duration(milliseconds: 1500),
   });
 
@@ -288,6 +292,7 @@ class GroupRunner {
                 specYaml,
                 services,
                 firstPosition + index,
+                stop,
               )
             : op.isCommand
             ? await _runCommands(
@@ -428,6 +433,7 @@ class GroupRunner {
     String? specYaml,
     List<BleDiscoveredService> services,
     int position,
+    StopSignal stop,
   ) async {
     GroupRunEvent skip(String detail) => GroupRunEvent(
       deviceId: member.id,
@@ -439,7 +445,7 @@ class GroupRunner {
     }
     final picture = imageSurfaceForPride(spec);
     if (picture != null) {
-      return _sendPridePicture(member, spec, specYaml, picture, position);
+      return _sendPridePicture(member, spec, specYaml, picture, position, stop);
     }
     final matchedVariants = await _matchedVariants(member, specYaml, services);
     final writes = resolvePrideColorWrites(
@@ -481,6 +487,7 @@ class GroupRunner {
     String specYaml,
     PridePicture picture,
     int position,
+    StopSignal stop,
   ) async {
     final (:width, :height) = await _prideCanvas(member, spec, specYaml);
     var mtu = 23;
@@ -530,7 +537,30 @@ class GroupRunner {
       );
       detail = '${flag.name} flag set';
     }
-    await runImageWritePlan(_ble, member.id, plan).timeout(prideUploadTimeout);
+    // A deadline that stops the plan rather than only ceasing to wait for it:
+    // left running, it would finish over whatever was sent next.
+    final planStop = StopSignal();
+    final deadline = Timer(uploadTimeout, planStop.stop);
+    unawaited(stop.whenStopped.then((_) => planStop.stop()));
+    try {
+      await runImageWritePlan(
+        _ble,
+        member.id,
+        plan,
+        stop: planStop,
+        writeTimeout: ioTimeout,
+      );
+    } on ImagePlanStoppedException {
+      return GroupRunEvent(
+        deviceId: member.id,
+        status: stop.stopped
+            ? GroupDeviceStatus.skipped
+            : GroupDeviceStatus.failed,
+        detail: stop.stopped ? 'Cancelled' : 'The upload took too long.',
+      );
+    } finally {
+      deadline.cancel();
+    }
     return GroupRunEvent(
       deviceId: member.id,
       status: GroupDeviceStatus.ok,

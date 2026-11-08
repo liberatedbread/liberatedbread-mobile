@@ -453,6 +453,60 @@ void main() {
       expect(codec.encodeImageCalls.single.height, 16);
     });
 
+    /// Enough writes, paced, that a stop lands with some still to send.
+    ImageWritePlanDto threeWritePlan() => ImageWritePlanDto(
+      serviceUuid: _svc,
+      nextFrameIndex: 3,
+      interWriteDelayMs: 40,
+      replyWaits: const [],
+      writes: [
+        for (var i = 0; i < 3; i++)
+          ImageWriteDto(
+            characteristicUuid: _cmdChar,
+            bytes: Uint8List.fromList([i]),
+          ),
+      ],
+    );
+
+    test('an upload past its deadline stops writing, and fails', () async {
+      final ble = FakeBleService(servicesToReturn: const [_controlService]);
+      final codec = FakeSpecCodec(imagePlan: threeWritePlan());
+      final spec = _prideSpec(category: 'display', imageUpload: _upload());
+      final events = await run(
+        GroupRunner(
+          ble: ble,
+          codec: codec,
+          uploadTimeout: const Duration(milliseconds: 20),
+        ),
+        [_member('A', spec: spec, yaml: 'y')],
+      );
+      expect(events.last.status, GroupDeviceStatus.failed);
+      expect(events.last.detail, 'The upload took too long.');
+      expect(ble.writes.length, lessThan(3));
+      final sent = ble.writes.length;
+      await Future<void>.delayed(const Duration(milliseconds: 150));
+      expect(ble.writes.length, sent, reason: 'nothing goes out afterwards');
+    });
+
+    test('cancelling stops an upload part way', () async {
+      final ble = FakeBleService(servicesToReturn: const [_controlService]);
+      final codec = FakeSpecCodec(imagePlan: threeWritePlan());
+      final spec = _prideSpec(category: 'display', imageUpload: _upload());
+      final stop = StopSignal();
+      final events = <GroupRunEvent>[];
+      await for (final event in GroupRunner(ble: ble, codec: codec).run(
+        GroupOp.prideMode,
+        [_member('A', spec: spec, yaml: 'y')],
+        stop: stop,
+      )) {
+        events.add(event);
+        if (event.status == GroupDeviceStatus.running) stop.stop();
+      }
+      expect(events.last.status, GroupDeviceStatus.skipped);
+      expect(events.last.detail, 'Cancelled');
+      expect(ble.writes.length, lessThan(3));
+    });
+
     test(
       'a query that stalls falls back rather than hanging the run',
       () async {
