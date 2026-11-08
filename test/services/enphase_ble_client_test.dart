@@ -97,11 +97,13 @@ class _ScriptedXBee extends FakeBleService {
     _Crypto crypto, {
     bool badProof = false,
     bool shortChallenge = false,
+    Future<void>? writeGate,
   }) => _ScriptedXBee._(
     crypto,
     StreamController<List<int>>.broadcast(),
     badProof,
     shortChallenge,
+    writeGate,
   );
 
   _ScriptedXBee._(
@@ -109,7 +111,12 @@ class _ScriptedXBee extends FakeBleService {
     this.notifications,
     this.badProof,
     this.shortChallenge,
-  ) : super(notifyStream: notifications.stream, mtuToReturn: 23);
+    Future<void>? writeGate,
+  ) : super(
+        notifyStream: notifications.stream,
+        mtuToReturn: 23,
+        writeGate: writeGate,
+      );
 
   @override
   Stream<List<int>> subscribeCharacteristic(
@@ -276,6 +283,38 @@ void main() {
     );
     expect(ble.relayPayloads, isEmpty);
   });
+
+  test(
+    'a notification setup error reaches the session instead of a timeout',
+    () async {
+      final crypto = _Crypto();
+      final gate = Completer<void>();
+      final ble = _ScriptedXBee(crypto, writeGate: gate.future);
+      addTearDown(ble.notifications.close);
+      final client = EnphaseBleClient(
+        ble: ble,
+        deviceId: 'dev',
+        crypto: crypto,
+      );
+      final session = client.unlockAndRead();
+      for (
+        var i = 0;
+        i < 20 && (ble.liveSubscriberCount[_rxUuid] ?? 0) < 1;
+        i++
+      ) {
+        await Future<void>.delayed(Duration.zero);
+      }
+      expect(ble.subscriptions, [_rxUuid]);
+
+      final error = StateError('CCCD setup failed');
+      ble.notifications.addError(error);
+      gate.complete();
+
+      await expectLater(session, throwsA(same(error)));
+      expect(ble.disconnectedIds, ['dev']);
+      expect(ble.liveSubscriberCount[_rxUuid], 0);
+    },
+  );
 
   test('the Rust codec is callable through the generated bindings', () async {
     final loaded = await initHostRustLib();

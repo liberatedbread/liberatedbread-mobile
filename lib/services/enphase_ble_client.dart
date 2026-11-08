@@ -126,6 +126,7 @@ class EnphaseBleClient implements EnphaseClient {
   final List<int> _buffer = [];
   final List<XBeeFrameDto> _pending = [];
   final _events = StreamController<XBeeFrameDto>.broadcast();
+  Object? _sessionError;
   StreamSubscription<List<int>>? _subscription;
   Future<void> _receiveQueue = Future<void>.value();
   bool _closed = false;
@@ -149,7 +150,7 @@ class EnphaseBleClient implements EnphaseClient {
       await ble.discoverServices(deviceId);
       _subscription = ble
           .subscribeCharacteristic(deviceId, _serviceUuid, _rxUuid)
-          .listen(_onBytes);
+          .listen(_onBytes, onError: _reportError);
       final privateKey = Uint8List.fromList(
         List<int>.generate(32, (_) => Random.secure().nextInt(256)),
       );
@@ -218,10 +219,14 @@ class EnphaseBleClient implements EnphaseClient {
             offset: offset,
           ),
         )
-        .catchError((Object e) {
-          Log.ble.warning('XBee receive failed for $deviceId', error: e);
-          if (!_events.isClosed) _events.addError(e);
-        });
+        .catchError(_reportError);
+  }
+
+  void _reportError(Object error) {
+    if (_closed) return;
+    _sessionError ??= error;
+    Log.ble.warning('XBee notification failed for $deviceId', error: error);
+    if (!_events.isClosed) _events.addError(error);
   }
 
   Future<void> _processBytes(
@@ -275,6 +280,8 @@ class EnphaseBleClient implements EnphaseClient {
       return true;
     }
 
+    final error = _sessionError;
+    if (error != null) throw error;
     final existing = _pending.indexWhere(matches);
     if (existing >= 0) return _pending.removeAt(existing);
     final completer = Completer<XBeeFrameDto>();
