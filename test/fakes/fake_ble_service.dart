@@ -30,6 +30,9 @@ class FakeBleService implements BleService, BleConnectCanceller {
   /// Stream returned by [subscribeCharacteristic]; defaults to an empty stream.
   final Stream<List<int>>? notifyStream;
 
+  /// When set, subscription setup completes only when this completer does.
+  final Completer<void>? notificationReadyCompleter;
+
   /// Stream returned by [connectionState]; defaults to an empty stream. Tests
   /// can supply a controller-backed stream to simulate a mid-session
   /// disconnect.
@@ -99,6 +102,7 @@ class FakeBleService implements BleService, BleConnectCanceller {
     this.discoverError,
     this.readError,
     this.notifyStream,
+    this.notificationReadyCompleter,
     this.connectionStateStream,
     this.connectGate,
     this.discoverGate,
@@ -264,7 +268,10 @@ class FakeBleService implements BleService, BleConnectCanceller {
       liveSubscriberCount[charUuid] = (liveSubscriberCount[charUuid] ?? 1) - 1;
       await sub?.cancel();
     };
-    return controller.stream;
+    final ready = notificationReadyCompleter;
+    return ready == null
+        ? controller.stream
+        : BleReadyNotificationStream(controller.stream, ready.future);
   }
 
   /// What [recentNotifications] returns — a test sets it to simulate a
