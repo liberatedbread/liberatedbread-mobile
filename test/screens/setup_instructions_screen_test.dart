@@ -1,6 +1,7 @@
 // Copyright 2026 Pigs Can Fly Labs LLC
 // SPDX-License-Identifier: Apache-2.0
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:liberated_bread_mobile/screens/setup_instructions_screen.dart';
 import 'package:liberated_bread_mobile/services/spec_codec.dart';
@@ -62,10 +63,12 @@ Future<void> _pump(WidgetTester tester, SetupInstructionsDto instructions) {
   addTearDown(tester.view.resetPhysicalSize);
   addTearDown(tester.view.resetDevicePixelRatio);
   return tester.pumpWidget(
-    MaterialApp(
-      home: SetupInstructionsScreen(
-        deviceName: 'Ember Mug',
-        instructions: instructions,
+    ProviderScope(
+      child: MaterialApp(
+        home: SetupInstructionsScreen(
+          deviceName: 'Ember Mug',
+          instructions: instructions,
+        ),
       ),
     ),
   );

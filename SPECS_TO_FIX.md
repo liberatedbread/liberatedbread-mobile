@@ -1199,3 +1199,23 @@ file that it applies.
 3. Minor, while there: the catalogue spells the white-point role two ways,
    Elgato's `color_temperature` and Yeelight's `color_temp`. The app reads
    both; the schema's role list names neither.
+
+
+## Found 2026-11-07, while implementing Enphase XBee status reads
+
+### enphase-iqbattery-ble reverses the relay frame IDs in its prose
+
+`vendor/protocol-specs/device-specs/devices/enphase-iqbattery-ble.yaml:121`,
+:202, :222-223, :233, :239-240 and :252-253 call `0xAD` the client-to-radio
+frame and `0x2D` the response. Digi's public packet classes say the opposite:
+[`UserDataRelayPacket`](https://github.com/digidotcom/xbee-java/blob/master/library/src/main/java/com/digi/xbee/api/packet/relay/UserDataRelayPacket.java)
+is `0x2D`, with a frame ID and destination interface;
+[`UserDataRelayOutputPacket`](https://github.com/digidotcom/xbee-java/blob/master/library/src/main/java/com/digi/xbee/api/packet/relay/UserDataRelayOutputPacket.java)
+is `0xAD`, with a source interface and no frame ID.
+
+The app therefore sends `0x2D` with destination SERIAL and the Enphase
+`[type, 0]` status request, and accepts `0xAD` replies whose source byte is
+followed by the response payload. Reverse these descriptions upstream;
+the destination/source fields and the simple request/response payload layout
+are otherwise correct. This is a documentation correction, not a reason to
+edit the vendored subtree or to reverse a working client's frame IDs.

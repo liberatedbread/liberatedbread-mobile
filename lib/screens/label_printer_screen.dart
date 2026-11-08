@@ -10,9 +10,12 @@ import '../models/network_device.dart';
 import '../providers/network_control_provider.dart';
 import '../providers/spec_codec_provider.dart';
 import '../services/brother_ql_print_service.dart';
+import '../services/print/print_target.dart';
 import '../services/spec_codec.dart';
 import '../widgets/ad_banner_bar.dart';
+import '../widgets/print/add_system_printer_sheet.dart';
 import '../widgets/unexpected_services_banner.dart';
+import 'print_label_screen.dart';
 
 /// Control screen for a raster label printer (Brother QL family).
 ///
@@ -46,6 +49,8 @@ class _LabelPrinterScreenState extends ConsumerState<LabelPrinterScreen> {
   bool _loading = true;
   bool _printing = false;
   String? _error;
+  List<PrintMediaDto> _mediaChoices = const [];
+  PrintMediaDto? _selectedMedia;
 
   int get _port =>
       widget.controls.capabilities?.defaultPort ??
@@ -56,6 +61,19 @@ class _LabelPrinterScreenState extends ConsumerState<LabelPrinterScreen> {
   void initState() {
     super.initState();
     unawaited(_loadStatus());
+    unawaited(_loadMediaChoices());
+  }
+
+  Future<void> _loadMediaChoices() async {
+    try {
+      final raster = await ref
+          .read(specCodecProvider)
+          .rasterPrintForSpec(specYaml: widget.controls.specYaml);
+      if (!mounted) return;
+      setState(() => _mediaChoices = raster?.media ?? const []);
+    } on Object catch (e) {
+      Log.spec.debug('label media choices failed to load', error: e);
+    }
   }
 
   Future<void> _loadStatus() async {
@@ -122,30 +140,53 @@ class _LabelPrinterScreenState extends ConsumerState<LabelPrinterScreen> {
   bool get _canPrint =>
       _error == null && (_status == null || _status!.readyToPrint);
 
-  /// The media to print on: what the printer reported, or a conservative
-  /// default (62 mm continuous, the common DK-2205 roll) when it stayed silent.
   BrotherQlJobParamsDto _printParams() {
-    final status = _status;
-    if (status == null) {
-      return const BrotherQlJobParamsDto(
-        mediaWidthMm: 62,
-        mediaLengthMm: 0,
-        mediaDieCut: false,
-        autoCut: true,
+    final selected = _selectedMedia;
+    return selected == null
+        ? brotherParamsFor(_status)
+        : brotherParamsForMedia(selected);
+  }
+
+  /// Open the composer on a target sized to the loaded roll.
+  Future<void> _composeLabel() async {
+    if (!_canPrint) return;
+    final navigator = Navigator.of(context);
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      final target = await BrotherQlTarget.resolve(
+        codec: ref.read(specCodecProvider),
+        transport: ref.read(brotherQlPrintServiceProvider),
+        specYaml: widget.controls.specYaml,
+        host: widget.device.host,
+        port: _port,
+        params: _printParams(),
+        name: widget.device.displayName,
       );
+      if (!mounted) return;
+      await navigator.push(
+        MaterialPageRoute<void>(
+          builder: (_) => PrintLabelScreen(target: target),
+        ),
+      );
+    } on Object catch (e) {
+      Log.spec.warning('label composer failed to open', error: e);
+      if (mounted) {
+        messenger.showSnackBar(
+          const SnackBar(
+            content: Text('Could not size a label for this roll.'),
+          ),
+        );
+      }
     }
-    return BrotherQlJobParamsDto(
-      mediaWidthMm: status.mediaWidthMm,
-      mediaLengthMm: status.mediaLengthMm,
-      mediaDieCut: status.mediaType == 'die_cut',
-      autoCut: true,
-    );
   }
 
   Future<void> _printTestLabel() async {
     if (!_canPrint) return;
     final status = _status;
-    final detail = status == null
+    final selected = _selectedMedia;
+    final detail = selected != null
+        ? 'This uses one ${selected.name} label to check the printer end to end.'
+        : status == null
         ? 'The printer did not report its media, so this assumes a standard '
               '62 mm continuous roll.'
         : 'This uses one ${status.mediaWidthMm} mm label to check the '
@@ -238,8 +279,52 @@ class _LabelPrinterScreenState extends ConsumerState<LabelPrinterScreen> {
               port: _port,
               host: widget.device.host,
             ),
+            if (_mediaChoices.isNotEmpty) ...[
+              const SizedBox(height: 16),
+              DropdownButtonFormField<String>(
+                key: const ValueKey('label-media-selector'),
+                initialValue: _selectedMedia?.name ?? '_reported',
+                isExpanded: true,
+                decoration: const InputDecoration(
+                  labelText: 'Media',
+                  border: OutlineInputBorder(),
+                  helperText:
+                      'Printer reported uses the roll the printer names. '
+                      'Choose another when that is wrong or unavailable.',
+                ),
+                items: [
+                  const DropdownMenuItem(
+                    value: '_reported',
+                    child: Text('Printer reported'),
+                  ),
+                  for (final media in _mediaChoices)
+                    DropdownMenuItem(
+                      value: media.name,
+                      child: Text(media.name),
+                    ),
+                ],
+                onChanged: _printing
+                    ? null
+                    : (name) {
+                        setState(() {
+                          _selectedMedia = null;
+                          for (final media in _mediaChoices) {
+                            if (media.name == name) _selectedMedia = media;
+                          }
+                        });
+                      },
+              ),
+            ],
             const SizedBox(height: 20),
             FilledButton.icon(
+              onPressed: _canPrint && !_loading && !_printing
+                  ? () => unawaited(_composeLabel())
+                  : null,
+              icon: const Icon(Icons.edit_note),
+              label: const Text('Compose a label'),
+            ),
+            const SizedBox(height: 8),
+            OutlinedButton.icon(
               onPressed: _canPrint && !_loading && !_printing
                   ? () => unawaited(_printTestLabel())
                   : null,
@@ -252,7 +337,19 @@ class _LabelPrinterScreenState extends ConsumerState<LabelPrinterScreen> {
                   : const Icon(Icons.print_outlined),
               label: Text(_printing ? 'Sending…' : 'Print test label'),
             ),
-            const SizedBox(height: 12),
+            TextButton.icon(
+              onPressed: () => unawaited(
+                showAddSystemPrinterSheet(
+                  context,
+                  printerName: widget.device.displayName,
+                  host: widget.device.host,
+                  labelPrinter: true,
+                ),
+              ),
+              icon: const Icon(Icons.help_outline),
+              label: const Text('Print from other apps?'),
+            ),
+            const SizedBox(height: 4),
             Text(
               'Label printing is local: the job goes straight to the printer '
               'over your network, no account or cloud.',

@@ -51,6 +51,36 @@ SvcReport? buildBleSvcReport({
   );
   if (unexpected.isEmpty && responses.isEmpty) return null;
   final byUuid = {for (final s in services) normalizeUuid(s.uuid): s};
+  final unexpectedServices = [
+    for (final uuid in unexpected)
+      SvcReportEntry(
+        kind: 'gatt',
+        id: uuid,
+        characteristics: [
+          for (final c
+              in byUuid[uuid]?.characteristics ??
+                  const <BleDiscoveredCharacteristic>[])
+            SvcReportCharacteristic(
+              uuid: normalizeUuid(c.uuid),
+              properties: [
+                if (c.canRead) 'read',
+                if (c.canWriteWithResponse) 'write',
+                if (c.canWriteWithoutResponse) 'write_without_response',
+                if (c.canWrite &&
+                    !c.canWriteWithResponse &&
+                    !c.canWriteWithoutResponse)
+                  'write',
+                if (c.canNotify) 'notify',
+              ],
+            ),
+        ],
+      ),
+  ];
+  for (final service in unexpectedServices) {
+    Log.reports.info(
+      'unexpected ${service.kind} service ${service.id} for ${spec.deviceName}',
+    );
+  }
   return SvcReport(
     reportId: reportId ?? newReportId(),
     transport: SvcReportTransport.ble,
@@ -58,31 +88,7 @@ SvcReport? buildBleSvcReport({
     specDeviceName: spec.deviceName,
     specManufacturer: spec.manufacturer,
     advertisedName: advertisedName.trim().isEmpty ? null : advertisedName,
-    unexpected: [
-      for (final uuid in unexpected)
-        SvcReportEntry(
-          kind: 'gatt',
-          id: uuid,
-          characteristics: [
-            for (final c
-                in byUuid[uuid]?.characteristics ??
-                    const <BleDiscoveredCharacteristic>[])
-              SvcReportCharacteristic(
-                uuid: normalizeUuid(c.uuid),
-                properties: [
-                  if (c.canRead) 'read',
-                  if (c.canWriteWithResponse) 'write',
-                  if (c.canWriteWithoutResponse) 'write_without_response',
-                  if (c.canWrite &&
-                      !c.canWriteWithResponse &&
-                      !c.canWriteWithoutResponse)
-                    'write',
-                  if (c.canNotify) 'notify',
-                ],
-              ),
-          ],
-        ),
-    ],
+    unexpected: unexpectedServices,
     responses: responses,
     discovered: {for (final s in services) normalizeUuid(s.uuid)}.toList()
       ..sort(),
@@ -111,6 +117,16 @@ SvcReport? buildWifiSvcReport({
     answered: device.ssdpTargets,
   );
   if (mdns.isEmpty && ssdp.isEmpty && responses.isEmpty) return null;
+  final unexpectedServices = [
+    for (final t in mdns) SvcReportEntry(kind: 'mdns', id: t),
+    for (final t in ssdp) SvcReportEntry(kind: 'ssdp', id: t),
+  ];
+  for (final service in unexpectedServices) {
+    Log.reports.info(
+      'unexpected ${service.kind} service ${service.id} '
+      'for ${identity.deviceName}',
+    );
+  }
   return SvcReport(
     reportId: reportId ?? newReportId(),
     transport: SvcReportTransport.wifi,
@@ -120,10 +136,7 @@ SvcReport? buildWifiSvcReport({
     // Never the mDNS instance name: users name devices after people and
     // rooms. See SvcReport's privacy note.
     advertisedName: null,
-    unexpected: [
-      for (final t in mdns) SvcReportEntry(kind: 'mdns', id: t),
-      for (final t in ssdp) SvcReportEntry(kind: 'ssdp', id: t),
-    ],
+    unexpected: unexpectedServices,
     responses: responses,
     discovered: [
       ...{for (final t in device.serviceTypes) normalizeServiceType(t)},

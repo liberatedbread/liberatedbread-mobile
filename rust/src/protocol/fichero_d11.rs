@@ -207,7 +207,11 @@ pub fn encode_print_job(
             bytes: part.to_vec(),
         })
         .collect();
-    Ok(EncodedFrame { writes, packets })
+    Ok(EncodedFrame {
+        writes,
+        packets,
+        ..Default::default()
+    })
 }
 
 /// The write channel: the single writable characteristic of the service the

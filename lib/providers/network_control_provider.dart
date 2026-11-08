@@ -344,6 +344,11 @@ class NetworkControls {
   /// scoped light from the screen after the first poll.
   final List<NetworkStateProbeDto> stateProbes;
 
+  /// True when the device is an office/home printer whose status the app
+  /// reads over IPP (ink, paper, state) — it routes to the printer status
+  /// screen. Printing itself stays with the OS print dialog.
+  final bool ippStatus;
+
   const NetworkControls({
     required this.specYaml,
     required this.entities,
@@ -351,6 +356,7 @@ class NetworkControls {
     this.capabilities,
     this.rasterPrintHandler,
     this.stateProbes = const [],
+    this.ippStatus = false,
   });
 
   /// Whether these controls describe a hub — a device fronting children that
@@ -400,12 +406,26 @@ final networkControlsProvider = FutureProvider.autoDispose
           ssdpTargets: request.ssdpTargets,
         );
         // A raster label printer (Brother QL) resolves no entities — its surface is
-        // a raster byte stream, not commands — so admit it on its protocol_handler
-        // rather than letting the empty-entity check drop it to the details sheet.
-        final rasterPrintHandler = spec.protocolHandler == 'brother_ql_raster'
-            ? spec.protocolHandler
+        // a raster byte stream, not commands — so admit it on its raster-print
+        // surface rather than letting the empty-entity check drop it to the
+        // details sheet. Only a raw-stream printer is admitted here: that is
+        // the transport this network path can carry.
+        //
+        // An IPP printer binds no entities either: its surface is one
+        // Get-Printer-Attributes request the status screen makes itself.
+        // Both are asked of every device, so together rather than in turn.
+        final (rasterPrint, ippStatus) = await (
+          codec.rasterPrintForSpec(specYaml: spec.yaml),
+          codec.ippStatusSupported(specYaml: spec.yaml),
+        ).wait;
+        final rasterPrintHandler = rasterPrint?.transport == 'raw_stream'
+            ? rasterPrint!.handler
             : null;
-        if (surface.entities.isEmpty && rasterPrintHandler == null) return null;
+        if (surface.entities.isEmpty &&
+            rasterPrintHandler == null &&
+            !ippStatus) {
+          return null;
+        }
         return NetworkControls(
           specYaml: spec.yaml,
           entities: surface.entities,
@@ -413,6 +433,7 @@ final networkControlsProvider = FutureProvider.autoDispose
           capabilities: await codec.networkCapabilities(specYaml: spec.yaml),
           rasterPrintHandler: rasterPrintHandler,
           stateProbes: surface.stateProbes,
+          ippStatus: ippStatus,
         );
       } catch (e) {
         Log.spec.warning(
