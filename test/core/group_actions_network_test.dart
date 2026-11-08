@@ -279,7 +279,7 @@ void main() {
       expect(plan.direct.last.values, {'red': '1', 'green': '2', 'blue': '3'});
     });
 
-    test('a packed colour is not a colour this can state', () {
+    test('a lone `rgb` that does not declare itself 24-bit is not packed', () {
       final entity = _entity(
         platform: 'light',
         actions: [
@@ -290,6 +290,147 @@ void main() {
         supportedNetworkGroupOps([entity]),
         isNot(contains(GroupOp.prideMode)),
       );
+    });
+
+    NetworkActionDto wired(
+      String role,
+      String transport, {
+      List<String> params = const [],
+      double? max,
+    }) => NetworkActionDto(
+      role: role,
+      commandName: role,
+      transport: transport,
+      userParams: params,
+      max: max,
+      readBack: const [],
+      credentials: const [],
+      instanceParams: const [],
+    );
+
+    test('a Yeelight is on, then told its colour packed', () {
+      final entity = _entity(
+        platform: 'light',
+        actions: [
+          wired('turn_on', kYeelightTransport),
+          wired(
+            'set_color',
+            kYeelightTransport,
+            params: const ['rgb'],
+            max: 16777215,
+          ),
+        ],
+      );
+      expect(supportedNetworkGroupOps([entity]), contains(GroupOp.prideMode));
+      final plan = resolveNetworkGroupPlan(
+        op: GroupOp.prideMode,
+        entities: [entity],
+        prideColor: (r: 0xE4, g: 0x03, b: 0x03),
+      );
+      expect(plan.direct.map((s) => s.action.role), ['turn_on', 'set_color']);
+      expect(plan.direct.last.values, {'rgb': '${0xE40303}'});
+    });
+
+    test('a bridge is on, then told its colour as a hue byte', () {
+      final entity = _entity(
+        platform: 'light',
+        actions: [
+          wired('turn_on', kLimitlessledTransport),
+          wired(
+            'set_color',
+            kLimitlessledTransport,
+            params: const ['hue'],
+            max: 255,
+          ),
+        ],
+      );
+      expect(supportedNetworkGroupOps([entity]), contains(GroupOp.prideMode));
+      final plan = resolveNetworkGroupPlan(
+        op: GroupOp.prideMode,
+        entities: [entity],
+        prideColor: (r: 0, g: 255, b: 0),
+      );
+      expect(plan.direct.map((s) => s.action.role), ['turn_on', 'set_color']);
+      expect(plan.direct.last.values, {'hue': '${0x60}'});
+    });
+
+    test('a lone `hue` on any other transport is not assumed to be this', () {
+      // Degrees on one protocol, a wheel from violet on another: the same
+      // number is a different colour, and the spec does not say which.
+      final entity = _entity(
+        platform: 'light',
+        actions: [
+          wired('set_color', 'http', params: const ['hue'], max: 255),
+        ],
+      );
+      expect(
+        supportedNetworkGroupOps([entity]),
+        isNot(contains(GroupOp.prideMode)),
+      );
+    });
+
+    test('both new transports are sendable from a group', () {
+      expect(kGroupSendableTransports, contains(kYeelightTransport));
+      expect(kGroupSendableTransports, contains(kLimitlessledTransport));
+      final entity = _entity(
+        platform: 'light',
+        actions: [
+          wired('turn_on', kLimitlessledTransport),
+          wired('turn_off', kLimitlessledTransport),
+          wired(
+            'set_brightness',
+            kLimitlessledTransport,
+            params: const ['level'],
+            max: 27,
+          ),
+        ],
+      );
+      expect(
+        supportedNetworkGroupOps([entity]),
+        containsAll([GroupOp.turnOn, GroupOp.turnOff, GroupOp.setBrightness]),
+      );
+    });
+
+    group('limitlessledHueByte', () {
+      test('lands on the spec\'s own anchors', () {
+        expect(limitlessledHueByte((r: 255, g: 0, b: 0)), 0xB0, reason: 'red');
+        expect(
+          limitlessledHueByte((r: 0, g: 255, b: 0)),
+          0x60,
+          reason: 'green',
+        );
+        expect(
+          limitlessledHueByte((r: 0, g: 0, b: 255)),
+          0x10,
+          reason: 'royal blue',
+        );
+      });
+
+      test('runs the spec\'s way round, through violet and lavender', () {
+        // 0x10 blue, then down through 0x00 violet, wrapping to 0xF0 lavender,
+        // then on down to 0xB0 red.
+        final violet = limitlessledHueByte((r: 128, g: 0, b: 255))!;
+        expect(violet, anyOf(lessThan(0x10), greaterThan(0xB0)));
+        final magenta = limitlessledHueByte((r: 255, g: 0, b: 255))!;
+        expect(magenta, inInclusiveRange(0xB0, 0xFF));
+      });
+
+      test('every byte is a byte, all the way round', () {
+        for (var r = 0; r <= 255; r += 51) {
+          for (var g = 0; g <= 255; g += 51) {
+            for (var b = 0; b <= 255; b += 51) {
+              final byte = limitlessledHueByte((r: r, g: g, b: b));
+              if (byte != null) expect(byte, inInclusiveRange(0, 255));
+            }
+          }
+        }
+      });
+
+      test('a colour with no hue has no position on the wheel', () {
+        expect(limitlessledHueByte((r: 255, g: 255, b: 255)), isNull);
+        expect(limitlessledHueByte((r: 0, g: 0, b: 0)), isNull);
+        expect(limitlessledHueByte((r: 80, g: 80, b: 80)), isNull);
+      });
     });
 
     test('a switch has no part in it', () {

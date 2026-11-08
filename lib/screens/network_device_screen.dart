@@ -34,6 +34,7 @@ import '../services/roomba_control_service.dart';
 import '../services/roomba_controller.dart';
 import '../services/spec_codec.dart';
 import '../services/tls_trust.dart';
+import 'setup_instructions_screen.dart';
 import '../widgets/ad_banner_bar.dart';
 import '../widgets/camera_view_card.dart';
 import '../widgets/device_credentials_card.dart';
@@ -234,6 +235,9 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
   bool _loadingOptions = false;
 
   String? _error;
+
+  /// Asked once, the first time a failure wants it.
+  Future<SetupInstructionsDto?>? _setupHelp;
   bool _certificateChanged = false;
   bool _resettingCertificate = false;
 
@@ -453,6 +457,14 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
         e.actions.any((a) => a.transport == NetworkCommandSender.kasaTransport),
   );
 
+  /// Whether this device's state is read over the Yeelight LAN socket. Its
+  /// sibling of [_isKasa], with the same fork in the load and refresh paths.
+  bool get _isYeelight => _entities.any(
+    (e) => e.actions.any(
+      (a) => a.transport == NetworkCommandSender.yeelightTransport,
+    ),
+  );
+
   /// Whether an instanced entity enumerated any children this poll — a power
   /// strip. Drives the render fork: per-outlet switches instead of the single
   /// "Outlet" switch, which on a strip would only ever read "State unknown".
@@ -658,10 +670,10 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
         // Nothing to fetch and nothing to poll: the robot pushes. Opening the
         // session IS the load, and state arrives on a stream from here on.
         await _connectRoomba();
-      } else if (_isKasa) {
+      } else if (_isKasa || _isYeelight) {
         // No description to fetch and no control URLs to resolve — poll the
-        // relay state straight over the socket. The port is 9999, not a UPnP
-        // LOCATION, so the SOAP port check below does not apply.
+        // relay state straight over the socket. The port is the protocol's, not
+        // a UPnP LOCATION, so the SOAP port check below does not apply.
         await _refreshState();
       } else if (_speaksMqtt) {
         // Any other device that pushes over MQTT — a Hisense set, a Dyson
@@ -737,6 +749,45 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
         );
       });
     }
+  }
+
+  /// The spec's own setup notes, offered beside a failure: for a device with a
+  /// step that happens elsewhere, like a Yeelight's LAN Control toggle in its
+  /// vendor app, that note is the actual answer to why this could not connect.
+  /// Draws nothing for a spec with no setup block.
+  Widget _setupHelpButton() {
+    return FutureBuilder<SetupInstructionsDto?>(
+      future: _setupHelp ??= ref
+          .read(specCodecProvider)
+          .setupInstructions(widget.controls.specYaml)
+          .catchError((Object e) {
+            Log.net.debug('no setup help for ${widget.device.host}: $e');
+            return null;
+          }),
+      builder: (context, snapshot) {
+        final instructions = snapshot.data;
+        if (instructions == null) return const SizedBox.shrink();
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 16),
+          child: Align(
+            alignment: Alignment.centerLeft,
+            child: OutlinedButton.icon(
+              icon: const Icon(Icons.menu_book_outlined),
+              label: const Text('How to connect'),
+              onPressed: () => Navigator.push(
+                context,
+                MaterialPageRoute<void>(
+                  builder: (_) => SetupInstructionsScreen(
+                    deviceName: widget.device.name,
+                    instructions: instructions,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
   }
 
   Future<void> _resetCertificate() async {
@@ -911,6 +962,10 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
       await _refreshStateKasa(superseded: superseded);
       return;
     }
+    if (_isYeelight) {
+      await _refreshStateYeelight(superseded: superseded);
+      return;
+    }
     // An MQTT device PUSHES. There is no request whose reply is the battery
     // level, so there is nothing to poll here — [_subscribeMqttState]'s
     // stream fills the cards once the device is paired, and until then the
@@ -1083,6 +1138,28 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
     }
     if (superseded?.call() ?? false) return;
     await _decodeInstances();
+    await _decodeEntities();
+  }
+
+  /// The Yeelight state poll: render `get_prop`, send its line, and take the
+  /// reply the codec has zipped onto the names the entity's mapping reads.
+  Future<void> _refreshStateYeelight({bool Function()? superseded}) async {
+    final codec = ref.read(specCodecProvider);
+    final client = ref.read(yeelightControlClientProvider);
+    for (final command in _pollCommands) {
+      final request = await codec.renderNetworkYeelightStateRequest(
+        specYaml: widget.controls.specYaml,
+        stateCommand: command,
+      );
+      final reply = await client.send(
+        widget.device.host,
+        _sender.yeelightPort,
+        request,
+      );
+      if (superseded?.call() ?? false) return;
+      _stateByCommand[command] = reply.fields;
+    }
+    if (superseded?.call() ?? false) return;
     await _decodeEntities();
   }
 
@@ -1847,6 +1924,7 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
                   style: text.bodyMedium?.copyWith(color: scheme.error),
                 ),
               ),
+            if (_error != null) _setupHelpButton(),
             if (_certificateChanged)
               Padding(
                 padding: const EdgeInsets.only(bottom: 16),
@@ -2169,6 +2247,10 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
         final reading = _readings[entity.name];
         final roles = _roleReadings[entity.name] ?? const {};
         return NetworkLightCard(
+          // Keyed because a send changes what is drawn above this card, and an
+          // unkeyed one is rebuilt from nothing when it moves: on a write-only
+          // light there is no poll to restore what its switch last sent.
+          key: ValueKey('network-light:${entity.name}'),
           entity: entity,
           specYaml: widget.controls.specYaml,
           host: widget.device.host,
@@ -2180,6 +2262,9 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
           // `color_temperature`, Yeelight's `color_temp`.
           initialColorTemperature:
               (roles['color_temperature'] ?? roles['color_temp'])?.number,
+          supportsSegments:
+              widget.device.txt['support']?.contains('set_segment_rgb') ??
+              false,
         );
       // A platform this switch has no branch for still shows its reading —
       // and, since the resolver may well have found it controls, its actions.

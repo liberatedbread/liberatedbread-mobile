@@ -2973,6 +2973,16 @@ fn every_resolved_action_reports_the_transport_its_spec_declares() {
         ) {
             continue;
         }
+        // These two resolve from declared commands and report their handler's
+        // name instead of the transport declared, because `tcp-json` and `udp`
+        // already route to Kasa's and Rabbit Air's framings. tests/lan_handlers.rs
+        // pins what each reports.
+        if matches!(
+            spec.protocol_handler.as_deref(),
+            Some("yeelight_lan") | Some("limitlessled_legacy_8899")
+        ) {
+            continue;
+        }
         // The spec's own answer, derived here independently of the resolver.
         let device_transport = spec
             .device
@@ -3120,7 +3130,7 @@ fn tcp_json_resolves_only_for_the_handler_that_owns_the_framing() {
     // `state_command` survives as a reading, which is the existing rule for a
     // stateful entity that resolves no action and is not this test's business.
     for file in [
-        "yeelight-cube-lamp.yaml",
+        "yeelight-wifi.yaml",
         "tuya-wifi-gas-sensor.yaml",
         "roborock-local.yaml",
         "smarter-ikettle.yaml",
@@ -3458,9 +3468,8 @@ fn a_roku_tv_is_named_by_ecp_not_tied_with_every_dial_tv() {
 /// several vendors frame differently, so the handler is what says whether this
 /// app can speak it. Actions already had that gate; readings did not, so a
 /// Tuya gas sensor (0x55aa + AES) opened on seven cards whose readings could
-/// never arrive, three of them controls with no action at all, and a Yeelight
-/// cube on a light card with nothing on it. The two handlers the app does
-/// speak on those transports keep every reading.
+/// never arrive, three of them controls with no action at all. The handlers
+/// the app does speak on those transports keep every reading.
 #[test]
 fn a_reading_the_app_cannot_take_is_not_a_card() {
     use liberated_bread_core::api::device_api::network_entities_for_device;
@@ -3470,7 +3479,7 @@ fn a_reading_the_app_cannot_take_is_not_a_card() {
         network_entities_for_device(yaml, Vec::new()).expect("surface resolves")
     };
 
-    for file in ["tuya-wifi-gas-sensor.yaml", "yeelight-cube-lamp.yaml"] {
+    for file in ["tuya-wifi-gas-sensor.yaml", "yeelight-wifi.yaml"] {
         let resolved = surface(file);
         assert!(
             resolved.entities.is_empty(),
@@ -4247,6 +4256,14 @@ fn the_catalogue_hands_over_the_probes_the_app_already_sends() {
             "sengled-wifi-bulb.yaml:9080",
         ]
     );
+
+    // A SenseME reply may come back broadcast, so the probe listens on its own
+    // port; the spec says so in prose rather than as a `listen_port`.
+    let senseme = by_key("big-ass-fans-senseme.yaml", 31415);
+    assert_eq!(senseme.len(), 1);
+    assert_eq!(senseme[0].listen_port, Some(31415));
+    assert_eq!(senseme[0].stable_keys[0].dialect, "field");
+    assert_eq!(senseme[0].stable_keys[0].path, "3");
 
     // And the probes for devices the app cannot yet find are present, which is
     // the point of reading them as data (SPECS_TO_FIX.md S-10).

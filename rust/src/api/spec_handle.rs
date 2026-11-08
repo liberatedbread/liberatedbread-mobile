@@ -915,10 +915,11 @@ pub struct UdpProbeDto {
 /// One field a UDP reply is read for, with its dialect split out.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UdpIdentityFieldDto {
-    /// `json`, `tlv`, `csv`, `payload` or `xml` — how to read [`Self::path`].
+    /// `json`, `tlv`, `csv`, `field`, `payload` or `xml` — how to read
+    /// [`Self::path`].
     pub dialect: String,
     /// What to read, in that dialect: a dotted JSON path, a TLV field name, a
-    /// CSV column index, or empty for the payload itself.
+    /// CSV column or delimited field index, or empty for the payload itself.
     pub path: String,
     /// What to call the value once read.
     pub name: String,
@@ -972,7 +973,16 @@ impl CatalogueHandle {
                     index: index as u32,
                     display_name: entry.identity.device_name.clone(),
                     port,
-                    listen_port: probe.listen_port,
+                    listen_port: probe.listen_port.or_else(|| {
+                        // The spec says this in prose rather than as a
+                        // `listen_port`: bind the probe's own port, since
+                        // nothing establishes that replies come back unicast.
+                        mapping
+                            .stable_keys
+                            .iter()
+                            .any(|k| k.dialect().0 == crate::protocol::senseme::FIELD_DIALECT)
+                            .then_some(port)
+                    }),
                     broadcast_address: destination.to_string(),
                     probe: bytes,
                     passive_ok,

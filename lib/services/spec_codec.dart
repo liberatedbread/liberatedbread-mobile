@@ -70,6 +70,9 @@ export '../src/rust/api/device_api.dart'
         SoapRequestDto,
         HttpRequestDto,
         KasaRequestDto,
+        YeelightRequestDto,
+        YeelightReplyDto,
+        LimitlessledFrameDto,
         TuyaBroadcastDto,
         RabbitAirRequestDto,
         RoombaRequestDto,
@@ -490,6 +493,47 @@ abstract class SpecCodec {
 
   /// Decode a Kasa UDP reply datagram (no length prefix) back to its JSON text.
   Future<String> kasaDecodeDatagram({required List<int> datagram});
+
+  /// Render a Yeelight LAN command into the JSON to send. Its own renderer
+  /// because `tcp-json` is several vendors' framing: an action's `transport`
+  /// says `yeelight_lan` where this applies.
+  Future<YeelightRequestDto> renderNetworkYeelightCommand({
+    required String specYaml,
+    required String commandName,
+    required Map<String, String> values,
+  });
+
+  /// Render the JSON that polls a Yeelight state command (`get_prop`).
+  Future<YeelightRequestDto> renderNetworkYeelightStateRequest({
+    required String specYaml,
+    required String stateCommand,
+  });
+
+  /// One Yeelight message as the bytes that go on the socket.
+  Future<List<int>> yeelightEncodeLine({required String json});
+
+  /// What one line off a Yeelight socket means for the request in flight:
+  /// whether it answers it (the lamp also pushes notifications), any error,
+  /// and a `get_prop` result zipped onto the names it was requested under.
+  Future<YeelightReplyDto> yeelightDecodeReply({
+    required String requestJson,
+    required String line,
+  });
+
+  /// Render a legacy LimitlessLED command to the complete timed sequence one
+  /// send puts on the wire. [values] may carry `zone` (1-4) beside the
+  /// command's own parameters; absent addresses all zones.
+  Future<List<LimitlessledFrameDto>> renderNetworkLimitlessledCommand({
+    required String specYaml,
+    required String commandName,
+    required Map<String, String> values,
+  });
+
+  /// The fields of a SenseME discovery reply, the `field:N` identity dialect,
+  /// or null for a datagram that is not one.
+  Future<List<String>?> parseSensemeDiscoveryReply({
+    required List<int> datagram,
+  });
 
   /// Parse a Tuya discovery datagram (UDP 6666 plaintext / 6667 fixed-key
   /// AES-128-ECB) into the identity it advertises, or null when the bytes are

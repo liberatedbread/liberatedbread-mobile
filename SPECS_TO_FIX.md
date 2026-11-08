@@ -1242,3 +1242,57 @@ edit the vendored subtree or to reverse a working client's frame IDs.
 Resolved upstream in liberatedbread/liberatedbread-protocol-specs#84 (merged
 2026-11-08) and pulled into this repository by the normal subtree refresh in
 liberatedbread/liberatedbread-mobile#96.
+
+
+## Found 2026-11-08, while implementing `yeelight_lan`, `limitlessled_legacy_8899` and SenseME discovery
+
+### yeelight-cube-lamp states the LAN Control toggle three ways
+
+`protocol_details.yeelight_lan_protocol.authentication` says access "is gated
+by the device's LAN-control setting", and `setup.credentials.notes` says the
+port is unauthenticated "once LAN control is on"; `setup.notes` and the cloud
+`local_alternative` call the same toggle an open question, with community
+drivers connecting directly. yeelight-wifi says flatly that the port does not
+answer until it is on. The app takes the cautious reading and names the toggle
+when a connection fails. Settle it upstream once a cube has been asked.
+
+### yeelight-wifi names no handler, so plain bulbs stay dark (S-29 fix 2)
+
+Still open, and it now has a visible consequence: the handler works, and the one
+thing keeping a bulb's own spec from using it is that field. A bulb that answers
+`wifi_bulb` is meanwhile offered the cube spec first, on catalogue order, because
+the `yeelight-ssdp` token cannot tell them apart and nothing executes the cube's
+`response_match` on the `support` header. The app reads that header only to
+decide whether to draw per-row colour.
+
+### limitlessled-milight-bridge: the hue byte's range is stated two ways
+
+`rgbw_commands.set_color` gives "0x00 .. 0xF0 in 0x10 steps", while
+`payload_formats` and the `set_color` parameter give 0-255. The app computes on
+the three anchors the spec names and sends any byte; if the steps turn out to be
+real, it should round to them.
+
+### limitlessled-milight-bridge: zones are prose, with no parameter (and S-21)
+
+`arguments.command` is `"0x42 (all) or 0x45/0x47/0x49/0x4B (zone 1-4)"` and the
+hue's addressing is a note, so the app parses that one sentence as a closed
+grammar and carries the zone beside the declared parameters. A `zone` parameter
+and a byte table would be data. S-21's missing `lan_protocols` token is worked
+around by matching on the spec's own `protocol_handler`; declaring the token
+makes that fallback unused without further change here.
+
+### limitlessled-milight-bridge: the HF-A11 probe cannot tell generations apart
+
+The spec's own comment says later legacy firmware AND v6 bridges answer
+`HF-A11ASSISTHREAD`, with the same CSV shape, and only legacy takes these frames.
+A v6 bridge is therefore offered controls that send to a port it ignores, and
+since the protocol is write-only nothing can notice. A distinguishing field in
+the reply, or a harmless v6 session-init probe declared as data, would fix it.
+
+### big-ass-fans-senseme: the probe's local port is prose
+
+The `udp_broadcast` notes say to send from local UDP 31415 and that the block has
+no slot for it, but the schema has `listen_port`. Stating it would let the app
+drop its dialect-keyed fallback. `response_format` has no delimited-ASCII value,
+either, which is why the catalogue key reads `31415/unspecified`.
+

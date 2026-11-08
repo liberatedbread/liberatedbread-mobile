@@ -196,6 +196,14 @@ class FakeSpecCodec implements SpecCodec {
   final List<({String commandName, Map<String, String> values})>
   renderNetworkKasaCommandCalls = [];
 
+  /// Every rendered Yeelight command, in call order, with its values.
+  final List<({String commandName, Map<String, String> values})>
+  renderNetworkYeelightCommandCalls = [];
+
+  /// Every rendered LimitlessLED command, in call order, with its values.
+  final List<({String commandName, Map<String, String> values})>
+  renderNetworkLimitlessledCommandCalls = [];
+
   /// Returned by [renderNetworkRabbitAirCommand] /
   /// [renderNetworkRabbitAirStateRequest]; the default builds a
   /// structurally-true envelope echoing the command name as `cmd`, so a
@@ -695,6 +703,106 @@ class FakeSpecCodec implements SpecCodec {
     required String entityName,
     required Map<String, String> returned,
   }) async => networkRoleReadings?.call(entityName, returned) ?? const [];
+
+  @override
+  Future<YeelightRequestDto> renderNetworkYeelightCommand({
+    required String specYaml,
+    required String commandName,
+    required Map<String, String> values,
+  }) async {
+    renderNetworkYeelightCommandCalls.add((
+      commandName: commandName,
+      values: values,
+    ));
+    return YeelightRequestDto(
+      json: '{"id":1,"method":"$commandName","params":[]}',
+    );
+  }
+
+  @override
+  Future<YeelightRequestDto> renderNetworkYeelightStateRequest({
+    required String specYaml,
+    required String stateCommand,
+  }) async => const YeelightRequestDto(
+    json: '{"id":1,"method":"get_prop","params":["power","bright"]}',
+  );
+
+  @override
+  Future<List<int>> yeelightEncodeLine({required String json}) async =>
+      utf8.encode('$json\r\n');
+
+  // The Rust decoder's rules in small, so a client test can drive a whole
+  // exchange with no native library; rust/src/protocol/yeelight.rs is what is
+  // tested against the spec's literal frames.
+  @override
+  Future<YeelightReplyDto> yeelightDecodeReply({
+    required String requestJson,
+    required String line,
+  }) async {
+    const nothing = YeelightReplyDto(answersRequest: false, fields: {});
+    final Object? decoded;
+    try {
+      decoded = jsonDecode(line);
+    } on FormatException {
+      return nothing;
+    }
+    if (decoded is! Map || decoded.containsKey('method')) return nothing;
+    final request = jsonDecode(requestJson) as Map;
+    final error = decoded['error'];
+    if (error is Map) {
+      return YeelightReplyDto(
+        answersRequest: true,
+        errorCode: (error['code'] as num?)?.toInt(),
+        errorMessage: error['message'] as String?,
+        fields: const {},
+      );
+    }
+    final result = decoded['result'];
+    if (decoded['id'] != request['id'] || result is! List) return nothing;
+    final names = request['params'] as List;
+    return YeelightReplyDto(
+      answersRequest: true,
+      fields: request['method'] == 'get_prop' && names.length == result.length
+          ? {
+              for (var i = 0; i < names.length; i++)
+                '${names[i]}': '${result[i]}',
+            }
+          : const {},
+    );
+  }
+
+  @override
+  Future<List<LimitlessledFrameDto>> renderNetworkLimitlessledCommand({
+    required String specYaml,
+    required String commandName,
+    required Map<String, String> values,
+  }) async {
+    renderNetworkLimitlessledCommandCalls.add((
+      commandName: commandName,
+      values: values,
+    ));
+    return [
+      LimitlessledFrameDto(
+        bytes: Uint8List.fromList(const [0x42, 0x00, 0x55]),
+        delayAfterMs: 0,
+      ),
+    ];
+  }
+
+  /// What [parseSensemeDiscoveryReply] answers; the default splits on `;` the
+  /// way a well-behaved reply with no escapes would.
+  List<String>? Function(List<int> datagram)? sensemeReply;
+
+  @override
+  Future<List<String>?> parseSensemeDiscoveryReply({
+    required List<int> datagram,
+  }) async {
+    final override = sensemeReply;
+    if (override != null) return override(datagram);
+    final text = utf8.decode(datagram, allowMalformed: true);
+    if (!text.startsWith('(') || !text.endsWith(')')) return null;
+    return text.substring(1, text.length - 1).split(';');
+  }
 
   @override
   Future<KasaRequestDto> renderNetworkKasaCommand({

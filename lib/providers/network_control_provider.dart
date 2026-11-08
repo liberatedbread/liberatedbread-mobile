@@ -11,6 +11,7 @@ import '../services/ecp2_control_service.dart';
 import '../services/http_control_service.dart';
 import '../services/kasa_control_service.dart';
 import '../services/lifx_control_service.dart';
+import '../services/limitlessled_control_service.dart';
 import '../services/rabbit_air_ble_client.dart';
 import '../services/network_command_sender.dart';
 import '../services/rabbit_air_control_service.dart';
@@ -19,6 +20,7 @@ import '../services/rabbit_air_provision_service.dart';
 import '../services/soap_control_service.dart';
 import '../services/spec_codec.dart';
 import '../services/tls_trust.dart';
+import '../services/yeelight_control_service.dart';
 import 'ble_provider.dart';
 import 'device_spec_match_provider.dart';
 import 'network_scan_provider.dart';
@@ -67,6 +69,17 @@ final lifxControlClientProvider = Provider<LifxControlClient>(
 /// socket exchange (and a fake codec) instead of a real plug.
 final kasaControlClientProvider = Provider<KasaControlClient>(
   (ref) => KasaControlClient(ref.watch(specCodecProvider)),
+);
+
+/// The Yeelight LAN transport. Framing and replies live in Rust, so it depends
+/// on the codec the way the Kasa client does.
+final yeelightControlClientProvider = Provider<YeelightControlClient>(
+  (ref) => YeelightControlClient(ref.watch(specCodecProvider)),
+);
+
+/// The legacy LimitlessLED transport, which only moves datagrams.
+final limitlessledControlClientProvider = Provider<LimitlessledControlClient>(
+  (ref) => LimitlessledControlClient(),
 );
 
 /// The Rabbit Air per-device user keys, on the same secure settings store the
@@ -271,6 +284,8 @@ final networkCommandSenderFactoryProvider =
           kasa: ref.read(kasaControlClientProvider),
           rabbitAir: ref.read(rabbitAirControlClientProvider),
           ecp2: ref.read(ecp2ControlServiceProvider),
+          yeelight: ref.read(yeelightControlClientProvider),
+          limitlessled: ref.read(limitlessledControlClientProvider),
           // Returned, not fire-and-forgotten: the sender awaits the save before
           // re-reading the store (so the token it just filed is findable) and
           // logs a keystore failure instead of letting it become an unhandled

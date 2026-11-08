@@ -426,6 +426,14 @@ String? mdnsPictogram(Iterable<String> serviceTypes) {
 /// Where a scan gets the UDP probes the catalogue declares.
 typedef UdpProbeSource = Future<List<UdpProbeDto>> Function();
 
+/// Reads a reply's `field:N` columns: the fields, or null when it is not of
+/// that shape.
+typedef UdpDelimitedFieldReader =
+    Future<List<String>?> Function(List<int> datagram);
+
+/// The dialect [readUdpIdentityFields] needs the Rust core's reading for.
+const _delimitedDialect = 'field';
+
 /// The specs whose `udp_broadcast` probe this file already sends by hand.
 ///
 /// Each of these has a transport above that does more than send bytes and read
@@ -471,11 +479,16 @@ bool _probesWithTheirOwnTransport(String specKey) {
 /// `tlv:<field>` is not read here: a TLV reply needs the vendor's own tag
 /// numbering, which the spec states in prose and not as data, so those probes
 /// keep their hand-written parser (SPECS_TO_FIX.md S-22).
+///
+/// `field:N` reads [delimitedFields], which the caller got from the Rust core
+/// because the dialect's escaping rule is protocol logic and this function
+/// cannot wait for an answer. Null means the reply is not of that shape.
 @visibleForTesting
 Map<String, String> readUdpIdentityFields(
   List<int> payload,
-  List<UdpIdentityFieldDto> fields,
-) {
+  List<UdpIdentityFieldDto> fields, {
+  List<String>? delimitedFields,
+}) {
   if (fields.isEmpty) return const {};
   String? text;
   String? asText() {
@@ -557,6 +570,15 @@ Map<String, String> readUdpIdentityFields(
         };
       case 'xml':
         value = asXml()?.getAttribute(field.path);
+      case 'field':
+        final index = int.tryParse(field.path);
+        value =
+            index != null &&
+                delimitedFields != null &&
+                index >= 0 &&
+                index < delimitedFields.length
+            ? delimitedFields[index].trim()
+            : null;
       default:
         // An unknown or unexecutable dialect (`tlv:`) reads nothing rather
         // than guessing — a wrong MAC is worse than no MAC, because it is
@@ -715,10 +737,11 @@ String mikrotikPictogram({String? board, String? identity}) {
 /// Yeelight bulb answers the `wifi_bulb` M-SEARCH with an HTTP-style response
 /// carrying `id`, `model`, `name` and a `Location: yeelight://ip:port` header;
 /// the SSDP header parser reads it. Null when the payload is not a Yeelight
-/// reply (no `id` and no `yeelight://` location).
-({String? id, String? model, String? name, String? location})? parseYeelight(
-  String payload,
-) {
+/// reply (no `id` and no `yeelight://` location). `support` is the space
+/// separated list of methods the unit answers, which is how a matrix-capable
+/// cube is told from a bulb.
+({String? id, String? model, String? name, String? location, String? support})?
+parseYeelight(String payload) {
   final h = parseSsdpHeaders(payload);
   final location = h['location'];
   final id = h['id'];
@@ -730,6 +753,7 @@ String mikrotikPictogram({String? board, String? identity}) {
     model: h['model'],
     name: (h['name']?.isNotEmpty ?? false) ? h['name'] : null,
     location: location,
+    support: h['support'],
   );
 }
 
@@ -1123,6 +1147,13 @@ class RealNetworkScanService implements NetworkScanService {
   /// unchanged. Null means the catalogue-driven transport is skipped.
   final UdpProbeSource? probeSource;
 
+  /// Reads the `field:N` identity dialect. The Rust core's parser in production
+  /// (network_scan_provider.dart); injected rather than taken from [codec]
+  /// because handing this service a codec also turns on the Kasa broadcast, and
+  /// a socket-level suite wanting one has no business wanting the other. Null
+  /// means replies in that dialect identify nothing.
+  final UdpDelimitedFieldReader? delimitedFieldReader;
+
   /// Binds every UDP socket this service opens. Injectable so a test can hand
   /// out a socket that behaves like a REFUSED one — a send that returns 0 and
   /// delivers its SocketException on the stream a microtask later, closing the
@@ -1139,6 +1170,7 @@ class RealNetworkScanService implements NetworkScanService {
     MulticastLock? multicastLock,
     this.codec,
     this.probeSource,
+    this.delimitedFieldReader,
     InterfaceLister? interfaceLister,
     DatagramBinder? binder,
     bool? isApplePlatform,
@@ -1913,9 +1945,7 @@ class RealNetworkScanService implements NetworkScanService {
     final isEvidence = target.address == _limitedBroadcast;
     // A declared reply port is bound through the session, once per scan:
     // BiSecur's :4002 is also Govee's, and so may be any port a spec names.
-    final socket = listenPort == 0
-        ? await binder(InternetAddress.anyIPv4, 0, reuseAddress: true)
-        : await session.bindListenPort(binder, listenPort);
+    final socket = await _bindCatalogueSocket(session, listenPort, port);
     if (session.stoppedDuringBind(socket)) return TransportOutcome.skipped;
     session.catalogueProbeSockets.add(socket);
     socket.broadcastEnabled = true;
@@ -1962,6 +1992,20 @@ class RealNetworkScanService implements NetworkScanService {
         final datagram = socket.receive();
         if (datagram == null) continue;
 
+        // Asked before the loop below and only of a destination that has the
+        // dialect, so no other reply crosses the bridge. A codec that fails
+        // reads as a reply of no shape: one datagram must not end the receive
+        // loop and every later reply with it.
+        List<String>? delimited;
+        if (_readsDelimitedFields(probes)) {
+          delimited = await delimitedFieldReader
+              ?.call(datagram.data)
+              .catchError((Object e) {
+                Log.net.debug('delimited reply unreadable: $e');
+                return null;
+              });
+        }
+
         // Every probe on this port gets a look at the reply: which one a
         // device answered is not knowable from the datagram, and the fields
         // that read are the ones whose dialect fits.
@@ -1971,7 +2015,7 @@ class RealNetworkScanService implements NetworkScanService {
           final read = readUdpIdentityFields(datagram.data, [
             ...probe.stableKeys,
             ?probe.displayField,
-          ]);
+          ], delimitedFields: delimited);
           if (read.length > fields.length) {
             fields = read;
             answered = probe;
@@ -2009,6 +2053,38 @@ class RealNetworkScanService implements NetworkScanService {
       session.catalogueProbeSockets.remove(socket);
     }
   }
+
+  /// Bind what one destination's probes go out on and listen on.
+  ///
+  /// A probe told to listen on its own destination port (SenseME) is asking for
+  /// that as a source port too, and a device reported to answer to whatever
+  /// source port it heard can still be reached from another: so losing the bind
+  /// to whatever else holds the port costs only the broadcast replies, rather
+  /// than the whole exchange. A reply port that differs from the destination
+  /// (BiSecur's :4002) has no such second chance, and fails as it always has.
+  Future<RawDatagramSocket> _bindCatalogueSocket(
+    _ScanSession session,
+    int listenPort,
+    int destinationPort,
+  ) async {
+    Future<RawDatagramSocket> ephemeral() =>
+        binder(InternetAddress.anyIPv4, 0, reuseAddress: true);
+    if (listenPort == 0) return ephemeral();
+    try {
+      return await session.bindListenPort(binder, listenPort);
+    } on SocketException catch (e) {
+      if (listenPort != destinationPort) rethrow;
+      Log.net.debug(':$listenPort bind failed, sending from elsewhere: $e');
+      return ephemeral();
+    }
+  }
+
+  static bool _readsDelimitedFields(List<UdpProbeDto> probes) => probes.any(
+    (probe) => [
+      ...probe.stableKeys,
+      ?probe.displayField,
+    ].any((field) => field.dialect == _delimitedDialect),
+  );
 
   /// Broadcast the Ubiquiti discovery probe (UDP 10001) and collect the TLV
   /// replies. Every UniFi device — cameras, APs, switches, gateways — answers
@@ -2470,6 +2546,7 @@ class RealNetworkScanService implements NetworkScanService {
             txt: {
               if (parsed.id != null) 'id': parsed.id!,
               if (parsed.model != null) 'model': parsed.model!,
+              if (parsed.support != null) 'support': parsed.support!,
             },
             sources: const {NetworkDiscoverySource.lanProbe},
             discoveredAt: DateTime.now(),

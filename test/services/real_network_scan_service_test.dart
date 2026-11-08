@@ -418,6 +418,17 @@ void main() {
       expect(p.model, 'color');
       expect(p.name, 'Bedroom');
       expect(p.location, 'yeelight://192.168.1.55:55443');
+      expect(p.support, isNull);
+    });
+
+    test('carries the method list a cube is told from a bulb by', () {
+      final p = parseYeelight(
+        'HTTP/1.1 200 OK\r\n'
+        'Location: yeelight://192.168.1.55:55443\r\n'
+        'id: 0x01\r\n'
+        'support: get_prop set_power set_segment_rgb update_leds\r\n',
+      )!;
+      expect(p.support, contains('set_segment_rgb'));
     });
 
     test(
@@ -1081,6 +1092,41 @@ void _catalogueProbeTests() {
       ]);
 
       expect(read, {'mac': '34EAE7AABBCC', 'module': 'HF-LPB130'});
+    });
+
+    test('field:N reads what the Rust core split, by index', () {
+      final read = readUdpIdentityFields(
+        utf8.encode('(Fan;DEVICE;ID;20:F8:5E:AA:BB:CC;FAN,HAIKU,SENSEME)'),
+        [field('field', '3', 'mac'), field('field', '0', '0')],
+        delimitedFields: const [
+          'Fan',
+          'DEVICE',
+          'ID',
+          '20:F8:5E:AA:BB:CC',
+          'FAN,HAIKU,SENSEME',
+        ],
+      );
+      expect(read, {'mac': '20:F8:5E:AA:BB:CC', '0': 'Fan'});
+    });
+
+    test('field:N reads nothing from a reply of no such shape', () {
+      // The rule a stray datagram on a vendor port is dropped by: it identified
+      // nothing, so it does not become a row.
+      expect(
+        readUdpIdentityFields(utf8.encode('<ALL;DEVICE;ID;GET>'), [
+          field('field', '3', 'mac'),
+        ]),
+        isEmpty,
+      );
+      expect(
+        readUdpIdentityFields(
+          utf8.encode('(a;b)'),
+          [field('field', '3', 'mac'), field('field', 'x', 'y')],
+          delimitedFields: const ['a', 'b'],
+        ),
+        isEmpty,
+        reason: 'past the end, and not an index',
+      );
     });
 
     test('a column the reply does not have reads nothing, not empty', () {
