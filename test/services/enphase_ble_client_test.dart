@@ -4,6 +4,7 @@ import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:liberated_bread_mobile/services/ble_service.dart';
 import 'package:liberated_bread_mobile/services/enphase_ble_client.dart';
 import 'package:liberated_bread_mobile/src/rust/protocol/enphase.dart';
 
@@ -87,6 +88,7 @@ class _ScriptedXBee extends FakeBleService {
   final StreamController<List<int>> notifications;
   final bool badProof;
   final bool shortChallenge;
+  Completer<void>? notificationReady;
   final relayPayloads = <List<int>>[];
   final incoming = <int>[];
   var unlocked = false;
@@ -125,7 +127,15 @@ class _ScriptedXBee extends FakeBleService {
     String charUuid,
   ) {
     events.add('subscribe');
-    return super.subscribeCharacteristic(deviceId, serviceUuid, charUuid);
+    final stream = super.subscribeCharacteristic(
+      deviceId,
+      serviceUuid,
+      charUuid,
+    );
+    final ready = notificationReady;
+    return ready == null
+        ? stream
+        : BleReadyNotificationStream(stream, ready.future);
   }
 
   @override
@@ -243,6 +253,26 @@ void main() {
       ble.events.indexOf('subscribe'),
       lessThan(ble.events.indexOf('write')),
     );
+  });
+
+  test('the first unlock write waits for notification readiness', () async {
+    final crypto = _Crypto();
+    final ready = Completer<void>();
+    final ble = _ScriptedXBee(crypto)..notificationReady = ready;
+    addTearDown(ble.notifications.close);
+    final client = EnphaseBleClient(ble: ble, deviceId: 'dev', crypto: crypto);
+
+    final session = client.unlockAndRead();
+    for (var i = 0; i < 20 && ble.subscriptions.isEmpty; i++) {
+      await Future<void>.delayed(Duration.zero);
+    }
+    expect(ble.subscriptions, [_rxUuid]);
+    expect(ble.writes, isEmpty);
+
+    ready.complete();
+    final report = await session;
+    expect(report.replies.map((reply) => reply.type), [4, 5, 8]);
+    expect(ble.writes, isNotEmpty);
   });
 
   test('a wrong server proof stops before any relay request', () async {

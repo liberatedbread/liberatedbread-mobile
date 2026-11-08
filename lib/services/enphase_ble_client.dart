@@ -148,9 +148,22 @@ class EnphaseBleClient implements EnphaseClient {
     try {
       await ble.connect(deviceId);
       await ble.discoverServices(deviceId);
-      _subscription = ble
-          .subscribeCharacteristic(deviceId, _serviceUuid, _rxUuid)
-          .listen(_onBytes, onError: _reportError);
+      final notifications = ble.subscribeCharacteristic(
+        deviceId,
+        _serviceUuid,
+        _rxUuid,
+      );
+      _subscription = notifications.listen(_onBytes, onError: _reportError);
+      if (notifications case final BleReadyNotificationStream ready) {
+        await ready.ready;
+      }
+      final setupError = _sessionError;
+      if (setupError != null) throw setupError;
+      if (_closed) {
+        throw const EnphaseException(
+          'The XBee session closed before it could be unlocked.',
+        );
+      }
       final privateKey = Uint8List.fromList(
         List<int>.generate(32, (_) => Random.secure().nextInt(256)),
       );

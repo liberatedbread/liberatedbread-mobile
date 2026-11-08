@@ -5,6 +5,8 @@
 //   - RealBleService (flutter_blue_plus)
 //   - MockBleService (simulated devices for demo mode)
 
+import 'dart:async';
+
 import '../core/constants.dart';
 import '../core/error_text.dart';
 import '../models/ble_discovered_service.dart';
@@ -313,6 +315,33 @@ abstract class BleService {
   /// is the one place its RSSI can still be measured. Throws when the device
   /// is not connected.
   Future<int> readRssi(String deviceId);
+}
+
+/// A notification stream whose producer can report when subscription setup
+/// has finished. Callers that must not miss the first reply should await
+/// [ready] before writing their request. Other callers may treat it as a
+/// plain stream, as before.
+class BleReadyNotificationStream extends Stream<List<int>> {
+  final Stream<List<int>> _inner;
+
+  /// Completes when setup finishes, successfully or not. Errors are delivered
+  /// on the stream so callers that never await this future see no new failure.
+  final Future<void> ready;
+
+  BleReadyNotificationStream(this._inner, this.ready);
+
+  @override
+  StreamSubscription<List<int>> listen(
+    void Function(List<int> data)? onData, {
+    Function? onError,
+    void Function()? onDone,
+    bool? cancelOnError,
+  }) => _inner.listen(
+    onData,
+    onError: onError,
+    onDone: onDone,
+    cancelOnError: cancelOnError,
+  );
 }
 
 /// An optional [BleService] capability: the platform can tell this app it may
