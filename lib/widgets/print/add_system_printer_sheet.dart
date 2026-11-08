@@ -48,6 +48,8 @@ String ippDeviceUri({
   return Uri(scheme: 'ipp', host: host, port: port, path: '/$path').toString();
 }
 
+String _shellArgument(String value) => "'${value.replaceAll("'", "'\\''")}'";
+
 /// The CUPS command that adds [host]'s IPP Everywhere queue on Linux.
 String lpadminCommand({
   required String printerName,
@@ -59,9 +61,9 @@ String lpadminCommand({
       .replaceAll(RegExp(r'[^A-Za-z0-9_-]+'), '_')
       .replaceAll(RegExp(r'_+'), '_')
       .replaceAll(RegExp(r'^_|_$'), '');
+  final uri = ippDeviceUri(host: host, port: port, resourcePath: resourcePath);
   return 'lpadmin -p ${queue.isEmpty ? 'Printer' : queue} -E '
-      '-v ${ippDeviceUri(host: host, port: port, resourcePath: resourcePath)} '
-      '-m everywhere';
+      '-v ${_shellArgument(uri)} -m everywhere';
 }
 
 class AddSystemPrinterSheet extends StatelessWidget {

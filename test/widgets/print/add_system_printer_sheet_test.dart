@@ -28,7 +28,7 @@ void main() {
   test('the lpadmin command names a safe queue and the IPP resource', () {
     expect(
       lpadminCommand(printerName: 'Office Laser (2F)', host: '192.168.1.50'),
-      'lpadmin -p Office_Laser_2F -E -v ipp://192.168.1.50:631/ipp/print '
+      "lpadmin -p Office_Laser_2F -E -v 'ipp://192.168.1.50:631/ipp/print' "
       '-m everywhere',
     );
     expect(
@@ -37,7 +37,20 @@ void main() {
         host: 'h',
         resourcePath: '/ipp/printer',
       ),
-      'lpadmin -p Printer -E -v ipp://h:631/ipp/printer -m everywhere',
+      "lpadmin -p Printer -E -v 'ipp://h:631/ipp/printer' -m everywhere",
+    );
+  });
+
+  test('the lpadmin command shell-quotes the advertised resource', () {
+    expect(
+      lpadminCommand(
+        printerName: 'Office Laser',
+        host: 'printer.local',
+        resourcePath: "/ipp/print;id;\$HOME&'quoted'",
+      ),
+      'lpadmin -p Office_Laser -E -v '
+      "'ipp://printer.local:631/ipp/print;id;\$HOME&'\\''quoted'\\''' "
+      '-m everywhere',
     );
   });
 
@@ -78,7 +91,7 @@ void main() {
         host: '2001:db8::50',
         resourcePath: '/ipp/printer',
       ),
-      contains('-v ipp://[2001:db8::50]:631/ipp/printer -m everywhere'),
+      contains("-v 'ipp://[2001:db8::50]:631/ipp/printer' -m everywhere"),
     );
   });
 

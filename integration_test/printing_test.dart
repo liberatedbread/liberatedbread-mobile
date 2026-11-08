@@ -480,7 +480,10 @@ void main() {
       final job = printer.nextJob;
       // The composer is a lazy ListView: scroll until its Print button is
       // built, then tap it.
+      FocusManager.instance.primaryFocus?.unfocus();
+      await _settle(tester);
       await _scrollTo(tester, find.text('Print'));
+      await tester.pump();
       await tester.tap(find.text('Print'));
       final bytes = await job.timeout(const Duration(seconds: 20));
       await _settle(tester, rounds: 5);
@@ -586,7 +589,10 @@ void main() {
       );
       await _settle(tester);
       await _screenshot(tester, 'niimbot-composer');
+      FocusManager.instance.primaryFocus?.unfocus();
+      await _settle(tester);
       await _scrollTo(tester, find.text('Print'));
+      await tester.pump();
       await tester.tap(find.text('Print'));
       for (
         var i = 0;
