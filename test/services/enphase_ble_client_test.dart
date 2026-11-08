@@ -275,6 +275,39 @@ void main() {
     expect(ble.writes, isNotEmpty);
   });
 
+  test(
+    'closing during connect releases a late successful connection once',
+    () async {
+      final gate = Completer<void>();
+      final ble = FakeBleService(connectGate: gate);
+      final client = EnphaseBleClient(
+        ble: ble,
+        deviceId: 'dev',
+        crypto: _Crypto(),
+      );
+      final session = client.unlockAndRead();
+
+      await client.close();
+      expect(ble.events, contains('cancel:dev'));
+      expect(ble.disconnectedIds, isEmpty);
+
+      gate.complete();
+      await expectLater(
+        session,
+        throwsA(
+          isA<EnphaseException>().having(
+            (error) => error.message,
+            'message',
+            contains('closed'),
+          ),
+        ),
+      );
+      expect(ble.disconnectedIds, ['dev']);
+      expect(ble.subscriptions, isEmpty);
+      expect(ble.events.where((event) => event == 'disconnect:dev').length, 1);
+    },
+  );
+
   test('a wrong server proof stops before any relay request', () async {
     final crypto = _Crypto();
     final ble = _ScriptedXBee(crypto, badProof: true);

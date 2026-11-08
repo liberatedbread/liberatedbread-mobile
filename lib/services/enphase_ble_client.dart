@@ -130,6 +130,7 @@ class EnphaseBleClient implements EnphaseClient {
   StreamSubscription<List<int>>? _subscription;
   Future<void> _receiveQueue = Future<void>.value();
   bool _closed = false;
+  bool _connected = false;
   bool _unlocked = false;
   Uint8List? _key;
   Uint8List? _txNonce;
@@ -147,6 +148,12 @@ class EnphaseBleClient implements EnphaseClient {
   Future<EnphaseSessionReport> unlockAndRead() async {
     try {
       await ble.connect(deviceId);
+      _connected = true;
+      if (_closed) {
+        throw const EnphaseException(
+          'The XBee session closed before it could be unlocked.',
+        );
+      }
       await ble.discoverServices(deviceId);
       final notifications = ble.subscribeCharacteristic(
         deviceId,
@@ -359,12 +366,19 @@ class EnphaseBleClient implements EnphaseClient {
 
   @override
   Future<void> close() async {
-    if (_closed) return;
+    final claimed = _connected;
+    if (_closed && !claimed) return;
     _closed = true;
+    if (!claimed && ble is BleConnectCanceller) {
+      await (ble as BleConnectCanceller)
+          .cancelConnect(deviceId)
+          .catchError((Object _) {});
+    }
+    _connected = false;
     await _subscription?.cancel();
     _subscription = null;
     await _receiveQueue;
-    await _events.close();
-    await ble.disconnect(deviceId).catchError((Object _) {});
+    if (!_events.isClosed) await _events.close();
+    if (claimed) await ble.disconnect(deviceId).catchError((Object _) {});
   }
 }
