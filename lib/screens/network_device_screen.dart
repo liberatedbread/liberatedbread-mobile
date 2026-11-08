@@ -1676,7 +1676,11 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
   }
 
   /// Send one action, with its read-back values fetched fresh first.
-  Future<void> _send(
+  ///
+  /// Every failure is caught and reported here, so the answer is the only way a
+  /// caller can tell: true when the device took the command (whether or not the
+  /// read-back after it worked), false when it did not.
+  Future<bool> _send(
     NetworkEntityDto entity,
     NetworkActionDto action, {
     String? value,
@@ -1691,7 +1695,7 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
     final independent = NetworkCommandSender.isIndependentTransport(action);
     // The disabled controls are the visible gate; this is the real one — a
     // tap can race the rebuild that greys the SOAP controls out.
-    if (!independent && _soapSending != null) return;
+    if (!independent && _soapSending != null) return false;
     setState(() {
       _sending.add(entity.name);
       if (!independent) _soapSending = entity.name;
@@ -1743,7 +1747,7 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
         // that — re-read the selection the device now names.
         if (entity.stateSource != null) await _refreshQuerySources();
       } catch (e) {
-        if (!mounted) return;
+        if (!mounted) return true;
         setState(() {
           if (e is ControlRefusedException) _controlRefused = true;
           _error = friendlyErrorText(
@@ -1755,8 +1759,9 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
           );
         });
       }
+      return true;
     } catch (e) {
-      if (!mounted) return;
+      if (!mounted) return false;
       setState(() {
         // A refused setpoint goes back to what the device last reported.
         // Held, it drew a garage door at 30% while the door had not moved,
@@ -1776,6 +1781,7 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
           fallback: 'The device did not accept that. Try again.',
         );
       });
+      return false;
     } finally {
       if (mounted) {
         setState(() {

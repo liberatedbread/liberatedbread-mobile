@@ -13,6 +13,10 @@
 //! at — and acts on the second by sending the zone's ON ahead of any command
 //! whose own byte addresses nothing.
 //!
+//! That ON is a real power change the protocol never reports, so the light card
+//! assumes it too (`_impliedPower`): a change to which commands carry one has to
+//! be made there as well.
+//!
 //! The protocol is write-only and the bridge-to-bulb RF hop drops packets, so
 //! the documented reliability strategy is repeating with pacing. That lives
 //! here too: what comes out is the complete timed sequence and the Dart client

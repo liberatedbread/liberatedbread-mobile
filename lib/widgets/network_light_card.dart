@@ -45,7 +45,11 @@ class NetworkLightCard extends ConsumerStatefulWidget {
   /// transport. On the LIFX path this is unused — and a non-LIFX light with
   /// no sender simply renders its controls disabled, which is safer than the
   /// old behavior of firing LIFX datagrams at whatever the entity was.
-  final Future<void> Function(
+  ///
+  /// Answers whether the device took the command. The screen reports a failure
+  /// itself and does not rethrow, so without this the card would record what it
+  /// sent as though it had landed.
+  final Future<bool> Function(
     NetworkActionDto action,
     Map<String, String> values,
   )?
@@ -123,8 +127,10 @@ class _NetworkLightCardState extends ConsumerState<NetworkLightCard> {
   /// A bridge's zone to address, 1-4; null means all of them.
   int? _bridgeZone;
 
-  /// A cube's row colours as last sent. The protocol cannot read them back, so
-  /// they start unlit, which is also what the wire calls a row left at 0.
+  /// A cube's row colours as last taken, by a row edit or a whole-lamp colour:
+  /// `set_segment_rgb` carries every row, so a row edit restates the others from
+  /// here. The protocol cannot read them back, so they start unlit, which is
+  /// also what the wire calls a row left at 0.
   final List<Color> _rowColors = List.filled(_rowsPerModule, Colors.black);
 
   /// The row the swatches paint; null means the whole lamp.
@@ -235,6 +241,17 @@ class _NetworkLightCardState extends ConsumerState<NetworkLightCard> {
         if (networkColorValues(action, _rgbOf(swatch)) != null) swatch,
     ];
   }
+
+  /// What a command [role] does to a light's power beyond what it says.
+  ///
+  /// On a legacy bridge a colour or brightness byte addresses nothing, so the
+  /// codec sends the zone's ON ahead of it (`limitlessled::render_request`), and
+  /// there is no poll to report the light came on. Null everywhere else: on any
+  /// other light a colour says nothing about power that this card could know.
+  bool? _impliedPower(String role) =>
+      widget.isLimitlessled && (role == 'set_color' || role == 'set_brightness')
+      ? true
+      : null;
 
   static Rgb _rgbOf(Color color) => (
     r: (color.r * 255).round(),
@@ -368,6 +385,8 @@ class _NetworkLightCardState extends ConsumerState<NetworkLightCard> {
     Map<String, double> params, {
     bool? assumeOn,
   }) async {
+    final sentColor = _color;
+    var delivered = true;
     setState(() {
       _sending = true;
       _sendingRole = action;
@@ -415,7 +434,7 @@ class _NetworkLightCardState extends ConsumerState<NetworkLightCard> {
           if (widget.isLimitlessled && _bridgeZone != null)
             'zone': '$_bridgeZone',
         };
-        await send(resolved, values);
+        delivered = await send(resolved, values);
       }
       if (!mounted) return;
       setState(() {
@@ -424,7 +443,10 @@ class _NetworkLightCardState extends ConsumerState<NetworkLightCard> {
         if (widget.isLifx) {
           if (assumeOn != null) _assumedOn = assumeOn;
         } else {
-          _reseedFromPoll(assumeOn);
+          _reseedFromPoll(delivered ? assumeOn ?? _impliedPower(action) : null);
+        }
+        if (delivered && action == 'set_color') {
+          _rowColors.fillRange(0, _rowColors.length, sentColor);
         }
       });
     } catch (e) {
@@ -447,8 +469,7 @@ class _NetworkLightCardState extends ConsumerState<NetworkLightCard> {
     final row = _selectedRow;
     final segments = _setSegments;
     if (row != null && segments != null && _rowsReachable) {
-      setState(() => _rowColors[row] = _color);
-      unawaited(_sendRows(segments));
+      unawaited(_sendRows(segments, row, _color));
       return;
     }
     final zone = _selectedZone;
@@ -470,9 +491,13 @@ class _NetworkLightCardState extends ConsumerState<NetworkLightCard> {
 
   /// Paint the rows: one request carrying all of them, packed the way a whole
   /// lamp's `rgb` is, since `set_segment_rgb` has no way to name just one.
-  Future<void> _sendRows(NetworkActionDto action) async {
+  ///
+  /// [row] joins the cached rows only once the lamp has taken it: a refused
+  /// colour held there would be restated by the next row edit.
+  Future<void> _sendRows(NetworkActionDto action, int row, Color color) async {
     final send = widget.sendAction;
     if (send == null) return;
+    final proposed = List<Color>.of(_rowColors)..[row] = color;
     setState(() {
       _sending = true;
       _sendingRole = action.role;
@@ -480,17 +505,20 @@ class _NetworkLightCardState extends ConsumerState<NetworkLightCard> {
     });
     try {
       final colours = [
-        for (final colour in _rowColors)
+        for (final colour in proposed)
           () {
             final rgb = _rgbOf(colour);
             return (rgb.r << 16) | (rgb.g << 8) | rgb.b;
           }(),
       ];
-      await send(action, {action.userParams.first: '$colours'});
+      final delivered = await send(action, {
+        action.userParams.first: '$colours',
+      });
       if (!mounted) return;
       setState(() {
         _sending = false;
         _sendingRole = null;
+        if (delivered) _rowColors.setAll(0, proposed);
       });
     } catch (e) {
       if (!mounted) return;

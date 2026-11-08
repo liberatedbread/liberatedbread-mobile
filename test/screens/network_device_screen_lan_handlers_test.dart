@@ -47,6 +47,8 @@ class _FakeYeelight extends YeelightControlClient {
 }
 
 class _FakeBridge extends LimitlessledControlClient {
+  _FakeBridge({this.failure});
+  final Object? failure;
   final sent = <int>[];
 
   @override
@@ -55,6 +57,8 @@ class _FakeBridge extends LimitlessledControlClient {
     int port,
     List<LimitlessledFrameDto> frames,
   ) async {
+    final failed = failure;
+    if (failed != null) throw failed;
     sent.add(port);
   }
 }
@@ -141,6 +145,28 @@ Future<void> _close(WidgetTester tester) async {
 }
 
 void main() {
+  testWidgets('a send the phone could not make is not shown as sent', (
+    tester,
+  ) async {
+    final codec = FakeSpecCodec(networkEntities: (_) => [_light(kBridge)]);
+    await _open(
+      tester,
+      codec,
+      [_light(kBridge)],
+      bridge: _FakeBridge(
+        failure: const LimitlessledControlException('Local Network is off.'),
+      ),
+    );
+
+    await tester.tap(find.byType(Switch));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Local Network is off.'), findsOneWidget);
+    expect(find.text('On (sent)'), findsNothing);
+
+    await _close(tester);
+  });
+
   testWidgets('a Yeelight polls over its own socket and reads the mapping', (
     tester,
   ) async {
