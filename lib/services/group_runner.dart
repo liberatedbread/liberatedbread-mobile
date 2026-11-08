@@ -1,19 +1,23 @@
 // Copyright 2026 Pigs Can Fly Labs LLC
 // SPDX-License-Identifier: Apache-2.0
 import 'dart:async';
+import 'dart:convert';
 
 import '../core/device_category.dart';
 import '../core/error_text.dart';
 import '../core/group_actions.dart';
 import '../core/hex.dart';
 import '../core/log.dart';
+import '../core/pride_flags.dart';
 import '../core/stop_signal.dart';
 import '../models/ble_discovered_service.dart';
 import '../models/network_device.dart';
 import 'ble_connect_within.dart';
 import 'ble_service.dart';
+import 'ble_write_plan_runner.dart';
 import 'json_fields.dart';
 import 'network_command_sender.dart';
+import 'panel_size_query.dart';
 import 'saved_network_device_store.dart';
 import 'soap_control_service.dart';
 import 'spec_codec.dart';
@@ -150,20 +154,47 @@ class GroupRunner {
   /// dead link fails one member, not the evening.
   static const ioTimeout = Duration(seconds: 8);
 
+  /// A whole picture going over the link, chunk by acknowledged chunk.
+  static const prideUploadTimeout = Duration(seconds: 90);
+
+  /// How long each flag stays up on a panel that holds an animation: long
+  /// enough to read, and for a room of panels to be on different ones.
+  static const prideFlagSeconds = 8;
+
   /// [defaultConnectTimeout] unless a test shortens it.
   final Duration connectTimeout;
+
+  /// Between a connect that failed transiently and the one retry.
+  final Duration connectRetryPause;
+
+  /// [prideUploadTimeout] unless a test shortens it.
+  final Duration uploadTimeout;
+
+  /// A panel's size as remembered from an earlier connection, for a panel that
+  /// has no query to ask it with. Null in a fixture.
+  final ({int width, int height})? Function(String deviceId)? _rememberedSize;
+
+  /// How long [queryPanelSize] listens; a test shortens it.
+  final Duration panelQueryListen;
 
   GroupRunner({
     required this._ble,
     required this._codec,
     this._resolveSpec,
+    this._rememberedSize,
     this.connectTimeout = defaultConnectTimeout,
+    this.connectRetryPause = const Duration(seconds: 2),
+    this.uploadTimeout = prideUploadTimeout,
+    this.panelQueryListen = const Duration(milliseconds: 1500),
   });
 
+  /// [firstPosition] is where these members start in pride mode's alternation,
+  /// so a group's BLE and Wi-Fi halves do not both begin on the same flag.
   Stream<GroupRunEvent> run(
     GroupOp op,
     List<GroupMember> members, {
     double? brightnessPercent,
+    int firstPosition = 0,
     required StopSignal stop,
   }) async* {
     // A scan may still be running behind the shell (the Nearby tab pauses
@@ -171,7 +202,7 @@ class GroupRunner {
     // both platforms — same reason the saved-devices screen stops it first.
     await _ble.stopScan().catchError((Object _) {});
 
-    for (final member in members) {
+    for (final (index, member) in members.indexed) {
       if (stop.stopped) {
         yield GroupRunEvent(
           deviceId: member.id,
@@ -205,7 +236,22 @@ class GroupRunner {
       // a claim to release. See connectWithin for the connect it times out.
       var connected = false;
       try {
-        await connectWithin(_ble, member.id, connectTimeout);
+        try {
+          await connectWithin(_ble, member.id, connectTimeout);
+        } on TimeoutException {
+          // The whole allowance is spent: this one is reported, not retried,
+          // or a group of absent devices takes twice as long to say so.
+          rethrow;
+        } catch (e) {
+          // Once more for the failure that says nothing about the device: a
+          // link torn down a moment ago (a previous member's, or this one's)
+          // refuses the next connect outright, and in a run of many devices
+          // that is not a rare coincidence.
+          if (stop.stopped || !isTransientConnectFailure(e)) rethrow;
+          Log.ble.info('group connect to ${member.id} failed; retrying: $e');
+          await Future<void>.delayed(connectRetryPause);
+          await connectWithin(_ble, member.id, connectTimeout);
+        }
         connected = true;
         yield GroupRunEvent(
           deviceId: member.id,
@@ -239,7 +285,16 @@ class GroupRunner {
           deviceId: member.id,
           status: GroupDeviceStatus.running,
         );
-        result = op.isCommand
+        result = op == GroupOp.prideMode
+            ? await _runPride(
+                member,
+                spec,
+                specYaml,
+                services,
+                firstPosition + index,
+                stop,
+              )
+            : op.isCommand
             ? await _runCommands(
                 op,
                 member,
@@ -368,6 +423,189 @@ class GroupRunner {
       detail: writes.length == 1
           ? '1 command sent'
           : '${writes.length} commands sent',
+    );
+  }
+
+  /// Pride mode on one member: a picture if it can hold one, else a colour.
+  Future<GroupRunEvent> _runPride(
+    GroupMember member,
+    DeviceSpecDto? spec,
+    String? specYaml,
+    List<BleDiscoveredService> services,
+    int position,
+    StopSignal stop,
+  ) async {
+    GroupRunEvent skip(String detail) => GroupRunEvent(
+      deviceId: member.id,
+      status: GroupDeviceStatus.skipped,
+      detail: detail,
+    );
+    if (spec == null || specYaml == null) {
+      return skip('No spec matched this device');
+    }
+    final picture = imageSurfaceForPride(spec);
+    if (picture != null) {
+      return _sendPridePicture(member, spec, specYaml, picture, position, stop);
+    }
+    final matchedVariants = await _matchedVariants(member, specYaml, services);
+    final writes = resolvePrideColorWrites(
+      spec: spec,
+      services: services,
+      color: prideColorAt(position),
+      matchedVariants: matchedVariants,
+    );
+    if (writes.isEmpty) {
+      return skip("Can't show a picture or a colour");
+    }
+    for (final write in writes) {
+      final bytes = await _codec.encodeCommand(
+        specYaml: specYaml,
+        serviceUuid: write.serviceUuid,
+        charUuid: write.charUuid,
+        commandName: write.commandName,
+        params: write.params,
+      );
+      await _ble
+          .writeCharacteristic(
+            member.id,
+            write.serviceUuid,
+            write.charUuid,
+            bytes,
+          )
+          .timeout(ioTimeout);
+    }
+    return GroupRunEvent(
+      deviceId: member.id,
+      status: GroupDeviceStatus.ok,
+      detail: 'Rainbow colour set',
+    );
+  }
+
+  Future<GroupRunEvent> _sendPridePicture(
+    GroupMember member,
+    DeviceSpecDto spec,
+    String specYaml,
+    PridePicture picture,
+    int position,
+    StopSignal stop,
+  ) async {
+    final (:width, :height) = await _prideCanvas(member, spec, specYaml);
+    var mtu = 23;
+    try {
+      mtu = await _ble.mtu(member.id).timeout(ioTimeout);
+    } on Object {
+      // Sizing for the floor is always safe, just slower.
+    }
+    final payload = writePayloadForMtu(mtu);
+
+    final ImageWritePlanDto plan;
+    final String detail;
+    if (picture == PridePicture.rainbow) {
+      plan = await _codec.encodeImageFrame(
+        specYaml: specYaml,
+        width: width,
+        height: height,
+        rgb: renderRainbowGradient(width, height),
+        frameIndex: 0,
+        maxPayloadPerWrite: payload,
+      );
+      detail = 'Rainbow set';
+    } else if (spec.imageUpload?.animatedUpload ?? false) {
+      // Every flag, starting from this member's own, so panels side by side
+      // are on different flags as well as changing.
+      plan = await _codec.encodeImageAnimation(
+        specYaml: specYaml,
+        width: width,
+        height: height,
+        frames: [
+          for (var i = 0; i < prideFlags.length; i++)
+            renderPrideFlag(prideFlagAt(position + i), width, height),
+        ],
+        delayMs: prideFlagSeconds * 1000,
+        maxPayloadPerWrite: payload,
+      );
+      detail = 'Alternating ${prideFlags.length} flags';
+    } else {
+      final flag = prideFlagAt(position);
+      plan = await _codec.encodeImageFrame(
+        specYaml: specYaml,
+        width: width,
+        height: height,
+        rgb: renderPrideFlag(flag, width, height),
+        frameIndex: 0,
+        maxPayloadPerWrite: payload,
+      );
+      detail = '${flag.name} flag set';
+    }
+    // A deadline that stops the plan rather than only ceasing to wait for it:
+    // left running, it would finish over whatever was sent next.
+    final planStop = StopSignal();
+    final deadline = Timer(uploadTimeout, planStop.stop);
+    unawaited(stop.whenStopped.then((_) => planStop.stop()));
+    try {
+      await runImageWritePlan(
+        _ble,
+        member.id,
+        plan,
+        stop: planStop,
+        writeTimeout: ioTimeout,
+      );
+    } on ImagePlanStoppedException {
+      return GroupRunEvent(
+        deviceId: member.id,
+        status: stop.stopped
+            ? GroupDeviceStatus.skipped
+            : GroupDeviceStatus.failed,
+        detail: stop.stopped ? 'Cancelled' : 'The upload took too long.',
+      );
+    } finally {
+      deadline.cancel();
+    }
+    return GroupRunEvent(
+      deviceId: member.id,
+      status: GroupDeviceStatus.ok,
+      detail: detail,
+    );
+  }
+
+  /// The canvas to draw for [member]: what it says, what was remembered, or
+  /// what its spec states, in that order. Bounded, because a spec's maximum
+  /// is not always a screen.
+  Future<({int width, int height})> _prideCanvas(
+    GroupMember member,
+    DeviceSpecDto spec,
+    String specYaml,
+  ) async {
+    final upload = spec.imageUpload;
+    final maxWidth = upload?.maxWidth;
+    final maxHeight = upload?.maxHeight;
+    bool fits(({int width, int height}) size) =>
+        size.width >= 1 &&
+        size.height >= 1 &&
+        (maxWidth == null || size.width <= maxWidth) &&
+        (maxHeight == null || size.height <= maxHeight);
+    if (upload?.resolutionDeviceReported ?? false) {
+      final asked = await queryPanelSize(
+        _ble,
+        _codec,
+        member.id,
+        specYaml,
+        listen: panelQueryListen,
+        writeTimeout: ioTimeout,
+      );
+      if (asked != null && fits(asked)) return asked;
+      final remembered = _rememberedSize?.call(member.id);
+      if (remembered != null && fits(remembered)) return remembered;
+      // Unknown: draw at the size the editor would open at. A flag cropped by
+      // a bigger panel beats one refused for being too big for a smaller one.
+      return (
+        width: initialPanelSide(maxWidth),
+        height: initialPanelSide(maxHeight),
+      );
+    }
+    return (
+      width: fixedPanelSide(maxWidth, other: maxHeight),
+      height: fixedPanelSide(maxHeight, other: maxWidth),
     );
   }
 
@@ -514,10 +752,12 @@ class NetworkGroupRunner {
     this._credentialsFor,
   });
 
+  /// [firstPosition] as on [GroupRunner.run].
   Stream<GroupRunEvent> run(
     GroupOp op,
     List<NetworkGroupMember> members, {
     double? brightnessPercent,
+    int firstPosition = 0,
     required StopSignal stop,
   }) {
     final controller = StreamController<GroupRunEvent>();
@@ -526,6 +766,7 @@ class NetworkGroupRunner {
 
     void pump() {
       while (live < concurrency && next < members.length) {
+        final position = firstPosition + next;
         final member = members[next++];
         if (stop.stopped) {
           controller.add(
@@ -572,7 +813,7 @@ class NetworkGroupRunner {
           memberStop.stop();
         });
 
-        _runMember(op, member, brightnessPercent, memberStop)
+        _runMember(op, member, brightnessPercent, position, memberStop)
             .then(
               report,
               onError: (Object e, StackTrace st) {
@@ -627,6 +868,7 @@ class NetworkGroupRunner {
     GroupOp op,
     NetworkGroupMember member,
     double? brightnessPercent,
+    int position,
     StopSignal stop,
   ) async {
     GroupRunEvent skip(String detail) => GroupRunEvent(
@@ -649,6 +891,7 @@ class NetworkGroupRunner {
       op: op,
       entities: member.entities,
       brightnessPercent: brightnessPercent,
+      prideColor: prideColorAt(position),
     );
     if (plan.isEmpty) return skip('Not found on this device');
 
@@ -710,6 +953,16 @@ class NetworkGroupRunner {
         sent++;
       }
 
+      for (final effect in plan.rainbowEffects) {
+        if (stop.stopped) break;
+        final index = await _rainbowIndex(specYaml, sender);
+        if (index == null) continue;
+        await sender.sendAction(effect.action, {
+          groupEffectParam: '$index',
+        }, description: description);
+        sent++;
+      }
+
       var alreadyOff = 0;
       var stateUnknown = 0;
       for (final toggle in plan.gated) {
@@ -760,6 +1013,32 @@ class NetworkGroupRunner {
       await sender.close();
     }
   }
+
+  /// Ask the device which of its effects is the rainbow. Numbered by the build
+  /// it runs, so never assumed; a device that will not say gets no effect.
+  Future<int?> _rainbowIndex(
+    String specYaml,
+    NetworkCommandSender sender,
+  ) async {
+    try {
+      final request = await _codec.renderNetworkHttpStateRequest(
+        specYaml: specYaml,
+        stateCommand: _effectListPath,
+        values: await sender.currentCredentials(),
+      );
+      final names = jsonDecode(await sender.sendHttpRequest(request));
+      return names is List
+          ? rainbowEffectIndex([for (final n in names) '$n'])
+          : null;
+    } catch (e) {
+      Log.net.debug('could not list effects: $e');
+      return null;
+    }
+  }
+
+  /// Where the one catalogue device with an effect list keeps it (WLED). An
+  /// action declares what it writes and not where its choices are listed.
+  static const _effectListPath = '/json/eff';
 
   bool _needsDescription(GroupNetworkPlan plan) {
     // Asked of the sender, which owns the list. This was a fourth copy of it

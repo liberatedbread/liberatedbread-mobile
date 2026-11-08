@@ -195,6 +195,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   NetworkReadingDto dco_decode_box_autoadd_network_reading_dto(dynamic raw);
 
   @protected
+  PanelProbeDto dco_decode_box_autoadd_panel_probe_dto(dynamic raw);
+
+  @protected
   PanelResolutionDto dco_decode_box_autoadd_panel_resolution_dto(dynamic raw);
 
   @protected
@@ -770,6 +773,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  PanelProbeDto? dco_decode_opt_box_autoadd_panel_probe_dto(dynamic raw);
+
+  @protected
   PanelResolutionDto? dco_decode_opt_box_autoadd_panel_resolution_dto(
     dynamic raw,
   );
@@ -847,6 +853,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   Uint8List? dco_decode_opt_list_prim_u_8_strict(dynamic raw);
+
+  @protected
+  PanelProbeDto dco_decode_panel_probe_dto(dynamic raw);
 
   @protected
   PanelResolutionDto dco_decode_panel_resolution_dto(dynamic raw);
@@ -1232,6 +1241,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   NetworkReadingDto sse_decode_box_autoadd_network_reading_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  PanelProbeDto sse_decode_box_autoadd_panel_probe_dto(
     SseDeserializer deserializer,
   );
 
@@ -1991,6 +2005,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  PanelProbeDto? sse_decode_opt_box_autoadd_panel_probe_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   PanelResolutionDto? sse_decode_opt_box_autoadd_panel_resolution_dto(
     SseDeserializer deserializer,
   );
@@ -2082,6 +2101,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   Uint8List? sse_decode_opt_list_prim_u_8_strict(SseDeserializer deserializer);
+
+  @protected
+  PanelProbeDto sse_decode_panel_probe_dto(SseDeserializer deserializer);
 
   @protected
   PanelResolutionDto sse_decode_panel_resolution_dto(
@@ -2557,6 +2579,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_box_autoadd_network_reading_dto(
     NetworkReadingDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_box_autoadd_panel_probe_dto(
+    PanelProbeDto self,
     SseSerializer serializer,
   );
 
@@ -3545,6 +3573,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_opt_box_autoadd_panel_probe_dto(
+    PanelProbeDto? self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_opt_box_autoadd_panel_resolution_dto(
     PanelResolutionDto? self,
     SseSerializer serializer,
@@ -3657,6 +3691,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
     Uint8List? self,
     SseSerializer serializer,
   );
+
+  @protected
+  void sse_encode_panel_probe_dto(PanelProbeDto self, SseSerializer serializer);
 
   @protected
   void sse_encode_panel_resolution_dto(

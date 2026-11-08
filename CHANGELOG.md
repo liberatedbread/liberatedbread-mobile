@@ -13,6 +13,16 @@ heading.
 
 ### Added
 
+- **Pride mode for groups.** One button: displays show pride flags, each
+  starting from a different one and cycling by themselves where the panel can
+  hold an animation, and lights take the rainbow — along the string where it
+  has an addressable canvas or a rainbow effect, one colour per light
+  otherwise. Printers, locks and one-colour panels sit it out.
+- **LOY SPACE / popled panels (`popled_json`).** Backpacks and bags now take
+  pictures and brightness: images upload as GIFs into the panel's own program
+  slot, so they keep playing after the app disconnects, and the canvas opens at
+  the size the panel says it is. Verified on a real 64x64 backpack.
+
 - **A SmartThings household with Home Assistant is pointed at LocalThings.**
   When the Wi-Fi scan sees a SmartThings advertisement (`_smartthings._tcp`
   or `_smartthings-hedge._tcp`) and a Home Assistant, either connected in

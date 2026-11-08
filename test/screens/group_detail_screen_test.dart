@@ -120,6 +120,7 @@ class _ErroringRunner extends GroupRunner {
     GroupOp op,
     List<GroupMember> members, {
     double? brightnessPercent,
+    int firstPosition = 0,
     required StopSignal stop,
   }) {
     runs++;

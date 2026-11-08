@@ -681,8 +681,6 @@ fn characteristics_needing_unimplemented_transforms_resolve_no_actions() {
         ("shining-glasses.yaml", "AES-128-ECB"),
         ("magic-display.yaml", "AES-128-ECB"),
         ("coolledx-led-sign.yaml", "length-prefix framing"),
-        ("autobaba-led-backpack.yaml", "framing"),
-        ("nyan-bt-image-controller.yaml", "framing"),
         ("pax-vape.yaml", "OFB encryption"),
     ];
 
@@ -700,6 +698,83 @@ fn characteristics_needing_unimplemented_transforms_resolve_no_actions() {
                 entity.actions.iter().map(|a| &a.role).collect::<Vec<_>>()
             );
         }
+    }
+}
+
+/// Every LOY SPACE panel spec names the handler and is drivable through it:
+/// the upload encodes, and the brightness entity sends a real frame. The
+/// characteristic's `framing` block used to make all of this unsendable.
+#[test]
+fn popled_panels_upload_and_take_commands() {
+    use liberated_bread_core::api::device_api::{
+        encode_command, encode_image_animation, encode_image_frame, load_device_spec, panel_probe,
+    };
+    use std::collections::HashMap;
+
+    for file in [
+        "autobaba-led-backpack.yaml",
+        "nyan-bt-image-controller.yaml",
+        "led-space.yaml",
+    ] {
+        let path = spec_path(file);
+        let yaml =
+            fs::read_to_string(&path).unwrap_or_else(|e| panic!("reading {}: {e}", path.display()));
+        let dto = load_device_spec(yaml.clone()).unwrap_or_else(|e| panic!("{file}: {e}"));
+
+        let upload = dto.image_upload.as_ref().expect("declares an image upload");
+        assert!(upload.encodable, "{file}: upload encodable");
+        assert!(upload.animated_upload, "{file}: holds animations");
+        assert!(
+            upload.resolution_device_reported,
+            "{file}: size is reported"
+        );
+
+        let plan = encode_image_frame(yaml.clone(), 8, 8, vec![0x40; 8 * 8 * 3], 0, 244)
+            .unwrap_or_else(|e| panic!("{file}: {e}"));
+        assert_eq!(plan.service_uuid, "0000fff0-0000-1000-8000-00805f9b34fb");
+        assert!(!plan.reply_waits.is_empty(), "{file}: waits for each ack");
+        encode_image_animation(
+            yaml.clone(),
+            8,
+            8,
+            vec![vec![0x40; 192], vec![0x80; 192]],
+            8000,
+            244,
+        )
+        .unwrap_or_else(|e| panic!("{file}: {e}"));
+        assert!(
+            panel_probe(yaml.clone()).unwrap().is_some(),
+            "{file}: probe"
+        );
+
+        let entity = dto
+            .entities
+            .iter()
+            .find(|e| e.platform.as_deref() == Some("light"))
+            .unwrap_or_else(|| panic!("{file}: no light entity"));
+        let action = entity
+            .actions
+            .iter()
+            .find(|a| a.role == "set_brightness")
+            .unwrap_or_else(|| panic!("{file}: brightness did not bind"));
+        assert_eq!(action.user_params, ["brightness"], "{file}");
+        let bytes = encode_command(
+            Some(yaml.clone()),
+            Some(action.service_uuid.clone()),
+            action.characteristic_uuid.clone(),
+            action.command_name.clone().unwrap(),
+            HashMap::from([("brightness".to_string(), 15.0)]),
+        )
+        .unwrap_or_else(|e| panic!("{file}: {e}"));
+        // Sequence 0 where the bench's was 1, so one less in the checksum.
+        assert_eq!(
+            bytes,
+            [
+                0xAA, 0x55, 0xFF, 0xFF, 0x0A, 0x00, 0x00, 0x00, 0xC1, 0x02, 0x06, 0x02, 0x00, 0x0F,
+                0xE1, 0x03
+            ],
+            "{file}"
+        );
     }
 }
 

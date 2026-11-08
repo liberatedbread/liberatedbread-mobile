@@ -11,6 +11,25 @@ plus the finders' incidental spec notes). Verified items were put to an adversar
 **Open: 2 verified, 9 unverified.** Five more were delivered upstream; see
 below.
 
+## LOY SPACE panels: facts measured on a real backpack, 2026-11-08
+
+On a `YS525C110340` (`EXYC-A#CXB3BRI7BTVOICE3`, firmware `V2.8.8#V01`, 64x64),
+through the `popled_json` handler. Each contradicts or sharpens the catalogue;
+the first three are worked around in `rust/src/protocol/popled.rs`.
+
+- autobaba-led-backpack `resource_chunk_count: "big-endian uint16"` — it is
+  little-endian. A four-chunk upload was accepted and shown as `04 00`.
+- nyan-bt-image-controller and led-space say BLE writes carry an outer u16-LE
+  length prefix. None does, and the panel answers frames without one. The
+  autobaba spec (`length_prefix: false`) has this right.
+- `power_toggle` is not a toggle: `c1 02 04 02 00 <00|01>` states the power, and
+  repeating it changes nothing. The entity could declare `turn_on`/`turn_off`
+  from it, which would let the group on/off buttons reach these panels.
+- `set_brightness` could state its range in `parameters`; the handler supplies
+  1-15. Brightness and power also read back: `c1 03 06 00` answers
+  `81 83 06 02 00 <level>`, `c1 03 04 00` answers `81 83 04 02 00 <state>`.
+- Display commands can move from `remaining_unknowns` and `testing` to verified.
+
 ## Delivered by the 2026-09-26 catalogue refresh
 
 Closed here on 2026-09-27 against the vendored tree; each line names what

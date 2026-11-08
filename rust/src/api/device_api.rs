@@ -233,6 +233,10 @@ pub struct ImageUploadDto {
     pub resolution_device_reported: bool,
     /// Whether multi-frame sequences (animations) are supported.
     pub animation: bool,
+    /// Whether [`encode_image_animation`] can put a whole animation on the
+    /// device, which then plays it with no connection held. `animation` is
+    /// the spec's statement about the live editor; this is about storage.
+    pub animated_upload: bool,
     pub max_frames: Option<u32>,
     /// Fastest supported frame flip in milliseconds, when the spec knows it.
     pub min_frame_interval_ms: Option<u32>,
@@ -1062,6 +1066,8 @@ fn image_upload_dto(spec: &DeviceSpec) -> Option<ImageUploadDto> {
         max_height: feature.max_height,
         resolution_device_reported: feature.resolution_source.as_deref() == Some("device_reported"),
         animation: feature.animation.unwrap_or(false),
+        animated_upload: spec.protocol_handler.as_deref()
+            == Some(crate::protocol::popled::HANDLER_NAME),
         max_frames: feature.max_frames,
         min_frame_interval_ms: feature.min_frame_interval_ms,
         default_frame_interval_ms: feature.default_frame_interval_ms,
@@ -5446,6 +5452,94 @@ pub fn encode_image_frame(
         frame_index,
         max_payload_per_write as usize,
     )?;
+    image_plan_dto(&spec, frame, frame_index)
+}
+
+/// Encode a looping animation as ONE upload the device then plays by itself,
+/// for a handler whose device holds whole animations
+/// ([`ImageUploadDto::animated_upload`]). `frames` are row-major RGB888 of
+/// `width * height * 3` bytes each, shown for `delay_ms` apiece.
+///
+/// Distinct from streaming [`encode_image_frame`] calls, which replace the
+/// picture frame by frame and stop when the link does.
+pub fn encode_image_animation(
+    spec_yaml: String,
+    width: u32,
+    height: u32,
+    frames: Vec<Vec<u8>>,
+    delay_ms: u32,
+    max_payload_per_write: u32,
+) -> anyhow::Result<ImageWritePlanDto> {
+    let spec = crate::protocol::dispatch::parse_or_cached(&spec_yaml)?;
+    if spec.protocol_handler.as_deref() != Some(crate::protocol::popled::HANDLER_NAME) {
+        return Err(crate::error::ProtocolError::ImageUploadUnsupported {
+            reason: "this device does not hold uploaded animations".to_string(),
+        }
+        .into());
+    }
+    let slices: Vec<&[u8]> = frames.iter().map(Vec::as_slice).collect();
+    let frame = crate::protocol::popled::encode_animation(
+        &spec,
+        &slices,
+        width,
+        height,
+        delay_ms,
+        max_payload_per_write as usize,
+    )?;
+    image_plan_dto(&spec, frame, 0)
+}
+
+/// The one query that makes a `device_reported` panel state its size, for a
+/// handler that has one: write [`Self::bytes`] to the write characteristic
+/// with the notify characteristic subscribed, then hand what arrives to
+/// [`panel_resolution_from_reply`].
+#[derive(Debug, Clone)]
+pub struct PanelProbeDto {
+    pub service_uuid: String,
+    pub write_characteristic_uuid: String,
+    pub notify_characteristic_uuid: String,
+    pub bytes: Vec<u8>,
+}
+
+/// [`PanelProbeDto`] for this spec. `None` when its handler has no such query
+/// (including Daniao, whose DeviceInfo goes through [`device_info_resolution`]).
+pub fn panel_probe(spec_yaml: String) -> anyhow::Result<Option<PanelProbeDto>> {
+    let spec = crate::protocol::dispatch::parse_or_cached(&spec_yaml)?;
+    if spec.protocol_handler.as_deref() != Some(crate::protocol::popled::HANDLER_NAME) {
+        return Ok(None);
+    }
+    let probe = crate::protocol::popled::panel_probe(&spec)?;
+    let service_uuid = crate::protocol::service_for_characteristic(&spec, &probe.write.uuid)
+        .ok_or_else(|| crate::error::ProtocolError::ImageUploadUnsupported {
+            reason: "the panel query targets no declared service".to_string(),
+        })?;
+    Ok(Some(PanelProbeDto {
+        service_uuid,
+        write_characteristic_uuid: probe.write.uuid.clone(),
+        notify_characteristic_uuid: probe.notify.uuid.clone(),
+        bytes: probe.bytes,
+    }))
+}
+
+/// A panel's size, out of the notifications that followed [`panel_probe`].
+/// `None` when they state no usable one.
+pub fn panel_resolution_from_reply(
+    spec_yaml: String,
+    notifications: Vec<Vec<u8>>,
+) -> anyhow::Result<Option<PanelResolutionDto>> {
+    let spec = crate::protocol::dispatch::parse_or_cached(&spec_yaml)?;
+    if spec.protocol_handler.as_deref() != Some(crate::protocol::popled::HANDLER_NAME) {
+        return Ok(None);
+    }
+    Ok(crate::protocol::popled::decode_panel_size(&notifications)
+        .map(|(width, height)| PanelResolutionDto { width, height }))
+}
+
+fn image_plan_dto(
+    spec: &DeviceSpec,
+    frame: crate::protocol::EncodedFrame,
+    frame_index: u32,
+) -> anyhow::Result<ImageWritePlanDto> {
     // The GATT service is the spec's fact, not the handler's: resolve it from
     // the characteristic the first write targets (every write of a plan lives
     // in one custom service). A plan with no writes, or one targeting a
@@ -5454,7 +5548,7 @@ pub fn encode_image_frame(
     let service_uuid = frame
         .writes
         .first()
-        .and_then(|w| crate::protocol::service_for_characteristic(&spec, &w.characteristic_uuid))
+        .and_then(|w| crate::protocol::service_for_characteristic(spec, &w.characteristic_uuid))
         .ok_or_else(|| crate::error::ProtocolError::ImageUploadUnsupported {
             reason: "the encoded plan targets no characteristic any declared service carries"
                 .to_string(),
@@ -7473,10 +7567,10 @@ device:
 
     #[test]
     fn unimplemented_handler_is_declared_not_encodable() {
-        let yaml = IMAGE_SPEC_YAML.replace("daniao_ddp", "popled_json");
+        let yaml = IMAGE_SPEC_YAML.replace("daniao_ddp", "no_such_handler");
         let dto = load_device_spec(yaml).unwrap();
         let img = dto.image_upload.unwrap();
-        assert_eq!(img.handler.as_deref(), Some("popled_json"));
+        assert_eq!(img.handler.as_deref(), Some("no_such_handler"));
         assert!(!img.encodable);
     }
 

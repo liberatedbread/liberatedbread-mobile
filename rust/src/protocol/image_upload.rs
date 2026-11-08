@@ -97,11 +97,18 @@ pub struct RegisteredCodec {
     pub max_dimension: Option<u32>,
 }
 
-const SCHEMES: &[RegisteredScheme] = &[RegisteredScheme {
-    name: super::daniao::FRAGMENT_SCHEME,
-    header_len: super::daniao::FRAG_HEADER_LEN,
-    fragment: super::daniao::fragment_packet,
-}];
+const SCHEMES: &[RegisteredScheme] = &[
+    RegisteredScheme {
+        name: super::daniao::FRAGMENT_SCHEME,
+        header_len: super::daniao::FRAG_HEADER_LEN,
+        fragment: super::daniao::fragment_packet,
+    },
+    RegisteredScheme {
+        name: super::popled::FRAME_SCHEME,
+        header_len: super::popled::FRAME_HEADER_LEN,
+        fragment: super::popled::fragment_packet,
+    },
+];
 
 const CODECS: &[RegisteredCodec] = &[RegisteredCodec {
     handler: super::daniao::HANDLER_NAME,

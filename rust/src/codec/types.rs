@@ -457,12 +457,18 @@ pub fn unsupported_characteristic_transform(characteristic: &Characteristic) -> 
 /// protocol implementations name the same strings without a dependency cycle. `protocol::daniao` re-exports its constant as `FRAGMENT_SCHEME`.
 pub const DANIAO_FRAGMENT_SCHEME: &str = "daniao_fragment";
 pub const ORBA_FRAGMENT_SCHEME: &str = "orba_sysex_ble_midi";
+/// A popled panel's `aa55` frame. Stated by `protocol::popled::bind_commands`
+/// at parse time rather than by any spec.
+pub const POPLED_FRAME_SCHEME: &str = "popled_frame";
 
 /// Whether `name` is a framing scheme this build wraps packets in, rather than
 /// merely parses. A characteristic whose `framing.scheme` is implemented is
 /// sendable through the generic encoder; an unknown one is not.
 pub fn implemented_framing_scheme(name: &str) -> bool {
-    matches!(name, DANIAO_FRAGMENT_SCHEME | ORBA_FRAGMENT_SCHEME)
+    matches!(
+        name,
+        DANIAO_FRAGMENT_SCHEME | ORBA_FRAGMENT_SCHEME | POPLED_FRAME_SCHEME
+    )
 }
 
 /// Whether `name` is an implemented scheme whose one packet goes out as

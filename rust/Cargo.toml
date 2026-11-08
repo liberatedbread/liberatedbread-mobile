@@ -98,6 +98,7 @@ sha2 = "0.11"
 # implementation exists in this crate. Keep it in Rust alongside the AES cipher
 # above, tested against public SRP-6a and split-stream cipher vectors.
 num-bigint = "0.4"
+gif = { version = "0.13", default-features = false, features = ["color_quant", "std"] }
 
 # Desktop serial ports, for programming a radio over a USB cable on Linux and
 # macOS — the one transport in the Rust core (AGENTS.md says why). MPL-2.0:

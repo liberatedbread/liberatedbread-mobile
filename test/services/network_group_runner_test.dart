@@ -113,6 +113,102 @@ void main() {
     return all.last;
   }
 
+  group('pride mode', () {
+    NetworkActionDto action(String role, [List<String> params = const []]) =>
+        NetworkActionDto(
+          role: role,
+          commandName: 'cmd_$role',
+          transport: 'http',
+          userParams: params,
+          readBack: const [],
+          credentials: const [],
+          instanceParams: const [],
+        );
+
+    NetworkEntityDto strip(List<NetworkActionDto> actions) => NetworkEntityDto(
+      name: 'Strip',
+      platform: 'light',
+      stateCommand: '',
+      transport: 'http',
+      isInstanced: false,
+      options: const [],
+      actions: actions,
+    );
+
+    test('an effect-only strip is told the index the device gave', () async {
+      final sent = <String>[];
+      final codec = FakeSpecCodec();
+      final last = await lastEventOf(
+        runner(
+          codec,
+          MockClient((request) async {
+            if (request.method == 'GET') {
+              return http.Response('["Solid","Blink","Rainbow"]', 200);
+            }
+            sent.add(request.url.path);
+            return http.Response('', 200);
+          }),
+        ).run(GroupOp.prideMode, [
+          _member([
+            strip([
+              action('turn_on'),
+              action('set_effect', [groupEffectParam]),
+            ]),
+          ], category: 'light'),
+        ], stop: StopSignal()),
+      );
+      expect(last.status, GroupDeviceStatus.ok);
+      expect(sent, ['/fake/cmd_turn_on', '/fake/cmd_set_effect']);
+      expect(
+        codec.renderNetworkHttpCommandCalls.last.values[groupEffectParam],
+        '2',
+      );
+    });
+
+    test('a device that cannot list effects gets no guessed one', () async {
+      final sent = <String>[];
+      await lastEventOf(
+        runner(
+          FakeSpecCodec(),
+          MockClient((request) async {
+            if (request.method == 'GET') return http.Response('nope', 500);
+            sent.add(request.url.path);
+            return http.Response('', 200);
+          }),
+        ).run(GroupOp.prideMode, [
+          _member([
+            strip([
+              action('set_effect', [groupEffectParam]),
+            ]),
+          ], category: 'light'),
+        ], stop: StopSignal()),
+      );
+      expect(sent, isEmpty);
+    });
+
+    test('colours advance from the run\'s first position', () async {
+      final codec = FakeSpecCodec();
+      await lastEventOf(
+        runner(
+          codec,
+          MockClient((request) async => http.Response('', 200)),
+        ).run(
+          GroupOp.prideMode,
+          [
+            _member([
+              strip([
+                action('set_color', ['red', 'green', 'blue']),
+              ]),
+            ], category: 'light'),
+          ],
+          firstPosition: 3,
+          stop: StopSignal(),
+        ),
+      );
+      expect(codec.renderNetworkHttpCommandCalls.last.values['green'], '255');
+    });
+  });
+
   test('a discrete off is sent and reported', () async {
     final received = <http.Request>[];
     final codec = FakeSpecCodec();

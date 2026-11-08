@@ -257,4 +257,88 @@ void main() {
     expect(plan.direct.single.values, {'brightness': '128'});
     expect(brightnessFromPercent(null, null, 50), 128);
   });
+
+  group('pride mode', () {
+    const rgb = ['red', 'green', 'blue'];
+
+    test('a light taking three channels is on, then coloured', () {
+      final entity = _entity(
+        platform: 'light',
+        actions: [
+          _action('turn_on'),
+          _action('set_color', userParams: rgb),
+        ],
+      );
+      expect(supportedNetworkGroupOps([entity]), contains(GroupOp.prideMode));
+      final plan = resolveNetworkGroupPlan(
+        op: GroupOp.prideMode,
+        entities: [entity],
+        prideColor: (r: 1, g: 2, b: 3),
+      );
+      expect(plan.direct.map((s) => s.action.role), ['turn_on', 'set_color']);
+      expect(plan.direct.last.values, {'red': '1', 'green': '2', 'blue': '3'});
+    });
+
+    test('a packed colour is not a colour this can state', () {
+      final entity = _entity(
+        platform: 'light',
+        actions: [
+          _action('set_color', userParams: const ['rgb']),
+        ],
+      );
+      expect(
+        supportedNetworkGroupOps([entity]),
+        isNot(contains(GroupOp.prideMode)),
+      );
+    });
+
+    test('a switch has no part in it', () {
+      final entity = _entity(actions: [_action('set_color', userParams: rgb)]);
+      expect(
+        supportedNetworkGroupOps([entity]),
+        isNot(contains(GroupOp.prideMode)),
+      );
+    });
+
+    test('a strip with only effects goes through the effect', () {
+      final entity = _entity(
+        platform: 'light',
+        actions: [
+          _action('turn_on'),
+          _action('set_effect', userParams: const [groupEffectParam]),
+        ],
+      );
+      expect(supportedNetworkGroupOps([entity]), contains(GroupOp.prideMode));
+      final plan = resolveNetworkGroupPlan(
+        op: GroupOp.prideMode,
+        entities: [entity],
+      );
+      expect(plan.direct.single.action.role, 'turn_on');
+      expect(plan.rainbowEffects.single.action.role, 'set_effect');
+    });
+
+    test('a light with a colour does not also change effect', () {
+      final plan = resolveNetworkGroupPlan(
+        op: GroupOp.prideMode,
+        entities: [
+          _entity(
+            platform: 'light',
+            actions: [
+              _action('set_color', userParams: rgb),
+              _action('set_effect', userParams: const [groupEffectParam]),
+            ],
+          ),
+        ],
+      );
+      expect(plan.rainbowEffects, isEmpty);
+    });
+
+    test('the rainbow is found by name, exact over loose', () {
+      expect(rainbowEffectIndex(['Solid', 'Colorloop', 'Rainbow']), 2);
+      expect(rainbowEffectIndex(['Rainbow Runner', 'rainbow ']), 1);
+      expect(rainbowEffectIndex(['Rainbow Runner', 'Solid']), 0);
+      expect(rainbowEffectIndex(['Solid']), isNull);
+      expect(rainbowEffectIndex([]), isNull);
+    });
+  });
 }

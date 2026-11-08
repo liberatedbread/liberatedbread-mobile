@@ -379,6 +379,36 @@ class RealSpecCodec implements SpecCodec {
   );
 
   @override
+  Future<ImageWritePlanDto> encodeImageAnimation({
+    required String specYaml,
+    required int width,
+    required int height,
+    required List<List<int>> frames,
+    required int delayMs,
+    required int maxPayloadPerWrite,
+  }) => rust.encodeImageAnimation(
+    specYaml: specYaml,
+    width: width,
+    height: height,
+    frames: [for (final f in frames) Uint8List.fromList(f)],
+    delayMs: delayMs,
+    maxPayloadPerWrite: maxPayloadPerWrite,
+  );
+
+  @override
+  Future<PanelProbeDto?> panelProbe({required String specYaml}) =>
+      rust.panelProbe(specYaml: specYaml);
+
+  @override
+  Future<PanelResolutionDto?> panelResolutionFromReply({
+    required String specYaml,
+    required List<List<int>> notifications,
+  }) => rust.panelResolutionFromReply(
+    specYaml: specYaml,
+    notifications: [for (final n in notifications) Uint8List.fromList(n)],
+  );
+
+  @override
   Future<PanelResolutionDto?> advertisedResolution({
     required String specYaml,
     required Map<int, List<int>> manufacturerData,

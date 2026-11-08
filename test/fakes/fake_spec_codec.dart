@@ -477,6 +477,47 @@ class FakeSpecCodec implements SpecCodec {
     return advertisedResolutionResult;
   }
 
+  /// The arguments of the last [encodeImageAnimation].
+  List<List<int>>? animationFrames;
+  int? animationDelayMs;
+
+  @override
+  Future<ImageWritePlanDto> encodeImageAnimation({
+    required String specYaml,
+    required int width,
+    required int height,
+    required List<List<int>> frames,
+    required int delayMs,
+    required int maxPayloadPerWrite,
+  }) async {
+    animationFrames = frames;
+    animationDelayMs = delayMs;
+    return encodeImageFrame(
+      specYaml: specYaml,
+      width: width,
+      height: height,
+      rgb: frames.first,
+      frameIndex: 0,
+      maxPayloadPerWrite: maxPayloadPerWrite,
+    );
+  }
+
+  /// Returned by [panelProbe]; null means the handler has no such query.
+  PanelProbeDto? panelProbeResult;
+
+  @override
+  Future<PanelProbeDto?> panelProbe({required String specYaml}) async =>
+      panelProbeResult;
+
+  /// Returned by [panelResolutionFromReply].
+  PanelResolutionDto? panelReplyResolution;
+
+  @override
+  Future<PanelResolutionDto?> panelResolutionFromReply({
+    required String specYaml,
+    required List<List<int>> notifications,
+  }) async => panelReplyResolution;
+
   /// The resolution [deviceInfoResolution] returns — a test sets it to simulate
   /// a device whose DeviceInfo push carried a size. Null (default) means the
   /// query found none.

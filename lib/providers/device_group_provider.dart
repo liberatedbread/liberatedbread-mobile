@@ -20,6 +20,7 @@ import '../services/roomba_credential_store.dart';
 import '../services/tls_trust.dart';
 import 'ble_provider.dart';
 import 'device_spec_match_provider.dart';
+import 'panel_resolution_cache_provider.dart';
 import 'network_control_provider.dart';
 import 'saved_device_provider.dart';
 import 'saved_network_device_provider.dart';
@@ -611,5 +612,7 @@ final groupRunnerProvider = Provider<GroupRunner>((ref) {
       final chosen = outcome.chosen;
       return chosen == null ? null : (spec: chosen.spec, yaml: chosen.yaml);
     },
+    rememberedSize: (deviceId) =>
+        ref.read(panelResolutionCacheProvider).get(deviceId),
   );
 });

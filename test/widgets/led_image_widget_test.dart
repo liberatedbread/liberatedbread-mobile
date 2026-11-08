@@ -27,6 +27,7 @@ const _encodableSpec = ImageUploadDto(
   maxHeight: 4,
   resolutionDeviceReported: false,
   animation: true,
+  animatedUpload: false,
 );
 
 /// Fresh mocked prefs per test (see the setUp in main), so the saved-designs
@@ -280,6 +281,7 @@ void main() {
         encodable: true,
         resolutionDeviceReported: false,
         animation: true,
+        animatedUpload: false,
       );
       final bounds = frameIntervalBoundsMs(spec);
       expect(bounds.min, 50);
@@ -292,6 +294,7 @@ void main() {
         encodable: true,
         resolutionDeviceReported: false,
         animation: true,
+        animatedUpload: false,
         minFrameIntervalMs: 100,
         defaultFrameIntervalMs: 40,
       );
@@ -1744,6 +1747,7 @@ void main() {
       encodable: true,
       resolutionDeviceReported: false,
       animation: false,
+      animatedUpload: false,
       maxWidth: 4,
       maxHeight: 4,
     );
@@ -1771,6 +1775,7 @@ void main() {
       encodable: true,
       resolutionDeviceReported: false,
       animation: false,
+      animatedUpload: false,
       maxWidth: 8,
       maxHeight: 8,
     );
@@ -1800,6 +1805,7 @@ void main() {
       encodable: false,
       resolutionDeviceReported: false,
       animation: false,
+      animatedUpload: false,
       handler: 'niimbot',
       maxWidth: 8,
       maxHeight: 8,
@@ -1828,6 +1834,7 @@ void main() {
       encodable: true,
       resolutionDeviceReported: true,
       animation: true,
+      animatedUpload: false,
       maxWidth: 255,
       maxHeight: 255,
     );
@@ -1887,6 +1894,7 @@ void main() {
         encodable: true,
         resolutionDeviceReported: true,
         animation: true,
+        animatedUpload: false,
         maxWidth: 255,
         maxHeight: 255,
       );
@@ -1932,6 +1940,7 @@ void main() {
       encodable: true,
       resolutionDeviceReported: true,
       animation: true,
+      animatedUpload: false,
       maxWidth: 32,
       maxHeight: 32,
     );
@@ -1997,6 +2006,7 @@ void main() {
       encodable: true,
       resolutionDeviceReported: true,
       animation: true,
+      animatedUpload: false,
       maxWidth: 255,
       maxHeight: 255,
     );
@@ -2026,6 +2036,7 @@ void main() {
       encodable: true,
       resolutionDeviceReported: true,
       animation: true,
+      animatedUpload: false,
       maxWidth: 255,
       maxHeight: 255,
     );
@@ -2081,6 +2092,7 @@ void main() {
       encodable: true,
       resolutionDeviceReported: true,
       animation: true,
+      animatedUpload: false,
       maxWidth: 255,
       maxHeight: 255,
     );
@@ -2149,6 +2161,7 @@ void main() {
       encodable: false,
       resolutionDeviceReported: false,
       animation: true,
+      animatedUpload: false,
       maxWidth: 32,
       maxHeight: 16,
     );
@@ -2183,6 +2196,7 @@ void main() {
       maxHeight: 2,
       resolutionDeviceReported: false,
       animation: true,
+      animatedUpload: false,
     );
     final codec = FakeSpecCodec();
     final ble = FakeBleService();
@@ -2244,6 +2258,7 @@ void main() {
       maxHeight: 2,
       resolutionDeviceReported: false,
       animation: true,
+      animatedUpload: false,
     );
     final gate = Completer<void>();
     final ble = FakeBleService(writeGate: gate.future);

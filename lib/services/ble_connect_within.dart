@@ -61,3 +61,21 @@ Future<void> connectWithin(
     },
   );
 }
+
+/// Whether a failed connect or discovery is worth the screen trying again by
+/// itself (see [deviceConnectAutoRetries]).
+///
+/// Everything is, except the failures that are answers: Bluetooth off or
+/// absent, permission withheld, a device demanding pairing, an identifier the
+/// system has forgotten, and a characteristic that never replies. Asking
+/// those again gets the same answer and only delays the advice that fixes
+/// them. A link that dropped is not decided here — the screen shows it as a
+/// disconnect, not a failed connect.
+bool isTransientConnectFailure(Object error) => switch (error) {
+  BlePermissionDeniedException() ||
+  BleUnavailableException() ||
+  BlePairingRequiredException() ||
+  BleDeviceUnheardException() ||
+  BleCharacteristicSilentException() => false,
+  _ => true,
+};

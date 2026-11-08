@@ -9,9 +9,9 @@ import '../frb_generated.dart';
 import '../spec/types.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These functions are ignored because they are not marked as `pub`: `agreeing`, `all_company_ids`, `all_service_types`, `all_service_uuids`, `best_mac_prefix`, `ble_provisioning_profiles_over`, `brightness_to_byte`, `brother_ql_media`, `brother_ql_test_canvas`, `check_stored_layer_edges`, `confidence`, `decode_with_protocol`, `encode_command_with_spec`, `encode_command_writes_with_spec`, `encode_entity_value_with_spec`, `entity_dto`, `find_entity`, `finite`, `format_mac`, `format_number`, `from_lifx`, `from`, `groups_governing`, `handler_surface`, `http_scheme_of`, `image_upload_dto`, `is_empty`, `is_narrowed`, `is_platform_company_id`, `is_shared_service_type`, `is_sig_assigned_service`, `lifx_network_entities`, `list_network_instances_with_spec`, `mac_prefix_confidence`, `match_axes`, `match_connected_device`, `match_network_axes`, `match_network_over`, `match_scanned_over`, `network_surface_for`, `normalize_mac_prefix`, `normalize_mac`, `rank_matches`, `read_network_entity_roles_with_spec`, `read_network_entity_with_spec`, `read_network_instance_with_spec`, `reading_to_dto`, `regex_for`, `render_network_http_state_request_with_spec`, `render_network_state_request_with_spec`, `resolve_query_source`, `roomba_network_entities`, `scroll_from_str`, `select_entity`, `soft_ap_profiles_over`, `stored_plan_to_dto`, `stored_upload_dto`, `strip_hex`, `txt_conditions_hold`, `txt_group_holds`, `value_matches`
+// These functions are ignored because they are not marked as `pub`: `agreeing`, `all_company_ids`, `all_service_types`, `all_service_uuids`, `best_mac_prefix`, `ble_provisioning_profiles_over`, `brightness_to_byte`, `brother_ql_media`, `brother_ql_test_canvas`, `check_stored_layer_edges`, `confidence`, `decode_with_protocol`, `encode_command_with_spec`, `encode_command_writes_with_spec`, `encode_entity_value_with_spec`, `entity_dto`, `find_entity`, `finite`, `format_mac`, `format_number`, `from_lifx`, `from`, `groups_governing`, `handler_surface`, `http_scheme_of`, `image_plan_dto`, `image_upload_dto`, `is_empty`, `is_narrowed`, `is_platform_company_id`, `is_shared_service_type`, `is_sig_assigned_service`, `lifx_network_entities`, `list_network_instances_with_spec`, `mac_prefix_confidence`, `match_axes`, `match_connected_device`, `match_network_axes`, `match_network_over`, `match_scanned_over`, `network_surface_for`, `normalize_mac_prefix`, `normalize_mac`, `rank_matches`, `read_network_entity_roles_with_spec`, `read_network_entity_with_spec`, `read_network_instance_with_spec`, `reading_to_dto`, `regex_for`, `render_network_http_state_request_with_spec`, `render_network_state_request_with_spec`, `resolve_query_source`, `roomba_network_entities`, `scroll_from_str`, `select_entity`, `soft_ap_profiles_over`, `stored_plan_to_dto`, `stored_upload_dto`, `strip_hex`, `txt_conditions_hold`, `txt_group_holds`, `value_matches`
 // These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `ConnectedMatch`, `MatchAxes`
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `cmp`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `partial_cmp`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `cmp`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `partial_cmp`
 // These functions are ignored (category: IgnoreBecauseOwnerTyShouldIgnore): `default`
 
 /// Resolve a `device_reported` panel's REAL width/height from its BLE
@@ -973,6 +973,44 @@ Future<ImageWritePlanDto> encodeImageFrame({
   rgb: rgb,
   frameIndex: frameIndex,
   maxPayloadPerWrite: maxPayloadPerWrite,
+);
+
+/// Encode a looping animation as ONE upload the device then plays by itself,
+/// for a handler whose device holds whole animations
+/// ([`ImageUploadDto::animated_upload`]). `frames` are row-major RGB888 of
+/// `width * height * 3` bytes each, shown for `delay_ms` apiece.
+///
+/// Distinct from streaming [`encode_image_frame`] calls, which replace the
+/// picture frame by frame and stop when the link does.
+Future<ImageWritePlanDto> encodeImageAnimation({
+  required String specYaml,
+  required int width,
+  required int height,
+  required List<Uint8List> frames,
+  required int delayMs,
+  required int maxPayloadPerWrite,
+}) => RustLib.instance.api.crateApiDeviceApiEncodeImageAnimation(
+  specYaml: specYaml,
+  width: width,
+  height: height,
+  frames: frames,
+  delayMs: delayMs,
+  maxPayloadPerWrite: maxPayloadPerWrite,
+);
+
+/// [`PanelProbeDto`] for this spec. `None` when its handler has no such query
+/// (including Daniao, whose DeviceInfo goes through [`device_info_resolution`]).
+Future<PanelProbeDto?> panelProbe({required String specYaml}) =>
+    RustLib.instance.api.crateApiDeviceApiPanelProbe(specYaml: specYaml);
+
+/// A panel's size, out of the notifications that followed [`panel_probe`].
+/// `None` when they state no usable one.
+Future<PanelResolutionDto?> panelResolutionFromReply({
+  required String specYaml,
+  required List<Uint8List> notifications,
+}) => RustLib.instance.api.crateApiDeviceApiPanelResolutionFromReply(
+  specYaml: specYaml,
+  notifications: notifications,
 );
 
 /// The bytes that ask a Brother QL printer for its 32-byte status reply
@@ -2835,6 +2873,11 @@ class ImageUploadDto {
 
   /// Whether multi-frame sequences (animations) are supported.
   final bool animation;
+
+  /// Whether [`encode_image_animation`] can put a whole animation on the
+  /// device, which then plays it with no connection held. `animation` is
+  /// the spec's statement about the live editor; this is about storage.
+  final bool animatedUpload;
   final int? maxFrames;
 
   /// Fastest supported frame flip in milliseconds, when the spec knows it.
@@ -2849,6 +2892,7 @@ class ImageUploadDto {
     this.maxHeight,
     required this.resolutionDeviceReported,
     required this.animation,
+    required this.animatedUpload,
     this.maxFrames,
     this.minFrameIntervalMs,
     this.defaultFrameIntervalMs,
@@ -2863,6 +2907,7 @@ class ImageUploadDto {
       maxHeight.hashCode ^
       resolutionDeviceReported.hashCode ^
       animation.hashCode ^
+      animatedUpload.hashCode ^
       maxFrames.hashCode ^
       minFrameIntervalMs.hashCode ^
       defaultFrameIntervalMs.hashCode;
@@ -2879,6 +2924,7 @@ class ImageUploadDto {
           maxHeight == other.maxHeight &&
           resolutionDeviceReported == other.resolutionDeviceReported &&
           animation == other.animation &&
+          animatedUpload == other.animatedUpload &&
           maxFrames == other.maxFrames &&
           minFrameIntervalMs == other.minFrameIntervalMs &&
           defaultFrameIntervalMs == other.defaultFrameIntervalMs;
@@ -4152,6 +4198,41 @@ class NetworkStateProbeDto {
           runtimeType == other.runtimeType &&
           command == other.command &&
           transport == other.transport;
+}
+
+/// The one query that makes a `device_reported` panel state its size, for a
+/// handler that has one: write [`Self::bytes`] to the write characteristic
+/// with the notify characteristic subscribed, then hand what arrives to
+/// [`panel_resolution_from_reply`].
+class PanelProbeDto {
+  final String serviceUuid;
+  final String writeCharacteristicUuid;
+  final String notifyCharacteristicUuid;
+  final Uint8List bytes;
+
+  const PanelProbeDto({
+    required this.serviceUuid,
+    required this.writeCharacteristicUuid,
+    required this.notifyCharacteristicUuid,
+    required this.bytes,
+  });
+
+  @override
+  int get hashCode =>
+      serviceUuid.hashCode ^
+      writeCharacteristicUuid.hashCode ^
+      notifyCharacteristicUuid.hashCode ^
+      bytes.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is PanelProbeDto &&
+          runtimeType == other.runtimeType &&
+          serviceUuid == other.serviceUuid &&
+          writeCharacteristicUuid == other.writeCharacteristicUuid &&
+          notifyCharacteristicUuid == other.notifyCharacteristicUuid &&
+          bytes == other.bytes;
 }
 
 /// A panel's real pixel resolution, resolved from the device's advertisement.
