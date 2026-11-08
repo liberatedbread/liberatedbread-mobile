@@ -134,6 +134,11 @@ enumerates the GATT table and selects characteristics by UUID, and clients
 must do the same (`FFF1` is hypothesized under service `FFF0`; the `0Axx`
 block's service is unknown).
 
+Client integration: `protocol_handler: ipl_foreo` selects the mobile setup
+surface for security access, conditional activation and wake-up. Activation
+requires the actual BLE MAC address; platforms that expose only a
+CoreBluetooth UUID must not substitute it.
+
 | UUID | Name | Description |
 |------|------|-------------|
 | `0xFFF1` | Command channel | All commands written here; answers read back from the same characteristic |
