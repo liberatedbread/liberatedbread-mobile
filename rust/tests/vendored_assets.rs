@@ -2015,6 +2015,36 @@ fn the_shining_glasses_sibling_declares_no_pixel_surface_to_encode() {
     );
 }
 
+/// The Even G1 names no `protocol_handler`; it is adopted by the BMP commands
+/// it declares, and its upload is the whole BMP transfer for one temple
+/// through the FFI the editor calls.
+#[test]
+fn the_vendored_even_g1_encodes_its_bmp_transfer() {
+    use liberated_bread_core::api::device_api::{encode_image_frame, load_device_spec};
+
+    let yaml = fs::read_to_string(spec_path("even-g1-glasses.yaml")).expect("readable");
+    let dto = load_device_spec(yaml.clone()).expect("the G1 loads");
+    let img = dto.image_upload.expect("declares image_upload");
+    assert_eq!(img.handler.as_deref(), Some("even_g1_bmp"));
+    assert!(img.encodable);
+    assert_eq!((img.max_width, img.max_height), (Some(576), Some(136)));
+
+    let plan = encode_image_frame(yaml.clone(), 576, 136, vec![0u8; 576 * 136 * 3], 0, 248)
+        .expect("the vendored G1 spec encodes");
+    assert_eq!(plan.service_uuid, "6e400001-b5a3-f393-e0a9-e50e24dcca9e");
+    assert_eq!(plan.writes.len(), 53, "51 chunks, end, CRC");
+    assert_eq!(
+        plan.writes[0].bytes[..8],
+        [0x15, 0x00, 0x00, 0x1C, 0x00, 0x00, b'B', b'M']
+    );
+    assert_eq!(plan.writes[51].bytes, [0x20, 0x0D, 0x0E]);
+    assert_eq!(plan.writes[52].bytes[0], 0x16);
+    assert_eq!(plan.writes[52].bytes.len(), 5);
+    assert_eq!(plan.reply_waits.len(), 2);
+    // The first write is 200 bytes; a link that cannot carry it is told so.
+    assert!(encode_image_frame(yaml, 8, 8, vec![0u8; 8 * 8 * 3], 0, 182).is_err());
+}
+
 /// The two places the schema puts an mDNS service type, held together.
 ///
 /// `device.identification.mdns_service_type` and every

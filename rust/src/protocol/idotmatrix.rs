@@ -332,13 +332,17 @@ fn push_png_chunk(png: &mut Vec<u8>, chunk_type: &[u8; 4], data: &[u8]) {
 /// CRC-32/ISO-HDLC — the algorithm of both PNG chunks and
 /// `java.util.zip.CRC32`, which the spec names for the upload header's
 /// whole-file checksum. Bitwise: the inputs are a few KiB at most.
-struct Crc32(u32);
+///
+/// Also the CRC the Even G1 calls CRC-32/XZ (`even_g1.rs`): the same
+/// reflected 0xEDB88320 polynomial, init and xorout, so one table-free
+/// implementation serves both.
+pub(crate) struct Crc32(u32);
 
 impl Crc32 {
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Crc32(0xFFFF_FFFF)
     }
-    fn update(&mut self, bytes: &[u8]) {
+    pub(crate) fn update(&mut self, bytes: &[u8]) {
         for &b in bytes {
             self.0 ^= u32::from(b);
             for _ in 0..8 {
@@ -350,7 +354,7 @@ impl Crc32 {
             }
         }
     }
-    fn finish(self) -> u32 {
+    pub(crate) fn finish(self) -> u32 {
         !self.0
     }
 }

@@ -13,6 +13,7 @@ pub mod daniao_upload;
 pub mod dispatch;
 pub mod dither;
 pub mod enphase;
+pub mod even_g1;
 pub mod fichero_d11;
 pub mod generic;
 pub mod health;
@@ -371,6 +372,10 @@ const IMAGE_UPLOAD_HANDLERS: &[ImageUploadHandler] = &[
     ImageUploadHandler {
         name: popled::HANDLER_NAME,
         encode: popled::encode_image,
+    },
+    ImageUploadHandler {
+        name: even_g1::HANDLER_NAME,
+        encode: even_g1::encode_image,
     },
 ];
 

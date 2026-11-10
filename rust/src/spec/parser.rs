@@ -56,6 +56,7 @@ pub fn parse_device_spec(yaml: &str) -> Result<DeviceSpec, SpecError> {
     prefer_template_over_value(&mut spec);
     crate::protocol::popled::bind_commands(&mut spec);
     crate::protocol::static_ecb::bind_padding(&mut spec);
+    crate::protocol::even_g1::bind_handler(&mut spec);
     validate_spec(&spec)?;
     Ok(spec)
 }

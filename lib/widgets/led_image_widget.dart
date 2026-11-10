@@ -187,10 +187,10 @@ int initialCanvasSize(int? max) {
 /// before the user has drawn anything. Above this the editor opens small and
 /// the size box raises it, which is what the box is for.
 ///
-/// 512 covers every display in the catalogue with room to spare (the largest
-/// is a 96x16 bar; the biggest matrix panels are 64x64), and is 786 KB rather
-/// than 75 MB.
-const int maxInitialFixedCanvas = 512;
+/// 576 covers every display in the catalogue (the widest is the Even G1's
+/// 576x136 lens; the biggest matrix panels are 64x64), and a square canvas
+/// that size is under 1 MB rather than 75.
+const int maxInitialFixedCanvas = 576;
 
 /// [max] when it is a plausible display dimension, else a small canvas.
 @visibleForTesting
