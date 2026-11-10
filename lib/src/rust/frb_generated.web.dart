@@ -29,6 +29,7 @@ import 'protocol/acinfinity.dart';
 import 'protocol/bisecur.dart';
 import 'protocol/enphase.dart';
 import 'protocol/modbus_sunspec.dart';
+import 'protocol/pax.dart';
 import 'protocol/readonly.dart';
 import 'protocol/yummly.dart';
 import 'spec/types.dart';
@@ -952,6 +953,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   ParameterDto dco_decode_parameter_dto(dynamic raw);
+
+  @protected
+  PaxReadingDto dco_decode_pax_reading_dto(dynamic raw);
+
+  @protected
+  PaxReadingKind dco_decode_pax_reading_kind(dynamic raw);
 
   @protected
   PlaylistWritesDto dco_decode_playlist_writes_dto(dynamic raw);
@@ -2346,6 +2353,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   ParameterDto sse_decode_parameter_dto(SseDeserializer deserializer);
+
+  @protected
+  PaxReadingDto sse_decode_pax_reading_dto(SseDeserializer deserializer);
+
+  @protected
+  PaxReadingKind sse_decode_pax_reading_kind(SseDeserializer deserializer);
 
   @protected
   PlaylistWritesDto sse_decode_playlist_writes_dto(
@@ -4130,6 +4143,15 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_parameter_dto(ParameterDto self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_pax_reading_dto(PaxReadingDto self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_pax_reading_kind(
+    PaxReadingKind self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_playlist_writes_dto(

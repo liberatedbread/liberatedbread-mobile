@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../services/acinfinity_ble_client.dart';
+import '../services/pax_ble_client.dart';
 import '../services/spec_codec.dart';
 import '../services/yummly_ble_client.dart';
 import 'ble_provider.dart';
@@ -15,6 +16,7 @@ import 'spec_choice_provider.dart';
 
 const yummlyHandler = 'yummly_xw2_tlv';
 const acInfinityHandler = 'acinfinity_a5';
+const paxHandler = 'pax_ofb';
 
 /// A BLE device this app reads through a read-only handler, which opens its
 /// own panel and never reaches the generic GATT client.
@@ -46,6 +48,12 @@ ReadOnlyBleProfile? _profileOf(CatalogueSpec entry, String specKey) =>
         specKey: specKey,
         specYaml: entry.yaml,
         category: 'climate',
+      ),
+      paxHandler => ReadOnlyBleProfile(
+        handler: paxHandler,
+        specKey: specKey,
+        specYaml: entry.yaml,
+        category: 'appliance',
       ),
       _ => null,
     };
@@ -93,4 +101,10 @@ final acInfinityClientProvider = Provider<AcInfinityClient Function(String)>(
         ble: ref.read(bleServiceProvider),
         deviceId: deviceId,
       ),
+);
+
+final paxClientProvider = Provider<PaxClient Function(String)>(
+  (ref) =>
+      (deviceId) =>
+          PaxBleClient(ble: ref.read(bleServiceProvider), deviceId: deviceId),
 );

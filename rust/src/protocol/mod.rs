@@ -30,6 +30,7 @@ pub mod modbus_sunspec;
 pub mod mqtt;
 pub mod niimbot;
 pub mod orba_midi;
+pub mod pax;
 pub mod popled;
 pub mod profiles;
 pub mod rabbit_air;

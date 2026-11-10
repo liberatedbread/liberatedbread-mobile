@@ -19,7 +19,7 @@
 use crate::error::ProtocolError;
 use crate::spec::types::DeviceSpec;
 
-use super::{acinfinity, bisecur, modbus_sunspec, yummly};
+use super::{acinfinity, bisecur, modbus_sunspec, pax, yummly};
 
 /// One command this app's read-only handler actually sends. `characteristic`
 /// narrows the name on a BLE spec, where a name can repeat across generations
@@ -53,6 +53,7 @@ pub struct ReadOnlyHandler {
 
 const YUMMLY_XW2: &str = yummly::REQUEST_CHARACTERISTIC;
 const ACINFINITY: &str = acinfinity::COMMAND_CHARACTERISTIC;
+const PAX_WRITE: &str = pax::WRITE_CHARACTERISTIC;
 
 const READ_ONLY_HANDLERS: &[ReadOnlyHandler] = &[
     ReadOnlyHandler {
@@ -96,6 +97,13 @@ const READ_ONLY_HANDLERS: &[ReadOnlyHandler] = &[
         ],
         refusal: "Read-only in this app: an impulse moves a motorised door or \
                   gate, which can trap or injure.",
+    },
+    ReadOnlyHandler {
+        name: pax::HANDLER_NAME,
+        sent: &[on(PAX_WRITE, "request_status_update")],
+        refusal: "Read-only in this app: this is a heating device. It asks \
+                  for temperature and battery only, and the heater set point \
+                  and the lock are never sent.",
     },
 ];
 
@@ -233,6 +241,11 @@ mod tests {
             bisecur::HANDLER_NAME,
             &["login", "get_groups", "get_transition", "logout"],
         ),
+        (
+            "pax-vape.yaml",
+            pax::HANDLER_NAME,
+            &["request_status_update"],
+        ),
     ];
 
     /// The commands that must never go out, named one by one so that renaming
@@ -267,6 +280,7 @@ mod tests {
             ],
         ),
         ("hormann-bisecur-gateway.yaml", &["send_impulse"]),
+        ("pax-vape.yaml", &["set_heater_setpoint", "set_lock"]),
     ];
 
     /// The pin. Exactly the listed reads are sent; every other command the

@@ -664,7 +664,9 @@ fn the_vendored_xkglow_set_rgb_color_honours_its_parameters() {
 /// The encoding gate asks whether a *command* can be encoded; these specs put
 /// the obstacle one level up, on the characteristic. coolledx length-prefixes,
 /// escapes and delimits its frames, pax derives its key per device, and niu's
-/// ECB key is per device too and declared nowhere. A slider built on them would
+/// ECB key is per device too and declared nowhere. (`pax_ofb` now reads a PAX
+/// through its own read-only module; the generic encoder still executes none
+/// of its writes, and the heater and lock never resolve a control.) A slider built on them would
 /// write bytes the device silently drops. Rendering a control that cannot work
 /// is worse than rendering none.
 ///
@@ -678,7 +680,10 @@ fn characteristics_needing_unimplemented_transforms_resolve_no_actions() {
 
     let cases = [
         ("coolledx-led-sign.yaml", "length-prefix framing"),
-        ("pax-vape.yaml", "OFB encryption with a per-device key"),
+        (
+            "pax-vape.yaml",
+            "OFB encryption with a per-device key, and pax_ofb is read-only",
+        ),
         ("niu-escooter.yaml", "ECB with a per-device key"),
     ];
 

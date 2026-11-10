@@ -6,7 +6,7 @@
 //! opcode or an address. See [`crate::protocol::readonly`].
 
 use crate::api::device_api::SafetyAdvisoryDto;
-use crate::protocol::{acinfinity, bisecur, modbus_sunspec, readonly, yummly};
+use crate::protocol::{acinfinity, bisecur, modbus_sunspec, pax, readonly, yummly};
 
 pub use crate::protocol::acinfinity::{
     AcInfinityFeedDto, AcInfinityPortDto, AcInfinityStatusDto, AcInfinityStoredDto,
@@ -18,6 +18,7 @@ pub use crate::protocol::bisecur::{
 pub use crate::protocol::modbus_sunspec::{
     SunSpecCommonDto, SunSpecInverterDto, SunSpecMeterDto, SunSpecMeterPowerDto,
 };
+pub use crate::protocol::pax::{PaxReadingDto, PaxReadingKind};
 pub use crate::protocol::readonly::ReadOnlyCommandDto;
 pub use crate::protocol::yummly::{YummlyFrameDto, YummlyFrameKind};
 
@@ -297,6 +298,23 @@ pub fn bisecur_decode_transition(payload: Vec<u8>) -> anyhow::Result<BiSecurTran
 #[flutter_rust_bridge::frb(sync)]
 pub fn bisecur_error_meaning(code: u8) -> String {
     bisecur::error_meaning(code).to_string()
+}
+
+/// PAX: the status-update request for temperature and battery, encrypted for
+/// the unit whose Device Information serial is `serial`. The only frame the
+/// PAX handler builds; it takes no attribute.
+pub fn pax_encode_status_request(serial: String) -> anyhow::Result<Vec<u8>> {
+    Ok(pax::encode_status_request_random(&serial)?)
+}
+
+/// PAX: one value of the read characteristic, decrypted and read.
+pub fn pax_decode_read(serial: String, packet: Vec<u8>) -> anyhow::Result<PaxReadingDto> {
+    Ok(pax::decode_read(&serial, &packet)?)
+}
+
+/// PAX: why this unit is not read, from its discovered services, or `None`.
+pub fn pax_model_refusal(service_uuids: Vec<String>) -> Option<String> {
+    pax::refuses_model(&service_uuids)
 }
 
 #[cfg(test)]

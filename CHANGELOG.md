@@ -24,6 +24,13 @@ heading.
   cannot be sent at all. Single-value replies are not decoded, as their layout
   is unknown. Tested against the spec's vectors and a fake unit; not run on
   hardware.
+- **PAX 3 and PAX Era, read-only (`pax_ofb`).** Temperature and battery,
+  read with the per-device key the spec derives from the unit's serial and
+  decrypted from AES-128-OFB. The only frame sent is the status request; the
+  heater set point and the lock stay listed and refused, and an Era Pro is
+  not connected to, since its encryption is not stated. No captured frame
+  exists, so the cipher is pinned against independent computations; not run
+  on hardware.
 - **Spec `format_match`, `mask` and role bindings with `values`.** A
   characteristic that carries several kinds of frame decodes only the one its
   `format` describes and cards keep their last state across the rest; packed

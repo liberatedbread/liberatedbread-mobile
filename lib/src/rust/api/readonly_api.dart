@@ -10,6 +10,7 @@ import '../frb_generated.dart';
 import '../protocol/acinfinity.dart';
 import '../protocol/bisecur.dart';
 import '../protocol/modbus_sunspec.dart';
+import '../protocol/pax.dart';
 import '../protocol/readonly.dart';
 import '../protocol/yummly.dart';
 import 'device_api.dart';
@@ -214,6 +215,29 @@ Future<BiSecurTransitionDto> bisecurDecodeTransition({
 
 String bisecurErrorMeaning({required int code}) =>
     RustLib.instance.api.crateApiReadonlyApiBisecurErrorMeaning(code: code);
+
+/// PAX: the status-update request for temperature and battery, encrypted for
+/// the unit whose Device Information serial is `serial`. The only frame the
+/// PAX handler builds; it takes no attribute.
+Future<Uint8List> paxEncodeStatusRequest({required String serial}) => RustLib
+    .instance
+    .api
+    .crateApiReadonlyApiPaxEncodeStatusRequest(serial: serial);
+
+/// PAX: one value of the read characteristic, decrypted and read.
+Future<PaxReadingDto> paxDecodeRead({
+  required String serial,
+  required List<int> packet,
+}) => RustLib.instance.api.crateApiReadonlyApiPaxDecodeRead(
+  serial: serial,
+  packet: packet,
+);
+
+/// PAX: why this unit is not read, from its discovered services, or `None`.
+Future<String?> paxModelRefusal({required List<String> serviceUuids}) => RustLib
+    .instance
+    .api
+    .crateApiReadonlyApiPaxModelRefusal(serviceUuids: serviceUuids);
 
 /// What a BiSecur caller is waiting for. Named, so nothing here takes a
 /// command id; `SET_STATE` is not one of these.

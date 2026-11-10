@@ -12,6 +12,7 @@ import '../providers/read_only_ble_provider.dart';
 import '../providers/saved_device_provider.dart';
 import '../providers/spec_codec_provider.dart';
 import '../services/acinfinity_ble_client.dart';
+import '../services/pax_ble_client.dart';
 import '../services/spec_codec.dart';
 import '../services/yummly_ble_client.dart';
 import '../src/rust/protocol/acinfinity.dart';
@@ -30,9 +31,11 @@ class ReadOnlyBlePanel extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) =>
-      profile.handler == yummlyHandler
-      ? _YummlyPanel(device: device, profile: profile)
-      : _AcInfinityPanel(device: device, profile: profile);
+      switch (profile.handler) {
+        yummlyHandler => _YummlyPanel(device: device, profile: profile),
+        paxHandler => _PaxPanel(device: device, profile: profile),
+        _ => _AcInfinityPanel(device: device, profile: profile),
+      };
 }
 
 /// What the two panels share: the notice and refused commands, and a session
@@ -383,4 +386,73 @@ class _AcInfinityPanelState
 
   String _hundredths(int? value, String unit) =>
       value == null ? 'No probe' : '${(value / 100).toStringAsFixed(2)} $unit';
+}
+
+class _PaxPanel extends ConsumerStatefulWidget {
+  final IoTDevice device;
+  final ReadOnlyBleProfile profile;
+
+  const _PaxPanel({required this.device, required this.profile});
+
+  @override
+  ConsumerState<_PaxPanel> createState() => _PaxPanelState();
+}
+
+class _PaxPanelState extends _WatchState<_PaxPanel, PaxReading> {
+  PaxClient? _client;
+
+  @override
+  IoTDevice get device => widget.device;
+
+  @override
+  ReadOnlyBleProfile get profile => widget.profile;
+
+  @override
+  Stream<PaxReading> openSession() {
+    final client = _client = ref.read(paxClientProvider)(widget.device.id);
+    return client.watch();
+  }
+
+  @override
+  Future<void> closeSession() async {
+    final client = _client;
+    _client = null;
+    await client?.close();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final now = reading;
+    return frame(context, [
+      if (now != null)
+        _Rows(
+          title: 'Status',
+          rows: [
+            (
+              'Temperature',
+              now.temperatureC == null
+                  ? 'Waiting'
+                  : '${now.temperatureC!.toStringAsFixed(1)} °C',
+            ),
+            (
+              'Battery',
+              now.batteryPercent == null
+                  ? 'Waiting'
+                  : '${now.batteryPercent} %',
+            ),
+          ],
+        ),
+      if (now?.stale ?? false) ...[
+        const SizedBox(height: 12),
+        const Text('No new reading for a while. These numbers are old.'),
+      ],
+      const SizedBox(height: 12),
+      Text(
+        'Reads temperature and battery only. The heater and the lock are '
+        'never changed from this app. An Era Pro is not connected to: its '
+        'encryption is not documented.',
+        style: Theme.of(context).textTheme.bodySmall,
+      ),
+    ]);
+  }
 }
