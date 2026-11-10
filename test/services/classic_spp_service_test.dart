@@ -138,7 +138,7 @@ void main() {
 
       expect(frames, [done]);
       expect(offset, 18);
-    expect(values, {1, 2, 4});
+      expect(values, {1, 2, 4});
       expect(settled, const Duration(milliseconds: 500));
     },
   );
