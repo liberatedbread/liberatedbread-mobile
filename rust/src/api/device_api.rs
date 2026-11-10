@@ -2875,6 +2875,100 @@ pub fn render_network_limitlessled_command(
         .collect())
 }
 
+/// One popled frame as the UDP datagrams that carry it to a Wi-Fi panel, and
+/// the pause the spec asks for between them.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PopledUdpSendDto {
+    pub seq: u16,
+    pub datagrams: Vec<Vec<u8>>,
+    pub gap_ms: u32,
+}
+
+/// Frame `body` with sequence `seq` and split it into the panel's datagrams.
+/// Untested on hardware: see `protocol::popled_udp`.
+pub fn popled_udp_frame(seq: u16, body: Vec<u8>) -> PopledUdpSendDto {
+    PopledUdpSendDto {
+        seq,
+        datagrams: crate::protocol::popled_udp::command_datagrams(seq, &body),
+        gap_ms: crate::protocol::popled_udp::INTER_DATAGRAM_MS,
+    }
+}
+
+/// Render one Wi-Fi popled panel command to its frame body; the client frames
+/// it with its own sequence number through [`popled_udp_frame`].
+pub fn render_network_popled_command(
+    spec_yaml: String,
+    command_name: String,
+    values: HashMap<String, String>,
+) -> anyhow::Result<Vec<u8>> {
+    let spec = crate::protocol::dispatch::parse_or_cached(&spec_yaml)?;
+    Ok(crate::protocol::popled_udp::render_command(
+        &spec,
+        &command_name,
+        &values.into_iter().collect(),
+    )?)
+}
+
+/// One frame a Wi-Fi panel sent back.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PopledUdpReplyDto {
+    pub seq: u16,
+    /// A write's acknowledgement status, 0 being success.
+    pub ack_status: Option<u8>,
+    /// Whether the frame answers a query.
+    pub answer: bool,
+    pub width: Option<u32>,
+    pub height: Option<u32>,
+    /// The device-information record, when the answer carries one.
+    pub fields: HashMap<String, String>,
+}
+
+/// Every complete frame in the datagrams a panel sent, in order. Anything
+/// that is not one — garbage, a bad checksum — reads as nothing.
+pub fn popled_udp_read_replies(datagrams: Vec<Vec<u8>>) -> Vec<PopledUdpReplyDto> {
+    crate::protocol::popled_udp::read_replies(&datagrams)
+        .into_iter()
+        .map(|reply| PopledUdpReplyDto {
+            seq: reply.seq,
+            ack_status: reply.ack_status,
+            answer: reply.answer,
+            width: reply.size.map(|(w, _)| w),
+            height: reply.size.map(|(_, h)| h),
+            fields: reply.fields.into_iter().collect(),
+        })
+        .collect()
+}
+
+/// The identity in a datagram that answered the Wi-Fi panel's discovery probe
+/// (the `popled` identity dialect), or null for one that names no panel.
+pub fn popled_udp_discovery_fields(datagram: Vec<u8>) -> Option<HashMap<String, String>> {
+    crate::protocol::popled_udp::discovery_fields(&datagram).map(|f| f.into_iter().collect())
+}
+
+/// The body of the query that makes a panel state its size, for
+/// [`popled_udp_read_replies`] to read.
+pub fn popled_udp_panel_query() -> Vec<u8> {
+    crate::protocol::popled::PANEL_QUERY_BODY.to_vec()
+}
+
+/// The frame bodies that store and show `frames` on a Wi-Fi panel, each sent
+/// in its own acknowledged frame: the BLE backpack's GIF upload, NOT the
+/// spec's own zlib-bmp program, and untested over Wi-Fi. One frame is a still;
+/// more loop, each shown for `delay_ms`.
+pub fn popled_udp_upload_bodies(
+    spec_yaml: String,
+    width: u32,
+    height: u32,
+    frames: Vec<Vec<u8>>,
+    delay_ms: u32,
+) -> anyhow::Result<Vec<Vec<u8>>> {
+    let spec = crate::protocol::dispatch::parse_or_cached(&spec_yaml)?;
+    let frames: Vec<&[u8]> = frames.iter().map(Vec::as_slice).collect();
+    Ok(crate::protocol::popled_udp::upload_bodies(
+        &spec, &frames, width, height, delay_ms,
+    )?)
+}
+
 /// The fields of a SenseME discovery reply, the `field:N` identity dialect:
 /// null for a datagram that is not one.
 pub fn parse_senseme_discovery_reply(datagram: Vec<u8>) -> Option<Vec<String>> {

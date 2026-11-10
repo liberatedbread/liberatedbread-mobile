@@ -41,6 +41,9 @@ final networkScanServiceProvider = Provider<NetworkScanService>((ref) {
     delimitedFieldReader: (datagram) => ref
         .read(specCodecProvider)
         .parseSensemeDiscoveryReply(datagram: datagram),
+    popledFieldReader: (datagram) => ref
+        .read(specCodecProvider)
+        .popledUdpDiscoveryFields(datagram: datagram),
   );
   // Multicast sockets and the mDNS client outlive a widget if nobody closes
   // them, and a leaked bound socket keeps the radio awake.

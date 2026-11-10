@@ -55,6 +55,10 @@ ALLOWED_ABSENT=(
   # A bare `abstract class` of method signatures. The production implementation
   # (SecureSettingsStore) lives elsewhere and is covered there.
   'lib/services/settings_store.dart'
+  # The same: the image editor's non-BLE link, an `abstract class` of two
+  # signatures. PopledUdpImageLink implements it and is covered, and
+  # led_image_widget_link_test.dart drives the editor through a fake of it.
+  'lib/services/led_image_link.dart'
   # One `const` map literal each: the MDI-name translation tables, split per
   # device domain so two device branches stop colliding on one file. A const
   # map has no executable line to instrument, so lcov emits no record for it

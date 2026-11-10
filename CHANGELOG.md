@@ -13,6 +13,20 @@ heading.
 
 ### Added
 
+- **LED space Wi-Fi panels over UDP (`popled_json`).** Joined to a panel's
+  "YS…" hotspot, a scan now sends the spec's dev_info probe to
+  255.255.255.255:9090 (built by the core's frame builder, which reproduces the
+  bytes the spec prints) and adopts the panel that answers, named by its id.
+  Its light gets power and brightness (1-15), each frame acknowledged, in the
+  spec's datagrams: a u16-LE length ahead of the frame, 180-byte pieces 5 ms
+  apart, the sequence starting at 1. The device screen offers the spec's
+  join-the-hotspot notes. Tested against a fake panel; not run on hardware.
+- **Pictures and pride mode on LED space panels, untested over Wi-Fi.** The
+  image editor and group pride mode (every flag, alternating) send the GIF
+  upload a Bluetooth AUTOBABA backpack accepted, carried over the UDP link
+  above. This is NOT the format the spec states (a zlib-compressed BMP inside
+  a `pkts_program` program whose layout it never gives), and no Wi-Fi panel has
+  been seen to take it; SPECS_TO_FIX.md says what would settle it.
 - **Even Realities G1 glasses take pictures.** The image editor sends a
   576x136 one-bit BMP to the connected temple as the spec's 0x15 chunks, then
   0x20 and the big-endian CRC-32 that shows it, waiting for each reply. Each

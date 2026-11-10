@@ -18,6 +18,7 @@ import '../providers/panel_resolution_cache_provider.dart';
 import '../providers/saved_designs_provider.dart';
 import '../providers/spec_codec_provider.dart';
 import '../services/ble_write_plan_runner.dart';
+import '../services/led_image_link.dart';
 import '../services/panel_size_query.dart';
 import '../services/saved_designs_store.dart';
 import '../services/spec_codec.dart';
@@ -266,6 +267,11 @@ class LedImageWidget extends ConsumerStatefulWidget {
   /// the wrong kind of device; as a printer it says what the button does.
   final bool isPrinter;
 
+  /// The device's link when it is not BLE — a Wi-Fi panel. Null (every BLE
+  /// device) keeps the BLE write plans and queries; set, every picture and
+  /// the size query go through it instead, and nothing here touches BLE.
+  final LedImageLink? link;
+
   const LedImageWidget({
     super.key,
     required this.deviceId,
@@ -274,6 +280,7 @@ class LedImageWidget extends ConsumerStatefulWidget {
     required this.specYaml,
     this.manufacturerData = const {},
     this.isPrinter = false,
+    this.link,
   });
 
   @override
@@ -464,6 +471,16 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
   /// notify characteristics are named); returns null for panels without it, or
   /// when nothing decodable arrived.
   Future<({int width, int height})?> _queryDeviceInfoResolution() async {
+    final link = widget.link;
+    if (link != null) {
+      try {
+        return await link.panelSize();
+      } catch (e) {
+        // A panel that does not answer leaves the canvas at its default.
+        Log.net.debug('no panel size from ${widget.deviceId}: $e');
+        return null;
+      }
+    }
     final codec = ref.read(specCodecProvider);
     final ble = ref.read(bleServiceProvider);
     // A handler with a query of its own for this needs none of what follows.
@@ -843,6 +860,8 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
   /// only add an async hop inside the frame budget. An unreported MTU shows
   /// up as the 23-byte floor, which encodes to the spec-safe 20-byte payload.
   Future<int> _resolvePayloadPerWrite() async {
+    // Not a BLE write at all: the link sizes its own.
+    if (widget.link != null) return 512;
     var mtu = 23;
     try {
       mtu = await ref.read(bleServiceProvider).mtu(widget.deviceId);
@@ -905,6 +924,11 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
     // prior in-flight frame lands after that reset, it must NOT write its stale
     // nextFrameIndex back, or the restart would skip the session-open.
     final epoch = _streamEpoch;
+    final link = widget.link;
+    if (link != null) {
+      await link.sendImage(rgb, width, height, specYaml);
+      return;
+    }
     final ble = ref.read(bleServiceProvider);
     final plan = await ref
         .read(specCodecProvider)

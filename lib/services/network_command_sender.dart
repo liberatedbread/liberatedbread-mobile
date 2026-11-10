@@ -3,13 +3,14 @@
 import 'dart:async';
 
 import '../core/group_actions.dart'
-    show kLimitlessledTransport, kYeelightTransport;
+    show kLimitlessledTransport, kPopledTransport, kYeelightTransport;
 import '../core/log.dart';
 import '../models/network_device.dart';
 import 'ecp2_control_service.dart';
 import 'http_control_service.dart';
 import 'kasa_control_service.dart';
 import 'limitlessled_control_service.dart';
+import 'popled_udp_control_service.dart';
 import 'mqtt_session.dart';
 import 'ws_control_service.dart';
 import 'rabbit_air_control_service.dart';
@@ -93,6 +94,10 @@ class NetworkCommandSender {
   final RabbitAirControlClient _rabbitAir;
   final YeelightControlClient _yeelight;
   final LimitlessledControlClient _limitlessled;
+
+  /// One per sender, so its frames carry one rising sequence the way a vendor
+  /// session's do.
+  final PopledUdpClient _popled;
   final Ecp2ControlService _ecp2Service;
 
   /// Opens the MQTT session for a device whose commands ride that transport.
@@ -173,13 +178,15 @@ class NetworkCommandSender {
     required Ecp2ControlService ecp2,
     YeelightControlClient? yeelight,
     LimitlessledControlClient? limitlessled,
+    PopledUdpClient? popled,
     this._mqttConnect,
     this.wsCredential,
     this.onCredentialIssued,
     this._wsConnect,
   }) : _ecp2Service = ecp2,
        _yeelight = yeelight ?? YeelightControlClient(_codec),
-       _limitlessled = limitlessled ?? LimitlessledControlClient();
+       _limitlessled = limitlessled ?? LimitlessledControlClient(),
+       _popled = popled ?? PopledUdpClient(_codec);
 
   /// The credentials read from the store, held once read.
   ///
@@ -282,6 +289,10 @@ class NetworkCommandSender {
   /// spec says `udp`; the resolver replaces that the same way.
   static const limitlessledTransport = kLimitlessledTransport;
 
+  /// A Wi-Fi LOY SPACE panel's frames over UDP 9090. The spec says `udp`; the
+  /// resolver replaces that with the handler's name, as for LimitlessLED.
+  static const popledTransport = kPopledTransport;
+
   /// The WebSocket transport constant. A persistent socket a television's
   /// whole control surface rides.
   static const websocketTransport = 'websocket';
@@ -331,6 +342,15 @@ class NetworkCommandSender {
 
   int get _limitlessledPort =>
       controlPort ?? devicePort ?? LimitlessledControlClient.defaultPort;
+
+  /// Where a Wi-Fi panel's frames go: the spec's 9090, which is also what its
+  /// discovery reply came from.
+  int get popledPort =>
+      controlPort ?? devicePort ?? PopledUdpClient.defaultPort;
+
+  /// The panel client this sender's frames go through, for the image upload
+  /// that shares its sequence.
+  PopledUdpClient get popledClient => _popled;
 
   int get _rabbitAirHostPort =>
       devicePort ?? RabbitAirControlClient.defaultPort;
@@ -409,7 +429,8 @@ class NetworkCommandSender {
   }
 
   /// Whether [action] rides a transport with no read-back coupling. HTTP,
-  /// Kasa, Yeelight, LimitlessLED and Rabbit Air sends are independent; SOAP
+  /// Kasa, Yeelight, LimitlessLED, popled and Rabbit Air sends are
+  /// independent; SOAP
   /// writes serialize —
   /// the Crock-Pot's read-back design — and the caller owns that gate,
   /// since "one SOAP write in flight" is a per-surface rule.
@@ -418,6 +439,7 @@ class NetworkCommandSender {
       action.transport == kasaTransport ||
       action.transport == yeelightTransport ||
       action.transport == limitlessledTransport ||
+      action.transport == popledTransport ||
       action.transport == mqttTransport ||
       action.transport == websocketTransport ||
       action.transport == rabbitAirTransport;
@@ -458,6 +480,8 @@ class NetworkCommandSender {
         await _sendYeelight(action, values);
       case limitlessledTransport:
         await _sendLimitlessled(action, values);
+      case popledTransport:
+        await _sendPopled(action, values);
       case mqttTransport:
         await _sendMqtt(action, values);
       case websocketTransport:
@@ -984,6 +1008,20 @@ class NetworkCommandSender {
       values: values,
     );
     await _limitlessled.send(host, _limitlessledPort, frames);
+  }
+
+  /// The Wi-Fi popled send: render the frame body and send it in its frame,
+  /// waiting for the panel's acknowledgement. A refusal or silence throws.
+  Future<void> _sendPopled(
+    NetworkActionDto action,
+    Map<String, String> values,
+  ) async {
+    final body = await _codec.renderNetworkPopledCommand(
+      specYaml: specYaml,
+      commandName: action.commandName,
+      values: values,
+    );
+    await _popled.send(host, popledPort, body);
   }
 
   /// The Rabbit Air send: sync the clock, render the envelope, encrypt it

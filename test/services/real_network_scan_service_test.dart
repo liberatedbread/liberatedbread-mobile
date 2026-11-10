@@ -1109,6 +1109,28 @@ void _catalogueProbeTests() {
       expect(read, {'mac': '20:F8:5E:AA:BB:CC', '0': 'Fan'});
     });
 
+    test('popled:<name> reads what the Rust core read from the frame', () {
+      // A LOY SPACE panel answers in a binary frame; the core reads it and
+      // this only picks the named fields out of that reading.
+      final fields = [
+        field('popled', 'id_dev', 'id_dev'),
+        field('popled', 'name', 'name'),
+      ];
+      expect(
+        readUdpIdentityFields(
+          const [0xAA, 0x55],
+          fields,
+          popledFields: const {'id_dev': '525C110340', 'name': '525C110340'},
+        ),
+        {'id_dev': '525C110340', 'name': '525C110340'},
+      );
+      expect(
+        readUdpIdentityFields(const [0xAA, 0x55], fields),
+        isEmpty,
+        reason: 'a reply the core named nothing in is no device',
+      );
+    });
+
     test('field:N reads nothing from a reply of no such shape', () {
       // The rule a stray datagram on a vendor port is dropped by: it identified
       // nothing, so it does not become a row.

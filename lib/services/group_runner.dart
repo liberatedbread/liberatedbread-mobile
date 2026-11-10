@@ -81,7 +81,12 @@ class NetworkGroupMember {
     this.entities = const [],
   }) : ops = DeviceCategory.parse(category) == DeviceCategory.lock
            ? const <GroupOp>{}
-           : supportedNetworkGroupOps(entities);
+           : {
+               ...supportedNetworkGroupOps(entities),
+               // A Wi-Fi popled panel shows pride as a picture, which no
+               // entity states: its light has no colour to set.
+               if (isPopledPanel(capabilities)) GroupOp.prideMode,
+             };
 }
 
 /// Where one member is in the run. `queued` is the UI's initial row state;
@@ -887,6 +892,9 @@ class NetworkGroupRunner {
     if (!member.ops.contains(op)) {
       return skip("Not supported by this device's spec");
     }
+    if (op == GroupOp.prideMode && isPopledPanel(member.capabilities)) {
+      return _runPopledPride(member, specYaml, position, stop);
+    }
     final plan = resolveNetworkGroupPlan(
       op: op,
       entities: member.entities,
@@ -1008,6 +1016,93 @@ class NetworkGroupRunner {
           fallback: 'Could not reach this device.',
           log: Log.net,
         ),
+      );
+    } finally {
+      await sender.close();
+    }
+  }
+
+  /// Pride on a Wi-Fi popled panel: every flag as one looping GIF, starting
+  /// from this member's own, uploaded over UDP the way the BLE path uploads
+  /// it to the backpack. That upload is the BLE one carried over Wi-Fi, which
+  /// no panel has been seen to take yet (rust/src/protocol/popled_udp.rs).
+  Future<GroupRunEvent> _runPopledPride(
+    NetworkGroupMember member,
+    String specYaml,
+    int position,
+    StopSignal stop,
+  ) async {
+    final device = member.record.toNetworkDevice();
+    final sender = _senderFor(
+      device: device,
+      specYaml: specYaml,
+      capabilities: member.capabilities,
+    );
+    try {
+      final client = sender.popledClient;
+      final port = sender.popledPort;
+      ImageUploadDto? upload;
+      try {
+        upload = (await _codec.loadDeviceSpec(specYaml)).imageUpload;
+      } on Object catch (e) {
+        // Bounds unknown: the panel's answer, or the editor's default size.
+        Log.net.debug('no picture bounds for ${member.memberId}: $e');
+      }
+      final maxWidth = upload?.maxWidth;
+      final maxHeight = upload?.maxHeight;
+      var width = initialPanelSide(maxWidth);
+      var height = initialPanelSide(maxHeight);
+      try {
+        final asked = await client.panelSize(device.host, port);
+        if (asked != null &&
+            asked.width >= 1 &&
+            asked.height >= 1 &&
+            (maxWidth == null || asked.width <= maxWidth) &&
+            (maxHeight == null || asked.height <= maxHeight)) {
+          width = asked.width;
+          height = asked.height;
+        }
+      } on Object catch (e) {
+        // The size is a nicety; the upload says whether the panel is there.
+        Log.net.debug('no panel size from ${device.host}: $e');
+      }
+      if (stop.stopped) {
+        return GroupRunEvent(
+          deviceId: member.memberId,
+          status: GroupDeviceStatus.skipped,
+          detail: 'Cancelled',
+        );
+      }
+      final bodies = await _codec.popledUdpUploadBodies(
+        specYaml: specYaml,
+        width: width,
+        height: height,
+        frames: [
+          for (var i = 0; i < prideFlags.length; i++)
+            renderPrideFlag(prideFlagAt(position + i), width, height),
+        ],
+        delayMs: GroupRunner.prideFlagSeconds * 1000,
+      );
+      await client.sendAll(device.host, port, bodies, stop: stop);
+      return GroupRunEvent(
+        deviceId: member.memberId,
+        status: GroupDeviceStatus.ok,
+        detail: 'Alternating ${prideFlags.length} flags',
+      );
+    } catch (e) {
+      return GroupRunEvent(
+        deviceId: member.memberId,
+        status: stop.stopped
+            ? GroupDeviceStatus.skipped
+            : GroupDeviceStatus.failed,
+        detail: stop.stopped
+            ? 'Cancelled'
+            : friendlyErrorText(
+                e,
+                context: 'group pride on ${member.memberId}',
+                fallback: 'Could not reach this device.',
+                log: Log.net,
+              ),
       );
     } finally {
       await sender.close();
