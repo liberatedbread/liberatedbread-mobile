@@ -1,0 +1,23 @@
+card: 1
+name: popled
+summary: "LOY SPACE / popled.cn LED panel protocol: AA55 frames, TLV size query, GIF program upload with per-frame acks, hardware-verified."
+language: rust
+kind: snippet
+interface:
+  - a_frame_matches_what_the_panel_accepted
+  - a_frame_of_the_wrong_size_is_refused
+  - a_json_command_with_a_known_wire_form_becomes_sendable
+  - a_json_command_with_no_known_wire_form_stays_refused
+  - a_small_image_is_one_chunk_between_its_preamble_and_commit
+  - a_stated_size_of_zero_is_not_a_size
+  - an_animation_is_one_looping_gif
+  - another_handlers_framing_is_left_alone
+  - bind_commands
+  - decode_panel_size
+  - encode_animated_gif
+  - encode_animation
+license: unknown
+provenance:
+  authored_by: agent
+  agent: agent
+  human_reviewed: false

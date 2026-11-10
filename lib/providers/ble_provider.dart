@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../services/ble_service.dart';
 import '../services/direct_att/direct_att_router.dart';
+import '../services/mattel_mpid_ble_service.dart';
 import '../services/mock_ble_service.dart';
 import '../services/prefs_settings_store.dart';
 import '../services/real_ble_service.dart';
@@ -50,7 +51,10 @@ final bleServiceProvider = Provider<BleService>((ref) {
     // platform it first meets, and RealBleService is the only code that
     // talks to it. A no-op off Linux.
     ref.watch(directAttRouterProvider);
-    return RealBleService();
+    // Under the Mattel MPID session layer: a Lumalou's commands are bodies
+    // that must be sealed per connection, and every other device passes
+    // straight through. See MattelMpidBleService.
+    return MattelMpidBleService(RealBleService());
   }
   final mock = MockBleService();
   // The mock keeps a broadcast StreamController per device for its

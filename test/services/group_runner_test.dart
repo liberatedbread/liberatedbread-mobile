@@ -47,6 +47,7 @@ DeviceSpecDto _bulbSpec() => DeviceSpecDto(
       onWhenNonzero: false,
       actions: [
         EntityActionDto(
+          fixedParams: {},
           role: 'turn_off',
           serviceUuid: _svc,
           characteristicUuid: _cmdChar,
@@ -89,6 +90,7 @@ DeviceSpecDto _onOnlySpec() => DeviceSpecDto(
       onWhenNonzero: false,
       actions: [
         EntityActionDto(
+          fixedParams: {},
           role: 'turn_on',
           serviceUuid: _svc,
           characteristicUuid: _cmdChar,
@@ -255,6 +257,7 @@ const _colorLight = EntityDto(
   variants: [],
   actions: [
     EntityActionDto(
+      fixedParams: {},
       role: 'turn_on',
       serviceUuid: _svc,
       characteristicUuid: _cmdChar,
@@ -262,6 +265,7 @@ const _colorLight = EntityDto(
       userParams: [],
     ),
     EntityActionDto(
+      fixedParams: {},
       role: 'set_color',
       serviceUuid: _svc,
       characteristicUuid: _cmdChar,

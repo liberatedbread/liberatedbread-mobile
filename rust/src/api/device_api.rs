@@ -538,6 +538,11 @@ pub struct EntityActionDto {
     /// bounds: sliders consume doubles.
     pub min: Option<f64>,
     pub max: Option<f64>,
+    /// Parameter values the spec binds this role to (`turn_on: {command:
+    /// set_light_color, values: {color: 0}}`). A sender merges them into what
+    /// it sends; without them the command is missing a parameter and the
+    /// encoder refuses it. Empty for a plain binding.
+    pub fixed_params: HashMap<String, f64>,
 }
 
 #[derive(Debug, Clone)]
@@ -1414,6 +1419,7 @@ fn entity_dto(spec: &DeviceSpec, entity: &Entity) -> Option<EntityDto> {
             user_params: action.user_params.iter().map(|p| p.to_string()).collect(),
             min: action.min.map(|v| v as f64),
             max: action.max.map(|v| v as f64),
+            fixed_params: action.fixed_values.iter().cloned().collect(),
         })
         .collect();
 
@@ -1876,11 +1882,10 @@ pub(crate) fn encode_entity_value_with_spec(
                 .ok_or_else(|| {
                     anyhow::anyhow!("command '{command_name}' vanished from the spec")
                 })?;
-            let params = action
-                .user_params
-                .first()
-                .map(|name| HashMap::from([((*name).to_string(), raw)]))
-                .unwrap_or_default();
+            let mut params: HashMap<String, f64> = action.fixed_values.iter().cloned().collect();
+            if let Some(name) = action.user_params.first() {
+                params.insert((*name).to_string(), raw);
+            }
             sent_command = Some(command);
             crate::codec::types::encode_command(command, &params)?
         }

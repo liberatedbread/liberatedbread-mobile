@@ -2450,6 +2450,12 @@ class EntityActionDto {
   final double? min;
   final double? max;
 
+  /// Parameter values the spec binds this role to (`turn_on: {command:
+  /// set_light_color, values: {color: 0}}`). A sender merges them into what
+  /// it sends; without them the command is missing a parameter and the
+  /// encoder refuses it. Empty for a plain binding.
+  final Map<String, double> fixedParams;
+
   const EntityActionDto({
     required this.role,
     required this.serviceUuid,
@@ -2458,6 +2464,7 @@ class EntityActionDto {
     required this.userParams,
     this.min,
     this.max,
+    required this.fixedParams,
   });
 
   @override
@@ -2468,7 +2475,8 @@ class EntityActionDto {
       commandName.hashCode ^
       userParams.hashCode ^
       min.hashCode ^
-      max.hashCode;
+      max.hashCode ^
+      fixedParams.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -2481,7 +2489,8 @@ class EntityActionDto {
           commandName == other.commandName &&
           userParams == other.userParams &&
           min == other.min &&
-          max == other.max;
+          max == other.max &&
+          fixedParams == other.fixedParams;
 }
 
 /// A spec-declared sensor or control surface: what to call it, which

@@ -653,6 +653,7 @@ void main() {
           onWhenNonzero: false,
           actions: [
             EntityActionDto(
+              fixedParams: {},
               role: 'press',
               serviceUuid: _svc,
               characteristicUuid: _char,
@@ -749,6 +750,7 @@ void main() {
       onWhenNonzero: false,
       actions: [
         EntityActionDto(
+          fixedParams: const {},
           role: 'press',
           serviceUuid: svc,
           characteristicUuid: chr,
@@ -1115,6 +1117,7 @@ void main() {
           setpointMax: 12,
           actions: [
             EntityActionDto(
+              fixedParams: {},
               role: 'set_value',
               serviceUuid: ftmsSvc,
               characteristicUuid: ftmsChar,

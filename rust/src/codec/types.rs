@@ -193,6 +193,34 @@ impl<'a> IntoIterator for &'a DecodedValues {
 /// MiFlora's battery, its only battery source). A reply that ends before the
 /// field even starts is still too short: nothing of it was delivered.
 pub fn decode_field(bytes: &[u8], field: &FormatField) -> Result<DecodedValue, ProtocolError> {
+    let value = decode_unmasked_field(bytes, field)?;
+    let Some(mask) = field.mask.filter(|m| *m != 0) else {
+        return Ok(value);
+    };
+    let shift = mask.trailing_zeros();
+    // On the raw integer, as the device sent it: a signed field's bits are
+    // taken as they lie, and what a mask picks out is a plain number.
+    Ok(match value {
+        DecodedValue::Uint(raw) => DecodedValue::Uint((raw & mask) >> shift),
+        DecodedValue::Int(raw) => {
+            let width = field.field_type.fixed_byte_size().unwrap_or(8) as u32 * 8;
+            let bits = if width >= 64 {
+                raw as u64
+            } else {
+                (raw as u64) & ((1u64 << width) - 1)
+            };
+            DecodedValue::Uint((bits & mask) >> shift)
+        }
+        DecodedValue::Bool(_) => DecodedValue::Bool(
+            bytes
+                .get(field.offset)
+                .is_some_and(|b| u64::from(*b) & mask != 0),
+        ),
+        other => other,
+    })
+}
+
+fn decode_unmasked_field(bytes: &[u8], field: &FormatField) -> Result<DecodedValue, ProtocolError> {
     let end = field
         .offset
         .checked_add(field.length)
@@ -470,6 +498,10 @@ pub const ORBA_FRAGMENT_SCHEME: &str = "orba_sysex_ble_midi";
 pub const POPLED_FRAME_SCHEME: &str = "popled_frame";
 /// The SEEBlue transport envelope, as `seeblue-motorcycle-led.yaml` names it.
 pub const SEEBLUE_ENVELOPE_SCHEME: &str = "seeblue_envelope";
+/// The decrypted body of a Mattel MPID frame. Stated by
+/// `protocol::mattel_mpid::bind_commands` at parse time; the frame around the
+/// body is sealed per connection by the session layer.
+pub const MATTEL_MPID_SCHEME: &str = "mattel_mpid_body";
 
 /// Whether `name` is a framing scheme this build wraps packets in, rather than
 /// merely parses. A characteristic whose `framing.scheme` is implemented is
@@ -481,6 +513,7 @@ pub fn implemented_framing_scheme(name: &str) -> bool {
             | ORBA_FRAGMENT_SCHEME
             | POPLED_FRAME_SCHEME
             | SEEBLUE_ENVELOPE_SCHEME
+            | MATTEL_MPID_SCHEME
     )
 }
 

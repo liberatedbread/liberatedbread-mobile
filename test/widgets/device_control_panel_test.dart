@@ -224,6 +224,7 @@ void main() {
       options: const [],
       actions: [
         EntityActionDto(
+          fixedParams: const {},
           role: 'turn_on',
           commandName: command,
           serviceUuid: svcUuid,
@@ -797,6 +798,7 @@ void main() {
           onWhenNonzero: false,
           actions: [
             EntityActionDto(
+              fixedParams: {},
               role: 'press',
               serviceUuid: svcUuid,
               characteristicUuid: charUuid,
@@ -1344,6 +1346,7 @@ void main() {
       options: [],
       actions: [
         EntityActionDto(
+          fixedParams: {},
           role: 'turn_on',
           commandName: 'power_on',
           serviceUuid: lightSvc,
@@ -1542,6 +1545,7 @@ void main() {
         options: [],
         actions: [
           EntityActionDto(
+            fixedParams: {},
             role: 'set_brightness',
             commandName: 'set_brightness',
             serviceUuid: lightSvc,
@@ -1670,6 +1674,7 @@ EntityDto _switchEntity(String name) => EntityDto(
       ('turn_off', 'unlock'),
     ])
       EntityActionDto(
+        fixedParams: const {},
         role: role,
         serviceUuid: _catSvcUuid,
         characteristicUuid: _catCharUuid,

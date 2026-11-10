@@ -13,6 +13,7 @@ import '../services/spec_codec.dart';
 import 'decoded_value_widget.dart';
 import 'entity_value.dart';
 import 'unclaimed_actions.dart';
+import '../core/entity_action_params.dart';
 
 /// The role this card draws itself, in the vocabulary the resolver emits.
 const _setpointRole = 'set_value';
@@ -226,7 +227,7 @@ class _SetpointControlCardState extends ConsumerState<SetpointControlCard> {
               serviceUuid: action.serviceUuid,
               charUuid: action.characteristicUuid,
               commandName: commandName,
-              params: const {},
+              params: action.withFixed(),
             ),
       ),
     );

@@ -12,6 +12,8 @@ import '../providers/read_only_ble_provider.dart';
 import '../providers/saved_device_provider.dart';
 import '../providers/spec_codec_provider.dart';
 import '../services/acinfinity_ble_client.dart';
+import '../services/inmotion_ble_client.dart';
+import '../services/pax_ble_client.dart';
 import '../services/spec_codec.dart';
 import '../services/yummly_ble_client.dart';
 import '../src/rust/protocol/acinfinity.dart';
@@ -30,9 +32,12 @@ class ReadOnlyBlePanel extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) =>
-      profile.handler == yummlyHandler
-      ? _YummlyPanel(device: device, profile: profile)
-      : _AcInfinityPanel(device: device, profile: profile);
+      switch (profile.handler) {
+        yummlyHandler => _YummlyPanel(device: device, profile: profile),
+        paxHandler => _PaxPanel(device: device, profile: profile),
+        inMotionHandler => _InMotionPanel(device: device, profile: profile),
+        _ => _AcInfinityPanel(device: device, profile: profile),
+      };
 }
 
 /// What the two panels share: the notice and refused commands, and a session
@@ -410,5 +415,158 @@ class _AcInfinityPanelState
     if (value == null) return 'No reading';
     final shown = (value / 100).toStringAsFixed(sensor.decimals);
     return sensor.unit == null ? shown : '$shown ${sensor.unit}';
+  }
+}
+
+class _PaxPanel extends ConsumerStatefulWidget {
+  final IoTDevice device;
+  final ReadOnlyBleProfile profile;
+
+  const _PaxPanel({required this.device, required this.profile});
+
+  @override
+  ConsumerState<_PaxPanel> createState() => _PaxPanelState();
+}
+
+class _PaxPanelState extends _WatchState<_PaxPanel, PaxReading> {
+  PaxClient? _client;
+
+  @override
+  IoTDevice get device => widget.device;
+
+  @override
+  ReadOnlyBleProfile get profile => widget.profile;
+
+  @override
+  Stream<PaxReading> openSession() {
+    final client = _client = ref.read(paxClientProvider)(widget.device.id);
+    return client.watch();
+  }
+
+  @override
+  Future<void> closeSession() async {
+    final client = _client;
+    _client = null;
+    await client?.close();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final now = reading;
+    return frame(context, [
+      if (now != null)
+        _Rows(
+          title: 'Status',
+          rows: [
+            (
+              'Temperature',
+              now.temperatureC == null
+                  ? 'Waiting'
+                  : '${now.temperatureC!.toStringAsFixed(1)} °C',
+            ),
+            (
+              'Battery',
+              now.batteryPercent == null
+                  ? 'Waiting'
+                  : '${now.batteryPercent} %',
+            ),
+          ],
+        ),
+      if (now?.stale ?? false) ...[
+        const SizedBox(height: 12),
+        const Text('No new reading for a while. These numbers are old.'),
+      ],
+      const SizedBox(height: 12),
+      Text(
+        'Reads temperature and battery only. The heater and the lock are '
+        'never changed from this app. An Era Pro is not connected to: its '
+        'encryption is not documented.',
+        style: Theme.of(context).textTheme.bodySmall,
+      ),
+    ]);
+  }
+}
+
+class _InMotionPanel extends ConsumerStatefulWidget {
+  final IoTDevice device;
+  final ReadOnlyBleProfile profile;
+
+  const _InMotionPanel({required this.device, required this.profile});
+
+  @override
+  ConsumerState<_InMotionPanel> createState() => _InMotionPanelState();
+}
+
+class _InMotionPanelState extends _WatchState<_InMotionPanel, InMotionReading> {
+  InMotionClient? _client;
+
+  @override
+  IoTDevice get device => widget.device;
+
+  @override
+  ReadOnlyBleProfile get profile => widget.profile;
+
+  @override
+  Stream<InMotionReading> openSession() {
+    final client = _client = ref.read(inMotionClientProvider)(widget.device.id);
+    return client.watch();
+  }
+
+  @override
+  Future<void> closeSession() async {
+    final client = _client;
+    _client = null;
+    await client?.close();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final now = reading;
+    final telemetry = now?.telemetry;
+    final totals = now?.totals;
+    String fixed(double? value, int digits, String unit) => value == null
+        ? 'Not reported'
+        : '${value.toStringAsFixed(digits)} $unit';
+    String celsius(int? value) => value == null ? 'No sensor' : '$value °C';
+    return frame(context, [
+      if (now != null)
+        _Rows(
+          title: now.model.name ?? 'Model ${now.model.code}',
+          rows: [
+            if (telemetry == null) ('Telemetry', 'Waiting'),
+            if (telemetry != null) ...[
+              ('Speed', fixed(telemetry.speedKmh, 1, 'km/h')),
+              ('Battery', fixed(telemetry.batteryPercent, 0, '%')),
+              ('Voltage', fixed(telemetry.voltageV, 1, 'V')),
+              ('Current', fixed(telemetry.currentA, 1, 'A')),
+              ('Trip', fixed(telemetry.tripKm, 2, 'km')),
+              if (telemetry.remainingKm != null)
+                ('Range left', fixed(telemetry.remainingKm, 1, 'km')),
+              ('Speed limit now', fixed(telemetry.speedLimitKmh, 1, 'km/h')),
+              ('MOSFETs', celsius(telemetry.mosTemperatureC)),
+              ('Motor', celsius(telemetry.motorTemperatureC)),
+              ('Board', celsius(telemetry.boardTemperatureC)),
+            ],
+            if (totals != null) ...[
+              ('Odometer', fixed(totals.totalKm, 1, 'km')),
+              (
+                'Ride time',
+                '${(totals.rideTimeS / 3600).toStringAsFixed(1)} h',
+              ),
+            ],
+          ],
+        ),
+      if (now?.stale ?? false) ...[
+        const SizedBox(height: 12),
+        const Text('No new telemetry for a while. These numbers are old.'),
+      ],
+      const SizedBox(height: 12),
+      Text(
+        'Reads telemetry only, and only from V2 wheels. Nothing that changes '
+        'the wheel is ever sent: what a wheel does with a command while '
+        'someone rides it is not known. Do not read this while riding.',
+        style: Theme.of(context).textTheme.bodySmall,
+      ),
+    ]);
   }
 }

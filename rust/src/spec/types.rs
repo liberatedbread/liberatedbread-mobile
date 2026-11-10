@@ -1003,6 +1003,28 @@ impl Entity {
         self.commands.get(role)?.as_str()
     }
 
+    /// A role bound in the mapping form, `{command: name, values: {param:
+    /// number, ...}}`: the command, and the parameter values the role always
+    /// sends with it (the Lumalou's `turn_on` is `set_light_color` with
+    /// `color: 0`). `None` for a plain binding, and for a mapping whose
+    /// values are not all numbers — a binding this build cannot fill in
+    /// exactly resolves nothing rather than half of it.
+    pub fn command_with_values_for_role(&self, role: &str) -> Option<(&str, Vec<(String, f64)>)> {
+        let binding = self.commands.get(role)?.as_mapping()?;
+        let command = binding.get("command")?.as_str()?;
+        let values = match binding.get("values") {
+            None => Vec::new(),
+            Some(values) => {
+                let mut out = Vec::new();
+                for (name, value) in values.as_mapping()? {
+                    out.push((name.as_str()?.to_string(), value.as_f64()?));
+                }
+                out
+            }
+        };
+        Some((command, values))
+    }
+
     /// Whether the entity's advisory `features:` list carries a tag.
     pub fn has_feature(&self, feature: &str) -> bool {
         self.features.iter().any(|f| f.as_str() == Some(feature))
@@ -2443,6 +2465,28 @@ pub struct Characteristic {
     /// executed.
     #[serde(default)]
     pub framing: Option<serde_yaml::Value>,
+    /// Which values `format` describes, on a characteristic that carries
+    /// more than one kind of frame. See [`FormatMatch`].
+    #[serde(default)]
+    pub format_match: Option<FormatMatch>,
+}
+
+/// `format_match`: a value whose byte at `offset` is not `value` is not
+/// decoded by the characteristic's `format`, and the entities bound to it
+/// keep their last state (the schema's words). Hotwired's echoes and the
+/// Lumalou's clock ticks share a characteristic with the state they would
+/// otherwise be decoded as.
+#[derive(Debug, Clone, Deserialize)]
+pub struct FormatMatch {
+    pub offset: usize,
+    pub value: u8,
+}
+
+impl FormatMatch {
+    /// Whether `bytes` is a value `format` describes.
+    pub fn matches(&self, bytes: &[u8]) -> bool {
+        bytes.get(self.offset) == Some(&self.value)
+    }
 }
 
 /// BLE characteristic property.
@@ -3123,6 +3167,13 @@ pub struct FormatField {
     /// only reader.
     #[serde(default)]
     pub endianness: Option<String>,
+    /// Bit mask picking a bit field out of a packed integer, applied before
+    /// anything else: `raw = (raw & mask) >> trailing_zeros(mask)` (the
+    /// schema's definition). Several fields may share one byte this way —
+    /// the Lumalou packs two nibbles per byte, Hotwired a gauge step beside
+    /// a charger flag.
+    #[serde(default)]
+    pub mask: Option<u64>,
 }
 
 /// Every field but the four that locate and size the value is optional, and
@@ -3145,6 +3196,7 @@ impl Default for FormatField {
             unit_source: None,
             unit_reference: None,
             endianness: None,
+            mask: None,
         }
     }
 }

@@ -6,6 +6,7 @@ pub mod enphase_api;
 pub mod health_api;
 pub mod ipl_api;
 pub mod mock_api;
+pub mod mpid_api;
 pub mod philips_air_api;
 pub mod print_api;
 pub mod radio_api;

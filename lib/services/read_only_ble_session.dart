@@ -5,6 +5,7 @@ import 'dart:async';
 import '../core/error_text.dart';
 import '../core/hex.dart';
 import '../core/log.dart';
+import '../models/ble_discovered_service.dart';
 import 'ble_service.dart';
 import 'ble_write_plan_runner.dart';
 
@@ -53,6 +54,11 @@ class ReadOnlyBleSession {
     required void Function(List<int> bytes) onBytes,
     required void Function(Object error) onError,
     required String missingService,
+
+    /// Asked with the discovered services before anything is subscribed or
+    /// written; a non-null answer ends the session with that message. How a
+    /// handler refuses a model it can tell only once connected.
+    Future<String?> Function(List<BleDiscoveredService> services)? vet,
   }) async {
     _connecting = true;
     try {
@@ -72,6 +78,10 @@ class ReadOnlyBleSession {
     final wanted = normalizeUuid(serviceUuid);
     if (!services.any((s) => normalizeUuid(s.uuid) == wanted)) {
       throw ReadOnlyBleException(missingService);
+    }
+    if (vet != null) {
+      final refusal = await vet(services);
+      if (refusal != null) throw ReadOnlyBleException(refusal);
     }
     if (_closed) return;
     final notifications = ble.subscribeCharacteristic(

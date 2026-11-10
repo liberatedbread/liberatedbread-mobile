@@ -10,6 +10,7 @@ import 'decoded_value_widget.dart';
 import 'confirm_dialog.dart';
 import 'entity_value.dart';
 import 'unclaimed_actions.dart';
+import '../core/entity_action_params.dart';
 
 /// A spec-declared `switch` entity as a working control.
 ///
@@ -166,7 +167,7 @@ class _SwitchControlCardState extends ConsumerState<SwitchControlCard> {
         serviceUuid: action.serviceUuid,
         charUuid: action.characteristicUuid,
         commandName: commandName,
-        params: const {},
+        params: action.withFixed(),
       );
       // Through the shared writer, so the readings in this service re-read.
       await writeServiceCommand(

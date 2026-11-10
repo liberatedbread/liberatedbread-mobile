@@ -10,8 +10,10 @@ import '../frb_generated.dart';
 import '../protocol/acinfinity.dart';
 import '../protocol/apple_acp.dart';
 import '../protocol/bisecur.dart';
+import '../protocol/inmotion.dart';
 import '../protocol/juicenet.dart';
 import '../protocol/modbus_sunspec.dart';
+import '../protocol/pax.dart';
 import '../protocol/readonly.dart';
 import '../protocol/yummly.dart';
 import 'device_api.dart';
@@ -302,6 +304,77 @@ int juicenetDefaultListenPort() =>
 /// What an ACP error code means.
 String acpErrorMeaning({required int code}) =>
     RustLib.instance.api.crateApiReadonlyApiAcpErrorMeaning(code: code);
+
+/// PAX: the status-update request for temperature and battery, encrypted for
+/// the unit whose Device Information serial is `serial`. The only frame the
+/// PAX handler builds; it takes no attribute.
+Future<Uint8List> paxEncodeStatusRequest({required String serial}) => RustLib
+    .instance
+    .api
+    .crateApiReadonlyApiPaxEncodeStatusRequest(serial: serial);
+
+/// PAX: one value of the read characteristic, decrypted and read.
+Future<PaxReadingDto> paxDecodeRead({
+  required String serial,
+  required List<int> packet,
+}) => RustLib.instance.api.crateApiReadonlyApiPaxDecodeRead(
+  serial: serial,
+  packet: packet,
+);
+
+/// PAX: why this unit is not read, from its discovered services, or `None`.
+Future<String?> paxModelRefusal({required List<String> serviceUuids}) => RustLib
+    .instance
+    .api
+    .crateApiReadonlyApiPaxModelRefusal(serviceUuids: serviceUuids);
+
+/// InMotion: one of the four read requests. There is no other way to build a
+/// frame for a wheel.
+Future<Uint8List> inmotionEncodeRead({required InMotionRead read}) =>
+    RustLib.instance.api.crateApiReadonlyApiInmotionEncodeRead(read: read);
+
+/// InMotion: add notification bytes and take out whole, checked frames.
+Future<InMotionFeedDto> inmotionFeed({
+  required List<int> buffer,
+  required List<int> chunk,
+}) => RustLib.instance.api.crateApiReadonlyApiInmotionFeed(
+  buffer: buffer,
+  chunk: chunk,
+);
+
+Future<InMotionModelDto> inmotionDecodeCarType({required List<int> data}) =>
+    RustLib.instance.api.crateApiReadonlyApiInmotionDecodeCarType(data: data);
+
+Future<InMotionVersionsDto> inmotionDecodeVersions({required List<int> data}) =>
+    RustLib.instance.api.crateApiReadonlyApiInmotionDecodeVersions(data: data);
+
+/// InMotion: the layout a wheel's real-time data is read with, or `None`
+/// while that is not known (a V11 before its versions reply, an unlisted
+/// model).
+Future<InMotionLayout?> inmotionLayoutFor({
+  required int modelCode,
+  InMotionVersionDto? mainBoard,
+}) => RustLib.instance.api.crateApiReadonlyApiInmotionLayoutFor(
+  modelCode: modelCode,
+  mainBoard: mainBoard,
+);
+
+Future<InMotionTelemetryDto> inmotionDecodeRealtime({
+  required InMotionLayout layout,
+  required List<int> data,
+}) => RustLib.instance.api.crateApiReadonlyApiInmotionDecodeRealtime(
+  layout: layout,
+  data: data,
+);
+
+Future<InMotionTotalsDto> inmotionDecodeTotals({required List<int> data}) =>
+    RustLib.instance.api.crateApiReadonlyApiInmotionDecodeTotals(data: data);
+
+/// InMotion: why this wheel is not read, from its discovered services.
+Future<String?> inmotionWheelRefusal({required List<String> serviceUuids}) =>
+    RustLib.instance.api.crateApiReadonlyApiInmotionWheelRefusal(
+      serviceUuids: serviceUuids,
+    );
 
 /// The two AES-128-CTR keystreams of an authenticated ACP session.
 class AcpSessionKeysDto {

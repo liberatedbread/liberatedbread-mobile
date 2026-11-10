@@ -13,6 +13,7 @@ import 'api/enphase_api.dart';
 import 'api/health_api.dart';
 import 'api/ipl_api.dart';
 import 'api/mock_api.dart';
+import 'api/mpid_api.dart';
 import 'api/philips_air_api.dart';
 import 'api/print_api.dart';
 import 'api/radio_api.dart';
@@ -29,8 +30,10 @@ import 'protocol/acinfinity.dart';
 import 'protocol/apple_acp.dart';
 import 'protocol/bisecur.dart';
 import 'protocol/enphase.dart';
+import 'protocol/inmotion.dart';
 import 'protocol/juicenet.dart';
 import 'protocol/modbus_sunspec.dart';
+import 'protocol/pax.dart';
 import 'protocol/readonly.dart';
 import 'protocol/yummly.dart';
 import 'spec/types.dart';
@@ -255,6 +258,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   ImageWriteDto dco_decode_box_autoadd_image_write_dto(dynamic raw);
 
   @protected
+  InMotionLayout dco_decode_box_autoadd_in_motion_layout(dynamic raw);
+
+  @protected
+  InMotionVersionDto dco_decode_box_autoadd_in_motion_version_dto(dynamic raw);
+
+  @protected
   MacPrefixDto dco_decode_box_autoadd_mac_prefix_dto(dynamic raw);
 
   @protected
@@ -449,6 +458,36 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   ImageWritePlanDto dco_decode_image_write_plan_dto(dynamic raw);
 
   @protected
+  InMotionFeedDto dco_decode_in_motion_feed_dto(dynamic raw);
+
+  @protected
+  InMotionFrameDto dco_decode_in_motion_frame_dto(dynamic raw);
+
+  @protected
+  InMotionFrameKind dco_decode_in_motion_frame_kind(dynamic raw);
+
+  @protected
+  InMotionLayout dco_decode_in_motion_layout(dynamic raw);
+
+  @protected
+  InMotionModelDto dco_decode_in_motion_model_dto(dynamic raw);
+
+  @protected
+  InMotionRead dco_decode_in_motion_read(dynamic raw);
+
+  @protected
+  InMotionTelemetryDto dco_decode_in_motion_telemetry_dto(dynamic raw);
+
+  @protected
+  InMotionTotalsDto dco_decode_in_motion_totals_dto(dynamic raw);
+
+  @protected
+  InMotionVersionDto dco_decode_in_motion_version_dto(dynamic raw);
+
+  @protected
+  InMotionVersionsDto dco_decode_in_motion_versions_dto(dynamic raw);
+
+  @protected
   IppMarkerDto dco_decode_ipp_marker_dto(dynamic raw);
 
   @protected
@@ -556,6 +595,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   List<ImageWriteDto> dco_decode_list_image_write_dto(dynamic raw);
+
+  @protected
+  List<InMotionFrameDto> dco_decode_list_in_motion_frame_dto(dynamic raw);
 
   @protected
   List<IppMarkerDto> dco_decode_list_ipp_marker_dto(dynamic raw);
@@ -778,6 +820,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   MatchResult dco_decode_match_result(dynamic raw);
 
   @protected
+  MpidChannelsDto dco_decode_mpid_channels_dto(dynamic raw);
+
+  @protected
+  MpidSessionDto dco_decode_mpid_session_dto(dynamic raw);
+
+  @protected
   MqttIncomingDto dco_decode_mqtt_incoming_dto(dynamic raw);
 
   @protected
@@ -887,6 +935,14 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   ImageWriteDto? dco_decode_opt_box_autoadd_image_write_dto(dynamic raw);
 
   @protected
+  InMotionLayout? dco_decode_opt_box_autoadd_in_motion_layout(dynamic raw);
+
+  @protected
+  InMotionVersionDto? dco_decode_opt_box_autoadd_in_motion_version_dto(
+    dynamic raw,
+  );
+
+  @protected
   MacPrefixDto? dco_decode_opt_box_autoadd_mac_prefix_dto(dynamic raw);
 
   @protected
@@ -993,6 +1049,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   ParameterDto dco_decode_parameter_dto(dynamic raw);
+
+  @protected
+  PaxReadingDto dco_decode_pax_reading_dto(dynamic raw);
+
+  @protected
+  PaxReadingKind dco_decode_pax_reading_kind(dynamic raw);
 
   @protected
   PhilipsAirControlFrameDto dco_decode_philips_air_control_frame_dto(
@@ -1482,6 +1544,16 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  InMotionLayout sse_decode_box_autoadd_in_motion_layout(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  InMotionVersionDto sse_decode_box_autoadd_in_motion_version_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   MacPrefixDto sse_decode_box_autoadd_mac_prefix_dto(
     SseDeserializer deserializer,
   );
@@ -1728,6 +1800,46 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  InMotionFeedDto sse_decode_in_motion_feed_dto(SseDeserializer deserializer);
+
+  @protected
+  InMotionFrameDto sse_decode_in_motion_frame_dto(SseDeserializer deserializer);
+
+  @protected
+  InMotionFrameKind sse_decode_in_motion_frame_kind(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  InMotionLayout sse_decode_in_motion_layout(SseDeserializer deserializer);
+
+  @protected
+  InMotionModelDto sse_decode_in_motion_model_dto(SseDeserializer deserializer);
+
+  @protected
+  InMotionRead sse_decode_in_motion_read(SseDeserializer deserializer);
+
+  @protected
+  InMotionTelemetryDto sse_decode_in_motion_telemetry_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  InMotionTotalsDto sse_decode_in_motion_totals_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  InMotionVersionDto sse_decode_in_motion_version_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  InMotionVersionsDto sse_decode_in_motion_versions_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   IppMarkerDto sse_decode_ipp_marker_dto(SseDeserializer deserializer);
 
   @protected
@@ -1877,6 +1989,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   List<ImageWriteDto> sse_decode_list_image_write_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  List<InMotionFrameDto> sse_decode_list_in_motion_frame_dto(
     SseDeserializer deserializer,
   );
 
@@ -2179,6 +2296,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   MatchResult sse_decode_match_result(SseDeserializer deserializer);
 
   @protected
+  MpidChannelsDto sse_decode_mpid_channels_dto(SseDeserializer deserializer);
+
+  @protected
+  MpidSessionDto sse_decode_mpid_session_dto(SseDeserializer deserializer);
+
+  @protected
   MqttIncomingDto sse_decode_mqtt_incoming_dto(SseDeserializer deserializer);
 
   @protected
@@ -2322,6 +2445,16 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  InMotionLayout? sse_decode_opt_box_autoadd_in_motion_layout(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  InMotionVersionDto? sse_decode_opt_box_autoadd_in_motion_version_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   MacPrefixDto? sse_decode_opt_box_autoadd_mac_prefix_dto(
     SseDeserializer deserializer,
   );
@@ -2450,6 +2583,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   ParameterDto sse_decode_parameter_dto(SseDeserializer deserializer);
+
+  @protected
+  PaxReadingDto sse_decode_pax_reading_dto(SseDeserializer deserializer);
+
+  @protected
+  PaxReadingKind sse_decode_pax_reading_kind(SseDeserializer deserializer);
 
   @protected
   PhilipsAirControlFrameDto sse_decode_philips_air_control_frame_dto(
@@ -3064,6 +3203,18 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_box_autoadd_in_motion_layout(
+    InMotionLayout self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_box_autoadd_in_motion_version_dto(
+    InMotionVersionDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_box_autoadd_mac_prefix_dto(
     MacPrefixDto self,
     SseSerializer serializer,
@@ -3391,6 +3542,63 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_in_motion_feed_dto(
+    InMotionFeedDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_in_motion_frame_dto(
+    InMotionFrameDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_in_motion_frame_kind(
+    InMotionFrameKind self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_in_motion_layout(
+    InMotionLayout self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_in_motion_model_dto(
+    InMotionModelDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_in_motion_read(InMotionRead self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_in_motion_telemetry_dto(
+    InMotionTelemetryDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_in_motion_totals_dto(
+    InMotionTotalsDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_in_motion_version_dto(
+    InMotionVersionDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_in_motion_versions_dto(
+    InMotionVersionsDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_ipp_marker_dto(IppMarkerDto self, SseSerializer serializer);
 
   @protected
@@ -3585,6 +3793,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_list_image_write_dto(
     List<ImageWriteDto> self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_list_in_motion_frame_dto(
+    List<InMotionFrameDto> self,
     SseSerializer serializer,
   );
 
@@ -3970,6 +4184,18 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   void sse_encode_match_result(MatchResult self, SseSerializer serializer);
 
   @protected
+  void sse_encode_mpid_channels_dto(
+    MpidChannelsDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_mpid_session_dto(
+    MpidSessionDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_mqtt_incoming_dto(
     MqttIncomingDto self,
     SseSerializer serializer,
@@ -4153,6 +4379,18 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_opt_box_autoadd_in_motion_layout(
+    InMotionLayout? self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_opt_box_autoadd_in_motion_version_dto(
+    InMotionVersionDto? self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_opt_box_autoadd_mac_prefix_dto(
     MacPrefixDto? self,
     SseSerializer serializer,
@@ -4307,6 +4545,15 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_parameter_dto(ParameterDto self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_pax_reading_dto(PaxReadingDto self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_pax_reading_kind(
+    PaxReadingKind self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_philips_air_control_frame_dto(
