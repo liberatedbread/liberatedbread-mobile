@@ -8,14 +8,17 @@
 import '../error.dart';
 import '../frb_generated.dart';
 import '../protocol/acinfinity.dart';
+import '../protocol/apple_acp.dart';
 import '../protocol/bisecur.dart';
+import '../protocol/juicenet.dart';
 import '../protocol/modbus_sunspec.dart';
 import '../protocol/readonly.dart';
 import '../protocol/yummly.dart';
 import 'device_api.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `clone`, `clone`, `clone`, `clone`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`
+// These functions are ignored because they are not marked as `pub`: `array16`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `eq`, `eq`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`
 
 /// The read-only surface of a spec, or `None` if its handler is not one.
 Future<ReadOnlySurfaceDto?> readOnlySurface({required String specYaml}) =>
@@ -219,6 +222,151 @@ Future<BiSecurTransitionDto> bisecurDecodeTransition({
 
 String bisecurErrorMeaning({required int code}) =>
     RustLib.instance.api.crateApiReadonlyApiBisecurErrorMeaning(code: code);
+
+/// SRP stage 1: the only message an ACP session sends before it knows
+/// anything.
+Uint8List acpAuthStartMessage() =>
+    RustLib.instance.api.crateApiReadonlyApiAcpAuthStartMessage();
+
+/// The one read this app makes of a base station, in plaintext; the caller
+/// encrypts it with the client keystream.
+Uint8List acpStatusRequest() =>
+    RustLib.instance.api.crateApiReadonlyApiAcpStatusRequest();
+
+AcpHeader acpDecodeHeader({required List<int> header}) =>
+    RustLib.instance.api.crateApiReadonlyApiAcpDecodeHeader(header: header);
+
+/// Read the stage-1 reply and build stage 3. The password is used here and
+/// returned nowhere, and no error repeats it.
+Future<AcpStage3Dto> acpSrpStage3({
+  required List<int> challengeHeader,
+  required List<int> challengeBody,
+  required String password,
+  required List<int> aPrivate,
+  required List<int> clientIv,
+}) => RustLib.instance.api.crateApiReadonlyApiAcpSrpStage3(
+  challengeHeader: challengeHeader,
+  challengeBody: challengeBody,
+  password: password,
+  aPrivate: aPrivate,
+  clientIv: clientIv,
+);
+
+/// Check the stage-3 reply (a wrong password is said as such), verify the
+/// base station's proof, and derive the session keys.
+Future<AcpSessionKeysDto> acpFinishAuth({
+  required List<int> header,
+  required List<int> body,
+  required AcpStage3Dto stage3,
+}) => RustLib.instance.api.crateApiReadonlyApiAcpFinishAuth(
+  header: header,
+  body: body,
+  stage3: stage3,
+);
+
+/// AES-128-CTR over `data`, `offset` bytes into the stream that began at
+/// `iv`: one direction of an ACP session.
+Uint8List acpCtrApply({
+  required List<int> key,
+  required List<int> iv,
+  required BigInt offset,
+  required List<int> data,
+}) => RustLib.instance.api.crateApiReadonlyApiAcpCtrApply(
+  key: key,
+  iv: iv,
+  offset: offset,
+  data: data,
+);
+
+/// The status, once the decrypted reply body holds its end marker; `None`
+/// while more is needed.
+AcpStatusDto? acpFeedStatus({
+  required List<int> header,
+  required List<int> body,
+}) => RustLib.instance.api.crateApiReadonlyApiAcpFeedStatus(
+  header: header,
+  body: body,
+);
+
+/// Read one datagram a JuiceBox sent to this phone's listener. There is no
+/// JuiceNet function that builds a reply.
+JuiceNetFrameDto juicenetParseDatagram({required List<int> datagram}) => RustLib
+    .instance
+    .api
+    .crateApiReadonlyApiJuicenetParseDatagram(datagram: datagram);
+
+/// The port a listener offers by default.
+int juicenetDefaultListenPort() =>
+    RustLib.instance.api.crateApiReadonlyApiJuicenetDefaultListenPort();
+
+/// What an ACP error code means.
+String acpErrorMeaning({required int code}) =>
+    RustLib.instance.api.crateApiReadonlyApiAcpErrorMeaning(code: code);
+
+/// The two AES-128-CTR keystreams of an authenticated ACP session.
+class AcpSessionKeysDto {
+  final Uint8List clientKey;
+  final Uint8List clientIv;
+  final Uint8List serverKey;
+  final Uint8List serverIv;
+
+  const AcpSessionKeysDto({
+    required this.clientKey,
+    required this.clientIv,
+    required this.serverKey,
+    required this.serverIv,
+  });
+
+  @override
+  int get hashCode =>
+      clientKey.hashCode ^
+      clientIv.hashCode ^
+      serverKey.hashCode ^
+      serverIv.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is AcpSessionKeysDto &&
+          runtimeType == other.runtimeType &&
+          clientKey == other.clientKey &&
+          clientIv == other.clientIv &&
+          serverKey == other.serverKey &&
+          serverIv == other.serverIv;
+}
+
+/// An AirPort base station's SRP stage 3: the message to send and what the
+/// session needs to check its answer. Held by the caller for one exchange.
+class AcpStage3Dto {
+  final Uint8List message;
+  final Uint8List expectedM2;
+  final Uint8List sessionKey;
+  final Uint8List clientIv;
+
+  const AcpStage3Dto({
+    required this.message,
+    required this.expectedM2,
+    required this.sessionKey,
+    required this.clientIv,
+  });
+
+  @override
+  int get hashCode =>
+      message.hashCode ^
+      expectedM2.hashCode ^
+      sessionKey.hashCode ^
+      clientIv.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is AcpStage3Dto &&
+          runtimeType == other.runtimeType &&
+          message == other.message &&
+          expectedM2 == other.expectedM2 &&
+          sessionKey == other.sessionKey &&
+          clientIv == other.clientIv;
+}
 
 /// What a BiSecur caller is waiting for. Named, so nothing here takes a
 /// command id; `SET_STATE` is not one of these.

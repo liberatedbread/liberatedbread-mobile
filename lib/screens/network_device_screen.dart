@@ -465,6 +465,13 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
     ),
   );
 
+  /// Whether this device is a Philips purifier read and driven over its
+  /// enveloped CoAP. Asked of the spec's handler rather than of an action,
+  /// because a unit whose controls are all hidden still has readings.
+  bool get _isPhilipsAir =>
+      widget.controls.capabilities?.protocolHandler ==
+      NetworkCommandSender.philipsAirTransport;
+
   /// Whether an instanced entity enumerated any children this poll — a power
   /// strip. Drives the render fork: per-outlet switches instead of the single
   /// "Outlet" switch, which on a strip would only ever read "State unknown".
@@ -670,7 +677,7 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
         // Nothing to fetch and nothing to poll: the robot pushes. Opening the
         // session IS the load, and state arrives on a stream from here on.
         await _connectRoomba();
-      } else if (_isKasa || _isYeelight) {
+      } else if (_isKasa || _isYeelight || _isPhilipsAir) {
         // No description to fetch and no control URLs to resolve — poll the
         // relay state straight over the socket. The port is the protocol's, not
         // a UPnP LOCATION, so the SOAP port check below does not apply.
@@ -928,8 +935,10 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
     // description, logged, and then re-decoded and setState the whole screen
     // — a full rebuild every four seconds that could not change a thing.
     if (_isRabbitAir) return;
+    // A purifier read is a sync and a GET on a fresh socket, and the spec
+    // says nothing of how many sessions a unit tolerates; it asks less often.
     _statePoll = Timer.periodic(
-      const Duration(seconds: 4),
+      _isPhilipsAir ? const Duration(seconds: 10) : const Duration(seconds: 4),
       (_) => unawaited(_tickStatePoll()),
     );
   }
@@ -964,6 +973,10 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
     }
     if (_isYeelight) {
       await _refreshStateYeelight(superseded: superseded);
+      return;
+    }
+    if (_isPhilipsAir) {
+      await _refreshStatePhilipsAir(superseded: superseded);
       return;
     }
     // An MQTT device PUSHES. There is no request whose reply is the battery
@@ -1160,6 +1173,22 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
       _stateByCommand[command] = reply.fields;
     }
     if (superseded?.call() ?? false) return;
+    await _decodeEntities();
+  }
+
+  /// The Philips purifier poll: one session's status, decrypted and flattened
+  /// to the dotted paths the spec's mappings name. Every entity reads the same
+  /// `get_status`, so one read fills every command this round asks.
+  Future<void> _refreshStatePhilipsAir({bool Function()? superseded}) async {
+    final client = ref.read(philipsAirControlClientProvider);
+    final fields = await client.readStatus(
+      widget.device.host,
+      _sender.philipsAirPort,
+    );
+    if (superseded?.call() ?? false) return;
+    for (final command in _pollCommands) {
+      _stateByCommand[command] = fields;
+    }
     await _decodeEntities();
   }
 

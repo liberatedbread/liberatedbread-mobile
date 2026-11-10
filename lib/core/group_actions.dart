@@ -632,20 +632,25 @@ const kYeelightTransport = 'yeelight_lan';
 /// with bare `udp` and Rabbit Air.
 const kLimitlessledTransport = 'limitlessled_legacy_8899';
 
+/// The transport a Philips encrypted-CoAP purifier action resolves to: the
+/// handler's name, since `coap` is also the IKEA gateway's DTLS surface.
+const kPhilipsAirTransport = 'philips_air_coap';
+
 /// Transports the group path can actually drive headlessly today. `udp`
 /// (Rabbit Air) is deliberately absent: its every exchange needs the stored
 /// per-device key, and a bulk operation silently reaching for stored
 /// credentials is a surprise; it can join when someone asks for it. An
 /// action on any other transport (a LIFX handler's `lifx`, an LG WebSocket)
-/// resolves nothing here and the member reports an honest skip. Yeelight and
-/// LimitlessLED take no credential at all, and a group send to either is the
-/// same request a press on its card makes.
+/// resolves nothing here and the member reports an honest skip. Yeelight,
+/// LimitlessLED and the Philips purifier take no credential at all, and a
+/// group send to any of them is the same request a press on its card makes.
 const Set<String> kGroupSendableTransports = {
   'http',
   'soap',
   'tcp-json',
   kYeelightTransport,
   kLimitlessledTransport,
+  kPhilipsAirTransport,
 };
 
 bool _groupSendable(NetworkActionDto action) =>

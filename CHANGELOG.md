@@ -26,6 +26,34 @@ heading.
   spec's print surface is now chosen by variant rather than taken from its
   first entry. Built from the spec and tested against its vectors; not run on
   hardware.
+- **Philips Wi-Fi air purifiers over encrypted CoAP (`philips_air_coap`).**
+  Power, mode, fan speed, child lock, display, timer and target humidity, plus
+  PM2.5, allergen index, humidity, temperature and filter life, for the three
+  key sets the spec describes. A small RFC 7252 codec carries the spec's
+  envelope over UDP 5683. Every write starts from a fresh sync and goes under
+  the next counter; a counter at FFFFFFFF is not wrapped, and a refused write
+  is reported, not retried, because the spec does not know how a device treats
+  either. Tested against the spec's envelope vectors and a fake purifier; not
+  run on hardware.
+- **Apple AirPort base stations, read-only (`apple_acp`).** Name, model,
+  firmware, uptime and Wi-Fi network name over ACP on TCP 5009, after SRP-6a
+  with the base station password and inside the AES-128-CTR session. Read on
+  request; the password is not stored. Nothing that writes a setting or
+  restarts the base station can be sent, and legacy mode, which carries the
+  password in a reversible header key, is not implemented. The spec's example
+  frames reproduce; SRP's arithmetic is checked against RFC 5054 and the
+  session keys against RFC 6070 and the spec's example, but the M1/M2 step has
+  no published vector. Tested against a fake base station; not run on
+  hardware.
+- **Enel X JuiceBox chargers, read-only and listen-only (`juicenet_udp`).**
+  Once the charger's stream is pointed at the phone, its status lines are
+  heard and read: charging state, current, voltage, power, session and
+  lifetime energy, temperature, frequency, rating and the limits it reports.
+  The phone never replies, so it never sends the CMD line that sets the
+  charging current; both current-limit commands stay listed and refused.
+  Plaintext only: the encrypted `v09e` / `v08` protocol is recognised and
+  said to be undecodable. The hash reproduces the spec's vectors; tested
+  against a fake charger, not run on hardware.
 - **Yeelight lights over the LAN (`yeelight_lan`).** The cube lamp's spec now
   drives power, brightness, colour and colour temperature over JSON lines on
   TCP 55443, reads state back, and paints a module's rows on a unit that lists

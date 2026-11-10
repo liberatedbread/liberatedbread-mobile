@@ -247,3 +247,65 @@ fn a_yeelight_that_answered_its_probe_is_offered_the_cube_spec_first() {
         "{names:?}"
     );
 }
+
+/// The Philips purifier's controls resolve on the handler's own transport,
+/// for the controls its spec binds and nothing else: `sync` and `get_status`
+/// are session plumbing, and the compact Mode stays a reading as the spec
+/// says it must.
+#[test]
+fn the_philips_purifier_surfaces_its_controls_on_its_own_transport() {
+    let surface =
+        network_entities_for_device(spec_yaml("philips-air-coap.yaml"), vec![]).expect("a surface");
+    let actions: Vec<(&str, &str, &str)> = surface
+        .entities
+        .iter()
+        .flat_map(|e| {
+            e.actions.iter().map(move |a| {
+                (
+                    e.name.as_str(),
+                    a.command_name.as_str(),
+                    a.transport.as_str(),
+                )
+            })
+        })
+        .collect();
+    assert!(!actions.is_empty(), "the purifier resolves no controls");
+    for (entity, command, transport) in &actions {
+        assert_eq!(*transport, "philips_air_coap", "{entity}: {command}");
+        assert!(
+            !matches!(*command, "sync" | "get_status"),
+            "{entity} resolved session plumbing {command}"
+        );
+        assert_ne!(*command, "compact_set_mode_pair");
+    }
+    for command in ["power_on", "power_off", "set_mode", "set_fan_speed"] {
+        assert!(
+            actions.iter().any(|(_, c, _)| *c == command),
+            "{command}: {actions:?}"
+        );
+    }
+    let pm25 = surface
+        .entities
+        .iter()
+        .find(|e| e.name == "PM2.5")
+        .expect("PM2.5 is a reading");
+    assert_eq!(pm25.state_command, "get_status");
+}
+
+/// `coap` is the IKEA gateway's DTLS surface too, and none of that is this
+/// handler's: nothing there resolves a control.
+#[test]
+fn coap_resolves_only_for_the_philips_handler() {
+    let surface = network_entities_for_device(spec_yaml("ikea-tradfri-gateway.yaml"), vec![])
+        .expect("a surface");
+    for entity in &surface.entities {
+        for action in &entity.actions {
+            assert!(
+                !matches!(action.transport.as_str(), "coap" | "philips_air_coap"),
+                "{}: {}",
+                entity.name,
+                action.command_name
+            );
+        }
+    }
+}

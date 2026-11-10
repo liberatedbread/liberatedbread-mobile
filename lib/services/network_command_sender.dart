@@ -3,7 +3,7 @@
 import 'dart:async';
 
 import '../core/group_actions.dart'
-    show kLimitlessledTransport, kYeelightTransport;
+    show kLimitlessledTransport, kPhilipsAirTransport, kYeelightTransport;
 import '../core/log.dart';
 import '../models/network_device.dart';
 import 'ecp2_control_service.dart';
@@ -11,6 +11,7 @@ import 'http_control_service.dart';
 import 'kasa_control_service.dart';
 import 'limitlessled_control_service.dart';
 import 'mqtt_session.dart';
+import 'philips_air_control_service.dart';
 import 'ws_control_service.dart';
 import 'rabbit_air_control_service.dart';
 import 'soap_control_service.dart';
@@ -93,6 +94,7 @@ class NetworkCommandSender {
   final RabbitAirControlClient _rabbitAir;
   final YeelightControlClient _yeelight;
   final LimitlessledControlClient _limitlessled;
+  final PhilipsAirControlClient _philipsAir;
   final Ecp2ControlService _ecp2Service;
 
   /// Opens the MQTT session for a device whose commands ride that transport.
@@ -173,13 +175,15 @@ class NetworkCommandSender {
     required Ecp2ControlService ecp2,
     YeelightControlClient? yeelight,
     LimitlessledControlClient? limitlessled,
+    PhilipsAirControlClient? philipsAir,
     this._mqttConnect,
     this.wsCredential,
     this.onCredentialIssued,
     this._wsConnect,
   }) : _ecp2Service = ecp2,
        _yeelight = yeelight ?? YeelightControlClient(_codec),
-       _limitlessled = limitlessled ?? LimitlessledControlClient();
+       _limitlessled = limitlessled ?? LimitlessledControlClient(),
+       _philipsAir = philipsAir ?? PhilipsAirControlClient();
 
   /// The credentials read from the store, held once read.
   ///
@@ -282,6 +286,10 @@ class NetworkCommandSender {
   /// spec says `udp`; the resolver replaces that the same way.
   static const limitlessledTransport = kLimitlessledTransport;
 
+  /// The Philips purifier transport: enveloped CoAP over UDP 5683. The spec
+  /// says `coap`; the resolver replaces that with the handler's name.
+  static const philipsAirTransport = kPhilipsAirTransport;
+
   /// The WebSocket transport constant. A persistent socket a television's
   /// whole control surface rides.
   static const websocketTransport = 'websocket';
@@ -331,6 +339,11 @@ class NetworkCommandSender {
 
   int get _limitlessledPort =>
       controlPort ?? devicePort ?? LimitlessledControlClient.defaultPort;
+
+  /// Where a Philips purifier session goes. Nothing discovers one (the spec
+  /// has no discovery), so this is usually the spec's 5683.
+  int get philipsAirPort =>
+      controlPort ?? devicePort ?? PhilipsAirControlClient.defaultPort;
 
   int get _rabbitAirHostPort =>
       devicePort ?? RabbitAirControlClient.defaultPort;
@@ -418,6 +431,7 @@ class NetworkCommandSender {
       action.transport == kasaTransport ||
       action.transport == yeelightTransport ||
       action.transport == limitlessledTransport ||
+      action.transport == philipsAirTransport ||
       action.transport == mqttTransport ||
       action.transport == websocketTransport ||
       action.transport == rabbitAirTransport;
@@ -458,6 +472,8 @@ class NetworkCommandSender {
         await _sendYeelight(action, values);
       case limitlessledTransport:
         await _sendLimitlessled(action, values);
+      case philipsAirTransport:
+        await _sendPhilipsAir(action, values);
       case mqttTransport:
         await _sendMqtt(action, values);
       case websocketTransport:
@@ -984,6 +1000,22 @@ class NetworkCommandSender {
       values: values,
     );
     await _limitlessled.send(host, _limitlessledPort, frames);
+  }
+
+  /// The Philips purifier send: a fresh sync, then the enveloped write under
+  /// the next counter. A write the purifier does not answer `success` throws
+  /// and is not retried.
+  Future<void> _sendPhilipsAir(
+    NetworkActionDto action,
+    Map<String, String> values,
+  ) async {
+    await _philipsAir.sendCommand(
+      host,
+      philipsAirPort,
+      specYaml: specYaml,
+      commandName: action.commandName,
+      values: values,
+    );
   }
 
   /// The Rabbit Air send: sync the clock, render the envelope, encrypt it

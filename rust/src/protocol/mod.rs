@@ -2,12 +2,14 @@
 // SPDX-License-Identifier: Apache-2.0
 
 pub mod acinfinity;
+pub mod apple_acp;
 pub mod bisecur;
 pub mod brother_pt;
 pub mod brother_ql;
 pub mod cat_printer;
 pub mod cat_printer_mxw01;
 pub mod cdbwsoft_ecb;
+pub mod coap;
 pub mod daniao;
 pub mod daniao_store;
 pub mod daniao_upload;
@@ -23,6 +25,7 @@ pub mod idotmatrix;
 pub mod image_upload;
 pub mod ipl;
 pub mod ipp;
+pub mod juicenet;
 pub mod kasa;
 pub mod ledbadge_bitmap;
 pub mod lifx;
@@ -31,6 +34,7 @@ pub mod modbus_sunspec;
 pub mod mqtt;
 pub mod niimbot;
 pub mod orba_midi;
+pub mod philips_air;
 pub mod popled;
 pub mod profiles;
 pub mod rabbit_air;

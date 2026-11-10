@@ -14,6 +14,7 @@ import '../services/lifx_control_service.dart';
 import '../services/limitlessled_control_service.dart';
 import '../services/rabbit_air_ble_client.dart';
 import '../services/network_command_sender.dart';
+import '../services/philips_air_control_service.dart';
 import '../services/rabbit_air_control_service.dart';
 import '../services/rabbit_air_key_store.dart';
 import '../services/rabbit_air_provision_service.dart';
@@ -75,6 +76,12 @@ final kasaControlClientProvider = Provider<KasaControlClient>(
 /// on the codec the way the Kasa client does.
 final yeelightControlClientProvider = Provider<YeelightControlClient>(
   (ref) => YeelightControlClient(ref.watch(specCodecProvider)),
+);
+
+/// The Philips encrypted-CoAP purifier transport. Its codec is called
+/// directly, as the read-only clients' are.
+final philipsAirControlClientProvider = Provider<PhilipsAirControlClient>(
+  (ref) => PhilipsAirControlClient(),
 );
 
 /// The legacy LimitlessLED transport, which only moves datagrams.
@@ -286,6 +293,7 @@ final networkCommandSenderFactoryProvider =
           ecp2: ref.read(ecp2ControlServiceProvider),
           yeelight: ref.read(yeelightControlClientProvider),
           limitlessled: ref.read(limitlessledControlClientProvider),
+          philipsAir: ref.read(philipsAirControlClientProvider),
           // Returned, not fire-and-forgotten: the sender awaits the save before
           // re-reading the store (so the token it just filed is findable) and
           // logs a keystore failure instead of letting it become an unhandled
@@ -373,6 +381,15 @@ class NetworkControls {
   /// spec binds nothing the entity screen can read, so this is what admits it.
   final bool biSecurStatus;
 
+  /// True when the device is an AirPort base station read through the
+  /// read-only ACP handler. Its one entity is a restart button the app does
+  /// not send, so this is what admits it.
+  final bool acpStatus;
+
+  /// True when the device is a JuiceBox heard through the listen-only
+  /// JuiceNet handler. Its spec binds no state, because the charger pushes.
+  final bool juiceNetStatus;
+
   const NetworkControls({
     required this.specYaml,
     required this.entities,
@@ -383,6 +400,8 @@ class NetworkControls {
     this.ippStatus = false,
     this.sunSpecStatus = false,
     this.biSecurStatus = false,
+    this.acpStatus = false,
+    this.juiceNetStatus = false,
   });
 
   /// Whether these controls describe a hub — a device fronting children that
@@ -412,6 +431,12 @@ const sunSpecHandler = 'modbus_tcp_sunspec';
 
 /// The `protocol_handler` of the read-only Hörmann BiSecur reader.
 const biSecurHandler = 'bisecur_mcp';
+
+/// The `protocol_handler` of the read-only AirPort base station reader.
+const acpHandler = 'apple_acp';
+
+/// The `protocol_handler` of the listen-only JuiceBox reader.
+const juiceNetHandler = 'juicenet_udp';
 
 /// Resolve what the catalogue lets us control on one network device.
 ///
@@ -455,11 +480,15 @@ final networkControlsProvider = FutureProvider.autoDispose
             : null;
         final sunSpecStatus = spec.protocolHandler == sunSpecHandler;
         final biSecurStatus = spec.protocolHandler == biSecurHandler;
+        final acpStatus = spec.protocolHandler == acpHandler;
+        final juiceNetStatus = spec.protocolHandler == juiceNetHandler;
         if (surface.entities.isEmpty &&
             rasterPrintHandler == null &&
             !ippStatus &&
             !sunSpecStatus &&
-            !biSecurStatus) {
+            !biSecurStatus &&
+            !acpStatus &&
+            !juiceNetStatus) {
           return null;
         }
         return NetworkControls(
@@ -472,6 +501,8 @@ final networkControlsProvider = FutureProvider.autoDispose
           ippStatus: ippStatus,
           sunSpecStatus: sunSpecStatus,
           biSecurStatus: biSecurStatus,
+          acpStatus: acpStatus,
+          juiceNetStatus: juiceNetStatus,
         );
       } catch (e) {
         Log.spec.warning(
