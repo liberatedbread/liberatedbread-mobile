@@ -115,6 +115,11 @@ HealthMeasurementPlan? _bloodPressurePlan(
     for (final char in service.characteristics) {
       if (normalizeUuid(char.uuid) == normalizeUuid(charUuid) &&
           char.canNotify &&
+          // The decoder reads a whole `flags` byte at fixed offsets. A
+          // record laid out otherwise (QardioArm names each flag bit and
+          // walks an optional tail) would be claimed here, have its own
+          // cards hidden, and then never decode.
+          char.formatFields.any((field) => field.name == 'flags') &&
           _isDiscovered(discovered, service.uuid, charUuid)) {
         final handled = spec.entities
             .where(

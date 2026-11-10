@@ -328,7 +328,8 @@ self-classification report — a once-a-year email (template at the bottom) to
     beforehand. It names the matched spec, the services it does not
     describe and/or the responses the app could not read (a Wi-Fi reply's
     key names only; at most 32 bytes of a BLE value that would not decode),
-    the app version and the platform, and carries no identifier
+    the app version, the platform and, over BLE, the device's own
+    advertised name, and carries no identifier
     (`lib/models/svc_report.dart`). A radio's report names its programming
     profile and what the radio answered (its ident, a reply header, an
     acknowledgement byte, a block address), never the radio's id, name or
@@ -481,8 +482,9 @@ Deploy `banner.json` v2 to `https://liberatedbread.com/app/banner.json`.
 > to send us a diagnostics report so we can fix the profile, with a note if
 > you want to add one. The same goes for a radio that answers in a way its
 > programming profile doesn't expect. It is only ever sent when you tap Send,
-> it shows you exactly what it contains first, and it carries no addresses,
-> names or identifiers.
+> it shows you exactly what it contains first, and it carries no addresses
+> or identifiers, and no name you gave the device (a Bluetooth device's own
+> advertised name is included).
 >
 > This is independent, community-maintained software provided as-is. Please read the in-app terms and
 > the disclaimer at https://liberatedbread.com/disclaimer/ before use — some

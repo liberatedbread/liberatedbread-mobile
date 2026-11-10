@@ -167,7 +167,7 @@ void main() {
 
     test('a device that cannot list effects gets no guessed one', () async {
       final sent = <String>[];
-      await lastEventOf(
+      final last = await lastEventOf(
         runner(
           FakeSpecCodec(),
           MockClient((request) async {
@@ -184,6 +184,9 @@ void main() {
         ], stop: StopSignal()),
       );
       expect(sent, isEmpty);
+      // And says so: not "Cancelled", which nobody did, and not ok.
+      expect(last.status, GroupDeviceStatus.failed);
+      expect(last.detail, contains('rainbow'));
     });
 
     test('colours advance from the run\'s first position', () async {

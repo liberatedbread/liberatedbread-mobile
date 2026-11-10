@@ -174,10 +174,17 @@ fn decode_blood_pressure(
             .then_some(if kpa { value * 7.50061683 } else { value })
     };
     let status = optional_raw(&values, "status").map(|value| value as u8);
+    let systolic = pressure("systolic_sfloat")?;
+    let diastolic = pressure("diastolic_sfloat")?;
+    // A cuff that has no result says so in zeros, and 0/0 would be shown
+    // against the reference table as a normal pressure.
+    if systolic <= 0.0 || diastolic <= 0.0 {
+        bail!("blood-pressure record carries no result");
+    }
 
     Ok(BloodPressureReading {
-        systolic_mmhg: pressure("systolic_sfloat")?,
-        diastolic_mmhg: pressure("diastolic_sfloat")?,
+        systolic_mmhg: systolic,
+        diastolic_mmhg: diastolic,
         mean_arterial_mmhg: optional_pressure("map_sfloat"),
         pulse_bpm: optional_raw(&values, "pulse_sfloat")
             .and_then(|raw| decode_sfloat(raw as u16))

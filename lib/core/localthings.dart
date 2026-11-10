@@ -113,5 +113,10 @@ String? homeAssistantUrlOf(NetworkDevice device) {
     }
   }
   final host = device.host.contains(':') ? '[${device.host}]' : device.host;
-  return 'http://$host:${device.port ?? 8123}';
+  // The row's port is the first service's that resolved for the host, and a
+  // Home Assistant box usually advertises others (its HomeKit bridge, SSH,
+  // Samba). Only when this is all it advertises is the port known to be HA's.
+  final onlyHomeAssistant = device.serviceTypes.length <= 1;
+  final port = onlyHomeAssistant ? (device.port ?? 8123) : 8123;
+  return 'http://$host:$port';
 }

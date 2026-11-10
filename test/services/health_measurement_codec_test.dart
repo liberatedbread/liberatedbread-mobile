@@ -57,6 +57,25 @@ void main() {
     expect(saved?.handledCharacteristicUuids, isNotEmpty);
   });
 
+  test(
+    'a cuff whose record the decoder cannot read keeps its own cards',
+    () async {
+      if (!rustReady) {
+        markTestSkipped('Rust lib not loaded');
+        return;
+      }
+      // QardioArm has the same systolic/diastolic entities on 0x2A35, but
+      // names each flag bit instead of a `flags` byte. Claimed by the panel,
+      // its entity cards were hidden and no record ever decoded.
+      final qardio = await specCodec.loadDeviceSpec(
+        await rootBundle.loadString(
+          'vendor/protocol-specs/device-specs/devices/qardio-arm.yaml',
+        ),
+      );
+      expect(healthMeasurementPlan(qardio, _discovered(qardio)), isNull);
+    },
+  );
+
   test('F7 frame crosses the real FFI as a typed live sample', () async {
     if (!rustReady) {
       markTestSkipped('Rust lib not loaded');

@@ -196,7 +196,13 @@ class _PrintLabelScreenState extends ConsumerState<PrintLabelScreen> {
 
   Future<void> _print() async {
     final preview = _preview;
-    if (preview == null || !_hasContent || _rendering || _renderPending) {
+    // _printing too: the button is disabled only once the frame rebuilds,
+    // and a second tap before that is a second label.
+    if (preview == null ||
+        !_hasContent ||
+        _rendering ||
+        _renderPending ||
+        _printing) {
       return;
     }
     setState(() {

@@ -281,6 +281,11 @@ class _HealthMeasurementPanelState extends ConsumerState<HealthMeasurementPanel>
     final sessions = [...state.sessions]
       ..sort((a, b) => b.startedAt.compareTo(a.startedAt));
     if (sessions.isEmpty) {
+      if (state.phase == HealthSessionPhase.ready) {
+        // The transfer ended and carried nothing: a spinner would wait
+        // for sessions that are not coming.
+        return const Text('The oximeter has no stored sessions.');
+      }
       return state.phase == HealthSessionPhase.error
           ? const SizedBox.shrink()
           : const _ProgressMessage(

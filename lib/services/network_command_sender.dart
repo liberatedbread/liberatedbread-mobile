@@ -349,11 +349,22 @@ class NetworkCommandSender {
 
   /// Where a Yeelight request goes: its discovery row carries no port (the
   /// M-SEARCH reply states it in a URL), so the spec's is what is usually here.
+  ///
+  /// The spec's port first, for this transport and the bridge's below: a
+  /// discovered port is some OTHER service's when the host also answers mDNS
+  /// (a Xiaomi-ecosystem bulb advertises miIO on 54321), and every command
+  /// sent there was refused and blamed on LAN Control being off.
   int get yeelightPort =>
-      controlPort ?? devicePort ?? YeelightControlClient.defaultPort;
+      capabilities?.defaultPort ??
+      controlPort ??
+      devicePort ??
+      YeelightControlClient.defaultPort;
 
   int get _limitlessledPort =>
-      controlPort ?? devicePort ?? LimitlessledControlClient.defaultPort;
+      capabilities?.defaultPort ??
+      controlPort ??
+      devicePort ??
+      LimitlessledControlClient.defaultPort;
 
   /// Where a Philips purifier session goes. Nothing discovers one (the spec
   /// has no discovery), so this is usually the spec's 5683.

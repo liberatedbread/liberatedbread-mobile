@@ -50,8 +50,9 @@ class SocketSunSpecTransport implements SunSpecTransport {
   Future<void> open(String host, int port, Duration timeout) async {
     // ignore: close_sinks — held in _socket and destroyed by close().
     final socket = await Socket.connect(host, port, timeout: timeout);
-    socket.setOption(SocketOption.tcpNoDelay, true);
+    // Held before anything can throw, so close() always has it to destroy.
     _socket = socket;
+    socket.setOption(SocketOption.tcpNoDelay, true);
     _subscription = socket.listen(
       (chunk) {
         _received.add(chunk);
@@ -334,6 +335,11 @@ class ModbusSunSpecClient implements SunSpecClient {
         transactionId: transaction,
         unitId: unitId,
       );
+    } on SocketException catch (e) {
+      // The connection went, which says nothing about a meter: no reading
+      // this time, and ask again on the next.
+      Log.net.debug('Meter 1 read lost its connection', error: e);
+      return null;
     } on Object catch (e) {
       Log.net.debug('No meter 1 on $host:$port', error: e);
       _meterAbsent = true;

@@ -89,7 +89,11 @@ class HealthMeasurementSession extends ChangeNotifier {
     );
     _subscription = notifications.listen(
       (bytes) => _enqueue(bytes, generation),
-      onError: (_) => _connectionEnded(generation),
+      // A failed subscribe arrives here too, and says why: a monitor that
+      // needs pairing first must read as that, not as a dropped connection.
+      onError: (Object error) => error is UserFacingException
+          ? _fail(error.message, generation)
+          : _connectionEnded(generation),
       onDone: () => _connectionEnded(generation),
     );
     unawaited(_startMode(generation, notifications));
@@ -310,6 +314,10 @@ class HealthMeasurementSession extends ChangeNotifier {
 
   void _connectionEnded(int generation) {
     if (!_isCurrent(generation)) return;
+    // Nothing is left to poll; without this a live session kept writing its
+    // request at a dead link every second until the panel went away.
+    _pollTimer?.cancel();
+    _pollTimer = null;
     switch (plan.mode) {
       case HealthMeasurementMode.historySync:
         if (_syncComplete) return;

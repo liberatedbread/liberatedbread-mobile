@@ -38,9 +38,20 @@ SvcReport? buildBleSvcReport({
   required DeviceSpecDto spec,
   required List<BleDiscoveredService> services,
   required String advertisedName,
+  String? deviceId,
   List<SvcReportResponse> responses = const [],
   String? reportId,
 }) {
+  // A device opened from the saved list carries the name it was saved
+  // under, and a nameless one was saved as "Unknown (<id>)" — the id being
+  // its Bluetooth address on Android and Linux. A name with the id in it is
+  // not the device's own, and the report promises no address.
+  final id = deviceId?.trim().toLowerCase() ?? '';
+  final name = advertisedName.trim();
+  final reportedName =
+      name.isEmpty || (id.isNotEmpty && name.toLowerCase().contains(id))
+      ? null
+      : advertisedName;
   final declared = [
     for (final s in spec.serviceUuids) normalizeUuid(s),
     for (final s in spec.services) normalizeUuid(s.uuid),
@@ -87,7 +98,7 @@ SvcReport? buildBleSvcReport({
     specKey: specKeyFor(spec),
     specDeviceName: spec.deviceName,
     specManufacturer: spec.manufacturer,
-    advertisedName: advertisedName.trim().isEmpty ? null : advertisedName,
+    advertisedName: reportedName,
     unexpected: unexpectedServices,
     responses: responses,
     discovered: {for (final s in services) normalizeUuid(s.uuid)}.toList()

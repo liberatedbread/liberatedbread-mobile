@@ -179,10 +179,12 @@ pub fn prepare_print_raster(
     if w == 0 || h == 0 {
         anyhow::bail!("an empty canvas has nothing to print");
     }
-    if rgba.len() != w * h * 4 {
+    // Checked: a wrapped product would agree with a short buffer and send
+    // the dither past its end.
+    let expected = canvas_len(w, h, 4)?;
+    if rgba.len() != expected {
         anyhow::bail!(
-            "an RGBA canvas of {width}x{height} is {} bytes, not {}",
-            w * h * 4,
+            "an RGBA canvas of {width}x{height} is {expected} bytes, not {}",
             rgba.len()
         );
     }
@@ -390,6 +392,15 @@ pub fn render_brother_pt_job(
     )?)
 }
 
+/// `width * height * channels` bytes, or an error for a canvas too large to
+/// address — never a wrapped product.
+fn canvas_len(width: usize, height: usize, channels: usize) -> anyhow::Result<usize> {
+    width
+        .checked_mul(height)
+        .and_then(|pixels| pixels.checked_mul(channels))
+        .ok_or_else(|| anyhow::anyhow!("a canvas of {width}x{height} is too large"))
+}
+
 /// Encode a composed label as a Brother QL raster job. `rgb` is RGB888 of
 /// `width` x `height`, at most the canvas [`brother_ql_label_canvas`] gives;
 /// a narrower canvas is centred in the printable width. The result is the
@@ -404,11 +415,12 @@ pub fn render_brother_ql_job(
     let spec = crate::protocol::dispatch::parse_or_cached(&spec_yaml)?;
     let p = brother_placement(&spec, &params)?;
     let (w, h) = (width as usize, height as usize);
-    if w == 0 || h == 0 || rgb.len() != w * h * 3 {
-        anyhow::bail!(
-            "an RGB canvas of {width}x{height} must be {} bytes",
-            w * h * 3
-        );
+    if w == 0 || h == 0 {
+        anyhow::bail!("an empty canvas has nothing to print");
+    }
+    let expected = canvas_len(w, h, 3)?;
+    if rgb.len() != expected {
+        anyhow::bail!("an RGB canvas of {width}x{height} must be {expected} bytes");
     }
     if w > p.width {
         anyhow::bail!(
@@ -426,7 +438,19 @@ pub fn render_brother_ql_job(
         height.max(minimum)
     };
     let left = p.left + (p.width - w) / 2;
-    let mut head = vec![255u8; p.head_dots * height as usize * 3];
+    // The head canvas is the label's length at the HEAD's width, so a tall
+    // sliver of a label is a far larger allocation than the bytes handed in.
+    // Refuse a length the printer would refuse anyway before reserving it —
+    // the encoder's own check comes after, and a failed allocation aborts.
+    let max_height = crate::protocol::image_upload::image_feature(&spec)
+        .and_then(|f| f.max_height)
+        .filter(|max| *max > 0);
+    if let Some(max) = max_height {
+        if height > max {
+            anyhow::bail!("the label is {height} dots long but this printer prints at most {max}");
+        }
+    }
+    let mut head = vec![255u8; canvas_len(p.head_dots, height as usize, 3)?];
     for y in 0..h {
         let src = &rgb[y * w * 3..(y + 1) * w * 3];
         let at = (y * p.head_dots + left) * 3;
@@ -744,6 +768,37 @@ features:
         let die_cut = brother_ql_label_canvas(yaml, params(45, 80, true)).unwrap();
         let expected = 80 * 3000 / 254;
         assert_eq!(die_cut.length_dots, Some(expected - expected / 8));
+    }
+
+    #[test]
+    fn a_canvas_too_large_to_address_is_refused_not_wrapped() {
+        // 2^31 x 2^31 x 4 wraps to 0 in 64 bits, which an empty buffer
+        // "matches"; 65536 x 65536 x 4 does the same in 32.
+        for side in [1u32 << 31, 1 << 16] {
+            let err = prepare_print_raster(vec![], side, side, PrintDither::Threshold, 128);
+            assert!(err.is_err(), "{side}");
+        }
+        let yaml = vendored("brother-ql-1110nwb.yaml");
+        assert!(render_brother_ql_job(
+            yaml.clone(),
+            params(62, 0, false),
+            vec![],
+            1 << 31,
+            1 << 31
+        )
+        .is_err());
+        // A one-dot-wide label ten million dots long is a 30 MB buffer the
+        // length check accepts, and a head canvas of tens of gigabytes.
+        let tall = 10_000_000u32;
+        let err = render_brother_ql_job(
+            yaml,
+            params(62, 0, false),
+            vec![255; tall as usize * 3],
+            1,
+            tall,
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("at most"), "{err}");
     }
 
     #[test]

@@ -175,23 +175,31 @@ class AcInfinityBleClient implements AcInfinityClient {
     if (_session.isClosed) return;
     _answerTimer?.cancel();
     _status = status;
+    _stale = false;
     _publish();
     _staleTimer?.cancel();
-    _staleTimer = Timer(staleAfter, () => _publish(stale: true));
+    _staleTimer = Timer(staleAfter, () {
+      _stale = true;
+      _publish();
+    });
     if (!_readingStored) {
       _readingStored = true;
       unawaited(_readStored(status));
     }
   }
 
-  void _publish({bool stale = false}) {
+  /// Set by the timer and cleared only by a status frame: a stored-level
+  /// reply republishes the old status, and must not make it look fresh.
+  bool _stale = false;
+
+  void _publish() {
     final status = _status;
     if (status == null || _output.isClosed) return;
     _output.add(
       AcInfinityReading(
         status: status,
         stored: Map.unmodifiable(_stored),
-        stale: stale,
+        stale: _stale,
       ),
     );
   }

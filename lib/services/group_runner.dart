@@ -961,10 +961,14 @@ class NetworkGroupRunner {
         sent++;
       }
 
+      var effectsMissing = 0;
       for (final effect in plan.rainbowEffects) {
         if (stop.stopped) break;
         final index = await _rainbowIndex(specYaml, sender);
-        if (index == null) continue;
+        if (index == null) {
+          effectsMissing++;
+          continue;
+        }
         await sender.sendAction(effect.action, {
           groupEffectParam: '$index',
         }, description: description);
@@ -994,6 +998,16 @@ class NetworkGroupRunner {
         }
       }
 
+      // A strip whose rainbow could not be found got, at most, switched on:
+      // "1 command sent" would read as the rainbow showing, and "Cancelled"
+      // as the user's doing.
+      if (effectsMissing > 0) {
+        return GroupRunEvent(
+          deviceId: member.memberId,
+          status: GroupDeviceStatus.failed,
+          detail: 'Could not find a rainbow effect on this device',
+        );
+      }
       if (sent > 0) {
         return GroupRunEvent(
           deviceId: member.memberId,

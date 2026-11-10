@@ -89,7 +89,18 @@ class ReadOnlyBleSession {
       serviceUuid,
       notifyUuid,
     );
-    _subscription = notifications.listen(onBytes, onError: onError);
+    _subscription = notifications.listen(
+      onBytes,
+      onError: onError,
+      // A link that drops closes the stream without an error. Left unheard,
+      // the panel kept "reading" a device that had gone, holding its
+      // connection claim until the user noticed.
+      onDone: () {
+        if (!_closed) {
+          onError(const ReadOnlyBleException('The device disconnected.'));
+        }
+      },
+    );
     if (notifications case final BleReadyNotificationStream ready) {
       await ready.ready;
     }

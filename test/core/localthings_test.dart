@@ -85,6 +85,16 @@ void main() {
       expect(homeAssistantUrlOf(_device()), 'http://192.168.1.60:8123');
     });
 
+    test('a port that may be another service\'s is not taken for HA\'s', () {
+      // The row keeps the first SRV port that resolved for the host, and a
+      // Home Assistant box also runs a HomeKit bridge.
+      final ha = _device(
+        port: 21063,
+        serviceTypes: const ['_hap._tcp.local.', homeAssistantServiceType],
+      );
+      expect(homeAssistantUrlOf(ha), 'http://192.168.1.60:8123');
+    });
+
     test('a TXT URL that is not http(s) is ignored, not opened', () {
       final ha = _device(port: 8123, txt: {'internal_url': 'shortcuts://run'});
       expect(homeAssistantUrlOf(ha), 'http://192.168.1.60:8123');

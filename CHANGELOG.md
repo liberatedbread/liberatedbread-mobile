@@ -774,6 +774,36 @@ heading.
 
 ### Fixed
 
+- **Weekly review sweep (2026-11-10).** Found by reading the week's merges;
+  none run on hardware.
+  - *Device reports:* a nameless device reopened from Saved Devices no longer
+    reports its Bluetooth address as its "advertised name"; "What's sent" and
+    the privacy notes now say the advertised name is included; a report that
+    reaches the server while its banner is being torn down is still marked
+    sent; a Roomba's section-at-a-time state no longer files "unmapped state"
+    findings.
+  - *Wi-Fi:* a variant probe that misses one poll no longer drops the
+    probe-scoped entities for the life of the screen (Elgato); Yeelight and
+    LimitlessLED sends go to the spec's port, not another service's
+    discovered one; pride mode no longer doubles a LimitlessLED zone's ON,
+    reports a strip whose rainbow effect could not be found as failed, and a
+    hue-only light no longer offers pastels it would send as full colour; the
+    LocalThings link no longer borrows another service's port.
+  - *Printing:* canvas sizes are overflow-checked and an over-long Brother
+    label is refused before its head canvas is allocated; SDP nesting is
+    bounded; HEIC photos print on paper; an `_ipps`-only advert is not sent
+    plain IPP on its TLS port; a second tap on Print is not a second label;
+    Android does not replay a share from Recents.
+  - *Health and IPL:* QardioArm keeps its own cards instead of a panel that
+    could not decode it; a monitor that needs pairing says so; an empty PO60
+    sync ends instead of spinning; a 0/0 pressure is not "Normal"; a Braun
+    command the device acknowledged is no longer reported as unacknowledged
+    when its completion is late.
+  - *Read-only handlers:* a dropped BLE link is reported; a SunSpec socket
+    drop does not hide the meter for the session; an AC Infinity stored-level
+    reply does not clear the stale warning; BiSecur's 2 s position-poll floor
+    holds across reads.
+
 - **A Roomba screen closed during its TLS handshake no longer leaves a ghost
   session on the robot.** Closing the session while the socket was still
   connecting found nothing to shut, and the connect that finished afterwards

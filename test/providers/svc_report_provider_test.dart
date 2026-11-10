@@ -95,6 +95,19 @@ void main() {
       );
     });
 
+    test('a saved nameless device does not report its address as a name', () {
+      // Saved Devices reopens a nameless peripheral as "Unknown (<id>)", and
+      // the id is its Bluetooth address on Android and Linux.
+      final report = buildBleSvcReport(
+        spec: _bleSpec,
+        services: [_service(_svcUuid), _service(_dfuUuid)],
+        advertisedName: 'Unknown (AA:BB:CC:DD:EE:FF)',
+        deviceId: 'aa:bb:cc:dd:ee:ff',
+      )!;
+      expect(report.toJson().containsKey('advertised_name'), isFalse);
+      expect(report.toPrettyJson().toUpperCase(), isNot(contains('AA:BB')));
+    });
+
     test('carries the unexpected service and its characteristics', () {
       final report = buildBleSvcReport(
         spec: _bleSpec,
