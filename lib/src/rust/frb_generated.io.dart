@@ -8,6 +8,7 @@
 import 'api/device_api.dart';
 import 'api/enphase_api.dart';
 import 'api/health_api.dart';
+import 'api/ht_w01_api.dart';
 import 'api/ipl_api.dart';
 import 'api/mock_api.dart';
 import 'api/philips_air_api.dart';
@@ -27,6 +28,7 @@ import 'protocol/acinfinity.dart';
 import 'protocol/apple_acp.dart';
 import 'protocol/bisecur.dart';
 import 'protocol/enphase.dart';
+import 'protocol/ht_w01.dart';
 import 'protocol/juicenet.dart';
 import 'protocol/modbus_sunspec.dart';
 import 'protocol/readonly.dart';
@@ -232,6 +234,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   HealthClockDto dco_decode_box_autoadd_health_clock_dto(dynamic raw);
 
   @protected
+  HtW01ReplyDto dco_decode_box_autoadd_ht_w_01_reply_dto(dynamic raw);
+
+  @protected
   int dco_decode_box_autoadd_i_16(dynamic raw);
 
   @protected
@@ -411,6 +416,21 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   HealthSampleDto dco_decode_health_sample_dto(dynamic raw);
 
   @protected
+  HtW01PaletteDto dco_decode_ht_w_01_palette_dto(dynamic raw);
+
+  @protected
+  HtW01Param dco_decode_ht_w_01_param(dynamic raw);
+
+  @protected
+  HtW01Range dco_decode_ht_w_01_range(dynamic raw);
+
+  @protected
+  HtW01ReplyDto dco_decode_ht_w_01_reply_dto(dynamic raw);
+
+  @protected
+  HtW01SplitDto dco_decode_ht_w_01_split_dto(dynamic raw);
+
+  @protected
   HttpHeaderDto dco_decode_http_header_dto(dynamic raw);
 
   @protected
@@ -533,6 +553,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   List<HandshakeStepDto> dco_decode_list_handshake_step_dto(dynamic raw);
+
+  @protected
+  List<HtW01PaletteDto> dco_decode_list_ht_w_01_palette_dto(dynamic raw);
+
+  @protected
+  List<HtW01ReplyDto> dco_decode_list_ht_w_01_reply_dto(dynamic raw);
 
   @protected
   List<HttpHeaderDto> dco_decode_list_http_header_dto(dynamic raw);
@@ -1435,6 +1461,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  HtW01ReplyDto sse_decode_box_autoadd_ht_w_01_reply_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   int sse_decode_box_autoadd_i_16(SseDeserializer deserializer);
 
   @protected
@@ -1666,6 +1697,21 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   HealthSampleDto sse_decode_health_sample_dto(SseDeserializer deserializer);
 
   @protected
+  HtW01PaletteDto sse_decode_ht_w_01_palette_dto(SseDeserializer deserializer);
+
+  @protected
+  HtW01Param sse_decode_ht_w_01_param(SseDeserializer deserializer);
+
+  @protected
+  HtW01Range sse_decode_ht_w_01_range(SseDeserializer deserializer);
+
+  @protected
+  HtW01ReplyDto sse_decode_ht_w_01_reply_dto(SseDeserializer deserializer);
+
+  @protected
+  HtW01SplitDto sse_decode_ht_w_01_split_dto(SseDeserializer deserializer);
+
+  @protected
   HttpHeaderDto sse_decode_http_header_dto(SseDeserializer deserializer);
 
   @protected
@@ -1826,6 +1872,16 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   List<HandshakeStepDto> sse_decode_list_handshake_step_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  List<HtW01PaletteDto> sse_decode_list_ht_w_01_palette_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  List<HtW01ReplyDto> sse_decode_list_ht_w_01_reply_dto(
     SseDeserializer deserializer,
   );
 
@@ -2984,6 +3040,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_box_autoadd_ht_w_01_reply_dto(
+    HtW01ReplyDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_box_autoadd_i_16(int self, SseSerializer serializer);
 
   @protected
@@ -3293,6 +3355,30 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_ht_w_01_palette_dto(
+    HtW01PaletteDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_ht_w_01_param(HtW01Param self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_ht_w_01_range(HtW01Range self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_ht_w_01_reply_dto(
+    HtW01ReplyDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_ht_w_01_split_dto(
+    HtW01SplitDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_http_header_dto(HttpHeaderDto self, SseSerializer serializer);
 
   @protected
@@ -3502,6 +3588,18 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_list_handshake_step_dto(
     List<HandshakeStepDto> self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_list_ht_w_01_palette_dto(
+    List<HtW01PaletteDto> self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_list_ht_w_01_reply_dto(
+    List<HtW01ReplyDto> self,
     SseSerializer serializer,
   );
 

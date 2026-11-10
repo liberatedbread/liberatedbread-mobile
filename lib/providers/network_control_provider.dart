@@ -390,6 +390,10 @@ class NetworkControls {
   /// JuiceNet handler. Its spec binds no state, because the charger pushes.
   final bool juiceNetStatus;
 
+  /// True when the device is an HT-W01 thermal camera driven through its
+  /// settings screen. Its spec binds no entities.
+  final bool htW01Settings;
+
   const NetworkControls({
     required this.specYaml,
     required this.entities,
@@ -402,6 +406,7 @@ class NetworkControls {
     this.biSecurStatus = false,
     this.acpStatus = false,
     this.juiceNetStatus = false,
+    this.htW01Settings = false,
   });
 
   /// Whether these controls describe a hub — a device fronting children that
@@ -437,6 +442,9 @@ const acpHandler = 'apple_acp';
 
 /// The `protocol_handler` of the listen-only JuiceBox reader.
 const juiceNetHandler = 'juicenet_udp';
+
+/// The `protocol_handler` of the HT-W01 thermal camera's settings channel.
+const htW01Handler = 'ht_w01_command';
 
 /// Resolve what the catalogue lets us control on one network device.
 ///
@@ -482,13 +490,15 @@ final networkControlsProvider = FutureProvider.autoDispose
         final biSecurStatus = spec.protocolHandler == biSecurHandler;
         final acpStatus = spec.protocolHandler == acpHandler;
         final juiceNetStatus = spec.protocolHandler == juiceNetHandler;
+        final htW01Settings = spec.protocolHandler == htW01Handler;
         if (surface.entities.isEmpty &&
             rasterPrintHandler == null &&
             !ippStatus &&
             !sunSpecStatus &&
             !biSecurStatus &&
             !acpStatus &&
-            !juiceNetStatus) {
+            !juiceNetStatus &&
+            !htW01Settings) {
           return null;
         }
         return NetworkControls(
@@ -503,6 +513,7 @@ final networkControlsProvider = FutureProvider.autoDispose
           biSecurStatus: biSecurStatus,
           acpStatus: acpStatus,
           juiceNetStatus: juiceNetStatus,
+          htW01Settings: htW01Settings,
         );
       } catch (e) {
         Log.spec.warning(
