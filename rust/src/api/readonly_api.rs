@@ -6,7 +6,7 @@
 //! opcode or an address. See [`crate::protocol::readonly`].
 
 use crate::api::device_api::SafetyAdvisoryDto;
-use crate::protocol::{acinfinity, apple_acp, bisecur, modbus_sunspec, readonly, yummly};
+use crate::protocol::{acinfinity, apple_acp, bisecur, juicenet, modbus_sunspec, readonly, yummly};
 
 pub use crate::protocol::acinfinity::{
     AcInfinityFeedDto, AcInfinityPortDto, AcInfinityStatusDto, AcInfinityStoredDto,
@@ -16,6 +16,7 @@ pub use crate::protocol::bisecur::{
     BiSecurGroupDto, BiSecurPortDto, BiSecurReplyDto, BiSecurReplyKind, BiSecurSplitDto,
     BiSecurTransitionDto,
 };
+pub use crate::protocol::juicenet::{JuiceNetFrameDto, JuiceNetFrameKind};
 pub use crate::protocol::modbus_sunspec::{
     SunSpecCommonDto, SunSpecInverterDto, SunSpecMeterDto, SunSpecMeterPowerDto,
 };
@@ -425,6 +426,19 @@ pub fn acp_feed_status(header: Vec<u8>, body: Vec<u8>) -> anyhow::Result<Option<
         None => Ok(None),
         Some(elements) => Ok(Some(apple_acp::decode_status(&header, &elements)?)),
     }
+}
+
+/// Read one datagram a JuiceBox sent to this phone's listener. There is no
+/// JuiceNet function that builds a reply.
+#[flutter_rust_bridge::frb(sync)]
+pub fn juicenet_parse_datagram(datagram: Vec<u8>) -> JuiceNetFrameDto {
+    juicenet::parse_datagram(&datagram)
+}
+
+/// The port a listener offers by default.
+#[flutter_rust_bridge::frb(sync)]
+pub fn juicenet_default_listen_port() -> u16 {
+    juicenet::DEFAULT_LISTEN_PORT
 }
 
 /// What an ACP error code means.

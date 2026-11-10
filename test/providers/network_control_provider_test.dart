@@ -343,6 +343,27 @@ void main() {
       expect(controls.biSecurStatus, isFalse);
     });
 
+    test('admits a JuiceBox to its listen-only screen', () async {
+      final container = _container(
+        FakeSpecCodec(networkEntities: (_) => const []),
+        parsed: [
+          (
+            spec: _spec(
+              'Inverter',
+              'SolarEdge',
+              protocolHandler: juiceNetHandler,
+            ),
+            yaml: 'juicenet',
+          ),
+        ],
+      );
+      final controls = await container.read(
+        networkControlsProvider(request).future,
+      );
+      expect(controls!.juiceNetStatus, isTrue);
+      expect(controls.acpStatus, isFalse);
+    });
+
     test('is not claimed by a spec under another handler', () async {
       final container = _container(
         FakeSpecCodec(networkEntities: (_) => const [_plugEntity]),

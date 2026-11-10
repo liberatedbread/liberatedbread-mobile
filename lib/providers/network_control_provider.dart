@@ -386,6 +386,10 @@ class NetworkControls {
   /// not send, so this is what admits it.
   final bool acpStatus;
 
+  /// True when the device is a JuiceBox heard through the listen-only
+  /// JuiceNet handler. Its spec binds no state, because the charger pushes.
+  final bool juiceNetStatus;
+
   const NetworkControls({
     required this.specYaml,
     required this.entities,
@@ -397,6 +401,7 @@ class NetworkControls {
     this.sunSpecStatus = false,
     this.biSecurStatus = false,
     this.acpStatus = false,
+    this.juiceNetStatus = false,
   });
 
   /// Whether these controls describe a hub — a device fronting children that
@@ -429,6 +434,9 @@ const biSecurHandler = 'bisecur_mcp';
 
 /// The `protocol_handler` of the read-only AirPort base station reader.
 const acpHandler = 'apple_acp';
+
+/// The `protocol_handler` of the listen-only JuiceBox reader.
+const juiceNetHandler = 'juicenet_udp';
 
 /// Resolve what the catalogue lets us control on one network device.
 ///
@@ -473,12 +481,14 @@ final networkControlsProvider = FutureProvider.autoDispose
         final sunSpecStatus = spec.protocolHandler == sunSpecHandler;
         final biSecurStatus = spec.protocolHandler == biSecurHandler;
         final acpStatus = spec.protocolHandler == acpHandler;
+        final juiceNetStatus = spec.protocolHandler == juiceNetHandler;
         if (surface.entities.isEmpty &&
             rasterPrintHandler == null &&
             !ippStatus &&
             !sunSpecStatus &&
             !biSecurStatus &&
-            !acpStatus) {
+            !acpStatus &&
+            !juiceNetStatus) {
           return null;
         }
         return NetworkControls(
@@ -492,6 +502,7 @@ final networkControlsProvider = FutureProvider.autoDispose
           sunSpecStatus: sunSpecStatus,
           biSecurStatus: biSecurStatus,
           acpStatus: acpStatus,
+          juiceNetStatus: juiceNetStatus,
         );
       } catch (e) {
         Log.spec.warning(

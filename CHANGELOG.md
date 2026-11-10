@@ -32,6 +32,15 @@ heading.
   session keys against RFC 6070 and the spec's example, but the M1/M2 step has
   no published vector. Tested against a fake base station; not run on
   hardware.
+- **Enel X JuiceBox chargers, read-only and listen-only (`juicenet_udp`).**
+  Once the charger's stream is pointed at the phone, its status lines are
+  heard and read: charging state, current, voltage, power, session and
+  lifetime energy, temperature, frequency, rating and the limits it reports.
+  The phone never replies, so it never sends the CMD line that sets the
+  charging current; both current-limit commands stay listed and refused.
+  Plaintext only: the encrypted `v09e` / `v08` protocol is recognised and
+  said to be undecodable. The hash reproduces the spec's vectors; tested
+  against a fake charger, not run on hardware.
 - **Yeelight lights over the LAN (`yeelight_lan`).** The cube lamp's spec now
   drives power, brightness, colour and colour temperature over JSON lines on
   TCP 55443, reads state back, and paints a module's rows on a unit that lists

@@ -13,6 +13,7 @@ import 'acp_status_screen.dart';
 import 'bisecur_status_screen.dart';
 import 'hub_device_screen.dart';
 import 'ipp_printer_screen.dart';
+import 'juicenet_status_screen.dart';
 import 'label_printer_screen.dart';
 import 'network_device_screen.dart';
 import 'roomba_adoption_screen.dart';
@@ -87,6 +88,13 @@ Future<void> openNetworkControls({
             )
           : controls.acpStatus
           ? AcpStatusScreen(
+              device: device,
+              controls: controls,
+              category: category,
+              specKey: specKey,
+            )
+          : controls.juiceNetStatus
+          ? JuiceNetStatusScreen(
               device: device,
               controls: controls,
               category: category,

@@ -19,7 +19,7 @@
 use crate::error::ProtocolError;
 use crate::spec::types::DeviceSpec;
 
-use super::{acinfinity, apple_acp, bisecur, modbus_sunspec, yummly};
+use super::{acinfinity, apple_acp, bisecur, juicenet, modbus_sunspec, yummly};
 
 /// One command this app's read-only handler actually sends. `characteristic`
 /// narrows the name on a BLE spec, where a name can repeat across generations
@@ -105,6 +105,15 @@ const READ_ONLY_HANDLERS: &[ReadOnlyHandler] = &[
                   whole network down, including this phone's way back to it, \
                   and legacy mode puts the password on the wire in a \
                   reversible form.",
+    },
+    ReadOnlyHandler {
+        name: juicenet::HANDLER_NAME,
+        sent: &[],
+        refusal: "Not sent by this app: it only listens to the charger's \
+                  status lines and never replies. A current limit above what \
+                  the circuit is wired for can overheat it, the charger \
+                  clamps only to its own rating, and the offline limit is \
+                  written to EEPROM.",
     },
 ];
 
@@ -247,6 +256,7 @@ mod tests {
             apple_acp::HANDLER_NAME,
             &["authenticate_start", "get_status"],
         ),
+        ("enel-x-juicebox.yaml", juicenet::HANDLER_NAME, &[]),
     ];
 
     /// The commands that must never go out, named one by one so that renaming
@@ -286,6 +296,10 @@ mod tests {
         (
             "apple-airport-acp.yaml",
             &["reboot", "set_name", "get_name", "get_wan_ip", "get_log"],
+        ),
+        (
+            "enel-x-juicebox.yaml",
+            &["set_online_current", "set_offline_current"],
         ),
     ];
 

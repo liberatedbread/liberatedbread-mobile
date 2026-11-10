@@ -10,6 +10,7 @@ import '../frb_generated.dart';
 import '../protocol/acinfinity.dart';
 import '../protocol/apple_acp.dart';
 import '../protocol/bisecur.dart';
+import '../protocol/juicenet.dart';
 import '../protocol/modbus_sunspec.dart';
 import '../protocol/readonly.dart';
 import '../protocol/yummly.dart';
@@ -281,6 +282,17 @@ AcpStatusDto? acpFeedStatus({
   header: header,
   body: body,
 );
+
+/// Read one datagram a JuiceBox sent to this phone's listener. There is no
+/// JuiceNet function that builds a reply.
+JuiceNetFrameDto juicenetParseDatagram({required List<int> datagram}) => RustLib
+    .instance
+    .api
+    .crateApiReadonlyApiJuicenetParseDatagram(datagram: datagram);
+
+/// The port a listener offers by default.
+int juicenetDefaultListenPort() =>
+    RustLib.instance.api.crateApiReadonlyApiJuicenetDefaultListenPort();
 
 /// What an ACP error code means.
 String acpErrorMeaning({required int code}) =>

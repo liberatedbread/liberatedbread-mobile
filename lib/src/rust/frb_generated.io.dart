@@ -27,6 +27,7 @@ import 'protocol/acinfinity.dart';
 import 'protocol/apple_acp.dart';
 import 'protocol/bisecur.dart';
 import 'protocol/enphase.dart';
+import 'protocol/juicenet.dart';
 import 'protocol/modbus_sunspec.dart';
 import 'protocol/readonly.dart';
 import 'protocol/yummly.dart';
@@ -438,6 +439,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   IppPrinterStatusDto dco_decode_ipp_printer_status_dto(dynamic raw);
+
+  @protected
+  JuiceNetFrameDto dco_decode_juice_net_frame_dto(dynamic raw);
+
+  @protected
+  JuiceNetFrameKind dco_decode_juice_net_frame_kind(dynamic raw);
 
   @protected
   KasaRequestDto dco_decode_kasa_request_dto(dynamic raw);
@@ -1689,6 +1696,14 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   IppPrinterStatusDto sse_decode_ipp_printer_status_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  JuiceNetFrameDto sse_decode_juice_net_frame_dto(SseDeserializer deserializer);
+
+  @protected
+  JuiceNetFrameKind sse_decode_juice_net_frame_kind(
     SseDeserializer deserializer,
   );
 
@@ -3316,6 +3331,18 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_ipp_printer_status_dto(
     IppPrinterStatusDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_juice_net_frame_dto(
+    JuiceNetFrameDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_juice_net_frame_kind(
+    JuiceNetFrameKind self,
     SseSerializer serializer,
   );
 
