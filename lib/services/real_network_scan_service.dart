@@ -434,6 +434,14 @@ typedef UdpDelimitedFieldReader =
 /// The dialect [readUdpIdentityFields] needs the Rust core's reading for.
 const _delimitedDialect = 'field';
 
+/// Reads a Wi-Fi LOY SPACE panel's framed dev_info reply into its identity
+/// fields, or null when the datagram names no panel.
+typedef UdpPopledFieldReader =
+    Future<Map<String, String>?> Function(List<int> datagram);
+
+/// The dialect of a popled panel's binary reply, read by the Rust core.
+const _popledDialect = 'popled';
+
 /// The specs whose `udp_broadcast` probe this file already sends by hand.
 ///
 /// Each of these has a transport above that does more than send bytes and read
@@ -483,11 +491,15 @@ bool _probesWithTheirOwnTransport(String specKey) {
 /// `field:N` reads [delimitedFields], which the caller got from the Rust core
 /// because the dialect's escaping rule is protocol logic and this function
 /// cannot wait for an answer. Null means the reply is not of that shape.
+///
+/// `popled:<name>` reads [popledFields] the same way: a LOY SPACE panel's
+/// reply is a checksummed binary frame, read by the Rust core's frame layer.
 @visibleForTesting
 Map<String, String> readUdpIdentityFields(
   List<int> payload,
   List<UdpIdentityFieldDto> fields, {
   List<String>? delimitedFields,
+  Map<String, String>? popledFields,
 }) {
   if (fields.isEmpty) return const {};
   String? text;
@@ -579,6 +591,8 @@ Map<String, String> readUdpIdentityFields(
                 index < delimitedFields.length
             ? delimitedFields[index].trim()
             : null;
+      case 'popled':
+        value = popledFields?[field.path]?.trim();
       default:
         // An unknown or unexecutable dialect (`tlv:`) reads nothing rather
         // than guessing — a wrong MAC is worse than no MAC, because it is
@@ -1154,6 +1168,11 @@ class RealNetworkScanService implements NetworkScanService {
   /// means replies in that dialect identify nothing.
   final UdpDelimitedFieldReader? delimitedFieldReader;
 
+  /// Reads the `popled` identity dialect: the Rust core's frame reader in
+  /// production, injected for [delimitedFieldReader]'s reason. Null means a
+  /// panel's reply identifies nothing.
+  final UdpPopledFieldReader? popledFieldReader;
+
   /// Binds every UDP socket this service opens. Injectable so a test can hand
   /// out a socket that behaves like a REFUSED one — a send that returns 0 and
   /// delivers its SocketException on the stream a microtask later, closing the
@@ -1171,6 +1190,7 @@ class RealNetworkScanService implements NetworkScanService {
     this.codec,
     this.probeSource,
     this.delimitedFieldReader,
+    this.popledFieldReader,
     InterfaceLister? interfaceLister,
     DatagramBinder? binder,
     bool? isApplePlatform,
@@ -2006,16 +2026,28 @@ class RealNetworkScanService implements NetworkScanService {
               });
         }
 
+        Map<String, String>? popled;
+        if (_readsPopledFields(probes)) {
+          popled = await popledFieldReader?.call(datagram.data).catchError((
+            Object e,
+          ) {
+            Log.net.debug('popled reply unreadable: $e');
+            return null;
+          });
+        }
+
         // Every probe on this port gets a look at the reply: which one a
         // device answered is not knowable from the datagram, and the fields
         // that read are the ones whose dialect fits.
         Map<String, String> fields = const {};
         UdpProbeDto? answered;
         for (final probe in probes) {
-          final read = readUdpIdentityFields(datagram.data, [
-            ...probe.stableKeys,
-            ?probe.displayField,
-          ], delimitedFields: delimited);
+          final read = readUdpIdentityFields(
+            datagram.data,
+            [...probe.stableKeys, ?probe.displayField],
+            delimitedFields: delimited,
+            popledFields: popled,
+          );
           if (read.length > fields.length) {
             fields = read;
             answered = probe;
@@ -2078,6 +2110,13 @@ class RealNetworkScanService implements NetworkScanService {
       return ephemeral();
     }
   }
+
+  static bool _readsPopledFields(List<UdpProbeDto> probes) => probes.any(
+    (probe) => [
+      ...probe.stableKeys,
+      ?probe.displayField,
+    ].any((field) => field.dialect == _popledDialect),
+  );
 
   static bool _readsDelimitedFields(List<UdpProbeDto> probes) => probes.any(
     (probe) => [

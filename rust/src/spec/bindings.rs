@@ -21,7 +21,8 @@ use super::types::{
 };
 use crate::codec::types::{unsupported_single_write_kind, unsupported_single_write_transform};
 use crate::protocol::{
-    http, kasa, limitlessled, mqtt, philips_air, rabbit_air, soap, websocket, yeelight,
+    http, kasa, limitlessled, mqtt, philips_air, popled, popled_udp, rabbit_air, soap, websocket,
+    yeelight,
 };
 use std::borrow::Cow;
 use std::collections::HashMap;
@@ -1325,6 +1326,13 @@ fn qualify_network<'a>(
                 return None;
             }
             transport = philips_air::HANDLER_NAME;
+        }
+        // A Wi-Fi LOY SPACE panel's frames over UDP 9090, under the same rule.
+        // Its network commands exist only as twins of the bound BLE ones
+        // (`popled_udp::bind_network_surface`), so the renderer has nothing
+        // further to require of them here.
+        t if t == popled_udp::TRANSPORT && protocol_handler == Some(popled::HANDLER_NAME) => {
+            transport = popled::HANDLER_NAME;
         }
         _ => return None,
     }

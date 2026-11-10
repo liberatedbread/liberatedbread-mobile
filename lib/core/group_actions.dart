@@ -739,14 +739,25 @@ const kLimitlessledTransport = 'limitlessled_legacy_8899';
 /// handler's name, since `coap` is also the IKEA gateway's DTLS surface.
 const kPhilipsAirTransport = 'philips_air_coap';
 
+/// The transport a Wi-Fi LOY SPACE panel's action resolves to: the
+/// `popled_json` handler's name, standing in for bare `udp` as LimitlessLED's
+/// does.
+const kPopledTransport = 'popled_json';
+
+/// Whether a network device is a Wi-Fi LOY SPACE panel, which takes pictures
+/// over UDP as well as commands (led-space.yaml).
+bool isPopledPanel(NetworkCapabilitiesDto? capabilities) =>
+    capabilities?.protocolHandler == kPopledTransport;
+
 /// Transports the group path can actually drive headlessly today. `udp`
 /// (Rabbit Air) is deliberately absent: its every exchange needs the stored
 /// per-device key, and a bulk operation silently reaching for stored
 /// credentials is a surprise; it can join when someone asks for it. An
 /// action on any other transport (a LIFX handler's `lifx`, an LG WebSocket)
 /// resolves nothing here and the member reports an honest skip. Yeelight,
-/// LimitlessLED and the Philips purifier take no credential at all, and a
-/// group send to any of them is the same request a press on its card makes.
+/// LimitlessLED, the Philips purifier and the Wi-Fi popled panel take no
+/// credential at all, and a group send to any of them is the same request a
+/// press on its card makes.
 const Set<String> kGroupSendableTransports = {
   'http',
   'soap',
@@ -754,6 +765,7 @@ const Set<String> kGroupSendableTransports = {
   kYeelightTransport,
   kLimitlessledTransport,
   kPhilipsAirTransport,
+  kPopledTransport,
 };
 
 bool _groupSendable(NetworkActionDto action) =>

@@ -12,6 +12,7 @@ import '../services/http_control_service.dart';
 import '../services/kasa_control_service.dart';
 import '../services/lifx_control_service.dart';
 import '../services/limitlessled_control_service.dart';
+import '../services/popled_udp_control_service.dart';
 import '../services/rabbit_air_ble_client.dart';
 import '../services/network_command_sender.dart';
 import '../services/philips_air_control_service.dart';
@@ -88,6 +89,16 @@ final philipsAirControlClientProvider = Provider<PhilipsAirControlClient>(
 final limitlessledControlClientProvider = Provider<LimitlessledControlClient>(
   (ref) => LimitlessledControlClient(),
 );
+
+/// Makes the Wi-Fi popled panel transport, one per sender: each holds the
+/// rising frame sequence of one conversation with one panel, so it is not
+/// shared the way the stateless clients above are.
+final popledUdpClientFactoryProvider = Provider<PopledUdpClient Function()>((
+  ref,
+) {
+  final codec = ref.watch(specCodecProvider);
+  return () => PopledUdpClient(codec);
+});
 
 /// The Rabbit Air per-device user keys, on the same secure settings store the
 /// Hue bridge credentials use — a long-lived LAN secret, never in plain
@@ -294,6 +305,7 @@ final networkCommandSenderFactoryProvider =
           yeelight: ref.read(yeelightControlClientProvider),
           limitlessled: ref.read(limitlessledControlClientProvider),
           philipsAir: ref.read(philipsAirControlClientProvider),
+          popled: ref.read(popledUdpClientFactoryProvider)(),
           // Returned, not fire-and-forgotten: the sender awaits the save before
           // re-reading the store (so the token it just filed is findable) and
           // logs a keystore failure instead of letting it become an unhandled

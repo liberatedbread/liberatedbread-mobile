@@ -1,0 +1,10 @@
+card: 1
+name: vendor_names
+summary: "Dart: clean IEEE/Bluetooth SIG registrant names for display (strip legal suffixes, de-shout) and identify chip/radio-module vendors (Espressif, TI, Nordic, Foxconn...) so they are shown as the radio's maker, not the device's"
+language: dart
+kind: snippet
+license: unknown
+provenance:
+  authored_by: agent
+  agent: agent
+  human_reviewed: false

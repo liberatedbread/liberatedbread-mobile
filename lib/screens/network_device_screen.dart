@@ -12,6 +12,7 @@ import '../core/device_category.dart';
 import '../core/entity_keys.dart';
 import '../core/sensor_reading_level.dart';
 import '../core/error_text.dart';
+import '../core/group_actions.dart' show isPopledPanel;
 import '../core/log.dart';
 import '../core/decimal_input.dart';
 import '../models/network_device.dart';
@@ -26,6 +27,7 @@ import '../services/json_fields.dart';
 import '../services/mqtt_session.dart' show MqttMessage;
 import '../services/kasa_control_service.dart';
 import '../services/network_command_sender.dart';
+import '../services/popled_udp_image_link.dart';
 import '../services/query_source_reader.dart';
 import '../services/rabbit_air_control_service.dart';
 import '../services/rabbit_air_control_transport.dart';
@@ -38,6 +40,7 @@ import 'setup_instructions_screen.dart';
 import '../widgets/ad_banner_bar.dart';
 import '../widgets/camera_view_card.dart';
 import '../widgets/device_credentials_card.dart';
+import '../widgets/led_image_widget.dart';
 import '../widgets/entity_cards/sensor_level_chip.dart';
 import '../widgets/network_light_card.dart';
 import '../widgets/power_strip_icon.dart';
@@ -238,6 +241,9 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
 
   /// Asked once, the first time a failure wants it.
   Future<SetupInstructionsDto?>? _setupHelp;
+
+  /// A Wi-Fi panel's picture surface, asked of the spec once.
+  Future<ImageUploadDto?>? _popledImageUpload;
   bool _certificateChanged = false;
   bool _resettingCertificate = false;
 
@@ -791,6 +797,56 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
                 ),
               ),
             ),
+          ),
+        );
+      },
+    );
+  }
+
+  /// The image editor for a Wi-Fi popled panel, sending the BLE backpack's
+  /// GIF upload over UDP (see [PopledUdpImageLink]). Nothing while the spec is
+  /// read, or for a spec whose upload this build cannot encode.
+  Widget _popledImageEditor() {
+    return FutureBuilder<ImageUploadDto?>(
+      future: _popledImageUpload ??= ref
+          .read(specCodecProvider)
+          .loadDeviceSpec(widget.controls.specYaml)
+          .then((spec) => spec.imageUpload)
+          .catchError((Object e) {
+            Log.net.debug('no picture surface for ${widget.device.host}: $e');
+            return null;
+          }),
+      builder: (context, snapshot) {
+        final upload = snapshot.data;
+        if (upload == null || !upload.encodable) {
+          return const SizedBox.shrink();
+        }
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              LedImageWidget(
+                deviceId: widget.device.host,
+                imageUpload: upload,
+                specYaml: widget.controls.specYaml,
+                link: PopledUdpImageLink(
+                  ref.read(specCodecProvider),
+                  _sender.popledClient,
+                  widget.device.host,
+                  _sender.popledPort,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'Pictures go over Wi-Fi the way the Bluetooth version of this '
+                'panel takes them. That has not been tried on a Wi-Fi panel '
+                'yet.',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ],
           ),
         );
       },
@@ -2064,6 +2120,14 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
                     !entity.isInstanced &&
                     !_duplicatedByRemote(entity),
               )) ...[_entityCard(entity), const SizedBox(height: 12)],
+              // A Wi-Fi LOY SPACE panel takes pictures as well: the image
+              // editor, sending over the panel's UDP link instead of BLE, and
+              // the spec's join-the-hotspot notes (the failure path shows
+              // them already).
+              if (isPopledPanel(widget.controls.capabilities)) ...[
+                if (_error == null) _setupHelpButton(),
+                _popledImageEditor(),
+              ],
               // A power strip's outlets: one switch per child, named by its
               // alias, under a header that names it a strip. Empty (so nothing
               // renders) on a single-outlet plug.

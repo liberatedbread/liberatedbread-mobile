@@ -700,6 +700,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   List<ParameterDto> dco_decode_list_parameter_dto(dynamic raw);
 
   @protected
+  List<PopledUdpReplyDto> dco_decode_list_popled_udp_reply_dto(dynamic raw);
+
+  @protected
   Int64List dco_decode_list_prim_i_64_strict(dynamic raw);
 
   @protected
@@ -911,6 +914,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   NetworkStateProbeDto dco_decode_network_state_probe_dto(dynamic raw);
 
   @protected
+  Map<String, String>? dco_decode_opt_Map_String_String_None(dynamic raw);
+
+  @protected
   String? dco_decode_opt_String(dynamic raw);
 
   @protected
@@ -1092,6 +1098,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   PlaylistWritesDto dco_decode_playlist_writes_dto(dynamic raw);
+
+  @protected
+  PopledUdpReplyDto dco_decode_popled_udp_reply_dto(dynamic raw);
+
+  @protected
+  PopledUdpSendDto dco_decode_popled_udp_send_dto(dynamic raw);
 
   @protected
   PrintChoiceDto dco_decode_print_choice_dto(dynamic raw);
@@ -2152,6 +2164,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  List<PopledUdpReplyDto> sse_decode_list_popled_udp_reply_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   Int64List sse_decode_list_prim_i_64_strict(SseDeserializer deserializer);
 
   @protected
@@ -2437,6 +2454,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  Map<String, String>? sse_decode_opt_Map_String_String_None(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   String? sse_decode_opt_String(SseDeserializer deserializer);
 
   @protected
@@ -2660,6 +2682,14 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   PlaylistWritesDto sse_decode_playlist_writes_dto(
     SseDeserializer deserializer,
   );
+
+  @protected
+  PopledUdpReplyDto sse_decode_popled_udp_reply_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  PopledUdpSendDto sse_decode_popled_udp_send_dto(SseDeserializer deserializer);
 
   @protected
   PrintChoiceDto sse_decode_print_choice_dto(SseDeserializer deserializer);
@@ -4021,6 +4051,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_list_popled_udp_reply_dto(
+    List<PopledUdpReplyDto> self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_list_prim_i_64_strict(
     Int64List self,
     SseSerializer serializer,
@@ -4402,6 +4438,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_opt_Map_String_String_None(
+    Map<String, String>? self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_opt_String(String? self, SseSerializer serializer);
 
   @protected
@@ -4668,6 +4710,18 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_playlist_writes_dto(
     PlaylistWritesDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_popled_udp_reply_dto(
+    PopledUdpReplyDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_popled_udp_send_dto(
+    PopledUdpSendDto self,
     SseSerializer serializer,
   );
 

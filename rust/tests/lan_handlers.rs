@@ -1,7 +1,8 @@
 // Copyright 2026 Pigs Can Fly Labs LLC
 // SPDX-License-Identifier: Apache-2.0
 //
-//! The vendored Yeelight, LimitlessLED and SenseME specs through the same FFI
+//! The vendored Yeelight, LimitlessLED, SenseME and LED space specs through
+//! the same FFI
 //! the app calls: what each surfaces, what the actions route on, how a device
 //! that answered a probe finds its way back to its spec. The byte-level checks
 //! against the specs' literal frames are unit tests beside each codec.
@@ -13,10 +14,11 @@ use std::fs;
 use std::path::PathBuf;
 
 use liberated_bread_core::api::device_api::{
-    load_device_spec, match_network_device, network_entities_for_device, read_network_entity_roles,
-    render_network_limitlessled_command, render_network_yeelight_command,
-    render_network_yeelight_state_request, yeelight_decode_reply, yeelight_encode_line,
-    NetworkDeviceDto, NetworkEntityDto, SpecIdentityDto,
+    load_device_spec, match_network_device, network_entities_for_device, popled_udp_frame,
+    popled_udp_read_replies, popled_udp_upload_bodies, read_network_entity_roles,
+    render_network_limitlessled_command, render_network_popled_command,
+    render_network_yeelight_command, render_network_yeelight_state_request, yeelight_decode_reply,
+    yeelight_encode_line, NetworkDeviceDto, NetworkEntityDto, SpecIdentityDto,
 };
 
 fn spec_yaml(file: &str) -> String {
@@ -308,4 +310,112 @@ fn coap_resolves_only_for_the_philips_handler() {
             );
         }
     }
+}
+
+/// The LED space panel declares its light's brightness on the BLE
+/// characteristic only, and a `udp` device transport. Over Wi-Fi it surfaces
+/// a write-only light on the handler's own transport, with power from the
+/// command that states it.
+#[test]
+fn the_wifi_panel_surfaces_a_write_only_light() {
+    let light = only_light("led-space.yaml");
+    assert_eq!(light.state_command, "");
+    assert_eq!(light.transport.as_deref(), Some("popled_json"));
+    assert_eq!(roles(&light), vec!["turn_on", "turn_off", "set_brightness"]);
+    assert!(light.actions.iter().all(|a| a.transport == "popled_json"));
+    let brightness = light
+        .actions
+        .iter()
+        .find(|a| a.role == "set_brightness")
+        .unwrap();
+    assert_eq!((brightness.min, brightness.max), (Some(1.0), Some(15.0)));
+}
+
+#[test]
+fn the_ble_panels_stay_off_the_network() {
+    for file in [
+        "autobaba-led-backpack.yaml",
+        "nyan-bt-image-controller.yaml",
+    ] {
+        let surface = network_entities_for_device(spec_yaml(file), vec![]).expect("a surface");
+        assert!(surface.entities.is_empty(), "{file}");
+    }
+}
+
+#[test]
+fn a_panel_send_crosses_the_ffi_as_its_frame_in_datagrams() {
+    let body = render_network_popled_command(
+        spec_yaml("led-space.yaml"),
+        "set_brightness".into(),
+        HashMap::from([("brightness".to_string(), "15".to_string())]),
+    )
+    .unwrap();
+    assert_eq!(body, vec![0xC1, 0x02, 0x06, 0x02, 0x00, 0x0F]);
+    let send = popled_udp_frame(1, body);
+    // The bench's BLE frame for this command, behind the spec's UDP length.
+    assert_eq!(
+        send.datagrams,
+        vec![vec![
+            0x10, 0x00, 0xAA, 0x55, 0xFF, 0xFF, 0x0A, 0x00, 0x01, 0x00, 0xC1, 0x02, 0x06, 0x02,
+            0x00, 0x0F, 0xE2, 0x03
+        ]]
+    );
+    assert_eq!(send.gap_ms, 5);
+    let off = render_network_popled_command(
+        spec_yaml("led-space.yaml"),
+        "turn_off".into(),
+        HashMap::new(),
+    )
+    .unwrap();
+    assert_eq!(off, vec![0xC1, 0x02, 0x04, 0x02, 0x00, 0x00]);
+    assert!(render_network_popled_command(
+        spec_yaml("autobaba-led-backpack.yaml"),
+        "turn_off".into(),
+        HashMap::new(),
+    )
+    .is_err());
+}
+
+#[test]
+fn an_acknowledgement_reads_back_through_the_ffi() {
+    let ack = popled_udp_frame(9, vec![0x81, 0x82, 0x00]);
+    let replies = popled_udp_read_replies(ack.datagrams);
+    assert_eq!(replies.len(), 1);
+    assert_eq!((replies[0].seq, replies[0].ack_status), (9, Some(0)));
+    assert!(popled_udp_read_replies(vec![b"not a panel".to_vec()]).is_empty());
+}
+
+#[test]
+fn a_panel_upload_is_split_into_acknowledged_bodies() {
+    let flags = vec![vec![0xE4; 8 * 8 * 3], vec![0x00; 8 * 8 * 3]];
+    let bodies = popled_udp_upload_bodies(spec_yaml("led-space.yaml"), 8, 8, flags, 4000).unwrap();
+    assert_eq!(bodies[0], vec![0xC1, 0x02, 0x04, 0x02, 0x00, 0x01]);
+    assert_eq!(bodies[1], vec![0xC1, 0x02, 0x08, 0x02, 0x00, 0x3B]);
+    assert_eq!(
+        bodies.last().unwrap()[..6],
+        [0xC1, 0x02, 0x36, 0x3E, 0x01, 0x3B]
+    );
+    // The spec's own bound: a 64x64 panel at most.
+    assert!(
+        popled_udp_upload_bodies(spec_yaml("led-space.yaml"), 65, 1, vec![vec![0; 65 * 3]], 0)
+            .is_err()
+    );
+}
+
+/// The spec declares a probe and no `lan_protocols`, so its handler's name
+/// stands in, and only this spec of the three popled ones declares a probe.
+#[test]
+fn a_panel_that_answered_its_probe_finds_its_spec() {
+    let panel = identity("led-space.yaml");
+    assert_eq!(panel.lan_protocols, vec!["popled_json"]);
+    let matches = match_network_device(
+        vec![
+            identity("autobaba-led-backpack.yaml"),
+            identity("nyan-bt-image-controller.yaml"),
+            panel,
+        ],
+        answered("popled_json"),
+    );
+    assert_eq!(matches.len(), 1);
+    assert!(matches[0].device_name.contains("LED space"));
 }

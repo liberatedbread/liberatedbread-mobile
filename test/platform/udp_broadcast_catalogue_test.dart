@@ -85,6 +85,11 @@ const Map<String, String> _performed = {
   '48899/unspecified':
       'Mi-Light bridge, both probe strings, CSV reply read with the csv '
       'dialect (_runCatalogueProbes)',
+  '9090/binary':
+      'LED space panel dev_info probe, built by the Rust popled frame builder '
+      'because the spec gives it in prose; the framed reply read in the '
+      'popled dialect through the Rust core (_runCatalogueProbes). Only '
+      'answered on the panel\'s own "YS…" access point.',
   '31415/unspecified':
       'SenseME `<ALL;DEVICE;ID;GET>`, reply read with the field dialect '
       'through the Rust core (_runCatalogueProbes)',
@@ -196,14 +201,6 @@ const Map<String, String> _notPerformed = {
       'decodes 6666 as plaintext and 6667 as AES, per the generic spec and '
       'every published client. One of the two specs is wrong; until that is '
       'settled upstream, a gas sensor beaconing AES on 6666 is dropped.',
-  '9090/binary':
-      'led-space.yaml. Reachable only on the panel\'s own setup network (its '
-      '"YS…" access point, gateway 192.168.4.1), so this is an adoption-time '
-      'exchange rather than a LAN scan. The probe is a TLV '
-      '`{"cmd":{"get":"dev_info"}}` frame whose sequence number and checksum '
-      'change per send, which the spec gives as a builder in '
-      '`protocol_details` rather than fixed `probe_hex` — a transport needs '
-      'that builder, and the adopt flow needs to know the panel.',
   '10008/unspecified':
       'aqara-hub.yaml. A multicast "whois"/"iam" exchange: send plaintext JSON '
       'to the group 230.0.0.1:10008 carrying this host\'s IP and a listen '

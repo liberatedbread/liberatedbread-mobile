@@ -3321,10 +3321,15 @@ fn every_resolved_action_reports_the_transport_its_spec_declares() {
         // name instead of the transport declared, because `tcp-json` and `udp`
         // already route to Kasa's and Rabbit Air's framings, and `coap` is the
         // IKEA gateway's DTLS surface as well as the Philips purifier's
-        // envelope. tests/lan_handlers.rs pins what each reports.
+        // envelope. tests/lan_handlers.rs pins what each reports. (The LED space
+        // panel's commands are the twins `popled_udp::bind_network_surface`
+        // gives its BLE ones.)
         if matches!(
             spec.protocol_handler.as_deref(),
-            Some("yeelight_lan") | Some("limitlessled_legacy_8899") | Some("philips_air_coap")
+            Some("yeelight_lan")
+                | Some("limitlessled_legacy_8899")
+                | Some("philips_air_coap")
+                | Some("popled_json")
         ) {
             continue;
         }
@@ -4366,6 +4371,10 @@ fn every_declared_udp_probe_parses() {
                     // the same case: its probe is a TLV frame whose sequence
                     // number and checksum change per send, so the spec gives
                     // a builder in `protocol_details` rather than fixed bytes.
+                    // (The core has that builder and sends it, see
+                    // `the_catalogue_hands_over_the_probes_the_app_already_sends`;
+                    // the YAML itself still carries no payload, which is
+                    // what this list records.)
                     // Furbo is the different, explicitly unactionable case: its
                     // TUTK layouts are not reproduced and its presence on the
                     // port is only a hypothesis, so this is a research backlog,
@@ -4569,6 +4578,8 @@ fn the_catalogue_hands_over_the_probes_the_app_already_sends() {
     // bridge's two strings, BiSecur's LogicBox probe and Sengled's
     // search_devices — every other declared probe is `passive_ok` with no
     // payload (Tuya, Synology) or has no payload at all (the Aqara hub, S-20).
+    // The LED space panel's probe is in prose in its spec, but it is the
+    // popled frame builder's output, so the core builds it (below).
     // Pinned here rather than in Dart because this is
     // where the data is: a spec that adds a probe should show up as a change
     // to this list, which is the whole point of reading them as data.
@@ -4596,10 +4607,39 @@ fn the_catalogue_hands_over_the_probes_the_app_already_sends() {
         vec![
             "big-ass-fans-senseme.yaml:31415",
             "hormann-bisecur-gateway.yaml:4001",
+            "led-space.yaml:9090",
             "limitlessled-milight-bridge.yaml:48899",
             "limitlessled-milight-bridge.yaml:48899",
             "sengled-wifi-bulb.yaml:9080",
         ]
+    );
+
+    // The LED space panel: the spec prints the frame in its softap method
+    // (`aa 55 ff ff 08 00 01 00 c1 03 0a 00 d4 03`) and says a UDP datagram
+    // carries a u16-LE length ahead of it. Built, not copied; its reply is a
+    // frame too, read in the core's own `popled` dialect for the keys the
+    // spec's `discovery.identity` names. The Aqara hub's prose probe, whose
+    // bytes carry this phone's address, stays unsent.
+    let panel = by_key("led-space.yaml", 9090);
+    assert_eq!(panel.len(), 1);
+    assert_eq!(
+        panel[0].probe,
+        [
+            0x0E, 0x00, 0xAA, 0x55, 0xFF, 0xFF, 0x08, 0x00, 0x01, 0x00, 0xC1, 0x03, 0x0A, 0x00,
+            0xD4, 0x03
+        ]
+    );
+    assert_eq!(panel[0].broadcast_address, "255.255.255.255");
+    assert_eq!(panel[0].lan_protocols, ["popled_json"]);
+    assert_eq!(panel[0].stable_keys[0].dialect, "popled");
+    assert_eq!(panel[0].stable_keys[0].path, "id_dev");
+    assert_eq!(panel[0].display_field.as_ref().unwrap().path, "name");
+    assert!(
+        probes
+            .iter()
+            .filter(|p| p.spec_key == "aqara-hub.yaml")
+            .all(|p| p.probe.is_empty()),
+        "only the popled handler's builder stands in for a prose probe"
     );
 
     // A SenseME reply may come back broadcast, so the probe listens on its own

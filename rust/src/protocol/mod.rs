@@ -40,6 +40,7 @@ pub mod orba_midi;
 pub mod pax;
 pub mod philips_air;
 pub mod popled;
+pub mod popled_udp;
 pub mod profiles;
 pub mod rabbit_air;
 pub mod rabbit_air_ble;

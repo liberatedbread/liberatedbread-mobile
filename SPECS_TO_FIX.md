@@ -86,6 +86,43 @@ the first three are worked around in `rust/src/protocol/popled.rs`.
   `81 83 06 02 00 <level>`, `c1 03 04 00` answers `81 83 04 02 00 <state>`.
 - Display commands can move from `remaining_unknowns` and `testing` to verified.
 
+## LED space over Wi-Fi: built from the spec, not yet heard
+
+`rust/src/protocol/popled_udp.rs` drives led-space.yaml's UDP path as the spec
+words it. Nothing here has met a panel; these are the places the spec is
+silent, contradicts itself, or contradicts the bench.
+
+- **Outer length prefix (risk).** `popled_wifi_protocol.transport.udp.framing`
+  says each UDP datagram carries a u16-LE length ahead of the frame, and the
+  app sends one. The same spec's BLE `framing.length_prefix: true` said the same
+  of BLE writes, and the backpack measured otherwise (above). If a Wi-Fi panel
+  ignores the prefixed probe, the prefix is the first thing to drop. Replies
+  are read with or without it.
+- **The probe's bytes live in prose.** The softap method prints
+  `aa 55 ff ff 08 00 01 00 c1 03 0a 00 d4 03` and calls it "the same probe as
+  the AUTOBABA backpack" — the bare BLE frame — while the framing block puts a
+  prefix ahead of every datagram. The app sends `0e 00` + those bytes. Ask: a
+  `probe_hex` stating the datagram exactly (sequence 1 makes it fixed), and an
+  `identity_mapping` for the reply.
+- **What 180 counts.** "Split into 180-byte chunks" does not say whether the
+  2-byte prefix is inside the 180, nor whether a split frame's later pieces
+  each carry their own prefix. The app puts 180 frame bytes behind each prefix.
+- **The dev_info reply has no `name`.** `discovery.identity.display: "name"`,
+  but the backpack's answer is one comma-separated record (`id_dev`, model,
+  firmware, …) with no name in it. The app shows the id.
+- **Image upload is unbuildable as stated.** `features[0].format: "zlib-bmp"`
+  rides inside a `pkts_program` JSON whose TLV serialisation is never given.
+  The app sends the backpack's GIF upload instead (slot 59, 960-byte chunks,
+  commit, select), which is the same board family and frame but is NOT what the
+  spec says this app sends; untested over Wi-Fi. Either a capture of the
+  program TLVs or a note that the GIF path works on Wi-Fi panels would close
+  this.
+- **Power is not on the entity.** As on BLE, `power_toggle` states the power;
+  the app gives the Wi-Fi light `turn_on`/`turn_off` from it so the screen and
+  group buttons can reach it. The spec could bind them itself.
+- **Retry pacing.** The vendor resends up to ten times 8 s apart; the app
+  waits 2 s and tries three times, so a missing panel is reported in seconds.
+
 ## Delivered by the 2026-09-26 catalogue refresh
 
 Closed here on 2026-09-27 against the vendored tree; each line names what
