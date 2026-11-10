@@ -38,6 +38,9 @@ void main() {
         isEmpty,
       );
       expect(await catalogue.udpBroadcastProbes(), isEmpty);
+      // The pairing guide's batched setup read answers "none" too, rather
+      // than failing the guide.
+      expect(await catalogue.setupInstructions(const []), isEmpty);
     },
   );
 }

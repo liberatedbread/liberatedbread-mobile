@@ -4,7 +4,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:liberated_bread_mobile/screens/setup_instructions_screen.dart';
+import 'package:liberated_bread_mobile/services/print/os_print_service.dart';
 import 'package:liberated_bread_mobile/services/spec_codec.dart';
+
+import '../fakes/fake_os_print_service.dart';
 
 const _full = SetupInstructionsDto(
   notes: 'Enable Bluetooth on the mug, then connect.',
@@ -59,6 +62,7 @@ Future<void> _pump(
   WidgetTester tester,
   SetupInstructionsDto instructions, {
   bool afterFailedConnect = true,
+  OsPrintService? printer,
 }) {
   // The screen is a scrolling ListView; a tall surface lets every section
   // build so the assertions do not have to scroll each one into view.
@@ -68,6 +72,9 @@ Future<void> _pump(
   addTearDown(tester.view.resetDevicePixelRatio);
   return tester.pumpWidget(
     ProviderScope(
+      overrides: [
+        if (printer != null) osPrintServiceProvider.overrideWithValue(printer),
+      ],
       child: MaterialApp(
         home: SetupInstructionsScreen(
           deviceName: 'Ember Mug',
@@ -359,5 +366,21 @@ void main() {
     expect(top('Try this first'), lessThan(top('If it won’t connect')));
     expect(top('If it won’t connect'), lessThan(top('How to pair')));
     expect(find.text('If it disconnects later'), findsNothing);
+  });
+
+  testWidgets('Print from the pairing guide hands the dialog the notes', (
+    tester,
+  ) async {
+    // The printout's section order is pinned in pdf_documents_test; this is
+    // the button reaching the print dialog with a document for this device.
+    final printer = FakeOsPrintService();
+    await _pump(tester, _full, afterFailedConnect: false, printer: printer);
+
+    await tester.tap(find.byTooltip('Print'));
+    await tester.runAsync(() => Future<void>.delayed(Duration.zero));
+    await tester.pumpAndSettle();
+
+    expect(printer.jobs.map((j) => j.name), ['Ember Mug setup']);
+    expect(String.fromCharCodes(printer.jobs.single.pdf.take(5)), '%PDF-');
   });
 }

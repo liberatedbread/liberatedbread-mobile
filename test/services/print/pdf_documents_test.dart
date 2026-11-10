@@ -123,6 +123,68 @@ void main() {
     });
   });
 
+  test('a staged route and a reset procedure print every part', () {
+    const instructions = SetupInstructionsDto(
+      methods: [
+        SetupMethodDto(
+          name: 'HomeKit pairing',
+          steps: [],
+          stages: [
+            SetupStageDto(
+              name: 'Join the hub',
+              description: '  Put it near the hub.  ',
+              steps: [
+                SetupStepDto(action: 'Hold the button', expect: 'Blinks'),
+              ],
+              troubleshooting: [],
+            ),
+            // No name or description: only its steps print.
+            SetupStageDto(
+              description: '   ',
+              steps: [SetupStepDto(action: 'Scan the code')],
+              troubleshooting: [],
+            ),
+          ],
+          troubleshooting: [],
+        ),
+      ],
+      factoryReset: FactoryResetDto(
+        effect: 'Wipes it.',
+        procedures: [
+          FactoryResetProcedureDto(
+            name: 'Long press',
+            holdSeconds: 15,
+            steps: [SetupStepDto(action: 'Hold power')],
+          ),
+          FactoryResetProcedureDto(
+            name: 'Power cycle',
+            steps: [SetupStepDto(action: 'Unplug it five times')],
+          ),
+        ],
+      ),
+    );
+
+    final sections = setupInstructionsSections(instructions);
+
+    expect(sections.map((s) => s.heading), [
+      'HomeKit pairing',
+      'Factory reset',
+    ]);
+    expect(sections[0].paragraphs, [
+      'Join the hub',
+      'Put it near the hub.',
+      '1. Hold the button\n   Expect: Blinks',
+      '1. Scan the code',
+    ]);
+    expect(sections[1].paragraphs, [
+      'Wipes it.',
+      'Long press (hold 15 s)',
+      '1. Hold power',
+      'Power cycle',
+      '1. Unplug it five times',
+    ]);
+  });
+
   test('a label prints at its physical size', () async {
     final pdf = await labelImagePdf(
       format: PdfPageFormat.a4,
