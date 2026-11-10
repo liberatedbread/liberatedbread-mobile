@@ -11,6 +11,7 @@ import '../providers/roomba_provider.dart';
 import '../services/roomba_credential_store.dart';
 import 'acp_status_screen.dart';
 import 'bisecur_status_screen.dart';
+import 'ht_w01_screen.dart';
 import 'hub_device_screen.dart';
 import 'ipp_printer_screen.dart';
 import 'juicenet_status_screen.dart';
@@ -95,6 +96,13 @@ Future<void> openNetworkControls({
             )
           : controls.juiceNetStatus
           ? JuiceNetStatusScreen(
+              device: device,
+              controls: controls,
+              category: category,
+              specKey: specKey,
+            )
+          : controls.htW01Settings
+          ? HtW01Screen(
               device: device,
               controls: controls,
               category: category,

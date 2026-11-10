@@ -4,6 +4,7 @@
 pub mod device_api;
 pub mod enphase_api;
 pub mod health_api;
+pub mod ht_w01_api;
 pub mod ipl_api;
 pub mod mock_api;
 pub mod mpid_api;

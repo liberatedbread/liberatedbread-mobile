@@ -86,6 +86,16 @@ heading.
   `format` describes and cards keep their last state across the rest; packed
   bit fields decode by their mask; and a role bound as `{command, values}`
   sends those values. Group commands now skip vehicles as they skip locks.
+- **Vevor VT256 / HT-W01 thermal camera settings (`ht_w01_command`).** With
+  the phone joined to the camera's own Wi-Fi, palette, measuring range and
+  emissivity are read and set, and the shutter refreshed, over the 0xFB-framed
+  TCP channel on port 8080. The configuration reset is not sendable: the spec
+  cannot say what it clears. Restart, Wi-Fi channel and distance are not
+  offered either: the first two drop the camera's network, and the distance
+  unit is unknown. Reply values are read only in the `[parameter, value]` shape
+  the spec does not confirm, and the thermal stream is not decoded because its
+  layout is not recovered. The frames match the spec's literal ones; tested
+  against a fake camera, not run on hardware.
 - **Yeelight lights over the LAN (`yeelight_lan`).** The cube lamp's spec now
   drives power, brightness, colour and colour temperature over JSON lines on
   TCP 55443, reads state back, and paints a module's rows on a unit that lists
