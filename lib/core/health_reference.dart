@@ -161,6 +161,8 @@ HealthReferenceRow bloodPressureBeurerReference(
   return bloodPressureBeurerRows[0];
 }
 
-bool _validOxygen(double value) => value.isFinite && value >= 0;
+/// Zero is a sensor with nothing in it, not a saturation: it must not be
+/// placed in the table's lowest band.
+bool _validOxygen(double value) => value.isFinite && value > 0;
 
 bool _validPressure(double value) => value.isFinite && value >= 0;

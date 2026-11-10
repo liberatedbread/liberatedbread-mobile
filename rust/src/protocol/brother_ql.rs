@@ -68,6 +68,10 @@ const MARGIN: [u8; 3] = [0x1B, 0x69, 0x64];
 const RASTER_ROW: [u8; 2] = [0x67, 0x00];
 const BLANK_ROW: u8 = 0x5A;
 const PRINT_FINAL_PAGE: u8 = 0x1A;
+/// FF: print this page and keep the job open for another.
+const PRINT_PAGE: u8 = 0x0C;
+/// The most copies one job carries; a roll is 30 m and a typo is not a plan.
+pub const MAX_COPIES: u16 = 99;
 
 /// `geometry.invalidate_bytes` — 200 for the QL series (brother_ql uses the
 /// same count for every QL model, so it is a language constant here, not a
@@ -146,6 +150,11 @@ pub struct JobOptions {
     pub high_quality: bool,
     /// An explicit feed margin in dots; `None` takes the media's default.
     pub margin_dots: Option<u16>,
+    /// How many times the label is printed, as pages of ONE job (0 is 1).
+    /// One connection for the lot: a second job opened while the first is
+    /// still printing can be refused, leaving the count short with no way
+    /// to say by how many.
+    pub copies: u16,
 }
 
 impl Default for JobOptions {
@@ -154,6 +163,7 @@ impl Default for JobOptions {
             auto_cut: true,
             high_quality: false,
             margin_dots: None,
+            copies: 1,
         }
     }
 }
@@ -208,37 +218,9 @@ pub fn encode_print_job(
     out.resize(out.len() + INVALIDATE_BYTES, 0x00);
     out.extend_from_slice(&INITIALIZE);
 
-    // Media & quality: ESC i z + 10 bytes.
-    let mut flags = FLAG_VALID | FLAG_MEDIA_TYPE | FLAG_MEDIA_WIDTH;
-    if media.length_mm != 0 {
-        flags |= FLAG_MEDIA_LENGTH;
-    }
-    if options.high_quality {
-        flags |= FLAG_HIGH_QUALITY;
-    }
-    out.extend_from_slice(&MEDIA_AND_QUALITY);
-    out.push(flags);
-    out.push(media.media_type.wire());
-    out.push(media.width_mm);
-    out.push(media.length_mm);
-    out.extend_from_slice(&height.to_le_bytes()); // raster-row count, u32 LE
-    out.push(0x00); // starting page (0 = the first/only page)
-    out.push(0x00); // trailing fixed byte
-
-    if options.auto_cut {
-        out.extend_from_slice(&AUTOCUT_ON);
-        out.extend_from_slice(&CUT_EVERY_ONE_PAGE);
-    }
-    out.extend_from_slice(&EXPANDED_CUT_AT_END);
-    out.extend_from_slice(&MARGIN);
-    let margin = options
-        .margin_dots
-        .or_else(|| spec_feed_margin_dots(spec, media))
-        .unwrap_or(media.media_type.default_feed_margin_dots());
-    out.extend_from_slice(&margin.to_le_bytes());
-
     // Rows: dark pixel = black dot = bit 1, MSB first, image mirrored L-R so
     // column 0 is the highest bit index, padded white to the head width.
+    let mut raster = Vec::new();
     let bright = brightness_mask(rgb);
     let w = width as usize;
     for y in 0..height as usize {
@@ -252,16 +234,62 @@ pub fn encode_print_job(
             }
         }
         if any_black {
-            out.extend_from_slice(&RASTER_ROW);
+            raster.extend_from_slice(&RASTER_ROW);
             // row_bytes <= 255 (printhead_row_bytes bounds the width at 2040
             // dots for exactly this one-byte length field).
-            out.push(row_bytes as u8);
-            out.extend_from_slice(&row);
+            raster.push(row_bytes as u8);
+            raster.extend_from_slice(&row);
         } else {
-            out.push(BLANK_ROW);
+            raster.push(BLANK_ROW);
         }
     }
-    out.push(PRINT_FINAL_PAGE);
+
+    let copies = options.copies.max(1);
+    if copies > MAX_COPIES {
+        return Err(ProtocolError::ImageDimensionsInvalid {
+            reason: format!("{copies} copies is more than the {MAX_COPIES} one job carries"),
+        });
+    }
+    // Each page restates its media and mode, as the vendor's own driver
+    // does, then its rows; FF prints a page and keeps the job open, SUB
+    // prints the last and ends it.
+    for page in 0..copies {
+        // Media & quality: ESC i z + 10 bytes.
+        let mut flags = FLAG_VALID | FLAG_MEDIA_TYPE | FLAG_MEDIA_WIDTH;
+        if media.length_mm != 0 {
+            flags |= FLAG_MEDIA_LENGTH;
+        }
+        if options.high_quality {
+            flags |= FLAG_HIGH_QUALITY;
+        }
+        out.extend_from_slice(&MEDIA_AND_QUALITY);
+        out.push(flags);
+        out.push(media.media_type.wire());
+        out.push(media.width_mm);
+        out.push(media.length_mm);
+        out.extend_from_slice(&height.to_le_bytes()); // raster-row count, u32 LE
+        out.push(u8::from(page > 0)); // 0 on the first page, 1 on later ones
+        out.push(0x00); // trailing fixed byte
+
+        if options.auto_cut {
+            out.extend_from_slice(&AUTOCUT_ON);
+            out.extend_from_slice(&CUT_EVERY_ONE_PAGE);
+        }
+        out.extend_from_slice(&EXPANDED_CUT_AT_END);
+        out.extend_from_slice(&MARGIN);
+        let margin = options
+            .margin_dots
+            .or_else(|| spec_feed_margin_dots(spec, media))
+            .unwrap_or(media.media_type.default_feed_margin_dots());
+        out.extend_from_slice(&margin.to_le_bytes());
+
+        out.extend_from_slice(&raster);
+        out.push(if page + 1 == copies {
+            PRINT_FINAL_PAGE
+        } else {
+            PRINT_PAGE
+        });
+    }
     Ok(out)
 }
 

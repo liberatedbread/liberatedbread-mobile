@@ -1094,6 +1094,7 @@ abstract class RustLibApi extends BaseApi {
     required List<int> rgb,
     required int width,
     required int height,
+    required int copies,
   });
 
   Future<Uint8List> crateApiDeviceApiRenderBrotherQlTestLabel({
@@ -8664,6 +8665,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     required List<int> rgb,
     required int width,
     required int height,
+    required int copies,
   }) {
     return handler.executeNormal(
       NormalTask(
@@ -8674,6 +8676,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           sse_encode_list_prim_u_8_loose(rgb, serializer);
           sse_encode_u_32(width, serializer);
           sse_encode_u_32(height, serializer);
+          sse_encode_u_32(copies, serializer);
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
@@ -8686,7 +8689,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeErrorData: sse_decode_AnyhowException,
         ),
         constMeta: kCrateApiPrintApiRenderBrotherQlJobConstMeta,
-        argValues: [specYaml, params, rgb, width, height],
+        argValues: [specYaml, params, rgb, width, height, copies],
         apiImpl: this,
       ),
     );
@@ -8695,7 +8698,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   TaskConstMeta get kCrateApiPrintApiRenderBrotherQlJobConstMeta =>
       const TaskConstMeta(
         debugName: 'render_brother_ql_job',
-        argNames: ['specYaml', 'params', 'rgb', 'width', 'height'],
+        argNames: ['specYaml', 'params', 'rgb', 'width', 'height', 'copies'],
       );
 
   @override
@@ -14542,13 +14545,14 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   PulseOxHistoryChunkDto dco_decode_pulse_ox_history_chunk_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 4)
-      throw Exception('unexpected arr length: expect 4 but see ${arr.length}');
+    if (arr.length != 5)
+      throw Exception('unexpected arr length: expect 5 but see ${arr.length}');
     return PulseOxHistoryChunkDto(
       consumed: dco_decode_u_32(arr[0]),
       sessions: dco_decode_list_pulse_ox_session_dto(arr[1]),
       records: dco_decode_u_8(arr[2]),
-      endOfTransfer: dco_decode_bool(arr[3]),
+      skipped: dco_decode_u_8(arr[3]),
+      endOfTransfer: dco_decode_bool(arr[4]),
     );
   }
 
@@ -19887,11 +19891,13 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var var_consumed = sse_decode_u_32(deserializer);
     var var_sessions = sse_decode_list_pulse_ox_session_dto(deserializer);
     var var_records = sse_decode_u_8(deserializer);
+    var var_skipped = sse_decode_u_8(deserializer);
     var var_endOfTransfer = sse_decode_bool(deserializer);
     return PulseOxHistoryChunkDto(
       consumed: var_consumed,
       sessions: var_sessions,
       records: var_records,
+      skipped: var_skipped,
       endOfTransfer: var_endOfTransfer,
     );
   }
@@ -24772,6 +24778,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_u_32(self.consumed, serializer);
     sse_encode_list_pulse_ox_session_dto(self.sessions, serializer);
     sse_encode_u_8(self.records, serializer);
+    sse_encode_u_8(self.skipped, serializer);
     sse_encode_bool(self.endOfTransfer, serializer);
   }
 

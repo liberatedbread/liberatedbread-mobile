@@ -55,6 +55,7 @@ pub struct PulseOxHistoryChunkDto {
     pub consumed: u32,
     pub sessions: Vec<PulseOxSessionDto>,
     pub records: u8,
+    pub skipped: u8,
     pub end_of_transfer: bool,
 }
 
@@ -208,6 +209,11 @@ impl From<HealthSample> for HealthSampleDto {
                 pulse_oximeter: None,
                 blood_pressure: Some(reading.into()),
             },
+            // Neither: a frame with nothing to show.
+            HealthSample::NoReading => Self {
+                pulse_oximeter: None,
+                blood_pressure: None,
+            },
         }
     }
 }
@@ -234,6 +240,7 @@ impl From<PulseOxHistoryChunk> for PulseOxHistoryChunkDto {
             consumed: chunk.consumed as u32,
             sessions: chunk.sessions.into_iter().map(Into::into).collect(),
             records: chunk.records,
+            skipped: chunk.skipped,
             end_of_transfer: chunk.end_of_transfer,
         }
     }

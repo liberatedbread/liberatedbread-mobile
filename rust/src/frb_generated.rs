@@ -8104,6 +8104,7 @@ fn wire__crate__api__print_api__render_brother_ql_job_impl(
             let api_rgb = <Vec<u8>>::sse_decode(&mut deserializer);
             let api_width = <u32>::sse_decode(&mut deserializer);
             let api_height = <u32>::sse_decode(&mut deserializer);
+            let api_copies = <u32>::sse_decode(&mut deserializer);
             deserializer.end();
             move |context| {
                 transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
@@ -8114,6 +8115,7 @@ fn wire__crate__api__print_api__render_brother_ql_job_impl(
                             api_rgb,
                             api_width,
                             api_height,
+                            api_copies,
                         )?;
                         Ok(output_ok)
                     })(),
@@ -15192,11 +15194,13 @@ impl SseDecode for crate::api::health_api::PulseOxHistoryChunkDto {
         let mut var_sessions =
             <Vec<crate::api::health_api::PulseOxSessionDto>>::sse_decode(deserializer);
         let mut var_records = <u8>::sse_decode(deserializer);
+        let mut var_skipped = <u8>::sse_decode(deserializer);
         let mut var_endOfTransfer = <bool>::sse_decode(deserializer);
         return crate::api::health_api::PulseOxHistoryChunkDto {
             consumed: var_consumed,
             sessions: var_sessions,
             records: var_records,
+            skipped: var_skipped,
             end_of_transfer: var_endOfTransfer,
         };
     }
@@ -20847,6 +20851,7 @@ impl flutter_rust_bridge::IntoDart for crate::api::health_api::PulseOxHistoryChu
             self.consumed.into_into_dart().into_dart(),
             self.sessions.into_into_dart().into_dart(),
             self.records.into_into_dart().into_dart(),
+            self.skipped.into_into_dart().into_dart(),
             self.end_of_transfer.into_into_dart().into_dart(),
         ]
         .into_dart()
@@ -25315,6 +25320,7 @@ impl SseEncode for crate::api::health_api::PulseOxHistoryChunkDto {
         <u32>::sse_encode(self.consumed, serializer);
         <Vec<crate::api::health_api::PulseOxSessionDto>>::sse_encode(self.sessions, serializer);
         <u8>::sse_encode(self.records, serializer);
+        <u8>::sse_encode(self.skipped, serializer);
         <bool>::sse_encode(self.end_of_transfer, serializer);
     }
 }

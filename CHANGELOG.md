@@ -110,6 +110,12 @@ heading.
   the spec does not confirm, and the thermal stream is not decoded because its
   layout is not recovered. The frames match the spec's literal ones; tested
   against a fake camera, not run on hardware.
+- **Health readings are kept on the phone.** Pulse-oximeter sessions and
+  blood-pressure readings a device hands over are saved per device in the
+  app's own storage and shown again on the next connection, with a "Clear
+  saved" control on the panel. Nothing is sent anywhere and they are never
+  part of a device report. Live oximeter samples are not kept.
+
 - **Yeelight lights over the LAN (`yeelight_lan`).** The cube lamp's spec now
   drives power, brightness, colour and colour temperature over JSON lines on
   TCP 55443, reads state back, and paints a module's rows on a unit that lists
@@ -799,6 +805,16 @@ heading.
     sync ends instead of spinning; a 0/0 pressure is not "Normal"; a Braun
     command the device acknowledged is no longer reported as unacknowledged
     when its completion is late.
+  - *Follow-ups:* Brother copies go as pages of one job instead of a
+    connection each; report redaction also catches address tails
+    (`shelly1-AABBCC`), serials and IPv6, redacts an unrecognised option the
+    same way, drops unparseable mDNS sightings, and findings already handled
+    no longer use up the per-device cap; an oximeter frame with zeros in it is
+    "no reading", not 0 %; a PO60 sync skips a record it cannot read (and
+    says how many), keeps a session carried by the end-of-transfer record, and
+    its timeout restarts on progress; a name-matched spec is credited for the
+    declared services a unit does carry, so one missing an optional service
+    no longer loses to a looser spec that declares fewer.
   - *Read-only handlers:* a dropped BLE link is reported; a SunSpec socket
     drop does not hide the meter for the session; an AC Infinity stored-level
     reply does not clear the stale warning; BiSecur's 2 s position-poll floor

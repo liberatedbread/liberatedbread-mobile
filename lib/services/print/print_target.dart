@@ -152,15 +152,17 @@ class BrotherQlTarget implements LabelPrintTarget {
         rgb: rgb,
         width: width,
         height: height,
+        // Pages of one job, not a job each: the printer can refuse a second
+        // connection while it is still printing the first label, and a run
+        // that stopped there had no way to say how many had come out.
+        copies: copies,
       );
     } on Object {
       return const PrintFailed('Could not encode the label for this roll.');
     }
-    for (var i = 0; i < copies; i++) {
-      final result = await transport.send(host, port, job);
-      if (result case BrotherQlSendFailed(:final reason)) {
-        return PrintFailed(reason);
-      }
+    final result = await transport.send(host, port, job);
+    if (result case BrotherQlSendFailed(:final reason)) {
+      return PrintFailed(reason);
     }
     return const PrintOk();
   }

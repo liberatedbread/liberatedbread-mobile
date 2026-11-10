@@ -311,9 +311,10 @@ bool isContradictedNameOnlyMatch(
 /// which device this is, and [gattFingerprintOf] leaves them out.
 const Set<String> _infrastructureServices = {'1800', '1801', '180a', '180f'};
 
-/// How many of [match]'s declared GATT services the connected device carries,
-/// when it carries ALL of them and there are at least two, or one when that
-/// service corroborates the spec's name match (infrastructure aside); 0 otherwise.
+/// How many of [match]'s declared GATT services the connected device carries
+/// (infrastructure aside), when that count is evidence: for a spec the
+/// device's NAME also matched, however many are present; for any other, only
+/// when ALL of them are and there are at least two. 0 otherwise.
 ///
 /// A multi-service fingerprint that is wholly present is the strongest
 /// evidence a post-connect GATT table can give, and the matcher's confidence
@@ -323,9 +324,18 @@ const Set<String> _infrastructureServices = {'1800', '1801', '180a', '180f'};
 /// whose only identification UUID is the SIG 0x1802 (so `possible`). A single
 /// declared service is not a fingerprint on its own, but it counts when it
 /// corroborates the spec's name match: Anova and Even G1 each declare one
-/// service and would otherwise lose to an unrelated UUID-only spec. A
-/// partly-present fingerprint is not one either — an optional service a unit
-/// omits must not demote its own spec below one that happens to declare fewer.
+/// service and would otherwise lose to an unrelated UUID-only spec.
+///
+/// The name is what makes a PARTLY-present table count too. Without a name
+/// match a partial fingerprint is nothing — any LED strip shares ffe0 with a
+/// dozen specs. With one, each declared service the unit carries is
+/// corroboration of a match made on independent evidence, and crediting only
+/// a whole table demoted the better spec: a named spec declaring two
+/// services, on a unit that omits the optional one, scored 0 and lost
+/// outright to a looser named spec declaring just the shared one (1) —
+/// whatever their confidences, since this sorts ahead of confidence. Counted
+/// by what is present, the two tie and confidence decides, and a unit that
+/// does carry both still puts its own spec first.
 ///
 /// A spec that names its products (declares any name axis:
 /// `local_name_prefixes`, `local_names` or `name_matchers`, the three Rust
@@ -353,12 +363,11 @@ int gattFingerprintOf(
   final declared = {
     for (final uuid in match.entry.gattServiceUuids) normalizeUuid(uuid),
   }..removeAll(_infrastructureServices);
-  if (declared.isEmpty ||
-      (declared.length == 1 && !match.matchedByNamePrefix)) {
-    return 0;
-  }
+  if (declared.isEmpty) return 0;
   final discovered = {for (final uuid in discoveredUuids) normalizeUuid(uuid)};
-  return discovered.containsAll(declared) ? declared.length : 0;
+  final present = declared.where(discovered.contains).length;
+  if (match.matchedByNamePrefix) return present;
+  return declared.length >= 2 && present == declared.length ? present : 0;
 }
 
 /// Whether [identity] names its products on any axis Rust's

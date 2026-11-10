@@ -2225,7 +2225,14 @@ class FakeSpecCodec implements SpecCodec {
     required Uint8List rgb,
     required int width,
     required int height,
-  }) async => Uint8List.fromList([width & 0xFF, height & 0xFF, ...rgb.take(3)]);
+    int copies = 1,
+  }) async {
+    brotherJobCopies.add(copies);
+    return Uint8List.fromList([width & 0xFF, height & 0xFF, ...rgb.take(3)]);
+  }
+
+  /// The `copies` each [renderBrotherQlJob] call asked for.
+  final List<int> brotherJobCopies = [];
 
   /// What [rasterPrintVariantForName] answers; null unless a test sets it.
   String? rasterPrintVariant;

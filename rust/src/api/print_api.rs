@@ -411,9 +411,19 @@ pub fn render_brother_ql_job(
     rgb: Vec<u8>,
     width: u32,
     height: u32,
+    copies: u32,
 ) -> anyhow::Result<Vec<u8>> {
     let spec = crate::protocol::dispatch::parse_or_cached(&spec_yaml)?;
     let p = brother_placement(&spec, &params)?;
+    let copies = u16::try_from(copies)
+        .ok()
+        .filter(|n| (1..=crate::protocol::brother_ql::MAX_COPIES).contains(n))
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "{copies} copies is outside the 1-{} one job carries",
+                crate::protocol::brother_ql::MAX_COPIES
+            )
+        })?;
     let (w, h) = (width as usize, height as usize);
     if w == 0 || h == 0 {
         anyhow::bail!("an empty canvas has nothing to print");
@@ -471,6 +481,7 @@ pub fn render_brother_ql_job(
     };
     let options = crate::protocol::brother_ql::JobOptions {
         auto_cut: params.auto_cut,
+        copies,
         // The feed margin is the encoder's to pick: the spec's media table
         // entry for this roll, else the per-kind default.
         ..Default::default()
@@ -680,7 +691,7 @@ features:
         let w = canvas.width_dots as usize;
 
         let rgb = [0u8, 0, 0].repeat(w * 2);
-        let job = render_brother_ql_job(yaml, params(62, 0, false), rgb, w as u32, 2).unwrap();
+        let job = render_brother_ql_job(yaml, params(62, 0, false), rgb, w as u32, 2, 1).unwrap();
         let lit = first_row_lit(&job, 1296);
         assert_eq!(lit.len(), w, "the whole canvas prints");
         // The run ends right_margin (12) + dead zone (44) dots from the
@@ -695,7 +706,8 @@ features:
         assert_eq!(canvas.width_dots, 165);
         assert_eq!(canvas.length_dots, Some(566));
 
-        let job = render_brother_ql_job(yaml, params(17, 54, true), vec![0, 0, 0], 1, 1).unwrap();
+        let job =
+            render_brother_ql_job(yaml, params(17, 54, true), vec![0, 0, 0], 1, 1, 1).unwrap();
         assert!(job.windows(13).any(|field| {
             field.starts_with(&[0x1B, 0x69, 0x7A])
                 && field[4] == 0x0B
@@ -713,6 +725,7 @@ features:
                 yaml.clone(),
                 params(width, length, die_cut),
                 vec![0, 0, 0],
+                1,
                 1,
                 1,
             )
@@ -740,6 +753,7 @@ features:
             [0u8, 0, 0].repeat(100),
             100,
             1,
+            1,
         )
         .unwrap();
         let lit = first_row_lit(&job, 1296);
@@ -752,6 +766,7 @@ features:
             params(62, 0, false),
             vec![0; (full + 1) * 3],
             too_wide,
+            1,
             1
         )
         .is_err());
@@ -784,7 +799,8 @@ features:
             params(62, 0, false),
             vec![],
             1 << 31,
-            1 << 31
+            1 << 31,
+            1
         )
         .is_err());
         // A one-dot-wide label ten million dots long is a 30 MB buffer the
@@ -796,9 +812,39 @@ features:
             vec![255; tall as usize * 3],
             1,
             tall,
+            1,
         )
         .unwrap_err();
         assert!(err.to_string().contains("at most"), "{err}");
+    }
+
+    #[test]
+    fn copies_are_pages_of_one_job() {
+        let yaml = vendored("brother-ql-1110nwb.yaml");
+        let job = |copies| {
+            render_brother_ql_job(yaml.clone(), params(62, 0, false), vec![0; 3], 1, 1, copies)
+        };
+        let one = job(1).unwrap();
+        let three = job(3).unwrap();
+        let count = |bytes: &[u8], needle: &[u8]| {
+            bytes.windows(needle.len()).filter(|w| *w == needle).count()
+        };
+        // One job: one switch to raster mode, one initialise, three pages.
+        assert_eq!(count(&three, &[0x1B, 0x69, 0x61, 0x01]), 1);
+        assert_eq!(count(&three, &[0x1B, 0x69, 0x7A]), 3);
+        // The first page says it is first; the others say they are not.
+        let pages: Vec<u8> = three
+            .windows(13)
+            .filter(|w| w.starts_with(&[0x1B, 0x69, 0x7A]))
+            .map(|w| w[11])
+            .collect();
+        assert_eq!(pages, [0, 1, 1]);
+        // FF between pages, SUB after the last, and only there.
+        assert_eq!(three.last(), Some(&0x1A));
+        assert_eq!(one.last(), Some(&0x1A));
+        assert!(three.len() > one.len() * 2);
+        assert!(job(0).is_err());
+        assert!(job(100).is_err());
     }
 
     #[test]
@@ -832,12 +878,12 @@ features:
     fn brother_rendering_rejects_bad_buffers_and_encoder_limits() {
         let yaml = vendored("brother-ql-1110nwb.yaml");
         assert!(
-            render_brother_ql_job(yaml.clone(), params(62, 0, false), vec![0; 3], 1, 2).is_err()
+            render_brother_ql_job(yaml.clone(), params(62, 0, false), vec![0; 3], 1, 2, 1).is_err()
         );
 
         let no_height = yaml.replace("max_height: 35434", "max_height: 0");
         assert!(
-            render_brother_ql_job(no_height, params(62, 0, false), vec![255; 3], 1, 1).is_err()
+            render_brother_ql_job(no_height, params(62, 0, false), vec![255; 3], 1, 1, 1).is_err()
         );
     }
 

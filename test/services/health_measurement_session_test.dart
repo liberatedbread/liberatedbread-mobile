@@ -161,12 +161,14 @@ void main() {
             consumed: 2,
             sessions: [sessionDto],
             records: 12,
+            skipped: 0,
             endOfTransfer: false,
           ),
           const PulseOxHistoryChunkDto(
             consumed: 1,
             sessions: [],
             records: 0,
+            skipped: 0,
             endOfTransfer: true,
           ),
         ];
@@ -299,6 +301,7 @@ void main() {
           consumed: bytes.length,
           sessions: const [sessionDto],
           records: 0,
+          skipped: 0,
           endOfTransfer: false,
         ),
       );

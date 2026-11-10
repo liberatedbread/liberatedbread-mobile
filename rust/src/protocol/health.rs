@@ -30,6 +30,10 @@ pub struct BloodPressureReading {
 pub enum HealthSample {
     PulseOximeter(PulseOxSample),
     BloodPressure(BloodPressureReading),
+    /// A well-formed frame that carries no measurement: an oximeter with no
+    /// finger in it, or one of its other frame types. Not an error, and not
+    /// a value to show.
+    NoReading,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -50,6 +54,10 @@ pub struct PulseOxHistoryChunk {
     pub consumed: usize,
     pub sessions: Vec<PulseOxSession>,
     pub records: u8,
+    /// Records that arrived whole and would not read as a session. They are
+    /// consumed and counted rather than failing the transfer: one bad record
+    /// used to take every session after it with it.
+    pub skipped: u8,
     pub end_of_transfer: bool,
 }
 
@@ -66,7 +74,10 @@ pub fn decode_live_sample(
         .unwrap_or_default();
     match kind {
         "pulse_oximetry" if has_command(spec, "poll_measurement") => {
-            decode_f7_sample(bytes).map(HealthSample::PulseOximeter)
+            decode_f7_sample(bytes).map(|sample| match sample {
+                Some(sample) => HealthSample::PulseOximeter(sample),
+                None => HealthSample::NoReading,
+            })
         }
         "blood_pressure" => {
             decode_blood_pressure(spec, char_uuid, bytes).map(HealthSample::BloodPressure)
@@ -95,6 +106,7 @@ pub fn decode_po60_history(spec: &DeviceSpec, bytes: &[u8]) -> Result<PulseOxHis
 
     let mut sessions = Vec::new();
     let mut records = 0_u8;
+    let mut skipped = 0_u8;
     let mut consumed = 0;
     let mut end_of_transfer = false;
     while consumed < bytes.len() {
@@ -112,11 +124,21 @@ pub fn decode_po60_history(spec: &DeviceSpec, bytes: &[u8]) -> Result<PulseOxHis
         let record_index = masked_field(record, fields, "record_index", false)
             .ok_or_else(|| anyhow!("PO60 record has no index"))? as u8;
         consumed += RECORD_LEN;
+        let session = decode_po60_session(record, fields, record_index);
         if record_index >> 4 == 0x4 {
+            // The flag marks the LAST record, and the spec does not say it
+            // is an empty one — it carries a record index like the rest. So
+            // a session in it is kept; anything else is just the terminator.
+            if let Ok(session) = session {
+                sessions.push(session);
+            }
             end_of_transfer = true;
             break;
         }
-        sessions.push(decode_po60_session(record, fields, record_index)?);
+        match session {
+            Ok(session) => sessions.push(session),
+            Err(_) => skipped = skipped.saturating_add(1),
+        }
         records = records.saturating_add(1);
     }
 
@@ -124,29 +146,41 @@ pub fn decode_po60_history(spec: &DeviceSpec, bytes: &[u8]) -> Result<PulseOxHis
         consumed,
         sessions,
         records,
+        skipped,
         end_of_transfer,
     })
 }
 
-fn decode_f7_sample(bytes: &[u8]) -> Result<PulseOxSample> {
+/// `None` for a frame that is the oximeter's but holds no reading: another
+/// frame type on the same characteristic (history packets ride it too), or
+/// zeros for SpO2 or pulse, which is how the sensor says nothing is in it.
+/// Zero is not a physiological value, and shown as one it lands in the
+/// reference table's lowest band.
+fn decode_f7_sample(bytes: &[u8]) -> Result<Option<PulseOxSample>> {
     if bytes.len() < 9 {
         bail!(
             "F7 measurement is short: expected 9 bytes, got {}",
             bytes.len()
         );
     }
-    if bytes[0] != 0xAB || bytes[4] != 0x30 {
+    if bytes[0] != 0xAB {
         bail!("notification is not an F7 measurement response");
+    }
+    if bytes[4] != 0x30 {
+        return Ok(None);
     }
     let spo2 = bytes[7];
     if spo2 > 100 {
         bail!("F7 reported an invalid SpO2 percentage");
     }
-    Ok(PulseOxSample {
+    if spo2 == 0 || bytes[6] == 0 {
+        return Ok(None);
+    }
+    Ok(Some(PulseOxSample {
         spo2_percent: f64::from(spo2),
         pulse_bpm: f64::from(bytes[6]),
         perfusion_index_percent: Some(f64::from(bytes[8]) / 10.0),
-    })
+    }))
 }
 
 fn decode_blood_pressure(
@@ -241,6 +275,10 @@ fn decode_po60_session(
     let pulse_max_bpm = escaped_pulse("pr_max", 0x04)?;
     let pulse_min_bpm = escaped_pulse("pr_min", 0x08)?;
     let pulse_avg_bpm = escaped_pulse("pr_avg", 0x10)?;
+    // Zero is an empty slot (or a terminator), not a session at 0 %.
+    if spo2_min == 0 || pulse_min_bpm == 0 {
+        bail!("PO60 record carries no measurement");
+    }
     if spo2_max > 100 || spo2_min > spo2_avg || spo2_avg > spo2_max {
         bail!("PO60 record has inconsistent SpO2 summary values");
     }
@@ -379,13 +417,42 @@ mod tests {
 
     #[test]
     fn decodes_f7_values_and_rejects_wrong_frames() {
-        let sample = decode_f7_sample(&[0xAB, 0, 3, 0xFF, 0x30, 0x80, 72, 97, 15]).unwrap();
+        let sample = decode_f7_sample(&[0xAB, 0, 3, 0xFF, 0x30, 0x80, 72, 97, 15])
+            .unwrap()
+            .unwrap();
         assert_eq!(sample.spo2_percent, 97.0);
         assert_eq!(sample.pulse_bpm, 72.0);
         assert_eq!(sample.perfusion_index_percent, Some(1.5));
         assert!(decode_f7_sample(&[0xAB, 0, 3]).is_err());
-        assert!(decode_f7_sample(&[0xAB, 0, 3, 0xFF, 0x31, 0x80, 72, 97, 15]).is_err());
+        assert!(decode_f7_sample(&[0x00, 0, 3, 0xFF, 0x30, 0x80, 72, 97, 15]).is_err());
         assert!(decode_f7_sample(&[0xAB, 0, 3, 0xFF, 0x30, 0x80, 72, 101, 15]).is_err());
+    }
+
+    #[test]
+    fn an_f7_frame_with_nothing_in_it_is_no_reading_not_zero_percent() {
+        // No finger: zeros where the values go. Shown as a value, 0 % SpO2
+        // sits in the reference table's hypoxemia band.
+        for frame in [
+            [0xAB, 0, 3, 0xFF, 0x30, 0x80, 0, 0, 0],
+            [0xAB, 0, 3, 0xFF, 0x30, 0x80, 72, 0, 15],
+            [0xAB, 0, 3, 0xFF, 0x30, 0x80, 0, 97, 15],
+            // Another frame type on the same characteristic.
+            [0xAB, 0, 3, 0xFF, 0x51, 0x80, 72, 97, 15],
+        ] {
+            assert_eq!(decode_f7_sample(&frame).unwrap(), None, "{frame:02x?}");
+        }
+    }
+
+    #[test]
+    fn a_blood_pressure_record_of_zeros_is_not_a_reading() {
+        let spec = beurer_spec();
+        let mut record = [
+            0x02, 0x00, 0x78, 0x00, 0x50, 0x00, 0x5D, 0xEA, 0x07, 11, 8, 14, 32, 15, 0x00, 0x48, 2,
+            0, 0x44,
+        ];
+        record[1..5].fill(0);
+        let error = decode_blood_pressure(&spec, BP_CHAR, &record).unwrap_err();
+        assert!(error.to_string().contains("no result"), "{error}");
     }
 
     #[test]
@@ -447,7 +514,9 @@ mod tests {
         assert_eq!(all.consumed, wire.len());
         assert_eq!(all.records, 2);
         assert!(all.end_of_transfer);
-        assert_eq!(all.sessions.len(), 2);
+        // The flagged record is the last SESSION, not a bare terminator.
+        assert_eq!(all.sessions.len(), 3);
+        assert_eq!(all.sessions[2].record_index, 3);
         assert_eq!(all.sessions[0].started_at, "2026-11-08T14:30:01");
         assert_eq!(all.sessions[0].ended_at, "2026-11-08T14:31:02");
         assert_eq!(all.sessions[1].pulse_max_bpm, 199);
@@ -466,25 +535,36 @@ mod tests {
     }
 
     #[test]
-    fn po60_rejects_impossible_record_dates() {
-        let mut record = po60_record(1, false);
-        record[3] = 2;
-        record[4] = 30;
-        let error = decode_po60_history(&po60_spec(), &record).unwrap_err();
-        assert!(error.to_string().contains("invalid timestamp"));
+    fn po60_skips_a_record_it_cannot_read_and_keeps_the_rest() {
+        // An impossible date, then inconsistent SpO2, then a good record.
+        let mut bad_date = po60_record(1, false);
+        bad_date[3] = 2;
+        bad_date[4] = 30;
+        let mut bad_summary = po60_record(2, false);
+        bad_summary[18] = 98;
+        let good = po60_record(3, false);
+        let wire = [bad_date.as_slice(), bad_summary.as_slice(), good.as_slice()].concat();
+        let chunk = decode_po60_history(&po60_spec(), &wire).unwrap();
+        assert_eq!(chunk.consumed, wire.len());
+        assert_eq!(chunk.records, 3);
+        assert_eq!(chunk.skipped, 2);
+        assert_eq!(chunk.sessions.len(), 1);
+        assert_eq!(chunk.sessions[0].record_index, 3);
     }
 
     #[test]
-    fn po60_rejects_inconsistent_summary_values() {
-        let mut record = po60_record(1, false);
-        record[18] = 98;
-        let error = decode_po60_history(&po60_spec(), &record).unwrap_err();
-        assert!(error.to_string().contains("inconsistent SpO2"));
+    fn po60_end_record_with_no_session_in_it_is_only_the_end() {
+        let mut end = po60_record(1, true);
+        end[2..].fill(0);
+        let chunk = decode_po60_history(&po60_spec(), &end).unwrap();
+        assert!(chunk.end_of_transfer);
+        assert!(chunk.sessions.is_empty());
+        assert_eq!(chunk.skipped, 0);
 
         let mut record = po60_record(1, false);
         record[20] = 60;
-        let error = decode_po60_history(&po60_spec(), &record).unwrap_err();
-        assert!(error.to_string().contains("inconsistent pulse"));
+        let chunk = decode_po60_history(&po60_spec(), &record).unwrap();
+        assert_eq!((chunk.skipped, chunk.sessions.len()), (1, 0));
     }
 
     const BP_CHAR: &str = "00002a35-0000-1000-8000-00805f9b34fb";

@@ -8,6 +8,7 @@ import 'package:flutter/foundation.dart';
 import '../core/error_text.dart';
 import '../models/health_measurement_plan.dart';
 import 'ble_service.dart';
+import 'health_history_store.dart';
 import 'health_measurement_codec.dart';
 
 enum HealthSessionPhase { waiting, syncing, ready, error }
@@ -19,6 +20,9 @@ class HealthMeasurementState {
   final bool stale;
   final List<PulseOxSessionDto> sessions;
   final List<BloodPressureReadingDto> bloodPressureReadings;
+
+  /// Stored records this sync received whole and could not read.
+  final int skippedRecords;
   final String? error;
 
   const HealthMeasurementState({
@@ -28,6 +32,7 @@ class HealthMeasurementState {
     this.stale = false,
     this.sessions = const [],
     this.bloodPressureReadings = const [],
+    this.skippedRecords = 0,
     this.error,
   });
 }
@@ -42,6 +47,9 @@ class HealthMeasurementSession extends ChangeNotifier {
   final Duration pollInterval;
   final Duration staleAfter;
   final Duration syncTimeout;
+
+  /// Where readings are kept between connections; null keeps nothing.
+  final HealthHistoryStore? store;
 
   HealthMeasurementState _state;
   HealthMeasurementState get state => _state;
@@ -71,12 +79,59 @@ class HealthMeasurementSession extends ChangeNotifier {
     this.pollInterval = const Duration(seconds: 1),
     this.staleAfter = const Duration(seconds: 5),
     this.syncTimeout = const Duration(seconds: 15),
+    this.store,
   }) : now = now ?? clock.now,
        _state = HealthMeasurementState(
          phase: plan.mode == HealthMeasurementMode.historySync
              ? HealthSessionPhase.syncing
              : HealthSessionPhase.waiting,
-       );
+       ) {
+    // What this device handed over before, so it is on screen from the
+    // start: an oximeter gives its sessions up once.
+    final saved = store?.load(deviceId);
+    if (saved != null && !saved.isEmpty) {
+      _state = HealthMeasurementState(
+        phase: _state.phase,
+        sessions: saved.sessions,
+        bloodPressureReadings: saved.bloodPressureReadings,
+      );
+    }
+  }
+
+  /// Whether anything is kept on this phone for the device.
+  bool get hasSavedHistory =>
+      store != null &&
+      (_state.sessions.isNotEmpty || _state.bloodPressureReadings.isNotEmpty);
+
+  /// Forget every reading kept for this device, on screen and on the phone.
+  Future<void> clearSaved() async {
+    if (_disposed) return;
+    _state = HealthMeasurementState(
+      phase: _state.phase,
+      liveSample: _state.liveSample,
+      lastSampleAt: _state.lastSampleAt,
+      stale: _state.stale,
+      error: _state.error,
+    );
+    _notify();
+    await store?.clear(deviceId);
+  }
+
+  void _persist() {
+    final store = this.store;
+    if (store == null) return;
+    unawaited(
+      store
+          .save(
+            deviceId,
+            HealthHistory(
+              sessions: _state.sessions,
+              bloodPressureReadings: _state.bloodPressureReadings,
+            ),
+          )
+          .catchError((Object _) {}),
+    );
+  }
 
   void start() {
     if (_started || _disposed) return;
@@ -150,14 +205,7 @@ class HealthMeasurementSession extends ChangeNotifier {
         case HealthMeasurementMode.savedRecords:
           return;
         case HealthMeasurementMode.historySync:
-          _syncTimer = Timer(syncTimeout, () {
-            if (!_syncComplete) {
-              _fail(
-                'History sync timed out. Enter SYNC on the oximeter, then retry.',
-                generation,
-              );
-            }
-          });
+          _armSyncTimer(generation);
           _clockAck = Completer<void>();
           await _write('set_datetime', generation, clock: now());
           await _clockAck!.future.timeout(syncTimeout);
@@ -168,6 +216,21 @@ class HealthMeasurementSession extends ChangeNotifier {
     } catch (error) {
       _fail(_startError(error), generation);
     }
+  }
+
+  /// The sync fails when the oximeter goes quiet for [syncTimeout] — armed at
+  /// the start and again on every record, so a long transfer that is still
+  /// arriving is not called timed out for being long.
+  void _armSyncTimer(int generation) {
+    _syncTimer?.cancel();
+    _syncTimer = Timer(syncTimeout, () {
+      if (!_syncComplete) {
+        _fail(
+          'History sync timed out. Enter SYNC on the oximeter, then retry.',
+          generation,
+        );
+      }
+    });
   }
 
   Future<void> _poll(int generation) async {
@@ -246,6 +309,10 @@ class HealthMeasurementSession extends ChangeNotifier {
     if (!_isCurrent(generation)) return;
     final pulse = sample.pulseOximeter;
     final bloodPressure = sample.bloodPressure;
+    // A frame with no measurement in it (no finger in the sensor, another
+    // frame type): nothing to show and nothing wrong. A sample already on
+    // screen goes stale by its own timer.
+    if (pulse == null && bloodPressure == null) return;
     if (pulse != null && plan.kind == HealthMeasurementKind.pulseOximeter) {
       _update(
         generation,
@@ -268,6 +335,7 @@ class HealthMeasurementSession extends ChangeNotifier {
         lastSampleAt: now(),
         error: null,
       );
+      _persist();
       return;
     }
     throw const FormatException('wrong health measurement kind');
@@ -289,16 +357,22 @@ class HealthMeasurementSession extends ChangeNotifier {
     }
     _historyBuffer = _historyBuffer.sublist(chunk.consumed);
     final sessions = _state.sessions;
-    final additions = chunk.sessions
-        .where((session) => !sessions.contains(session))
-        .toList();
-    if (additions.isNotEmpty) {
+    final additions = <PulseOxSessionDto>[];
+    for (final session in chunk.sessions) {
+      if (![...sessions, ...additions].any((s) => sameSession(s, session))) {
+        additions.add(session);
+      }
+    }
+    if (additions.isNotEmpty || chunk.skipped > 0) {
       _update(
         generation,
         sessions: [...sessions, ...additions],
+        skippedRecords: _state.skippedRecords + chunk.skipped,
         error: _state.error,
       );
+      if (additions.isNotEmpty) _persist();
     }
+    if (chunk.consumed > 0 && !chunk.endOfTransfer) _armSyncTimer(generation);
     _recordsTowardPage += chunk.records;
     if (chunk.endOfTransfer) {
       _syncComplete = true;
@@ -374,6 +448,7 @@ class HealthMeasurementSession extends ChangeNotifier {
     bool? stale,
     List<PulseOxSessionDto>? sessions,
     List<BloodPressureReadingDto>? bloodPressureReadings,
+    int? skippedRecords,
     String? error,
   }) {
     if (!_isCurrent(generation)) return;
@@ -385,6 +460,7 @@ class HealthMeasurementSession extends ChangeNotifier {
       sessions: sessions ?? _state.sessions,
       bloodPressureReadings:
           bloodPressureReadings ?? _state.bloodPressureReadings,
+      skippedRecords: skippedRecords ?? _state.skippedRecords,
       error: error,
     );
     _notify();

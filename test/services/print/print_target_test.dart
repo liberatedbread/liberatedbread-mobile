@@ -113,8 +113,9 @@ void main() {
 
     test('encodes once and sends the job per copy', () async {
       final transport = _RecordingBrother();
+      final codec = FakeSpecCodec();
       final target = BrotherQlTarget(
-        codec: FakeSpecCodec(),
+        codec: codec,
         transport: transport,
         specYaml: 'brother-yaml',
         host: '192.168.1.50',
@@ -131,7 +132,9 @@ void main() {
         copies: 3,
       );
       expect(outcome, isA<PrintOk>());
-      expect(transport.sent, hasLength(3));
+      // One job carrying three pages, not three connections.
+      expect(transport.sent, hasLength(1));
+      expect(codec.brotherJobCopies, [3]);
     });
 
     test('a refused send stops and reports why', () async {

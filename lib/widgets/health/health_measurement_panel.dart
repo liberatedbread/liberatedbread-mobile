@@ -9,6 +9,7 @@ import '../../core/health_reference.dart';
 import '../../core/web_link.dart';
 import '../../models/health_measurement_plan.dart';
 import '../../providers/ble_provider.dart';
+import '../../providers/health_history_provider.dart';
 import '../../providers/health_measurement_codec_provider.dart';
 import '../../services/health_measurement_codec.dart';
 import '../../services/health_measurement_session.dart';
@@ -69,6 +70,7 @@ class _HealthMeasurementPanelState extends ConsumerState<HealthMeasurementPanel>
       pollInterval: widget.pollInterval,
       staleAfter: widget.staleAfter,
       syncTimeout: widget.syncTimeout,
+      store: ref.read(healthHistoryStoreProvider),
     )..start();
   }
 
@@ -355,8 +357,69 @@ class _HealthMeasurementPanelState extends ConsumerState<HealthMeasurementPanel>
             ],
           ),
         ],
+        if (state.skippedRecords > 0) ...[
+          const SizedBox(height: 8),
+          Text(
+            state.skippedRecords == 1
+                ? '1 stored record could not be read and was left out.'
+                : '${state.skippedRecords} stored records could not be read '
+                      'and were left out.',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+        ],
+        _savedFooter(context),
       ],
     );
+  }
+
+  /// Says where the readings above live, and lets the user remove them.
+  Widget _savedFooter(BuildContext context) {
+    if (!_session.hasSavedHistory) return const SizedBox.shrink();
+    final scheme = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.only(top: 8),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              'Saved on this phone only.',
+              style: Theme.of(
+                context,
+              ).textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
+            ),
+          ),
+          TextButton(
+            onPressed: () => unawaited(_confirmClear(context)),
+            child: const Text('Clear saved'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _confirmClear(BuildContext context) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Clear saved readings?'),
+        content: const Text(
+          'This removes the readings this app has kept for this device. '
+          'The device\'s own memory is not changed, and an oximeter does not '
+          'send a session twice.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Clear'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true) await _session.clearSaved();
   }
 
   Widget _bloodPressure(
@@ -451,6 +514,7 @@ class _HealthMeasurementPanelState extends ConsumerState<HealthMeasurementPanel>
             ],
           ),
         ],
+        _savedFooter(context),
       ],
     );
   }

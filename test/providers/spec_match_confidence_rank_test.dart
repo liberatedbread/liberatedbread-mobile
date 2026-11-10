@@ -171,6 +171,48 @@ void main() {
       expect(ranked.first, same(own));
     });
 
+    test('a named spec missing an optional service is not beaten by a looser '
+        'named spec that declares fewer', () {
+      SpecMatch named(
+        String name,
+        int index,
+        List<String> gatt,
+        MatchConfidence confidence,
+      ) => SpecMatch(
+        entry: _entry(name, index, gatt, localNamePrefixes: [name]),
+        matchedByNamePrefix: true,
+        confidence: confidence,
+        matchedServiceUuids: const [],
+      );
+      // The unit's own spec: two services, and this unit omits ffe5.
+      final own = named('Own', 0, const [
+        'ffe0',
+        'ffe5',
+      ], MatchConfidence.strong);
+      // A looser prefix that also fits the name, declaring only ffe0.
+      final loose = named('O', 1, const ['ffe0'], MatchConfidence.likely);
+      const table = ['ffe0'];
+      expect(gattFingerprintOf(own, discoveredUuids: table), 1);
+      expect(gattFingerprintOf(loose, discoveredUuids: table), 1);
+      final ranked = rankSpecMatches(
+        [loose, own],
+        discoveredUuids: table,
+        deviceName: 'Own unit',
+      );
+      // Level on the table, so confidence decides — not the count declared.
+      expect(ranked.first, same(own));
+      // And a unit that does carry both puts its own spec ahead on the table.
+      expect(
+        gattFingerprintOf(own, discoveredUuids: const ['ffe0', 'ffe5']),
+        2,
+      );
+    });
+
+    test('a partial table is still nothing without the name', () {
+      final unnamed = strong('Other', 1, const ['ffe0', 'ffe5']);
+      expect(gattFingerprintOf(unnamed, discoveredUuids: const ['ffe0']), 0);
+    });
+
     test('a contradicting name voids the fingerprint on every name axis', () {
       // A spec named only by `local_names` or a `name_matchers` entry, whose
       // two services a differently-named device happens to carry. Fails on
