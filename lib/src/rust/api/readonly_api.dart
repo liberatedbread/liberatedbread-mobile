@@ -112,10 +112,15 @@ Future<Uint8List> acinfinityEncodeGetModelData({
   sequence: sequence,
 );
 
+/// `advertisement` is the unit's manufacturer payload for company 0x0902
+/// (after the company id), which picks the status layout. `None` reads only
+/// the multi-port controller layout.
 Future<AcInfinityStatusDto> acinfinityDecodeStatus({
   required List<int> frame,
+  Uint8List? advertisement,
 }) => RustLib.instance.api.crateApiReadonlyApiAcinfinityDecodeStatus(
   frame: frame,
+  advertisement: advertisement,
 );
 
 Future<AcInfinityStoredDto> acinfinityDecodeModelData({

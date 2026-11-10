@@ -124,7 +124,13 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   AcInfinityFeedDto dco_decode_ac_infinity_feed_dto(dynamic raw);
 
   @protected
+  AcInfinityLayout dco_decode_ac_infinity_layout(dynamic raw);
+
+  @protected
   AcInfinityPortDto dco_decode_ac_infinity_port_dto(dynamic raw);
+
+  @protected
+  AcInfinitySensorDto dco_decode_ac_infinity_sensor_dto(dynamic raw);
 
   @protected
   AcInfinityStatusDto dco_decode_ac_infinity_status_dto(dynamic raw);
@@ -212,6 +218,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   int dco_decode_box_autoadd_i_16(dynamic raw);
+
+  @protected
+  int dco_decode_box_autoadd_i_32(dynamic raw);
 
   @protected
   PlatformInt64 dco_decode_box_autoadd_i_64(dynamic raw);
@@ -448,6 +457,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   List<AcInfinityPortDto> dco_decode_list_ac_infinity_port_dto(dynamic raw);
+
+  @protected
+  List<AcInfinitySensorDto> dco_decode_list_ac_infinity_sensor_dto(dynamic raw);
 
   @protected
   List<BiSecurGroupDto> dco_decode_list_bi_secur_group_dto(dynamic raw);
@@ -826,6 +838,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   int? dco_decode_opt_box_autoadd_i_16(dynamic raw);
+
+  @protected
+  int? dco_decode_opt_box_autoadd_i_32(dynamic raw);
 
   @protected
   PlatformInt64? dco_decode_opt_box_autoadd_i_64(dynamic raw);
@@ -1262,7 +1277,15 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  AcInfinityLayout sse_decode_ac_infinity_layout(SseDeserializer deserializer);
+
+  @protected
   AcInfinityPortDto sse_decode_ac_infinity_port_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  AcInfinitySensorDto sse_decode_ac_infinity_sensor_dto(
     SseDeserializer deserializer,
   );
 
@@ -1374,6 +1397,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   int sse_decode_box_autoadd_i_16(SseDeserializer deserializer);
+
+  @protected
+  int sse_decode_box_autoadd_i_32(SseDeserializer deserializer);
 
   @protected
   PlatformInt64 sse_decode_box_autoadd_i_64(SseDeserializer deserializer);
@@ -1670,6 +1696,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   List<AcInfinityPortDto> sse_decode_list_ac_infinity_port_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  List<AcInfinitySensorDto> sse_decode_list_ac_infinity_sensor_dto(
     SseDeserializer deserializer,
   );
 
@@ -2188,6 +2219,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   int? sse_decode_opt_box_autoadd_i_16(SseDeserializer deserializer);
+
+  @protected
+  int? sse_decode_opt_box_autoadd_i_32(SseDeserializer deserializer);
 
   @protected
   PlatformInt64? sse_decode_opt_box_autoadd_i_64(SseDeserializer deserializer);
@@ -2725,8 +2759,20 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_ac_infinity_layout(
+    AcInfinityLayout self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_ac_infinity_port_dto(
     AcInfinityPortDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_ac_infinity_sensor_dto(
+    AcInfinitySensorDto self,
     SseSerializer serializer,
   );
 
@@ -2873,6 +2919,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_box_autoadd_i_16(int self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_box_autoadd_i_32(int self, SseSerializer serializer);
 
   @protected
   void sse_encode_box_autoadd_i_64(
@@ -3270,6 +3319,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_list_ac_infinity_port_dto(
     List<AcInfinityPortDto> self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_list_ac_infinity_sensor_dto(
+    List<AcInfinitySensorDto> self,
     SseSerializer serializer,
   );
 
@@ -3929,6 +3984,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_opt_box_autoadd_i_16(int? self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_opt_box_autoadd_i_32(int? self, SseSerializer serializer);
 
   @protected
   void sse_encode_opt_box_autoadd_i_64(

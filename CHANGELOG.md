@@ -42,8 +42,25 @@ heading.
 - **AC Infinity UIS controllers, read-only (`acinfinity_a5`).** Climate and port
   state from the status stream, plus stored levels through the `get_model_data`
   read. Every port write and settings bundle stays listed and refused, because
-  ports switch mains equipment such as heaters. The power strip's status layout
-  is not decoded. Not verified against hardware.
+  ports switch mains equipment such as heaters. Not verified against hardware.
+- **AC Infinity ports 5-8, the UIS power strip and pre-revision-5 controllers,
+  read-only.** The advertisement's device type and protocol revision now pick
+  the status layout, as the spec says to. Eight-port controllers show ports 5-8
+  by the layout the spec infers for them; power strips show outlets (numbered by
+  record position, which one source disputes) and their sensor records; and
+  controllers below revision 5 show climate, level and mode, but no output or
+  fault state, which that layout does not state. Each screen says which of these
+  rests on an uncaptured layout. The spec prints no frame for any of them, so
+  the tests use frames built from its stated layouts. Stored levels are still
+  read only from the multi-port controller layout, and no write became
+  sendable. Single-port and AI-series controllers, and the strip's original
+  header form, stay refused. Not verified against hardware.
+- **Yummly T3 + P3 (XW3) notification decoders.** Core, body and tip
+  temperatures, dock and probe battery, and the dock's replies, decoded by the
+  spec's stated layout. Nobody known to the spec has run an XW3 and the spec
+  prints no XW3 frame, so the tests use frames built from that layout. The app
+  still does not connect to a T3, and nothing that writes to one exists. Not
+  verified against hardware.
 - **Hörmann BiSecur gateways, read-only (`bisecur_mcp`).** Door position and
   status, read on request with a gateway user's name and password. The password
   is not stored, and the screen says it crosses the network unencrypted. The

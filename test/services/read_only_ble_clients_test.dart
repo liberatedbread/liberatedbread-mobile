@@ -12,6 +12,7 @@ import 'package:liberated_bread_mobile/models/ble_discovered_service.dart';
 import 'package:liberated_bread_mobile/services/acinfinity_ble_client.dart';
 import 'package:liberated_bread_mobile/services/read_only_ble_session.dart';
 import 'package:liberated_bread_mobile/services/yummly_ble_client.dart';
+import 'package:liberated_bread_mobile/src/rust/protocol/acinfinity.dart';
 
 import '../fakes/fake_ble_service.dart';
 import '../helpers/host_rust_lib.dart';
@@ -421,6 +422,79 @@ void main() {
       for (final write in device.writes) {
         expect(write.charUuid, '70d51001-2c7f-4e75-ae8a-d758951ce4e0');
       }
+    });
+
+    // SYNTHETIC: the spec example's four ports, then ports 5-8 built from the
+    // Controller 69 Pro+ variant's stated (inferred, never captured) layout:
+    // 8-byte blocks continuing from byte 54. Port 6 is empty.
+    final eightPort = [
+      ..._bytes(_status.replaceFirst('07 30', '07 50')),
+      ..._bytes('13 88 0e 03 00 00 00 02 ff ff 00 01 00 00 00 00'),
+      ..._bytes('00 01 01 81 00 00 00 84 27 10 2a 06 00 00 00 06'),
+    ];
+
+    test('an eight-port frame shows ports 5-8 and reads only', () async {
+      final device = _Device(_acInfinityService);
+      final controller = AcInfinityBleClient(
+        ble: device,
+        deviceId: 'controller',
+        // Controller 69 Pro+ (type 18) at revision 7.
+        advertisement: [...List.filled(11, 0), 7, 18, 0, 0, 0, 0],
+        replyWait: const Duration(milliseconds: 20),
+      );
+      final first = _next(controller.watch(), (_) => true);
+      await _settle();
+      device.push(eightPort);
+      final status = (await first).status;
+      expect(status.ports, hasLength(8));
+      expect(status.ports[4].loadType, 'humidifier');
+      expect(status.ports[5].occupied, isFalse);
+      expect(status.ports[7].level, 10);
+      expect(status.caveat, contains('Ports 5-8'));
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+      await controller.close();
+
+      // One get_model_data per occupied port: 1, 2, 5, 7, 8.
+      final bytes = [for (final write in device.writes) ...write.value];
+      expect(bytes, hasLength(5 * 22));
+      final ports = <int>[];
+      for (var start = 0; start < bytes.length; start += 22) {
+        expect(bytes[start + 9], 0x01, reason: 'opcode 0x01, a read');
+        ports.add(bytes[start + 19]);
+      }
+      expect(ports, [1, 2, 5, 7, 8]);
+    });
+
+    test('a power strip is read from its stream and written nothing', () async {
+      final device = _Device(_acInfinityService);
+      final controller = AcInfinityBleClient(
+        ble: device,
+        deviceId: 'strip',
+        // OUTLET AI+ (type 22).
+        advertisement: [...List.filled(11, 0), 3, 22, 0, 0, 0, 0],
+        replyWait: const Duration(milliseconds: 20),
+      );
+      final first = _next(controller.watch(), (_) => true);
+      await _settle();
+      // SYNTHETIC, from power_strip_stream's expanded header: 2 records (the
+      // strip, then outlet 1 with a light switched on), 1 sensor (79.00 F),
+      // no calibration records. 13 + 20 + 4 = 37 bytes.
+      device.push(
+        _bytes(
+          '1e ff 02 09 0c 1f 00 01 00 00 00 21 00 '
+          '00 00 00 00 00 00 00 00 00 00 '
+          '3d b8 ff ff 81 02 01 00 00 00 '
+          '00 60 1e dc',
+        ),
+      );
+      final status = (await first).status;
+      expect(status.layout, AcInfinityLayout.powerStrip);
+      expect(status.ports.single.loadType, 'light');
+      expect(status.ports.single.outputOn, isTrue);
+      expect(status.sensors.single.valueHundredths, 7900);
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+      await controller.close();
+      expect(device.writes, isEmpty);
     });
 
     test('a controller that says nothing is reported, and let go', () async {

@@ -449,6 +449,7 @@ void main() {
       client.push(
         const AcInfinityReading(
           status: AcInfinityStatusDto(
+            layout: AcInfinityLayout.controller,
             displayCelsius: true,
             selectedPort: 1,
             temperatureCentiC: 2250,
@@ -467,16 +468,9 @@ void main() {
                 modeCode: 2,
                 mode: 'on',
               ),
-              AcInfinityPortDto(
-                port: 2,
-                occupied: false,
-                outputOn: false,
-                fault: false,
-                overcurrent: false,
-                modeCode: 0,
-              ),
+              AcInfinityPortDto(port: 2, occupied: false, modeCode: 0),
             ],
-            undecodedPorts: 4,
+            sensors: [],
           ),
         ),
       );
@@ -485,8 +479,169 @@ void main() {
       expect(find.text('No probe'), findsOneWidget);
       expect(find.text('heater'), findsOneWidget);
       expect(find.text('Nothing'), findsOneWidget);
-      expect(find.textContaining('4 more ports'), findsOneWidget);
       _expectNoControls(tester);
+      await tester.pumpWidget(const SizedBox());
+      await tester.pump();
+    });
+
+    AcInfinityPortDto controllerPort(int port, {bool on = false}) =>
+        AcInfinityPortDto(
+          port: port,
+          occupied: true,
+          loadId: 1000 + port,
+          level: port,
+          outputOn: on,
+          fault: false,
+          overcurrent: false,
+          modeCode: 2,
+          mode: 'on',
+        );
+
+    testWidgets('an eight-port controller shows ports 5-8 and the caveat', (
+      tester,
+    ) async {
+      final client = _FakeAcInfinity();
+      await pump(tester, profile: acProfile, name: 'ACI', acInfinity: client);
+      tester.view.physicalSize = const Size(800, 4000);
+      await tester.tap(find.text('Start reading'));
+      await tester.pump();
+      client.push(
+        AcInfinityReading(
+          status: AcInfinityStatusDto(
+            layout: AcInfinityLayout.controller,
+            displayCelsius: true,
+            selectedPort: 5,
+            temperatureCentiC: 2250,
+            humidityCentiPercent: 5500,
+            vpdCentiKpa: 122,
+            ports: [
+              for (var port = 1; port <= 8; port++)
+                port == 6
+                    ? const AcInfinityPortDto(
+                        port: 6,
+                        occupied: false,
+                        modeCode: 0,
+                      )
+                    : controllerPort(port, on: port == 8),
+            ],
+            sensors: const [],
+            caveat: 'Ports 5-8 are read by the layout the spec infers.',
+          ),
+        ),
+      );
+      await tester.pump();
+      for (var port = 1; port <= 8; port++) {
+        expect(find.text('Port $port'), findsOneWidget, reason: 'port $port');
+      }
+      expect(find.textContaining('Ports 5-8 are read'), findsOneWidget);
+      // Port 7's level, port 8 on, port 6 empty.
+      expect(find.text('7'), findsOneWidget);
+      expect(find.text('On'), findsOneWidget);
+      expect(find.text('Nothing'), findsOneWidget);
+      expect(find.textContaining('more ports'), findsNothing);
+      _expectNoControls(tester);
+      await tester.pumpWidget(const SizedBox());
+      await tester.pump();
+    });
+
+    testWidgets('a power strip shows outlets and sensors, no levels', (
+      tester,
+    ) async {
+      final client = _FakeAcInfinity();
+      await pump(tester, profile: acProfile, name: 'ACI', acInfinity: client);
+      await tester.tap(find.text('Start reading'));
+      await tester.pump();
+      client.push(
+        const AcInfinityReading(
+          status: AcInfinityStatusDto(
+            layout: AcInfinityLayout.powerStrip,
+            selectedPort: 1,
+            ports: [
+              AcInfinityPortDto(
+                port: 1,
+                occupied: true,
+                loadId: 0x3db8,
+                loadType: 'light',
+                level: 9,
+                outputOn: true,
+                fault: false,
+                modeCode: 1,
+              ),
+              AcInfinityPortDto(
+                port: 2,
+                occupied: false,
+                level: 0,
+                outputOn: false,
+                fault: true,
+                modeCode: 0,
+              ),
+            ],
+            sensors: [
+              AcInfinitySensorDto(
+                sensorId: 0,
+                name: 'probe temperature',
+                unit: '°F',
+                valueHundredths: 7900,
+                decimals: 2,
+              ),
+              AcInfinitySensorDto(sensorId: 3, name: 'probe VPD', decimals: 2),
+            ],
+            caveat: 'Read by the power-strip layout the spec reports.',
+          ),
+        ),
+      );
+      await tester.pump();
+      expect(find.text('Outlet 1'), findsOneWidget);
+      expect(find.text('Outlet 2'), findsOneWidget);
+      expect(find.text('Port 1'), findsNothing);
+      expect(find.text('Climate'), findsNothing);
+      expect(find.text('79.00 °F'), findsOneWidget);
+      expect(find.text('No reading'), findsOneWidget);
+      expect(find.text('light'), findsOneWidget);
+      expect(find.text('Nothing connected'), findsOneWidget);
+      expect(find.text('Fault'), findsOneWidget);
+      expect(find.text('Unknown (1)'), findsOneWidget);
+      // A relay has no level to show.
+      expect(find.text('Level'), findsNothing);
+      expect(find.text('9'), findsNothing);
+      expect(find.textContaining('power-strip layout'), findsOneWidget);
+      _expectNoControls(tester);
+      await tester.pumpWidget(const SizedBox());
+      await tester.pump();
+    });
+
+    testWidgets('a legacy controller says output is not stated', (
+      tester,
+    ) async {
+      final client = _FakeAcInfinity();
+      await pump(tester, profile: acProfile, name: 'ACI', acInfinity: client);
+      await tester.tap(find.text('Start reading'));
+      await tester.pump();
+      client.push(
+        const AcInfinityReading(
+          status: AcInfinityStatusDto(
+            layout: AcInfinityLayout.legacyController,
+            temperatureCentiC: 2250,
+            ports: [
+              AcInfinityPortDto(
+                port: 1,
+                loadId: 10000,
+                level: 6,
+                modeCode: 2,
+                mode: 'on',
+              ),
+            ],
+            sensors: [],
+            caveat: 'Read by the layout the spec gives below revision 5.',
+          ),
+        ),
+      );
+      await tester.pump();
+      expect(find.text('Port 1'), findsOneWidget);
+      expect(find.text('Not stated for this controller'), findsOneWidget);
+      expect(find.text('Nothing'), findsNothing);
+      expect(find.text('6'), findsOneWidget);
+      expect(find.textContaining('below revision 5'), findsOneWidget);
       await tester.pumpWidget(const SizedBox());
       await tester.pump();
     });
@@ -502,10 +657,11 @@ void main() {
         const AcInfinityReading(
           stale: true,
           status: AcInfinityStatusDto(
+            layout: AcInfinityLayout.controller,
             displayCelsius: true,
             selectedPort: 1,
             ports: [],
-            undecodedPorts: 0,
+            sensors: [],
           ),
         ),
       );

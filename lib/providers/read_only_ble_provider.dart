@@ -3,6 +3,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../models/iot_device.dart';
 import '../services/acinfinity_ble_client.dart';
 import '../services/spec_codec.dart';
 import '../services/yummly_ble_client.dart';
@@ -87,10 +88,15 @@ final yummlyClientProvider = Provider<YummlyClient Function(String)>(
       ),
 );
 
-final acInfinityClientProvider = Provider<AcInfinityClient Function(String)>(
+/// AC Infinity's company id. Its manufacturer payload carries the device type
+/// and protocol revision that pick the status layout.
+const acInfinityCompanyId = 0x0902;
+
+final acInfinityClientProvider = Provider<AcInfinityClient Function(IoTDevice)>(
   (ref) =>
-      (deviceId) => AcInfinityBleClient(
+      (device) => AcInfinityBleClient(
         ble: ref.read(bleServiceProvider),
-        deviceId: deviceId,
+        deviceId: device.id,
+        advertisement: device.manufacturerData[acInfinityCompanyId],
       ),
 );

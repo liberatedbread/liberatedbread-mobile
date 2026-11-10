@@ -310,9 +310,7 @@ class _AcInfinityPanelState
 
   @override
   Stream<AcInfinityReading> openSession() {
-    final client = _client = ref.read(acInfinityClientProvider)(
-      widget.device.id,
-    );
+    final client = _client = ref.read(acInfinityClientProvider)(widget.device);
     return client.watch();
   }
 
@@ -328,6 +326,7 @@ class _AcInfinityPanelState
     final now = reading;
     if (now == null) return frame(context, const []);
     final status = now.status;
+    final strip = status.layout == AcInfinityLayout.powerStrip;
     return frame(context, [
       if (now.stale) ...[
         const Text(
@@ -336,43 +335,65 @@ class _AcInfinityPanelState
         ),
         const SizedBox(height: 12),
       ],
-      _Rows(
-        title: 'Climate',
-        rows: [
-          ('Temperature', _hundredths(status.temperatureCentiC, '°C')),
-          ('Humidity', _hundredths(status.humidityCentiPercent, '%')),
-          ('VPD', _hundredths(status.vpdCentiKpa, 'kPa')),
-        ],
-      ),
+      if (status.caveat != null) ...[
+        Text(status.caveat!, style: Theme.of(context).textTheme.bodySmall),
+        const SizedBox(height: 12),
+      ],
+      if (strip)
+        _Rows(
+          title: 'Sensors',
+          rows: [
+            for (final sensor in status.sensors)
+              (
+                sensor.name ?? 'Sensor ${sensor.sensorId}',
+                _sensorValue(sensor),
+              ),
+            if (status.sensors.isEmpty) ('Sensors', 'None reported'),
+          ],
+        )
+      else
+        _Rows(
+          title: 'Climate',
+          rows: [
+            ('Temperature', _hundredths(status.temperatureCentiC, '°C')),
+            ('Humidity', _hundredths(status.humidityCentiPercent, '%')),
+            ('VPD', _hundredths(status.vpdCentiKpa, 'kPa')),
+          ],
+        ),
       for (final port in status.ports) ...[
         const SizedBox(height: 12),
         _Rows(
-          title: 'Port ${port.port}',
-          rows: port.occupied
-              ? _portRows(port, now.stored[port.port])
-              : const [('Plugged in', 'Nothing')],
-        ),
-      ],
-      if (status.undecodedPorts > 0) ...[
-        const SizedBox(height: 12),
-        Text(
-          '${status.undecodedPorts} more ports are not shown: their layout '
-          'has not been captured from a real controller.',
+          title: '${strip ? 'Outlet' : 'Port'} ${port.port}',
+          rows: port.occupied == false && !strip
+              ? const [('Plugged in', 'Nothing')]
+              : _portRows(port, now.stored[port.port], strip: strip),
         ),
       ],
     ]);
   }
 
+  /// A field the frame's layout does not state is said to be unstated, not
+  /// shown as off or absent.
   List<(String, String)> _portRows(
     AcInfinityPortDto port,
-    AcInfinityStoredDto? stored,
-  ) => [
+    AcInfinityStoredDto? stored, {
+    required bool strip,
+  }) => [
     ('Mode', port.mode ?? 'Unknown (${port.modeCode})'),
-    ('Output', port.outputOn ? 'On' : 'Off'),
-    ('Level', port.level?.toString() ?? 'Not reported'),
+    (
+      'Output',
+      switch (port.outputOn) {
+        true => 'On',
+        false => 'Off',
+        null => 'Not stated for this controller',
+      },
+    ),
+    // A strip outlet is a relay: levels live on a controller's ports.
+    if (!strip) ('Level', port.level?.toString() ?? 'Not reported'),
+    if (strip && port.occupied == false) ('Load', 'Nothing connected'),
     if (port.loadType != null) ('Load', port.loadType!),
-    if (port.fault) ('Fault', 'Reported'),
-    if (port.overcurrent) ('Overcurrent', 'Reported'),
+    if (port.fault == true) ('Fault', 'Reported'),
+    if (port.overcurrent == true) ('Overcurrent', 'Reported'),
     if (stored?.offLevel != null) ('Stored OFF level', '${stored!.offLevel}'),
     if (stored?.onLevelRaw != null)
       (
@@ -383,4 +404,11 @@ class _AcInfinityPanelState
 
   String _hundredths(int? value, String unit) =>
       value == null ? 'No probe' : '${(value / 100).toStringAsFixed(2)} $unit';
+
+  String _sensorValue(AcInfinitySensorDto sensor) {
+    final value = sensor.valueHundredths;
+    if (value == null) return 'No reading';
+    final shown = (value / 100).toStringAsFixed(sensor.decimals);
+    return sensor.unit == null ? shown : '$shown ${sensor.unit}';
+  }
 }
