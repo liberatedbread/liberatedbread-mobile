@@ -94,6 +94,10 @@ base64 = "0.23"
 # `derivation: base64_sha512` — Dyson's local MQTT password is the SHA-512 of
 # the sticker Wi-Fi password, base64-encoded).
 sha2 = "0.11"
+# Apple ACP's SRP-6a and its session-key PBKDF2 are SHA-1 (apple-airport-acp
+# spec). The same RustCrypto family as sha2 above; HMAC and PBKDF2 over it
+# are a few lines in protocol::apple_acp, tested against RFC 6070.
+sha1 = "0.11"
 # Digi XBee 3's SRP-6a unlock needs 1024-bit modular arithmetic; no SRP
 # implementation exists in this crate. Keep it in Rust alongside the AES cipher
 # above, tested against public SRP-6a and split-stream cipher vectors.

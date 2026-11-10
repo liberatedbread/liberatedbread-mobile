@@ -22,6 +22,16 @@ heading.
   is reported, not retried, because the spec does not know how a device treats
   either. Tested against the spec's envelope vectors and a fake purifier; not
   run on hardware.
+- **Apple AirPort base stations, read-only (`apple_acp`).** Name, model,
+  firmware, uptime and Wi-Fi network name over ACP on TCP 5009, after SRP-6a
+  with the base station password and inside the AES-128-CTR session. Read on
+  request; the password is not stored. Nothing that writes a setting or
+  restarts the base station can be sent, and legacy mode, which carries the
+  password in a reversible header key, is not implemented. The spec's example
+  frames reproduce; SRP's arithmetic is checked against RFC 5054 and the
+  session keys against RFC 6070 and the spec's example, but the M1/M2 step has
+  no published vector. Tested against a fake base station; not run on
+  hardware.
 - **Yeelight lights over the LAN (`yeelight_lan`).** The cube lamp's spec now
   drives power, brightness, colour and colour temperature over JSON lines on
   TCP 55443, reads state back, and paints a module's rows on a unit that lists

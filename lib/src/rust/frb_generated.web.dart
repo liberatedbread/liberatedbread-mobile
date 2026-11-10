@@ -26,6 +26,7 @@ import 'error.dart';
 import 'frb_generated.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated_web.dart';
 import 'protocol/acinfinity.dart';
+import 'protocol/apple_acp.dart';
 import 'protocol/bisecur.dart';
 import 'protocol/enphase.dart';
 import 'protocol/modbus_sunspec.dart';
@@ -136,6 +137,18 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   AcInfinityStoredDto dco_decode_ac_infinity_stored_dto(dynamic raw);
 
   @protected
+  AcpHeader dco_decode_acp_header(dynamic raw);
+
+  @protected
+  AcpSessionKeysDto dco_decode_acp_session_keys_dto(dynamic raw);
+
+  @protected
+  AcpStage3Dto dco_decode_acp_stage_3_dto(dynamic raw);
+
+  @protected
+  AcpStatusDto dco_decode_acp_status_dto(dynamic raw);
+
+  @protected
   BandLimitDto dco_decode_band_limit_dto(dynamic raw);
 
   @protected
@@ -178,6 +191,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   bool dco_decode_bool(dynamic raw);
+
+  @protected
+  AcpStage3Dto dco_decode_box_autoadd_acp_stage_3_dto(dynamic raw);
+
+  @protected
+  AcpStatusDto dco_decode_box_autoadd_acp_status_dto(dynamic raw);
 
   @protected
   BandLimitsDto dco_decode_box_autoadd_band_limits_dto(dynamic raw);
@@ -799,6 +818,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   String? dco_decode_opt_String(dynamic raw);
 
   @protected
+  AcpStatusDto? dco_decode_opt_box_autoadd_acp_status_dto(dynamic raw);
+
+  @protected
   BloodPressureReadingDto?
   dco_decode_opt_box_autoadd_blood_pressure_reading_dto(dynamic raw);
 
@@ -1288,6 +1310,20 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  AcpHeader sse_decode_acp_header(SseDeserializer deserializer);
+
+  @protected
+  AcpSessionKeysDto sse_decode_acp_session_keys_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  AcpStage3Dto sse_decode_acp_stage_3_dto(SseDeserializer deserializer);
+
+  @protected
+  AcpStatusDto sse_decode_acp_status_dto(SseDeserializer deserializer);
+
+  @protected
   BandLimitDto sse_decode_band_limit_dto(SseDeserializer deserializer);
 
   @protected
@@ -1338,6 +1374,16 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   bool sse_decode_bool(SseDeserializer deserializer);
+
+  @protected
+  AcpStage3Dto sse_decode_box_autoadd_acp_stage_3_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  AcpStatusDto sse_decode_box_autoadd_acp_status_dto(
+    SseDeserializer deserializer,
+  );
 
   @protected
   BandLimitsDto sse_decode_box_autoadd_band_limits_dto(
@@ -2161,6 +2207,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   String? sse_decode_opt_String(SseDeserializer deserializer);
 
   @protected
+  AcpStatusDto? sse_decode_opt_box_autoadd_acp_status_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   BloodPressureReadingDto?
   sse_decode_opt_box_autoadd_blood_pressure_reading_dto(
     SseDeserializer deserializer,
@@ -2764,6 +2815,21 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_acp_header(AcpHeader self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_acp_session_keys_dto(
+    AcpSessionKeysDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_acp_stage_3_dto(AcpStage3Dto self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_acp_status_dto(AcpStatusDto self, SseSerializer serializer);
+
+  @protected
   void sse_encode_band_limit_dto(BandLimitDto self, SseSerializer serializer);
 
   @protected
@@ -2837,6 +2903,18 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_bool(bool self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_box_autoadd_acp_stage_3_dto(
+    AcpStage3Dto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_box_autoadd_acp_status_dto(
+    AcpStatusDto self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_box_autoadd_band_limits_dto(
@@ -3905,6 +3983,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_opt_String(String? self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_opt_box_autoadd_acp_status_dto(
+    AcpStatusDto? self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_opt_box_autoadd_blood_pressure_reading_dto(

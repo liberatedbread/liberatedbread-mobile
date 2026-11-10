@@ -381,6 +381,11 @@ class NetworkControls {
   /// spec binds nothing the entity screen can read, so this is what admits it.
   final bool biSecurStatus;
 
+  /// True when the device is an AirPort base station read through the
+  /// read-only ACP handler. Its one entity is a restart button the app does
+  /// not send, so this is what admits it.
+  final bool acpStatus;
+
   const NetworkControls({
     required this.specYaml,
     required this.entities,
@@ -391,6 +396,7 @@ class NetworkControls {
     this.ippStatus = false,
     this.sunSpecStatus = false,
     this.biSecurStatus = false,
+    this.acpStatus = false,
   });
 
   /// Whether these controls describe a hub — a device fronting children that
@@ -420,6 +426,9 @@ const sunSpecHandler = 'modbus_tcp_sunspec';
 
 /// The `protocol_handler` of the read-only Hörmann BiSecur reader.
 const biSecurHandler = 'bisecur_mcp';
+
+/// The `protocol_handler` of the read-only AirPort base station reader.
+const acpHandler = 'apple_acp';
 
 /// Resolve what the catalogue lets us control on one network device.
 ///
@@ -463,11 +472,13 @@ final networkControlsProvider = FutureProvider.autoDispose
             : null;
         final sunSpecStatus = spec.protocolHandler == sunSpecHandler;
         final biSecurStatus = spec.protocolHandler == biSecurHandler;
+        final acpStatus = spec.protocolHandler == acpHandler;
         if (surface.entities.isEmpty &&
             rasterPrintHandler == null &&
             !ippStatus &&
             !sunSpecStatus &&
-            !biSecurStatus) {
+            !biSecurStatus &&
+            !acpStatus) {
           return null;
         }
         return NetworkControls(
@@ -480,6 +491,7 @@ final networkControlsProvider = FutureProvider.autoDispose
           ippStatus: ippStatus,
           sunSpecStatus: sunSpecStatus,
           biSecurStatus: biSecurStatus,
+          acpStatus: acpStatus,
         );
       } catch (e) {
         Log.spec.warning(

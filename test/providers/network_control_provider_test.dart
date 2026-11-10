@@ -326,6 +326,23 @@ void main() {
       expect(controls.sunSpecStatus, isFalse);
     });
 
+    test('admits an AirPort base station to its read-only screen', () async {
+      final container = _container(
+        FakeSpecCodec(networkEntities: (_) => const []),
+        parsed: [
+          (
+            spec: _spec('Inverter', 'SolarEdge', protocolHandler: acpHandler),
+            yaml: 'acp',
+          ),
+        ],
+      );
+      final controls = await container.read(
+        networkControlsProvider(request).future,
+      );
+      expect(controls!.acpStatus, isTrue);
+      expect(controls.biSecurStatus, isFalse);
+    });
+
     test('is not claimed by a spec under another handler', () async {
       final container = _container(
         FakeSpecCodec(networkEntities: (_) => const [_plugEntity]),

@@ -19,7 +19,7 @@
 use crate::error::ProtocolError;
 use crate::spec::types::DeviceSpec;
 
-use super::{acinfinity, bisecur, modbus_sunspec, yummly};
+use super::{acinfinity, apple_acp, bisecur, modbus_sunspec, yummly};
 
 /// One command this app's read-only handler actually sends. `characteristic`
 /// narrows the name on a BLE spec, where a name can repeat across generations
@@ -96,6 +96,15 @@ const READ_ONLY_HANDLERS: &[ReadOnlyHandler] = &[
         ],
         refusal: "Read-only in this app: an impulse moves a motorised door or \
                   gate, which can trap or injure.",
+    },
+    ReadOnlyHandler {
+        name: apple_acp::HANDLER_NAME,
+        sent: &[top_level("authenticate_start"), top_level("get_status")],
+        refusal: "Not sent by this app: it reads the base station's status \
+                  over SRP and nothing else. A write or a restart can take the \
+                  whole network down, including this phone's way back to it, \
+                  and legacy mode puts the password on the wire in a \
+                  reversible form.",
     },
 ];
 
@@ -233,6 +242,11 @@ mod tests {
             bisecur::HANDLER_NAME,
             &["login", "get_groups", "get_transition", "logout"],
         ),
+        (
+            "apple-airport-acp.yaml",
+            apple_acp::HANDLER_NAME,
+            &["authenticate_start", "get_status"],
+        ),
     ];
 
     /// The commands that must never go out, named one by one so that renaming
@@ -267,6 +281,12 @@ mod tests {
             ],
         ),
         ("hormann-bisecur-gateway.yaml", &["send_impulse"]),
+        // Every write, and the legacy-mode reads that would carry the
+        // password's reversible key.
+        (
+            "apple-airport-acp.yaml",
+            &["reboot", "set_name", "get_name", "get_wan_ip", "get_log"],
+        ),
     ];
 
     /// The pin. Exactly the listed reads are sent; every other command the

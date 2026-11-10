@@ -5,7 +5,6 @@
 // real Rust codec: a sync, a status read, a write under the next counter, and
 // a purifier that answers garbage, the wrong token, a refusal, or nothing.
 // The fake parses CoAP itself, so the two sides have to agree.
-import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
