@@ -81,10 +81,8 @@ const _resetOnly = SetupInstructionsDto(
 ProviderContainer _container({
   required Map<String, DeviceSpecDto> specs,
   required SetupInstructionsDto? Function(String yaml) setup,
-  Set<String> throwsFor = const {},
 }) {
-  final codec = _ThrowingSetupCodec(specByYaml: specs, throwsFor: throwsFor)
-    ..setupInstructionsFor = setup;
+  final codec = FakeSpecCodec(specByYaml: specs)..setupInstructionsFor = setup;
   final c = ProviderContainer(
     overrides: [
       specCodecProvider.overrideWithValue(codec),
@@ -96,18 +94,6 @@ ProviderContainer _container({
   );
   addTearDown(c.dispose);
   return c;
-}
-
-/// The fake codec, with setup extraction that can fail for chosen YAMLs.
-class _ThrowingSetupCodec extends FakeSpecCodec {
-  final Set<String> throwsFor;
-  _ThrowingSetupCodec({required super.specByYaml, required this.throwsFor});
-
-  @override
-  Future<SetupInstructionsDto?> setupInstructions(String specYaml) async {
-    if (throwsFor.contains(specYaml)) throw StateError('bad setup block');
-    return super.setupInstructions(specYaml);
-  }
 }
 
 void main() {
@@ -184,19 +170,77 @@ void main() {
     expect(entries.map((e) => e.deviceName), ['Leaky Lock', 'Real Bulb']);
   });
 
-  test('one spec whose setup block fails costs only its own row', () async {
+  test('a pack copy that is now flagged hides the bundled copy too', () async {
+    // Shadowing before filtering: a pack that corrects a spec to malicious
+    // or identify_only must take the device out of the guide, not be
+    // skipped so the stale bundled copy shows through.
     final c = _container(
       specs: {
-        'good': _spec('Good', namePrefixes: const ['G']),
-        'bad': _spec('Bad', namePrefixes: const ['B']),
+        'bundled-skimmer': _spec('Sketchy Lock', namePrefixes: const ['SL']),
+        'pack-skimmer': _spec(
+          'Sketchy Lock',
+          namePrefixes: const ['SL'],
+          advisory: const SecurityAdvisoryDto(
+            severity: 'malicious',
+            summary: 'Card skimmer',
+          ),
+        ),
+        'bundled-tag': _spec('Old Tag', namePrefixes: const ['OT']),
+        'pack-tag': _spec(
+          'Old Tag',
+          namePrefixes: const ['OT'],
+          integration: 'identify_only',
+        ),
       },
       setup: (_) => _steps('Go'),
-      throwsFor: {'bad'},
+    );
+
+    expect(await c.read(blePairingGuideProvider.future), isEmpty);
+  });
+
+  test('two makers with the same product name are both listed', () async {
+    final c = _container(
+      specs: {
+        'a': _spec('LED Strip', namePrefixes: const ['A'], manufacturer: 'Zed'),
+        'b': _spec(
+          'LED Strip',
+          namePrefixes: const ['B'],
+          manufacturer: 'Acme',
+        ),
+      },
+      setup: (yaml) => _steps('from $yaml'),
     );
 
     final entries = await c.read(blePairingGuideProvider.future);
 
-    expect(entries.map((e) => e.deviceName), ['Good']);
+    // Same name, ordered by maker.
+    expect(entries.map((e) => e.manufacturer), ['Acme', 'Zed']);
+  });
+
+  test('a route that sends Wi-Fi details over Bluetooth is flagged', () async {
+    final c = _container(
+      specs: {
+        'purifier': _spec('Purifier', namePrefixes: const ['P']),
+        'bulb': _spec('Bulb', namePrefixes: const ['B']),
+      },
+      setup: (yaml) => SetupInstructionsDto(
+        methods: [
+          SetupMethodDto(
+            methodType: yaml == 'purifier' ? 'ble_provisioning' : 'ble_direct',
+            stages: const [],
+            steps: const [SetupStepDto(action: 'Go', actor: 'user')],
+            troubleshooting: const [],
+          ),
+        ],
+      ),
+    );
+
+    final entries = await c.read(blePairingGuideProvider.future);
+
+    expect(
+      {for (final e in entries) e.deviceName: e.provisionsWifiOverBle},
+      {'Bulb': false, 'Purifier': true},
+    );
   });
 
   test('a later copy of a same-named spec shadows the earlier one', () async {

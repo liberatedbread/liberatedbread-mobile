@@ -8,23 +8,29 @@ import 'package:liberated_bread_mobile/screens/ble_pairing_guide_screen.dart';
 import 'package:liberated_bread_mobile/screens/setup_instructions_screen.dart';
 import 'package:liberated_bread_mobile/services/spec_codec.dart';
 
-BlePairingGuideEntry _entry(String name, String maker, String step) =>
-    BlePairingGuideEntry(
-      deviceName: name,
-      manufacturer: maker,
-      category: 'light',
-      pictogram: null,
-      instructions: SetupInstructionsDto(
-        methods: [
-          SetupMethodDto(
-            methodType: 'ble_direct',
-            stages: const [],
-            steps: [SetupStepDto(action: step, actor: 'user')],
-            troubleshooting: const [],
-          ),
-        ],
+BlePairingGuideEntry _entry(
+  String name,
+  String maker,
+  String step, {
+  String methodType = 'ble_direct',
+  String? protocolHandler,
+}) => BlePairingGuideEntry(
+  deviceName: name,
+  manufacturer: maker,
+  category: 'light',
+  pictogram: null,
+  protocolHandler: protocolHandler,
+  instructions: SetupInstructionsDto(
+    methods: [
+      SetupMethodDto(
+        methodType: methodType,
+        stages: const [],
+        steps: [SetupStepDto(action: step, actor: 'user')],
+        troubleshooting: const [],
       ),
-    );
+    ],
+  ),
+);
 
 final _entries = [
   _entry('Ember Mug', 'Ember', 'Tap the base twice.'),
@@ -122,5 +128,44 @@ void main() {
     await _pump(tester, () async => throw StateError('no catalogue'));
 
     expect(find.text('Could not read the device catalogue.'), findsOneWidget);
+  });
+
+  testWidgets('a Wi-Fi device set up over Bluetooth says where that ends', (
+    tester,
+  ) async {
+    await _pump(
+      tester,
+      () async => [
+        // The adopt screen drives this handler's conversation.
+        _entry(
+          'Rabbit Air Purifier',
+          'Rabbit Air',
+          'Hold the Wi-Fi button.',
+          methodType: 'ble_provisioning',
+          protocolHandler: 'rabbit_air_lan',
+        ),
+        // It does not drive this one; the device's own steps say how.
+        _entry(
+          'Other Purifier',
+          'Other',
+          'Use the maker’s app.',
+          methodType: 'ble_provisioning',
+        ),
+      ],
+    );
+
+    expect(
+      find.text(
+        'Rabbit Air\nJoins your Wi-Fi: set it up from Wi-Fi › Adopt a new '
+        'Wi-Fi device',
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.text(
+        'Other\nJoins your Wi-Fi: its steps say how to send it your network',
+      ),
+      findsOneWidget,
+    );
   });
 }

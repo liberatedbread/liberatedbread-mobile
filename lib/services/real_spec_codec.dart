@@ -1479,6 +1479,10 @@ class RustSpecCatalogue implements SpecCatalogue {
   ) => _handle.bleProvisioningProfiles(indices: indices);
 
   @override
+  Future<List<SetupInstructionsDto?>> setupInstructions(List<int> indices) =>
+      _handle.setupInstructions(indices: indices);
+
+  @override
   Future<List<SpecMatch>> matchDevice({
     required String deviceName,
     required List<String> serviceUuids,

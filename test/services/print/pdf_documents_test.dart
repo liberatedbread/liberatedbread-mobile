@@ -65,6 +65,64 @@ void main() {
     expect(_looksLikePdf(pdf), isTrue);
   });
 
+  group('setup sections follow the screen they are printed from', () {
+    const instructions = SetupInstructionsDto(
+      notes: 'Overview.',
+      methods: [
+        SetupMethodDto(
+          name: 'Pairing',
+          steps: [SetupStepDto(action: 'Hold for 5 s')],
+          stages: [],
+          troubleshooting: [
+            TroubleshootingDto(symptom: 'No LED', causes: ['Battery flat']),
+          ],
+        ),
+        // Blank: no section, as the screen draws no card for it.
+        SetupMethodDto(
+          name: 'Empty',
+          description: '  ',
+          steps: [],
+          stages: [],
+          troubleshooting: [],
+        ),
+      ],
+      factoryReset: FactoryResetDto(effect: 'Wipes it.', procedures: []),
+      rejoin: RejoinDto(notes: 'One phone at a time.'),
+    );
+
+    test('after a failed connect, reconnecting and troubleshooting lead', () {
+      expect(
+        [for (final s in setupInstructionsSections(instructions)) s.heading],
+        [
+          'Reconnecting',
+          "If it won't connect",
+          'Overview',
+          'Pairing',
+          'Factory reset',
+        ],
+      );
+    });
+
+    test('from the pairing guide, the steps lead', () {
+      expect(
+        [
+          for (final s in setupInstructionsSections(
+            instructions,
+            afterFailedConnect: false,
+          ))
+            s.heading,
+        ],
+        [
+          'Overview',
+          'Pairing',
+          "If it won't connect",
+          'If it disconnects later',
+          'Factory reset',
+        ],
+      );
+    });
+  });
+
   test('a label prints at its physical size', () async {
     final pdf = await labelImagePdf(
       format: PdfPageFormat.a4,

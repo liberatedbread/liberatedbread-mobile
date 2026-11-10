@@ -4930,8 +4930,8 @@ fn a_variant_scoped_setpoint_encodes_against_its_own_entity() {
 #[test]
 fn the_catalogue_handle_matches_and_sweeps_like_the_by_value_doors() {
     use liberated_bread_core::api::device_api::{
-        ble_provisioning_profiles, match_network_device, match_scanned_device, soft_ap_profiles,
-        NetworkDeviceDto, ScannedDeviceDto,
+        ble_provisioning_profiles, match_network_device, match_scanned_device, setup_instructions,
+        soft_ap_profiles, NetworkDeviceDto, ScannedDeviceDto,
     };
     use std::collections::HashMap;
 
@@ -5022,10 +5022,28 @@ fn the_catalogue_handle_matches_and_sweeps_like_the_by_value_doors() {
         format!("{soft_ap:?}"),
         format!("{:?}", soft_ap_profiles(yamls.clone()))
     );
-    let ble = catalogue.ble_provisioning_profiles(indices).unwrap();
+    let ble = catalogue
+        .ble_provisioning_profiles(indices.clone())
+        .unwrap();
     assert_eq!(
         format!("{ble:?}"),
-        format!("{:?}", ble_provisioning_profiles(yamls))
+        format!("{:?}", ble_provisioning_profiles(yamls.clone()))
+    );
+    let setup = catalogue.setup_instructions(indices).unwrap();
+    assert_eq!(setup.len(), yamls.len());
+    assert!(
+        setup.iter().filter(|s| s.is_some()).count() > 50,
+        "most of the catalogue carries setup prose"
+    );
+    for (held, yaml) in setup.iter().zip(yamls) {
+        assert_eq!(
+            format!("{held:?}"),
+            format!("{:?}", setup_instructions(yaml))
+        );
+    }
+    assert!(
+        catalogue.setup_instructions(vec![u32::MAX]).is_err(),
+        "an index past the catalogue is an error, not a silent drop"
     );
     assert!(
         catalogue.soft_ap_profiles(vec![u32::MAX]).is_err(),

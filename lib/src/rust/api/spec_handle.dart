@@ -79,6 +79,15 @@ abstract class CatalogueHandle implements RustOpaqueInterface {
   /// decode them again here; only the device crosses now.
   Future<List<ScanMatch>> matchScanned({required ScannedDeviceDto device});
 
+  /// The renderable `device.setup` instructions of the specs at `indices`,
+  /// in that order, `None` where a spec carries none —
+  /// [`crate::api::device_api::setup_instructions`] over the held parses.
+  /// The Bluetooth pairing guide asks this for every BLE spec at once; the
+  /// by-YAML door re-sent and re-parsed each one (megabytes) on every open.
+  Future<List<SetupInstructionsDto?>> setupInstructions({
+    required List<int> indices,
+  });
+
   /// The soft-AP setup methods of the specs at `indices`, in the order
   /// given — [`crate::api::device_api::soft_ap_profiles`] over the held
   /// parses. The by-YAML door re-sent and re-parsed the whole catalogue

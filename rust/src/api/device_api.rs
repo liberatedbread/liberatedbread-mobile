@@ -7027,7 +7027,15 @@ impl From<crate::spec::setup::SetupInstructions> for SetupInstructionsDto {
 /// without any device present.
 pub fn setup_instructions(spec_yaml: String) -> Option<SetupInstructionsDto> {
     let spec = parse_device_spec(&spec_yaml).ok()?;
-    crate::spec::setup::setup_instructions(&spec).map(SetupInstructionsDto::from)
+    setup_instructions_with_spec(&spec)
+}
+
+/// [`setup_instructions`] over a spec already parsed — the one body both it
+/// and [`crate::api::spec_handle::CatalogueHandle::setup_instructions`] run,
+/// so the two doors cannot disagree.
+#[frb(ignore)]
+pub(crate) fn setup_instructions_with_spec(spec: &DeviceSpec) -> Option<SetupInstructionsDto> {
+    crate::spec::setup::setup_instructions(spec).map(SetupInstructionsDto::from)
 }
 
 /// One credential attempt: the request to POST, and which encryption variant

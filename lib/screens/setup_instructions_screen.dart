@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/log.dart';
+import '../core/setup_content.dart';
 import '../services/print/os_print_service.dart';
 import '../services/print/pdf_documents.dart';
 import '../services/spec_codec.dart'
@@ -62,6 +63,7 @@ class SetupInstructionsScreen extends ConsumerWidget {
               format: format,
               deviceName: deviceName,
               instructions: instructions,
+              afterFailedConnect: afterFailedConnect,
             ),
           );
     } on Object catch (e) {
@@ -77,9 +79,10 @@ class SetupInstructionsScreen extends ConsumerWidget {
     final scheme = Theme.of(context).colorScheme;
     final text = Theme.of(context).textTheme;
 
-    // Troubleshooting first: the user is here because a connect FAILED, so the
-    // "why won't it connect" answers are the reason they opened this, above the
-    // from-scratch pairing steps.
+    // After a failed connect, troubleshooting leads: the "why won't it
+    // connect" answers are the reason the user opened this, above the
+    // from-scratch pairing steps. From the pairing guide the steps lead
+    // instead — see [afterFailedConnect].
     final troubleshooting = [
       for (final m in instructions.methods) ...[
         ...m.troubleshooting,
@@ -325,11 +328,9 @@ class _MethodSection extends StatelessWidget {
   final SetupMethodDto method;
   const _MethodSection({required this.method});
 
-  /// Whether the card would say anything; see [_hasText].
+  /// Whether the card would say anything; see [setupMethodHasContent].
   static bool hasContent(SetupMethodDto method) =>
-      _hasText(method.description) ||
-      method.steps.isNotEmpty ||
-      method.stages.isNotEmpty;
+      setupMethodHasContent(method);
 
   /// What a `role` means to the reader. `primary` (and absent) get no label:
   /// the first card needs no qualifier, and a label saying "the normal way"
@@ -591,4 +592,4 @@ class _ResetProcedure extends StatelessWidget {
 /// Non-blank text. The ONE test both the section filters and the widgets
 /// use: the method filter once admitted any non-null description while the
 /// widget hid a blank one, giving a titled card with nothing under it.
-bool _hasText(String? s) => (s ?? '').trim().isNotEmpty;
+bool _hasText(String? s) => hasSetupText(s);

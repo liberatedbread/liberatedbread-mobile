@@ -41,10 +41,11 @@ use super::device_api::{
     list_network_instances_with_spec, match_connected_device, match_network_over,
     match_scanned_over, read_network_entity_roles_with_spec, read_network_entity_with_spec,
     read_network_instance_with_spec, render_network_http_state_request_with_spec,
-    render_network_state_request_with_spec, soft_ap_profiles_over, BleProvisioningProfileDto,
-    DecodedValueDto, DeviceSpecDto, EntityWriteDto, HttpRequestDto, MatchConfidence,
-    NetworkDeviceDto, NetworkInstanceDto, NetworkReadingDto, NetworkRoleReadingDto, ScanMatch,
-    ScannedDeviceDto, SoapRequestDto, SoftApProfileDto, SpecIdentityDto,
+    render_network_state_request_with_spec, setup_instructions_with_spec, soft_ap_profiles_over,
+    BleProvisioningProfileDto, DecodedValueDto, DeviceSpecDto, EntityWriteDto, HttpRequestDto,
+    MatchConfidence, NetworkDeviceDto, NetworkInstanceDto, NetworkReadingDto,
+    NetworkRoleReadingDto, ScanMatch, ScannedDeviceDto, SetupInstructionsDto, SoapRequestDto,
+    SoftApProfileDto, SpecIdentityDto,
 };
 
 /// One parsed spec, held by Rust for as long as Dart holds the handle.
@@ -486,6 +487,22 @@ impl CatalogueHandle {
     ) -> anyhow::Result<Vec<BleProvisioningProfileDto>> {
         let specs = self.specs_at(&indices)?;
         Ok(ble_provisioning_profiles_over(specs.into_iter()))
+    }
+
+    /// The renderable `device.setup` instructions of the specs at `indices`,
+    /// in that order, `None` where a spec carries none —
+    /// [`crate::api::device_api::setup_instructions`] over the held parses.
+    /// The Bluetooth pairing guide asks this for every BLE spec at once; the
+    /// by-YAML door re-sent and re-parsed each one (megabytes) on every open.
+    pub fn setup_instructions(
+        &self,
+        indices: Vec<u32>,
+    ) -> anyhow::Result<Vec<Option<SetupInstructionsDto>>> {
+        let specs = self.specs_at(&indices)?;
+        Ok(specs
+            .into_iter()
+            .map(setup_instructions_with_spec)
+            .collect())
     }
 
     #[frb(ignore)]

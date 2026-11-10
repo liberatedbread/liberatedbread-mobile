@@ -6,6 +6,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../core/device_pictogram.dart';
 import '../providers/ble_pairing_guide_provider.dart';
 import '../widgets/device_list_tile.dart';
+import '../widgets/numbered_step.dart';
+import 'adopt_device_screen.dart' show adoptDrivesBleProvisioning;
 import 'setup_instructions_screen.dart';
 
 /// How to get a new Bluetooth device ready to connect, per device, from the
@@ -87,23 +89,24 @@ class _BlePairingGuideScreenState extends ConsumerState<BlePairingGuideScreen> {
               ),
             ),
             const SizedBox(height: 20),
-            _instruction(
-              context,
-              '1',
-              'Put the device in pairing mode. Find it below for how — many '
-                  'need nothing more than switching on.',
+            const NumberedStep(
+              number: 1,
+              text:
+                  'Put the device in pairing mode. Find it below for how — '
+                  'many need nothing more than switching on.',
             ),
-            _instruction(
-              context,
-              '2',
-              'Close the maker’s app if it is open. Many of these devices '
-                  'take one connection at a time.',
+            const NumberedStep(
+              number: 2,
+              text:
+                  'Close the maker’s app if it is open. Many of these '
+                  'devices take one connection at a time.',
             ),
-            _instruction(
-              context,
-              '3',
-              'Go back to Nearby and scan. Tap the device when it appears. If '
-                  'your phone asks to pair or for a PIN, accept it.',
+            const NumberedStep(
+              number: 3,
+              text:
+                  'Go back to Nearby and scan. Tap the device when it '
+                  'appears. If your phone asks to pair or for a PIN, accept '
+                  'it.',
             ),
             const SizedBox(height: 28),
             ...guide.when(
@@ -193,12 +196,13 @@ class _BlePairingGuideScreenState extends ConsumerState<BlePairingGuideScreen> {
           entry.deviceName,
           style: text.titleMedium?.copyWith(fontWeight: FontWeight.w600),
         ),
-        subtitle: entry.manufacturer.trim().isEmpty
-            ? null
-            : Text(
-                entry.manufacturer,
-                style: text.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
-              ),
+        subtitle: switch (_subtitle(entry)) {
+          null => null,
+          final line => Text(
+            line,
+            style: text.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
+          ),
+        },
         trailing: const Icon(Icons.chevron_right),
         onTap: () => Navigator.of(context).push(
           MaterialPageRoute<void>(
@@ -213,6 +217,21 @@ class _BlePairingGuideScreenState extends ConsumerState<BlePairingGuideScreen> {
     );
   }
 
+  /// The maker, and — for a Wi-Fi device that takes its network details
+  /// over Bluetooth — where that finishes, because scanning for it and
+  /// tapping it (the steps above) does not. The app's own adopt flow when it
+  /// can drive the conversation; otherwise the device's own steps say how.
+  static String? _subtitle(BlePairingGuideEntry entry) {
+    final maker = entry.manufacturer.trim();
+    final hint = !entry.provisionsWifiOverBle
+        ? null
+        : adoptDrivesBleProvisioning(entry.protocolHandler)
+        ? 'Joins your Wi-Fi: set it up from Wi-Fi › Adopt a new Wi-Fi device'
+        : 'Joins your Wi-Fi: its steps say how to send it your network';
+    final lines = [if (maker.isNotEmpty) maker, ?hint];
+    return lines.isEmpty ? null : lines.join('\n');
+  }
+
   Widget _note(BuildContext context, String message) {
     final scheme = Theme.of(context).colorScheme;
     final text = Theme.of(context).textTheme;
@@ -224,36 +243,6 @@ class _BlePairingGuideScreenState extends ConsumerState<BlePairingGuideScreen> {
           color: scheme.onSurfaceVariant,
           height: 1.5,
         ),
-      ),
-    );
-  }
-
-  /// A numbered step, drawn like the Wi-Fi adopt screen's so the two guides
-  /// read as one family.
-  Widget _instruction(BuildContext context, String number, String body) {
-    final scheme = Theme.of(context).colorScheme;
-    final text = Theme.of(context).textTheme;
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          CircleAvatar(
-            radius: 14,
-            backgroundColor: scheme.secondaryContainer,
-            child: Text(
-              number,
-              style: text.labelLarge?.copyWith(
-                color: scheme.onSecondaryContainer,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Text(body, style: text.bodyMedium?.copyWith(height: 1.5)),
-          ),
-        ],
       ),
     );
   }
