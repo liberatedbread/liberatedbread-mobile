@@ -157,7 +157,7 @@ class MattelMpidBleService
   );
 
   /// Whether [deviceId] holds an open session right now. For tests and logs.
-  bool hasSession(String deviceId) => _links[deviceId]?._session != null;
+  bool hasSession(String deviceId) => _links[deviceId]?.isOpen ?? false;
 
   // ── The MPID service ────────────────────────────────────────────────────
 
@@ -377,9 +377,20 @@ class _MpidLink {
     return controller.stream;
   }
 
+  /// Whether the session is open and confirmed: keyed, and the unit has
+  /// answered under it. A key alone is not enough, since the handshake's own
+  /// writes go out under it before the unit has said anything.
+  bool get isOpen => _session != null && _opening == null;
+
+  /// Opens the session, or joins the opening already under way. A command
+  /// waits on the whole handshake, confirmation included, so it neither
+  /// interleaves with the handshake's writes nor reports success on a session
+  /// that then fails to confirm.
   Future<void> ensureOpen() {
+    final pending = _opening;
+    if (pending != null) return pending;
     if (_session != null) return Future.value();
-    return _opening ??= _open().whenComplete(() => _opening = null);
+    return _opening = _open().whenComplete(() => _opening = null);
   }
 
   Future<void> _open() async {

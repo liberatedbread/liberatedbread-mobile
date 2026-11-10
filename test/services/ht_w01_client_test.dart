@@ -52,7 +52,9 @@ List<int> _hex(String s) => [
   for (final b in s.split(' ')) int.parse(b, radix: 16),
 ];
 
-enum _Mode { healthy, garbage, silent }
+/// `latePalette`: like `healthy`, except the palette read goes unanswered
+/// until the range read, whose reply it then arrives just ahead of.
+enum _Mode { healthy, garbage, silent, latePalette }
 
 class _FakeCamera {
   final ServerSocket server;
@@ -98,7 +100,14 @@ class _FakeCamera {
               break;
             case _Mode.garbage:
               socket.add([0x13, 0x37, 0xFB, 0x00, 0xFF, 0x42, 0x42]);
-            case _Mode.healthy:
+            case _Mode.latePalette when type == 0x33 && data.first == 0x01:
+              break;
+            case _Mode.latePalette when type == 0x33 && data.first == 0x03:
+              socket.add([
+                ..._frame(0x33, [0x01, 4]),
+                ..._frame(0x33, [0x03, 1]),
+              ]);
+            case _Mode.healthy || _Mode.latePalette:
               if (type == 0x31) {
                 socket.add(_frame(0x31, data));
               } else if (type == 0x33) {
@@ -165,6 +174,17 @@ void main() {
     expect(settings.answered, 3);
     expect(camera.frames.first[5], 0x31, reason: 'opens with the heartbeat');
     expect(camera.frames.first[23], 1);
+  });
+
+  test('a late answer to one read is not taken as the next read\'s', () async {
+    camera = await _FakeCamera.start(_Mode.latePalette);
+    final settings = await _client(camera).readSettings();
+    // The palette's answer came after its read had given up, so it is
+    // missing; the range and emissivity still read their own replies.
+    expect(settings.palette, isNull);
+    expect(settings.range, HtW01Range.small);
+    expect(settings.emissivityHundredths, 95);
+    expect(settings.answered, 2);
   });
 
   test(

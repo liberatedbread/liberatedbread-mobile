@@ -305,6 +305,35 @@ void main() {
     expect(unit.bodies, [_enableRx, _requestState]);
   });
 
+  test('a command sent while a subscriber is still opening the session waits '
+      'for the confirmation, and fails with it', () async {
+    unit.answers = _Answers.garbage;
+    final ble = layer(confirm: const Duration(milliseconds: 200));
+    final sub = ble
+        .subscribeCharacteristic('d', _svc, _rx)
+        .listen((_) {}, onError: (Object _) {});
+    await pumpEventQueue();
+    // The handshake has keyed the session and sent its own two writes, and
+    // is waiting on the unit's answer.
+    expect(unit.bodies, [_enableRx, _requestState]);
+    expect(ble.hasSession('d'), isFalse);
+
+    await expectLater(
+      ble.writeCharacteristic('d', _svc, _tx, [
+        0x01,
+        0x10,
+        0xFE,
+        0x01,
+        0x3E,
+        0x3F,
+      ]),
+      throwsA(isA<MpidSessionException>()),
+    );
+    // The command never went out under the unconfirmed session.
+    expect(unit.bodies, [_enableRx, _requestState]);
+    await sub.cancel();
+  });
+
   test('a unit that answers nothing fails the open, and says so', () async {
     unit.answers = _Answers.nothing;
     final ble = layer();

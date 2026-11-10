@@ -743,8 +743,7 @@ pub fn ctr_apply(key: &[u8; 16], iv: &[u8; 16], offset: u64, data: &[u8]) -> Vec
     let cipher = Aes128::new(key.into());
     let start = u128::from_be_bytes(*iv);
     let mut out = Vec::with_capacity(data.len());
-    let mut position = offset;
-    for byte in data {
+    for (position, byte) in (offset..).zip(data) {
         let block_index = position / 16;
         let mut block = start
             .wrapping_add(u128::from(block_index))
@@ -752,7 +751,6 @@ pub fn ctr_apply(key: &[u8; 16], iv: &[u8; 16], offset: u64, data: &[u8]) -> Vec
             .into();
         cipher.encrypt_block(&mut block);
         out.push(byte ^ block[(position % 16) as usize]);
-        position += 1;
     }
     out
 }

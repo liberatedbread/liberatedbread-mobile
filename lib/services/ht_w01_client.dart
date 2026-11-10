@@ -151,16 +151,30 @@ class HtW01CameraClient implements HtW01Client {
   Future<List<ReadOnlyCommandDto>> commandPolicy(String specYaml) =>
       htW01CommandPolicy(specYaml: specYaml);
 
+  /// The settings [readSettings] asks for, in order.
+  static const _settingsReads = [
+    HtW01Param.palette,
+    HtW01Param.measuringRange,
+    HtW01Param.emissivity,
+  ];
+
   @override
   Future<HtW01Settings> readSettings() => _session((session) async {
     int? palette, range, emissivity;
     var answered = 0;
-    for (final param in [
-      HtW01Param.palette,
-      HtW01Param.measuringRange,
-      HtW01Param.emissivity,
-    ]) {
-      final reply = await session.ask(htW01Get(param: param), _getParam);
+    for (final param in _settingsReads) {
+      final reply = await session.ask(
+        htW01Get(param: param),
+        _getParam,
+        // All three reads answer with the same type, so a late answer to an
+        // earlier read can arrive first. A reply naming another parameter is
+        // that late answer: skip it and keep waiting for this one's.
+        accept: (reply) => !_settingsReads.any(
+          (other) =>
+              other != param &&
+              htW01ReplyValue(reply: reply, param: other) != null,
+        ),
+      );
       if (reply == null) continue;
       answered++;
       final value = htW01ReplyValue(reply: reply, param: param);
@@ -258,15 +272,22 @@ class _Session {
 
   _Session(this.transport, this.timeout);
 
-  /// Send [frame] and wait for a reply of [type]; null when none comes in
-  /// time. Other frames (a heartbeat's answer) and garbage are passed over.
-  Future<HtW01ReplyDto?> ask(List<int> frame, int type) async {
+  /// Send [frame] and wait for a reply of [type] that [accept] takes; null
+  /// when none comes in time. Other frames (a heartbeat's answer, a late
+  /// reply [accept] turns down) and garbage are passed over.
+  Future<HtW01ReplyDto?> ask(
+    List<int> frame,
+    int type, {
+    bool Function(HtW01ReplyDto reply)? accept,
+  }) async {
     await transport.write(frame);
     final deadline = DateTime.now().add(timeout);
     while (true) {
       while (_frames.isNotEmpty) {
         final reply = _frames.removeAt(0);
-        if (reply.cmdType == type) return reply;
+        if (reply.cmdType == type && (accept?.call(reply) ?? true)) {
+          return reply;
+        }
       }
       final left = deadline.difference(DateTime.now());
       if (left <= Duration.zero) return null;
