@@ -10,6 +10,7 @@ import '../ble_connect_within.dart';
 import '../ble_service.dart';
 import '../ble_write_plan_runner.dart';
 import '../brother_ql_print_service.dart';
+import '../classic_spp_service.dart';
 import '../spec_codec.dart';
 
 /// The canvas a label printer prints: dots across the head, the fixed length
@@ -160,6 +161,167 @@ class BrotherQlTarget implements LabelPrintTarget {
       if (result case BrotherQlSendFailed(:final reason)) {
         return PrintFailed(reason);
       }
+    }
+    return const PrintOk();
+  }
+}
+
+/// A Brother P-touch Cube over Bluetooth Classic SPP: the job is encoded in
+/// Rust for the variant's head and the loaded tape, written to the
+/// printer's RFCOMM socket, and the printer's own status pushes say whether
+/// it printed. Linux only, as [ClassicSppService] is.
+class BrotherPtTarget implements LabelPrintTarget {
+  final SpecCodec codec;
+  final ClassicSppService spp;
+  final String address;
+  final String specYaml;
+  final String? variant;
+  final int tapeWidthMm;
+
+  @override
+  final String name;
+
+  @override
+  final LabelGeometry geometry;
+
+  /// Status byte 18 is the status type; 01 completed, 02 error and 04
+  /// turned off end a job (spec `protocol_details.job_sequence.after`).
+  static const statusTypeOffset = 18;
+  static const jobEndingStatusTypes = {0x01, 0x02, 0x04};
+  static const _completed = 0x01;
+  static const _turnedOff = 0x04;
+
+  /// The vendor SDK waits this long after connecting to a Cube before it
+  /// writes; Ircama allows a minute for the job to finish.
+  static const settle = Duration(milliseconds: 500);
+  static const jobTimeout = Duration(seconds: 60);
+
+  /// Every Cube takes 12 mm tape: the width assumed when the printer does
+  /// not say what is loaded.
+  static const fallbackTapeMm = 12;
+
+  BrotherPtTarget({
+    required this.codec,
+    required this.spp,
+    required this.address,
+    required this.specYaml,
+    required this.variant,
+    required this.tapeWidthMm,
+    required this.name,
+    required LabelCanvasDto canvas,
+    bool hardwareTested = true,
+    int? maxLengthDots,
+  }) : geometry = LabelGeometry(
+         widthDots: canvas.widthDots,
+         dpi: canvas.dpi,
+         mediaName: canvas.mediaName,
+         hardwareTested: hardwareTested,
+         maxLengthDots: maxLengthDots,
+       );
+
+  /// Pair if needed, ask the printer which tape is loaded, and build the
+  /// target for that tape on [variant]'s head.
+  static Future<BrotherPtTarget> resolve({
+    required SpecCodec codec,
+    required ClassicSppService spp,
+    required String address,
+    required String specYaml,
+    required String? variant,
+    required String name,
+  }) async {
+    var tape = fallbackTapeMm;
+    try {
+      await spp.pair(address);
+      final reply = await spp.request(
+        address,
+        await codec.brotherPtStatusRequest(
+          specYaml: specYaml,
+          variant: variant,
+        ),
+      );
+      final status = await codec.decodeBrotherPtStatus(reply: reply);
+      if (status.mediaWidthMm > 0) tape = status.mediaWidthMm;
+    } on Object catch (e) {
+      Log.ble.warning('P-touch status read failed for $address', error: e);
+    }
+    final raster = await codec.rasterPrintForSpec(
+      specYaml: specYaml,
+      variant: variant,
+    );
+    return BrotherPtTarget(
+      codec: codec,
+      spp: spp,
+      address: address,
+      specYaml: specYaml,
+      variant: variant,
+      tapeWidthMm: tape,
+      name: name,
+      canvas: await codec.brotherPtLabelCanvas(
+        specYaml: specYaml,
+        variant: variant,
+        tapeWidthMm: tape,
+      ),
+      hardwareTested: raster?.hardwareTested ?? true,
+      maxLengthDots: raster?.maxLengthDots,
+    );
+  }
+
+  @override
+  Future<PrintOutcome> printMono(
+    Uint8List rgb,
+    int width,
+    int height, {
+    int copies = 1,
+  }) async {
+    final Uint8List job;
+    try {
+      job = await codec.renderBrotherPtJob(
+        specYaml: specYaml,
+        variant: variant,
+        tapeWidthMm: tapeWidthMm,
+        rgb: rgb,
+        width: width,
+        height: height,
+      );
+    } on Object catch (e) {
+      Log.ble.warning('P-touch encode failed for $address', error: e);
+      return const PrintFailed('Could not encode the label for this tape.');
+    }
+    for (var i = 0; i < copies; i++) {
+      final List<Uint8List> frames;
+      try {
+        frames = await spp.sendJob(
+          address,
+          job,
+          stopOffset: statusTypeOffset,
+          stopValues: jobEndingStatusTypes,
+          settle: settle,
+          timeout: jobTimeout,
+        );
+      } on ClassicSppException catch (e) {
+        return PrintFailed(e.message);
+      } on Object catch (e) {
+        Log.ble.warning('P-touch job failed for $address', error: e);
+        return const PrintFailed('Could not send the label to the printer.');
+      }
+      if (frames.isEmpty) {
+        return const PrintFailed('The printer did not answer the label.');
+      }
+      final BrotherPtStatusDto last;
+      try {
+        last = await codec.decodeBrotherPtStatus(reply: frames.last);
+      } on Object {
+        return const PrintFailed('The printer answered with something else.');
+      }
+      if (last.statusType == _completed) continue;
+      if (last.statusType == _turnedOff) {
+        return const PrintFailed('The printer turned off during the label.');
+      }
+      return PrintFailed(
+        last.errors.isEmpty
+            ? 'The printer stopped with an error and dropped the label.'
+            : 'The printer stopped: ${last.errors.join(', ')}.',
+      );
     }
     return const PrintOk();
   }

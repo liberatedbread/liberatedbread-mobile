@@ -2015,6 +2015,36 @@ fn the_shining_glasses_sibling_declares_no_pixel_surface_to_encode() {
     );
 }
 
+/// The Even G1 names no `protocol_handler`; it is adopted by the BMP commands
+/// it declares, and its upload is the whole BMP transfer for one temple
+/// through the FFI the editor calls.
+#[test]
+fn the_vendored_even_g1_encodes_its_bmp_transfer() {
+    use liberated_bread_core::api::device_api::{encode_image_frame, load_device_spec};
+
+    let yaml = fs::read_to_string(spec_path("even-g1-glasses.yaml")).expect("readable");
+    let dto = load_device_spec(yaml.clone()).expect("the G1 loads");
+    let img = dto.image_upload.expect("declares image_upload");
+    assert_eq!(img.handler.as_deref(), Some("even_g1_bmp"));
+    assert!(img.encodable);
+    assert_eq!((img.max_width, img.max_height), (Some(576), Some(136)));
+
+    let plan = encode_image_frame(yaml.clone(), 576, 136, vec![0u8; 576 * 136 * 3], 0, 248)
+        .expect("the vendored G1 spec encodes");
+    assert_eq!(plan.service_uuid, "6e400001-b5a3-f393-e0a9-e50e24dcca9e");
+    assert_eq!(plan.writes.len(), 53, "51 chunks, end, CRC");
+    assert_eq!(
+        plan.writes[0].bytes[..8],
+        [0x15, 0x00, 0x00, 0x1C, 0x00, 0x00, b'B', b'M']
+    );
+    assert_eq!(plan.writes[51].bytes, [0x20, 0x0D, 0x0E]);
+    assert_eq!(plan.writes[52].bytes[0], 0x16);
+    assert_eq!(plan.writes[52].bytes.len(), 5);
+    assert_eq!(plan.reply_waits.len(), 2);
+    // The first write is 200 bytes; a link that cannot carry it is told so.
+    assert!(encode_image_frame(yaml, 8, 8, vec![0u8; 8 * 8 * 3], 0, 182).is_err());
+}
+
 /// The two places the schema puts an mDNS service type, held together.
 ///
 /// `device.identification.mdns_service_type` and every
@@ -4964,7 +4994,7 @@ fn the_catalogue_handle_matches_and_sweeps_like_the_by_value_doors() {
 #[test]
 fn the_vendored_printers_drive_their_print_paths() {
     let niimbot = std::fs::read_to_string(spec_path("niimbot-d110.yaml")).unwrap();
-    let raster = liberated_bread_core::api::print_api::raster_print_for_spec(niimbot.clone())
+    let raster = liberated_bread_core::api::print_api::raster_print_for_spec(niimbot.clone(), None)
         .unwrap()
         .expect("the D110 is a raster printer");
     assert_eq!(raster.transport.as_deref(), Some("ble_write_plan"));
@@ -4987,8 +5017,57 @@ fn the_vendored_printers_drive_their_print_paths() {
     let ipp = std::fs::read_to_string(spec_path("ipp-network-printer.yaml")).unwrap();
     assert!(liberated_bread_core::api::print_api::ipp_status_supported(ipp.clone()).unwrap());
     assert!(
-        liberated_bread_core::api::print_api::raster_print_for_spec(ipp)
+        liberated_bread_core::api::print_api::raster_print_for_spec(ipp, None)
             .unwrap()
             .is_none()
     );
+}
+
+/// The P-touch Cube names no `protocol_handler`; it is adopted by the PT
+/// raster commands it declares on `rfcomm`, prints over the RFCOMM stream,
+/// and each variant gets its own head rather than the spec's first entry.
+#[test]
+fn the_vendored_ptouch_cube_prints_per_variant_over_rfcomm() {
+    use liberated_bread_core::api::print_api::{
+        brother_pt_label_canvas, brother_pt_status_request, decode_brother_pt_status,
+        raster_print_for_spec, render_brother_pt_job,
+    };
+
+    let yaml = fs::read_to_string(spec_path("brother-ptouch-cube.yaml")).unwrap();
+    let first = raster_print_for_spec(yaml.clone(), None).unwrap().unwrap();
+    assert_eq!(first.handler.as_deref(), Some("brother_pt_raster"));
+    assert_eq!(first.transport.as_deref(), Some("rfcomm_stream"));
+    assert!(first.encodable);
+    assert!(!first.hardware_tested);
+    assert_eq!(first.variants, ["PT-P300BT", "PT-P300BTz"]);
+
+    let p910 = raster_print_for_spec(yaml.clone(), Some("PT-P910BT".into()))
+        .unwrap()
+        .unwrap();
+    assert_eq!((p910.dpi, p910.head_dots), (360, Some(560)));
+    assert_eq!(p910.variants, ["PT-P910BT"]);
+
+    let canvas = brother_pt_label_canvas(yaml.clone(), Some("PT-P710BT".into()), 12).unwrap();
+    assert_eq!((canvas.width_dots, canvas.dpi), (70, 180));
+    let job = render_brother_pt_job(
+        yaml.clone(),
+        Some("PT-P710BT".into()),
+        12,
+        vec![0u8; 70 * 40 * 3],
+        70,
+        40,
+    )
+    .unwrap();
+    assert!(job[..100].iter().all(|b| *b == 0));
+    assert_eq!(*job.last().unwrap(), 0x1A);
+    assert_eq!(
+        brother_pt_status_request(yaml, Some("PT-P710BT".into())).unwrap()[100..],
+        [0x1B, 0x40, 0x1B, 0x69, 0x53]
+    );
+    let status = decode_brother_pt_status(vec![
+        0x80, 0x20, 0x42, 0x30, 0x72, 0x30, 0, 0, 0, 0, 0x0C, 0x01, 0, 0, 0, 0, 0, 0, 0x01, 0, 0,
+        0, 0, 0, 0x01, 0x08, 0, 0, 0, 0, 0, 0,
+    ])
+    .unwrap();
+    assert!(status.ends_job);
 }

@@ -1227,8 +1227,10 @@ class RealSpecCodec implements SpecCodec {
       rust.cameraForDevice(specYaml: specYaml);
 
   @override
-  Future<RasterPrintDto?> rasterPrintForSpec({required String specYaml}) =>
-      print_rust.rasterPrintForSpec(specYaml: specYaml);
+  Future<RasterPrintDto?> rasterPrintForSpec({
+    required String specYaml,
+    String? variant,
+  }) => print_rust.rasterPrintForSpec(specYaml: specYaml, variant: variant);
 
   @override
   Future<Uint8List> prepareMonoRaster({
@@ -1282,6 +1284,54 @@ class RealSpecCodec implements SpecCodec {
   }) => print_rust.renderBrotherQlJob(
     specYaml: specYaml,
     params: params,
+    rgb: rgb,
+    width: width,
+    height: height,
+  );
+
+  @override
+  Future<String?> rasterPrintVariantForName({
+    required String specYaml,
+    required String deviceName,
+  }) => print_rust.rasterPrintVariantForName(
+    specYaml: specYaml,
+    deviceName: deviceName,
+  );
+
+  @override
+  Future<Uint8List> brotherPtStatusRequest({
+    required String specYaml,
+    String? variant,
+  }) => print_rust.brotherPtStatusRequest(specYaml: specYaml, variant: variant);
+
+  @override
+  Future<BrotherPtStatusDto> decodeBrotherPtStatus({
+    required List<int> reply,
+  }) => print_rust.decodeBrotherPtStatus(reply: reply);
+
+  @override
+  Future<LabelCanvasDto> brotherPtLabelCanvas({
+    required String specYaml,
+    String? variant,
+    required int tapeWidthMm,
+  }) => print_rust.brotherPtLabelCanvas(
+    specYaml: specYaml,
+    variant: variant,
+    tapeWidthMm: tapeWidthMm,
+  );
+
+  @override
+  Future<Uint8List> renderBrotherPtJob({
+    required String specYaml,
+    String? variant,
+    required int tapeWidthMm,
+    required Uint8List rgb,
+    required int width,
+    required int height,
+  }) => print_rust.renderBrotherPtJob(
+    specYaml: specYaml,
+    variant: variant,
+    tapeWidthMm: tapeWidthMm,
     rgb: rgb,
     width: width,
     height: height,

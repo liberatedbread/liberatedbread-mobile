@@ -3,6 +3,7 @@
 
 pub mod acinfinity;
 pub mod bisecur;
+pub mod brother_pt;
 pub mod brother_ql;
 pub mod cat_printer;
 pub mod cat_printer_mxw01;
@@ -13,6 +14,7 @@ pub mod daniao_upload;
 pub mod dispatch;
 pub mod dither;
 pub mod enphase;
+pub mod even_g1;
 pub mod fichero_d11;
 pub mod generic;
 pub mod health;
@@ -372,6 +374,10 @@ const IMAGE_UPLOAD_HANDLERS: &[ImageUploadHandler] = &[
     ImageUploadHandler {
         name: popled::HANDLER_NAME,
         encode: popled::encode_image,
+    },
+    ImageUploadHandler {
+        name: even_g1::HANDLER_NAME,
+        encode: even_g1::encode_image,
     },
 ];
 

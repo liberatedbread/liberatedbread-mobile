@@ -22,20 +22,28 @@ class SavedPrinter {
   final SavedDevice? ble;
   final SavedNetworkDevice? network;
 
+  /// The family variant this printer is, when its spec has several heads.
+  final String? variant;
+
   const SavedPrinter({
     required this.name,
     required this.specYaml,
     required this.raster,
     this.ble,
     this.network,
+    this.variant,
   });
 
   bool get isBle => ble != null;
+
+  /// A Bluetooth Classic printer: saved with the Bluetooth devices, printed
+  /// to over an SPP socket rather than GATT.
+  bool get isClassic => raster.transport == 'rfcomm_stream';
 }
 
 /// The saved devices that are label printers this build can drive: a BLE
-/// printer whose handler writes a GATT plan, or a network printer that takes
-/// a raw stream. A printer whose spec names an encoder this build lacks is
+/// printer whose handler writes a GATT plan, a Bluetooth Classic printer that
+/// takes a stream over SPP, or a network printer that takes a raw stream. A printer whose spec names an encoder this build lacks is
 /// left out rather than offered and failed.
 final savedPrintersProvider = FutureProvider.autoDispose<List<SavedPrinter>>((
   ref,
@@ -63,9 +71,20 @@ final savedPrintersProvider = FutureProvider.autoDispose<List<SavedPrinter>>((
     final entry = byKey[key];
     if (entry == null) continue;
     try {
-      final raster = await codec.rasterPrintForSpec(specYaml: entry.yaml);
-      if (raster == null || !raster.encodable) continue;
       final isBle = device is SavedDevice;
+      // A family of heads (the P-touch Cube) is told apart by the name the
+      // printer answers to; the BLE families narrow by their own matcher.
+      final variant = isBle
+          ? await codec.rasterPrintVariantForName(
+              specYaml: entry.yaml,
+              deviceName: name,
+            )
+          : null;
+      final raster = await codec.rasterPrintForSpec(
+        specYaml: entry.yaml,
+        variant: variant,
+      );
+      if (raster == null || !raster.encodable) continue;
       if (isBle && raster.variants.isNotEmpty) {
         final matched = await codec.bleVariantNamesForDevice(
           yaml: entry.yaml,
@@ -76,8 +95,10 @@ final savedPrintersProvider = FutureProvider.autoDispose<List<SavedPrinter>>((
           continue;
         }
       }
-      final wanted = isBle ? 'ble_write_plan' : 'raw_stream';
-      if (raster.transport != wanted) continue;
+      final wanted = isBle
+          ? const {'ble_write_plan', 'rfcomm_stream'}
+          : const {'raw_stream'};
+      if (!wanted.contains(raster.transport)) continue;
       printers.add(
         SavedPrinter(
           name: name.isNotEmpty ? name : entry.deviceName,
@@ -85,6 +106,7 @@ final savedPrintersProvider = FutureProvider.autoDispose<List<SavedPrinter>>((
           raster: raster,
           ble: isBle ? device : null,
           network: isBle ? null : device as SavedNetworkDevice,
+          variant: variant,
         ),
       );
     } on Object catch (e) {

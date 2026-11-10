@@ -99,6 +99,16 @@ class _Spp implements ClassicSppService {
     requestCalls++;
     return Uint8List(32);
   }
+
+  @override
+  Future<List<Uint8List>> sendJob(
+    String address,
+    List<int> job, {
+    required int stopOffset,
+    required Set<int> stopValues,
+    Duration settle = Duration.zero,
+    Duration timeout = const Duration(seconds: 60),
+  }) async => const [];
 }
 
 void main() {

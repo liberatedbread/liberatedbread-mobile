@@ -13,6 +13,19 @@ heading.
 
 ### Added
 
+- **Even Realities G1 glasses take pictures.** The image editor sends a
+  576x136 one-bit BMP to the connected temple as the spec's 0x15 chunks, then
+  0x20 and the big-endian CRC-32 that shows it, waiting for each reply. Each
+  temple is its own Bluetooth device and draws only what it is sent, so the
+  other lens needs its own send (or both temples in a group). Built from the
+  spec and tested against its vectors; not run on hardware.
+- **Brother P-touch Cube printing over Bluetooth Classic (Linux).** The label
+  composer prints to a saved PT-P300BT, PT-P710BT or PT-P910BT as one PT
+  raster job over its SPP socket, sized for that model's head and the tape it
+  reports, and reads the printer's status pushes for the outcome. A family
+  spec's print surface is now chosen by variant rather than taken from its
+  first entry. Built from the spec and tested against its vectors; not run on
+  hardware.
 - **Yeelight lights over the LAN (`yeelight_lan`).** The cube lamp's spec now
   drives power, brightness, colour and colour temperature over JSON lines on
   TCP 55443, reads state back, and paints a module's rows on a unit that lists
