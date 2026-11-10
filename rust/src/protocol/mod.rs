@@ -25,6 +25,7 @@ pub mod kasa;
 pub mod ledbadge_bitmap;
 pub mod lifx;
 pub mod limitlessled;
+pub mod mattel_mpid;
 pub mod modbus_sunspec;
 pub mod mqtt;
 pub mod niimbot;

@@ -13,6 +13,22 @@ heading.
 
 ### Added
 
+- **Fisher-Price Lumalou night light and sound machine (`mattel_mpid`).** The
+  unit's encrypted session (P-256 key agreement, the 100-round key stretch,
+  AES-128-CTR frames with their CRCs) runs underneath the ordinary cards: the
+  night light's ten presets and brightness, sounds, volume, timers, the sleep
+  trainer, naps and routines. Group pride mode puts the light on its rainbow
+  preset. Commands with schedule or playlist arguments stay in the command
+  list unsent (they take byte strings), the clock prescaler stays behind its
+  advanced confirmation, and the pairing-complete message and the DFU service
+  cannot be sent at all. Single-value replies are not decoded, as their layout
+  is unknown. Tested against the spec's vectors and a fake unit; not run on
+  hardware.
+- **Spec `format_match`, `mask` and role bindings with `values`.** A
+  characteristic that carries several kinds of frame decodes only the one its
+  `format` describes and cards keep their last state across the rest; packed
+  bit fields decode by their mask; and a role bound as `{command, values}`
+  sends those values. Group commands now skip vehicles as they skip locks.
 - **Yeelight lights over the LAN (`yeelight_lan`).** The cube lamp's spec now
   drives power, brightness, colour and colour temperature over JSON lines on
   TCP 55443, reads state back, and paints a module's rows on a unit that lists

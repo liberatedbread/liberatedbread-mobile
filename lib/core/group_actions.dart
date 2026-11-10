@@ -34,6 +34,7 @@ import '../models/ble_discovered_service.dart';
 import '../services/spec_codec.dart';
 import 'decoded_number.dart';
 import 'device_category.dart';
+import 'entity_action_params.dart';
 import 'entity_live_value.dart';
 import 'find_device.dart' show discoveredPairKey, discoveredWritablePairs;
 import 'hex.dart';
@@ -169,7 +170,8 @@ Set<GroupOp> supportedGroupOps(
   }
   if (_declaresSigBattery(spec)) ops.add(GroupOp.readBattery);
   if (imageSurfaceForPride(spec) != null ||
-      _prideColorActions(spec, matchedVariants: matchedVariants).isNotEmpty) {
+      _prideColorActions(spec, matchedVariants: matchedVariants).isNotEmpty ||
+      _prideRainbowEffects(spec, matchedVariants: matchedVariants).isNotEmpty) {
     ops.add(GroupOp.prideMode);
   }
   return ops;
@@ -238,9 +240,71 @@ List<({EntityDto entity, EntityActionDto action})> _prideColorActions(
       bound,
 ];
 
+/// A light with no colour to set but a rainbow among its effects: the
+/// `set_effect` action, and the value that picks the rainbow.
+///
+/// The BLE twin of the network path's rainbow effect, with one difference:
+/// here the spec states the effect list itself (a parameter's `labels`), so
+/// the index is known before anything is sent. The Lumalou's night light is
+/// the case — ten presets, the tenth a rainbow, and no RGB at all.
+List<({EntityDto entity, EntityActionDto action, double value})>
+_prideRainbowEffects(DeviceSpecDto spec, {List<String>? matchedVariants}) {
+  final withColor = {
+    for (final bound in _prideColorActions(
+      spec,
+      matchedVariants: matchedVariants,
+    ))
+      bound.entity.name,
+  };
+  return [
+    for (final bound in _controlActions(spec, matchedVariants: matchedVariants))
+      if (bound.entity.platform == 'light' &&
+          bound.action.role == 'set_effect' &&
+          !withColor.contains(bound.entity.name))
+        if (_rainbowValue(spec, bound.action) case final value?)
+          (entity: bound.entity, action: bound.action, value: value),
+  ];
+}
+
+/// The raw value of the rainbow among [action]'s effect labels, or null when
+/// it takes no single labelled value or none of them is a rainbow. Labels pair
+/// with `allowed` when the parameter lists values, and count up from `min`
+/// otherwise.
+double? _rainbowValue(DeviceSpecDto spec, EntityActionDto action) {
+  if (action.userParams.length != 1) return null;
+  final name = action.userParams.single;
+  final service = normalizeUuid(action.serviceUuid);
+  final characteristic = normalizeUuid(action.characteristicUuid);
+  for (final s in spec.services) {
+    if (normalizeUuid(s.uuid) != service) continue;
+    for (final c in s.characteristics) {
+      if (normalizeUuid(c.uuid) != characteristic) continue;
+      for (final command in c.commands) {
+        if (command.name != action.commandName) continue;
+        for (final p in command.parameters) {
+          if (p.name != name) continue;
+          final labels = p.labels;
+          if (labels == null) return null;
+          final index = rainbowEffectIndex(labels);
+          if (index == null) return null;
+          final allowed = p.allowed;
+          if (allowed != null) {
+            return index < allowed.length ? allowed[index].toDouble() : null;
+          }
+          final value = (p.min ?? 0) + index;
+          final max = p.max;
+          return max == null || value <= max ? value : null;
+        }
+      }
+    }
+  }
+  return null;
+}
+
 /// The writes that put one [color] on a member's lights: on first, for the
 /// lights whose colour command does not itself wake them, then the colour.
-/// Empty when it has no light that takes one, or this unit lacks the
+/// A light with no colour but a rainbow effect takes the rainbow instead.
+/// Empty when it has no light that takes either, or this unit lacks the
 /// characteristic.
 List<GroupWrite> resolvePrideColorWrites({
   required DeviceSpecDto spec,
@@ -280,6 +344,39 @@ List<GroupWrite> resolvePrideColorWrites({
       ),
     );
   }
+  for (final (:entity, :action, :value) in _prideRainbowEffects(
+    spec,
+    matchedVariants: matchedVariants,
+  )) {
+    if (!found(action)) continue;
+    // On first, unless "on" is the effect's own command with another value
+    // (the Lumalou's is warm white): that would only flash before the
+    // rainbow replaced it.
+    for (final on in entity.actions) {
+      if (on.role != 'turn_on' ||
+          on.commandName == null ||
+          on.commandName == action.commandName ||
+          !found(on)) {
+        continue;
+      }
+      writes.add(
+        GroupWrite(
+          serviceUuid: on.serviceUuid,
+          charUuid: on.characteristicUuid,
+          commandName: on.commandName!,
+          params: _paramsFor(on),
+        ),
+      );
+    }
+    writes.add(
+      GroupWrite(
+        serviceUuid: action.serviceUuid,
+        charUuid: action.characteristicUuid,
+        commandName: action.commandName!,
+        params: action.withFixed({action.userParams.single: value}),
+      ),
+    );
+  }
   return writes;
 }
 
@@ -301,7 +398,13 @@ Iterable<({EntityDto entity, EntityActionDto action})> _controlActions(
   DeviceSpecDto spec, {
   List<String>? matchedVariants,
 }) sync* {
-  if (DeviceCategory.parse(spec.category) == DeviceCategory.lock) return;
+  // Nor a vehicle: a group "turn off" has no human looking at the board it
+  // reaches, and a skateboard's lights going dark mid-ride is not a lamp.
+  // Their switches stay on the device screen, one deliberate tap at a time.
+  final category = DeviceCategory.parse(spec.category);
+  if (category == DeviceCategory.lock || category == DeviceCategory.vehicle) {
+    return;
+  }
   final unnarrowed = matchedVariants == null || matchedVariants.isEmpty;
   final scopedNames = <String>{};
   for (final entity in spec.entities) {
@@ -421,7 +524,7 @@ Map<String, double> _paramsFor(
     if (value == null) continue;
     values[p] = value;
   }
-  return values;
+  return action.withFixed(values);
 }
 
 /// Resolve the concrete writes a command op performs on one member, given the

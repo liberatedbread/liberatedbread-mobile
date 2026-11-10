@@ -98,6 +98,10 @@ sha2 = "0.11"
 # implementation exists in this crate. Keep it in Rust alongside the AES cipher
 # above, tested against public SRP-6a and split-stream cipher vectors.
 num-bigint = "0.4"
+# The Fisher-Price Lumalou's MPID session (protocol::mattel_mpid): ephemeral
+# ECDH on P-256 against the key in the unit's factory token. RustCrypto, like
+# `aes` above; only the curve arithmetic and ECDH, no ECDSA or PEM.
+p256 = { version = "0.14", default-features = false, features = ["ecdh"] }
 gif = { version = "0.13", default-features = false, features = ["color_quant", "std"] }
 
 # Desktop serial ports, for programming a radio over a USB cable on Linux and

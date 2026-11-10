@@ -13,6 +13,7 @@ import 'api/enphase_api.dart';
 import 'api/health_api.dart';
 import 'api/ipl_api.dart';
 import 'api/mock_api.dart';
+import 'api/mpid_api.dart';
 import 'api/print_api.dart';
 import 'api/radio_api.dart';
 import 'api/readonly_api.dart';
@@ -734,6 +735,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   MatchResult dco_decode_match_result(dynamic raw);
+
+  @protected
+  MpidChannelsDto dco_decode_mpid_channels_dto(dynamic raw);
+
+  @protected
+  MpidSessionDto dco_decode_mpid_session_dto(dynamic raw);
 
   @protected
   MqttIncomingDto dco_decode_mqtt_incoming_dto(dynamic raw);
@@ -2068,6 +2075,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   MatchResult sse_decode_match_result(SseDeserializer deserializer);
+
+  @protected
+  MpidChannelsDto sse_decode_mpid_channels_dto(SseDeserializer deserializer);
+
+  @protected
+  MpidSessionDto sse_decode_mpid_session_dto(SseDeserializer deserializer);
 
   @protected
   MqttIncomingDto sse_decode_mqtt_incoming_dto(SseDeserializer deserializer);
@@ -3775,6 +3788,18 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_match_result(MatchResult self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_mpid_channels_dto(
+    MpidChannelsDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_mpid_session_dto(
+    MpidSessionDto self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_mqtt_incoming_dto(

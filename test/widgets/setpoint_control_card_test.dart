@@ -49,6 +49,7 @@ Widget _besideStatus(Widget card, String serviceUuid) => SingleChildScrollView(
 );
 
 EntityActionDto _setValue({String? command}) => EntityActionDto(
+  fixedParams: const {},
   role: 'set_value',
   serviceUuid: '0313fb4e-198b-4f64-a883-52b218c10ccc',
   characteristicUuid: _stateChar,
@@ -621,6 +622,7 @@ void main() {
       actions: [
         _setValue(),
         const EntityActionDto(
+          fixedParams: {},
           role: 'turn_on',
           serviceUuid: 's',
           characteristicUuid: _stateChar,

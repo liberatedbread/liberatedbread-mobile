@@ -152,6 +152,16 @@ impl DeviceProtocol for GenericProtocol {
                 uuid: char_uuid.to_string(),
             })?;
 
+        // Another kind of frame on the same characteristic: nothing to say,
+        // which callers read as "keep the last state".
+        if characteristic
+            .format_match
+            .as_ref()
+            .is_some_and(|m| !m.matches(bytes))
+        {
+            return Ok(DecodedValues::new());
+        }
+
         types::decode_all_fields(bytes, format)
     }
 

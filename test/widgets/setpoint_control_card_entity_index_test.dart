@@ -27,6 +27,7 @@ const _ftmsSpeed = EntityDto(
   onWhenNonzero: false,
   actions: [
     EntityActionDto(
+      fixedParams: {},
       role: 'set_value',
       serviceUuid: '00001826-0000-1000-8000-00805f9b34fb',
       characteristicUuid: _controlPoint,
