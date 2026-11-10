@@ -9,6 +9,7 @@ import '../error.dart';
 import '../frb_generated.dart';
 import '../protocol/acinfinity.dart';
 import '../protocol/bisecur.dart';
+import '../protocol/inmotion.dart';
 import '../protocol/modbus_sunspec.dart';
 import '../protocol/pax.dart';
 import '../protocol/readonly.dart';
@@ -238,6 +239,54 @@ Future<String?> paxModelRefusal({required List<String> serviceUuids}) => RustLib
     .instance
     .api
     .crateApiReadonlyApiPaxModelRefusal(serviceUuids: serviceUuids);
+
+/// InMotion: one of the four read requests. There is no other way to build a
+/// frame for a wheel.
+Future<Uint8List> inmotionEncodeRead({required InMotionRead read}) =>
+    RustLib.instance.api.crateApiReadonlyApiInmotionEncodeRead(read: read);
+
+/// InMotion: add notification bytes and take out whole, checked frames.
+Future<InMotionFeedDto> inmotionFeed({
+  required List<int> buffer,
+  required List<int> chunk,
+}) => RustLib.instance.api.crateApiReadonlyApiInmotionFeed(
+  buffer: buffer,
+  chunk: chunk,
+);
+
+Future<InMotionModelDto> inmotionDecodeCarType({required List<int> data}) =>
+    RustLib.instance.api.crateApiReadonlyApiInmotionDecodeCarType(data: data);
+
+Future<InMotionVersionsDto> inmotionDecodeVersions({required List<int> data}) =>
+    RustLib.instance.api.crateApiReadonlyApiInmotionDecodeVersions(data: data);
+
+/// InMotion: the layout a wheel's real-time data is read with, or `None`
+/// while that is not known (a V11 before its versions reply, an unlisted
+/// model).
+Future<InMotionLayout?> inmotionLayoutFor({
+  required int modelCode,
+  InMotionVersionDto? mainBoard,
+}) => RustLib.instance.api.crateApiReadonlyApiInmotionLayoutFor(
+  modelCode: modelCode,
+  mainBoard: mainBoard,
+);
+
+Future<InMotionTelemetryDto> inmotionDecodeRealtime({
+  required InMotionLayout layout,
+  required List<int> data,
+}) => RustLib.instance.api.crateApiReadonlyApiInmotionDecodeRealtime(
+  layout: layout,
+  data: data,
+);
+
+Future<InMotionTotalsDto> inmotionDecodeTotals({required List<int> data}) =>
+    RustLib.instance.api.crateApiReadonlyApiInmotionDecodeTotals(data: data);
+
+/// InMotion: why this wheel is not read, from its discovered services.
+Future<String?> inmotionWheelRefusal({required List<String> serviceUuids}) =>
+    RustLib.instance.api.crateApiReadonlyApiInmotionWheelRefusal(
+      serviceUuids: serviceUuids,
+    );
 
 /// What a BiSecur caller is waiting for. Named, so nothing here takes a
 /// command id; `SET_STATE` is not one of these.

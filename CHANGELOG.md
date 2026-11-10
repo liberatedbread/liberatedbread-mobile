@@ -31,6 +31,15 @@ heading.
   not connected to, since its encryption is not stated. No captured frame
   exists, so the cipher is pinned against independent computations; not run
   on hardware.
+- **INMOTION V2 electric unicycles, read-only telemetry (`inmotion_euc`).**
+  Model, speed, battery, voltage, current, trip, the speed limit the wheel is
+  enforcing, temperatures and odometer, from the V11, V12, V13 and V14-family
+  layouts the spec states (a V11's layout chosen by its main-board version,
+  fields the spec marks unsure left out). Only the four read requests can be
+  built: the headlight, sounds, lock, ride modes, calibration, transport mode
+  and power-off stay listed and refused, because what a wheel does with a
+  write while ridden is not known. Legacy wheels (V5, V8, V10, Glide 3) are
+  not read yet. Tested against the spec's frames; not run on hardware.
 - **Spec `format_match`, `mask` and role bindings with `values`.** A
   characteristic that carries several kinds of frame decodes only the one its
   `format` describes and cards keep their last state across the rest; packed

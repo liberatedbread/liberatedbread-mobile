@@ -19,7 +19,7 @@
 use crate::error::ProtocolError;
 use crate::spec::types::DeviceSpec;
 
-use super::{acinfinity, bisecur, modbus_sunspec, pax, yummly};
+use super::{acinfinity, bisecur, inmotion, modbus_sunspec, pax, yummly};
 
 /// One command this app's read-only handler actually sends. `characteristic`
 /// narrows the name on a BLE spec, where a name can repeat across generations
@@ -54,6 +54,7 @@ pub struct ReadOnlyHandler {
 const YUMMLY_XW2: &str = yummly::REQUEST_CHARACTERISTIC;
 const ACINFINITY: &str = acinfinity::COMMAND_CHARACTERISTIC;
 const PAX_WRITE: &str = pax::WRITE_CHARACTERISTIC;
+const INMOTION_V2: &str = inmotion::V2_WRITE;
 
 const READ_ONLY_HANDLERS: &[ReadOnlyHandler] = &[
     ReadOnlyHandler {
@@ -104,6 +105,18 @@ const READ_ONLY_HANDLERS: &[ReadOnlyHandler] = &[
         refusal: "Read-only in this app: this is a heating device. It asks \
                   for temperature and battery only, and the heater set point \
                   and the lock are never sent.",
+    },
+    ReadOnlyHandler {
+        name: inmotion::HANDLER_NAME,
+        sent: &[
+            on(INMOTION_V2, "v2_request_car_type"),
+            on(INMOTION_V2, "v2_request_versions"),
+            on(INMOTION_V2, "v2_request_realtime"),
+            on(INMOTION_V2, "v2_request_total_stats"),
+        ],
+        refusal: "Read-only in this app: this is a vehicle, and what a wheel \
+                  does with a write while someone rides it is not known. \
+                  Telemetry is read from V2 wheels only.",
     },
 ];
 
@@ -246,6 +259,16 @@ mod tests {
             pax::HANDLER_NAME,
             &["request_status_update"],
         ),
+        (
+            "inmotion-euc.yaml",
+            inmotion::HANDLER_NAME,
+            &[
+                "v2_request_car_type",
+                "v2_request_versions",
+                "v2_request_realtime",
+                "v2_request_total_stats",
+            ],
+        ),
     ];
 
     /// The commands that must never go out, named one by one so that renaming
@@ -281,6 +304,46 @@ mod tests {
         ),
         ("hormann-bisecur-gateway.yaml", &["send_impulse"]),
         ("pax-vape.yaml", &["set_heater_setpoint", "set_lock"]),
+        (
+            "inmotion-euc.yaml",
+            &[
+                "legacy_headlight_on",
+                "legacy_headlight_off",
+                "legacy_decor_leds_on",
+                "legacy_decor_leds_off",
+                "legacy_beep",
+                "legacy_play_sound_4",
+                "legacy_power_off",
+                "legacy_calibrate",
+                "legacy_ride_mode_classic",
+                "legacy_ride_mode_comfort",
+                "v2_beep",
+                "v2_play_sound",
+                "v2_play_sound_v11_early",
+                "v2_headlight_on",
+                "v2_headlight_off",
+                "v2_headlight_on_v11_early",
+                "v2_headlight_off_v11_early",
+                "v2_set_beams",
+                "v2_drl_on",
+                "v2_drl_off",
+                "v2_set_speaker_volume",
+                "v2_sound_on",
+                "v2_sound_off",
+                "v2_set_headlight_brightness",
+                "v2_lock",
+                "v2_unlock",
+                "v2_transport_mode_on",
+                "v2_transport_mode_off",
+                "v2_classic_mode_on",
+                "v2_classic_mode_off",
+                "v2_power_off_stage1",
+                "v2_power_off_stage2",
+                "v2_calibrate_turn",
+                "v2_calibrate_balance",
+                "v2_calibrate_v11_early",
+            ],
+        ),
     ];
 
     /// The pin. Exactly the listed reads are sent; every other command the

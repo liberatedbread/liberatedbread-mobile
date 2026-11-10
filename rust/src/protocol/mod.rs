@@ -19,6 +19,7 @@ pub mod health;
 pub mod http;
 pub mod idotmatrix;
 pub mod image_upload;
+pub mod inmotion;
 pub mod ipl;
 pub mod ipp;
 pub mod kasa;

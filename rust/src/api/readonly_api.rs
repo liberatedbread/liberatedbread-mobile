@@ -6,7 +6,7 @@
 //! opcode or an address. See [`crate::protocol::readonly`].
 
 use crate::api::device_api::SafetyAdvisoryDto;
-use crate::protocol::{acinfinity, bisecur, modbus_sunspec, pax, readonly, yummly};
+use crate::protocol::{acinfinity, bisecur, inmotion, modbus_sunspec, pax, readonly, yummly};
 
 pub use crate::protocol::acinfinity::{
     AcInfinityFeedDto, AcInfinityPortDto, AcInfinityStatusDto, AcInfinityStoredDto,
@@ -14,6 +14,10 @@ pub use crate::protocol::acinfinity::{
 pub use crate::protocol::bisecur::{
     BiSecurGroupDto, BiSecurPortDto, BiSecurReplyDto, BiSecurReplyKind, BiSecurSplitDto,
     BiSecurTransitionDto,
+};
+pub use crate::protocol::inmotion::{
+    InMotionFeedDto, InMotionFrameDto, InMotionFrameKind, InMotionLayout, InMotionModelDto,
+    InMotionRead, InMotionTelemetryDto, InMotionTotalsDto, InMotionVersionDto, InMotionVersionsDto,
 };
 pub use crate::protocol::modbus_sunspec::{
     SunSpecCommonDto, SunSpecInverterDto, SunSpecMeterDto, SunSpecMeterPowerDto,
@@ -315,6 +319,51 @@ pub fn pax_decode_read(serial: String, packet: Vec<u8>) -> anyhow::Result<PaxRea
 /// PAX: why this unit is not read, from its discovered services, or `None`.
 pub fn pax_model_refusal(service_uuids: Vec<String>) -> Option<String> {
     pax::refuses_model(&service_uuids)
+}
+
+/// InMotion: one of the four read requests. There is no other way to build a
+/// frame for a wheel.
+pub fn inmotion_encode_read(read: InMotionRead) -> Vec<u8> {
+    inmotion::encode_read(read)
+}
+
+/// InMotion: add notification bytes and take out whole, checked frames.
+pub fn inmotion_feed(buffer: Vec<u8>, chunk: Vec<u8>) -> InMotionFeedDto {
+    inmotion::feed(&buffer, &chunk)
+}
+
+pub fn inmotion_decode_car_type(data: Vec<u8>) -> anyhow::Result<InMotionModelDto> {
+    Ok(inmotion::decode_car_type(&data)?)
+}
+
+pub fn inmotion_decode_versions(data: Vec<u8>) -> anyhow::Result<InMotionVersionsDto> {
+    Ok(inmotion::decode_versions(&data)?)
+}
+
+/// InMotion: the layout a wheel's real-time data is read with, or `None`
+/// while that is not known (a V11 before its versions reply, an unlisted
+/// model).
+pub fn inmotion_layout_for(
+    model_code: u32,
+    main_board: Option<InMotionVersionDto>,
+) -> Option<InMotionLayout> {
+    inmotion::layout_for(model_code, main_board)
+}
+
+pub fn inmotion_decode_realtime(
+    layout: InMotionLayout,
+    data: Vec<u8>,
+) -> anyhow::Result<InMotionTelemetryDto> {
+    Ok(inmotion::decode_realtime(layout, &data)?)
+}
+
+pub fn inmotion_decode_totals(data: Vec<u8>) -> anyhow::Result<InMotionTotalsDto> {
+    Ok(inmotion::decode_totals(&data)?)
+}
+
+/// InMotion: why this wheel is not read, from its discovered services.
+pub fn inmotion_wheel_refusal(service_uuids: Vec<String>) -> Option<String> {
+    inmotion::refuses_wheel(&service_uuids)
 }
 
 #[cfg(test)]
