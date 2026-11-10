@@ -326,6 +326,61 @@ void main() {
       expect(controls.sunSpecStatus, isFalse);
     });
 
+    test('admits an AirPort base station to its read-only screen', () async {
+      final container = _container(
+        FakeSpecCodec(networkEntities: (_) => const []),
+        parsed: [
+          (
+            spec: _spec('Inverter', 'SolarEdge', protocolHandler: acpHandler),
+            yaml: 'acp',
+          ),
+        ],
+      );
+      final controls = await container.read(
+        networkControlsProvider(request).future,
+      );
+      expect(controls!.acpStatus, isTrue);
+      expect(controls.biSecurStatus, isFalse);
+    });
+
+    test('admits a JuiceBox to its listen-only screen', () async {
+      final container = _container(
+        FakeSpecCodec(networkEntities: (_) => const []),
+        parsed: [
+          (
+            spec: _spec(
+              'Inverter',
+              'SolarEdge',
+              protocolHandler: juiceNetHandler,
+            ),
+            yaml: 'juicenet',
+          ),
+        ],
+      );
+      final controls = await container.read(
+        networkControlsProvider(request).future,
+      );
+      expect(controls!.juiceNetStatus, isTrue);
+      expect(controls.acpStatus, isFalse);
+    });
+
+    test('admits an HT-W01 camera to its settings screen', () async {
+      final container = _container(
+        FakeSpecCodec(networkEntities: (_) => const []),
+        parsed: [
+          (
+            spec: _spec('Inverter', 'SolarEdge', protocolHandler: htW01Handler),
+            yaml: 'ht_w01',
+          ),
+        ],
+      );
+      final controls = await container.read(
+        networkControlsProvider(request).future,
+      );
+      expect(controls!.htW01Settings, isTrue);
+      expect(controls.juiceNetStatus, isFalse);
+    });
+
     test('is not claimed by a spec under another handler', () async {
       final container = _container(
         FakeSpecCodec(networkEntities: (_) => const [_plugEntity]),

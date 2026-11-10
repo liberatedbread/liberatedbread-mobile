@@ -13,6 +13,7 @@ import '../confirm_dialog.dart';
 import '../decoded_value_widget.dart';
 import '../entity_value.dart';
 import '../unclaimed_actions.dart';
+import '../../core/entity_action_params.dart';
 
 /// The BLE control card for the platforms the unified role table added:
 /// `button`, `select`, `fan` and `cover`.
@@ -171,7 +172,7 @@ class _BleEntityActionCardState extends ConsumerState<BleEntityActionCard> {
         serviceUuid: action.serviceUuid,
         charUuid: action.characteristicUuid,
         commandName: commandName,
-        params: params,
+        params: action.withFixed(params),
       );
       // Through the shared writer, so the readings in this service re-read.
       await writeServiceCommand(

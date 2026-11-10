@@ -20,7 +20,10 @@ use super::types::{
     SpecCommand, TemplateElement, ValueType,
 };
 use crate::codec::types::{unsupported_single_write_kind, unsupported_single_write_transform};
-use crate::protocol::{http, kasa, limitlessled, mqtt, rabbit_air, soap, websocket, yeelight};
+use crate::protocol::{
+    http, kasa, limitlessled, mqtt, philips_air, popled, popled_udp, rabbit_air, soap, websocket,
+    yeelight,
+};
 use std::borrow::Cow;
 use std::collections::HashMap;
 
@@ -61,6 +64,10 @@ pub struct ResolvedAction<'a> {
     /// 0..255. `None` for roles without one.
     pub min: Option<i64>,
     pub max: Option<i64>,
+    /// Parameter values the spec binds the role to, sent with every press:
+    /// the mapping form `{command, values}` of an entity's `commands:`.
+    /// Empty for a plain binding.
+    pub fixed_values: Vec<(String, f64)>,
 }
 
 /// How a role finds and qualifies its command — the one role vocabulary,
@@ -536,6 +543,7 @@ fn qualify_valued<'a>(
         user_params: vec![value_param],
         min: declared.and_then(|p| p.min),
         max: declared.and_then(|p| p.max),
+        fixed_values: Vec::new(),
     })
 }
 
@@ -581,6 +589,7 @@ fn resolve_direct_write<'a>(
         user_params: Vec::new(),
         min,
         max,
+        fixed_values: Vec::new(),
     })
 }
 
@@ -740,14 +749,25 @@ fn resolve_role<'a>(
         if let Some((service, characteristic, name, command)) =
             find_command(spec, entity, |n| n == bound_name)
         {
-            return qualify(role, service, characteristic, name, command);
+            return qualify(role, service, characteristic, name, command, &[]);
+        }
+    }
+    // The mapping form settles it the same way, with the values it binds.
+    for alias in role.aliases {
+        let Some((bound_name, values)) = entity.command_with_values_for_role(alias) else {
+            continue;
+        };
+        if let Some((service, characteristic, name, command)) =
+            find_command(spec, entity, |n| n == bound_name)
+        {
+            return qualify(role, service, characteristic, name, command, &values);
         }
     }
 
     for exact in role.fallback_exact {
         if let Some(found) = find_command(spec, entity, |n| n == *exact) {
             let (service, characteristic, name, command) = found;
-            if let Some(action) = qualify(role, service, characteristic, name, command) {
+            if let Some(action) = qualify(role, service, characteristic, name, command, &[]) {
                 return Some(action);
             }
         }
@@ -755,7 +775,7 @@ fn resolve_role<'a>(
     for suffix in role.fallback_suffixes {
         if let Some(found) = find_command(spec, entity, |n| n.ends_with(suffix)) {
             let (service, characteristic, name, command) = found;
-            if let Some(action) = qualify(role, service, characteristic, name, command) {
+            if let Some(action) = qualify(role, service, characteristic, name, command, &[]) {
                 return Some(action);
             }
         }
@@ -800,6 +820,7 @@ fn qualify<'a>(
     characteristic: &'a Characteristic,
     name: &'a str,
     command: &'a Command,
+    fixed: &[(String, f64)],
 ) -> Option<ResolvedAction<'a>> {
     // JSON/protobuf/TLV commands can't be encoded at all yet, and neither can
     // any command on a characteristic whose bytes must be transformed on the
@@ -816,9 +837,10 @@ fn qualify<'a>(
         return None;
     }
 
-    // Fixed byte sequences (either envelope) take no input.
+    // Fixed byte sequences (either envelope) take no input, so values bound
+    // to one name parameters it does not have.
     if command.value.is_some() || command.payload_bytes().is_some() {
-        if role.needs_user_input() || role.role == SET_BRIGHTNESS.role {
+        if !fixed.is_empty() || role.needs_user_input() || role.role == SET_BRIGHTNESS.role {
             return None;
         }
         return Some(ResolvedAction {
@@ -829,20 +851,36 @@ fn qualify<'a>(
             user_params: Vec::new(),
             min: None,
             max: None,
+            fixed_values: Vec::new(),
         });
     }
 
     let template = command.template.as_ref()?;
 
-    // Every referenced parameter must be either UI-owned or spec-defaulted;
-    // one un-defaulted protocol byte disqualifies the command for automatic
-    // sending.
+    // A bound value must name a parameter the template uses: one it does not
+    // would be dropped by the encoder, and the press would send something
+    // other than what the binding says.
+    let referenced = |name: &str| {
+        template
+            .iter()
+            .any(|e| matches!(e, TemplateElement::Param(p) if p == name))
+    };
+    if fixed.iter().any(|(name, _)| !referenced(name)) {
+        return None;
+    }
+
+    // Every referenced parameter must be either UI-owned, bound by the
+    // entity, or spec-defaulted; one un-defaulted protocol byte disqualifies
+    // the command for automatic sending.
     let mut user_params: Vec<&str> = Vec::new();
     for element in template {
         let TemplateElement::Param(param_name) = element else {
             continue;
         };
         if user_params.contains(&param_name.as_str()) {
+            continue;
+        }
+        if fixed.iter().any(|(name, _)| name == param_name) {
             continue;
         }
         if role.user_params.contains(&param_name.as_str()) {
@@ -901,6 +939,7 @@ fn qualify<'a>(
         user_params,
         min,
         max,
+        fixed_values: fixed.to_vec(),
     })
 }
 
@@ -1278,6 +1317,23 @@ fn qualify_network<'a>(
             }
             transport = limitlessled::HANDLER_NAME;
         }
+        // A Philips purifier's enveloped CoAP writes. `coap` is also the IKEA
+        // gateway's DTLS surface, so the handler admits it, and only the
+        // control writes: `sync` and `get_status` are the session's own
+        // plumbing, which no control sends.
+        t if t == philips_air::TRANSPORT && protocol_handler == Some(philips_air::HANDLER_NAME) => {
+            if !philips_air::is_control_command(command) {
+                return None;
+            }
+            transport = philips_air::HANDLER_NAME;
+        }
+        // A Wi-Fi LOY SPACE panel's frames over UDP 9090, under the same rule.
+        // Its network commands exist only as twins of the bound BLE ones
+        // (`popled_udp::bind_network_surface`), so the renderer has nothing
+        // further to require of them here.
+        t if t == popled_udp::TRANSPORT && protocol_handler == Some(popled::HANDLER_NAME) => {
+            transport = popled::HANDLER_NAME;
+        }
         _ => return None,
     }
 
@@ -1481,6 +1537,10 @@ fn state_transport_readable(spec: &DeviceSpec, command: &SpecCommand) -> bool {
             handler == Some(kasa::HANDLER_NAME) || handler == Some(yeelight::HANDLER_NAME)
         }
         Some(t) if t == rabbit_air::TRANSPORT => handler == Some(rabbit_air::HANDLER_NAME),
+        Some(t) if t == philips_air::TRANSPORT => {
+            handler == Some(philips_air::HANDLER_NAME)
+                && command.path.as_deref() == Some(philips_air::STATUS_PATH)
+        }
         _ => true,
     }
 }

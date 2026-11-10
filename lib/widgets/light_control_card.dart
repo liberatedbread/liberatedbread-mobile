@@ -14,6 +14,7 @@ import 'decoded_value_widget.dart';
 import 'entity_value.dart';
 import 'light_swatches.dart';
 import 'unclaimed_actions.dart';
+import '../core/entity_action_params.dart';
 
 /// A spec-declared `light` entity as working controls: power, brightness,
 /// color — whichever subset of roles actually resolved to sendable commands.
@@ -212,7 +213,7 @@ class _LightControlCardState extends ConsumerState<LightControlCard> {
         serviceUuid: action.serviceUuid,
         charUuid: action.characteristicUuid,
         commandName: commandName,
-        params: _paramsFor(action),
+        params: action.withFixed(_paramsFor(action)),
       );
       // Through the shared writer, so the readings in this service re-read.
       await writeServiceCommand(

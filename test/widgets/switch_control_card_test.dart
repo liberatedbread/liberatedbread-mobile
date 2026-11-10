@@ -49,6 +49,7 @@ Widget _besideStatus(Widget card, String serviceUuid) => SingleChildScrollView(
 );
 
 EntityActionDto _fixedAction(String role, String command) => EntityActionDto(
+  fixedParams: const {},
   role: role,
   serviceUuid: _cmdService,
   characteristicUuid: _cmdChar,

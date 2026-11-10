@@ -4,6 +4,7 @@ import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:liberated_bread_mobile/services/classic_spp_service.dart';
+import 'package:liberated_bread_mobile/services/linux_spp_transport.dart';
 
 class _FakeAdapter implements ClassicBluetoothAdapter {
   @override
@@ -98,5 +99,80 @@ void main() {
 
     expect(reply, status);
     expect(sent, [0x1b, 0x69, 0x53]);
+  });
+
+  test(
+    'an SPP job passes its stop rule through and returns the frames',
+    () async {
+      final device = _FakeDevice(_FakeAdapter(true), paired: true);
+      final done = Uint8List(32)..[18] = 1;
+      late int offset;
+      late Set<int> values;
+      late Duration settled;
+      final service = BluezClassicSppService(
+        (_) async => device,
+        job:
+            (
+              address,
+              payload, {
+              required timeout,
+              settle = Duration.zero,
+              frameLength = 32,
+              required stopOffset,
+              required stopValues,
+            }) async {
+              offset = stopOffset;
+              values = stopValues;
+              settled = settle;
+              return [done];
+            },
+      );
+
+      final frames = await service.sendJob(
+        _address,
+        const [0x1A],
+        stopOffset: 18,
+        stopValues: const {1, 2, 4},
+        settle: const Duration(milliseconds: 500),
+      );
+
+      expect(frames, [done]);
+      expect(offset, 18);
+      expect(values, {1, 2, 4});
+      expect(settled, const Duration(milliseconds: 500));
+    },
+  );
+
+  test('an SPP job that never finishes says so in words', () async {
+    final device = _FakeDevice(_FakeAdapter(true), paired: true);
+    final service = BluezClassicSppService(
+      (_) async => device,
+      job:
+          (
+            address,
+            payload, {
+            required timeout,
+            settle = Duration.zero,
+            frameLength = 32,
+            required stopOffset,
+            required stopValues,
+          }) async => throw const SppTransportException('timeout', 'late'),
+    );
+
+    await expectLater(
+      service.sendJob(
+        _address,
+        const [0x1A],
+        stopOffset: 18,
+        stopValues: const {1},
+      ),
+      throwsA(
+        isA<ClassicSppException>().having(
+          (e) => e.message,
+          'message',
+          contains('never said it had finished'),
+        ),
+      ),
+    );
   });
 }

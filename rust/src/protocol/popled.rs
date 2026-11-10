@@ -90,6 +90,12 @@ const TLV_DEVICE_INFO: u8 = 0x0A;
 const TLV_PANEL: u8 = 0x1B;
 const BODY_ANSWER: [u8; 2] = [0x81, 0x83];
 
+/// A write's acknowledgement: `81 82 <status>`, 0 being success.
+pub const BODY_ACK: [u8; 2] = [0x81, 0x82];
+
+/// The query [`panel_probe`] sends: the device-information and panel records.
+pub const PANEL_QUERY_BODY: [u8; 6] = [0xC1, 0x03, TLV_DEVICE_INFO, 0x00, TLV_PANEL, 0x00];
+
 /// Every known wire form, by the spec's command name. YAML, so the
 /// `parameters` and `template` here read exactly as a spec's would and go
 /// through the same deserializer.
@@ -192,6 +198,9 @@ pub fn bind_commands(spec: &mut DeviceSpec) {
             }
         }
     }
+    // The Wi-Fi panel's spec states its commands on the BLE characteristic
+    // only; this gives them a network surface over UDP as well.
+    super::popled_udp::bind_network_surface(spec);
 }
 
 /// One complete frame around `body`.
@@ -285,7 +294,7 @@ pub fn encode_animated_gif(
 }
 
 /// The frame bodies that store `gif` in [`PROGRAM_SLOT`] and start playing it.
-fn upload_bodies(gif: &[u8]) -> Vec<Vec<u8>> {
+pub(crate) fn upload_bodies(gif: &[u8]) -> Vec<Vec<u8>> {
     let slot = PROGRAM_SLOT;
     // What a resource TLV starts with: which program, region 0, item 0.
     let resource: Vec<u8> = [
@@ -437,7 +446,7 @@ pub fn panel_probe(spec: &DeviceSpec) -> Result<PanelProbe<'_>, ProtocolError> {
     Ok(PanelProbe {
         write,
         notify,
-        bytes: frame(1, &[0xC1, 0x03, TLV_DEVICE_INFO, 0x00, TLV_PANEL, 0x00]),
+        bytes: frame(1, &PANEL_QUERY_BODY),
     })
 }
 
@@ -445,7 +454,17 @@ pub fn panel_probe(spec: &DeviceSpec) -> Result<PanelProbe<'_>, ProtocolError> {
 /// [`panel_probe`]. Reassembled by the frame's own length, since a reply can
 /// outlast a notification; `None` when no complete frame states a usable size.
 pub fn decode_panel_size(notifications: &[Vec<u8>]) -> Option<(u32, u32)> {
-    let bytes: Vec<u8> = notifications.concat();
+    frames_in(&notifications.concat())
+        .iter()
+        .find_map(|(_, body)| panel_size_in_body(body))
+}
+
+/// Every complete, checksummed frame in `bytes`, as (sequence, body), in
+/// order. Bytes that are not a frame are stepped over: the reassembled stream
+/// of a link can start mid-frame, and a stray `aa 55` inside one is ruled out
+/// by its checksum.
+pub fn frames_in(bytes: &[u8]) -> Vec<(u16, Vec<u8>)> {
+    let mut out = Vec::new();
     let mut at = 0;
     while at + FRAME_HEADER_LEN <= bytes.len() {
         // The second half of the magic varies by panel, so only `aa 55` is
@@ -467,29 +486,32 @@ pub fn decode_panel_size(notifications: &[Vec<u8>]) -> Option<(u32, u32)> {
             at += 1;
             continue;
         }
-        let body = &bytes[at + FRAME_HEADER_LEN..end - 2];
-        if let Some(size) = panel_size_in_body(body) {
-            return Some(size);
-        }
+        let seq = u16::from_le_bytes([bytes[at + 6], bytes[at + 7]]);
+        out.push((seq, bytes[at + FRAME_HEADER_LEN..end - 2].to_vec()));
         at = end;
     }
-    None
+    out
 }
 
-fn panel_size_in_body(body: &[u8]) -> Option<(u32, u32)> {
+/// The TLVs of a query's answer (`81 83 ...`), in order, up to the first one
+/// that does not fit. `None` for a body that is not an answer.
+pub fn answer_tlvs(body: &[u8]) -> Option<Vec<(u8, &[u8])>> {
     let mut rest = body.strip_prefix(&BODY_ANSWER[..])?;
+    let mut out = Vec::new();
     while let Some((&tag, after)) = rest.split_first() {
-        let (&first, after) = after.split_first()?;
+        let Some((&first, after)) = after.split_first() else {
+            break;
+        };
         // The TLV layer's length form: one byte below 0x80, otherwise 0x81
         // plus one byte or 0x82 plus a little-endian u16.
         let (length, after) = match first {
-            0x81 => {
-                let (&l, a) = after.split_first()?;
-                (l as usize, a)
-            }
+            0x81 => match after.split_first() {
+                Some((&l, a)) => (l as usize, a),
+                None => break,
+            },
             0x82 => {
                 if after.len() < 2 {
-                    return None;
+                    break;
                 }
                 (
                     u16::from_le_bytes([after[0], after[1]]) as usize,
@@ -499,18 +521,34 @@ fn panel_size_in_body(body: &[u8]) -> Option<(u32, u32)> {
             n => (n as usize, after),
         };
         if after.len() < length {
-            return None;
+            break;
         }
         let (value, next) = after.split_at(length);
-        if tag == TLV_PANEL && value.len() >= 4 {
-            // Big-endian, unlike nearly everything else on this link.
-            let width = u16::from_be_bytes([value[0], value[1]]) as u32;
-            let height = u16::from_be_bytes([value[2], value[3]]) as u32;
-            return (width > 0 && height > 0).then_some((width, height));
-        }
+        out.push((tag, value));
         rest = next;
     }
-    None
+    Some(out)
+}
+
+fn panel_size_in_body(body: &[u8]) -> Option<(u32, u32)> {
+    let value = answer_tlvs(body)?
+        .into_iter()
+        .find_map(|(tag, value)| (tag == TLV_PANEL && value.len() >= 4).then_some(value))?;
+    // Big-endian, unlike nearly everything else on this link.
+    let width = u16::from_be_bytes([value[0], value[1]]) as u32;
+    let height = u16::from_be_bytes([value[2], value[3]]) as u32;
+    (width > 0 && height > 0).then_some((width, height))
+}
+
+/// The panel's device-information record (`0a`) in an answer: its
+/// comma-separated text, which leads with the panel's id, model and firmware
+/// (`525C110340,EXYC-A#CXB3BRI7BTVOICE3,V2.8.8#V01,...` from the bench).
+pub fn device_info_text(body: &[u8]) -> Option<String> {
+    let value = answer_tlvs(body)?
+        .into_iter()
+        .find_map(|(tag, value)| (tag == TLV_DEVICE_INFO).then_some(value))?;
+    let text = String::from_utf8_lossy(value).trim().to_string();
+    (!text.is_empty()).then_some(text)
 }
 
 #[cfg(test)]

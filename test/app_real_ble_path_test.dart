@@ -38,6 +38,7 @@ import 'package:liberated_bread_mobile/providers/ble_provider.dart';
 import 'package:liberated_bread_mobile/providers/saved_device_provider.dart';
 import 'package:liberated_bread_mobile/screens/scan_screen.dart';
 import 'package:liberated_bread_mobile/services/real_ble_service.dart';
+import 'package:liberated_bread_mobile/services/mattel_mpid_ble_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'fakes/emulated_ble.dart';
@@ -187,7 +188,16 @@ void main() {
       final container = ProviderScope.containerOf(
         tester.element(find.byType(ScanScreen)),
       );
-      expect(container.read(bleServiceProvider), isA<RealBleService>());
+      // Under the MPID session layer, which passes every other device
+      // straight through.
+      expect(
+        container.read(bleServiceProvider),
+        isA<MattelMpidBleService>().having(
+          (b) => b.inner,
+          'inner',
+          isA<RealBleService>(),
+        ),
+      );
 
       await tester.tap(find.byType(FloatingActionButton));
       await _pumpUntil(tester, find.text('ACME_Living_Room'));

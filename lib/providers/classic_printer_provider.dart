@@ -11,12 +11,24 @@ import 'saved_device_provider.dart';
 import 'scan_match_provider.dart';
 import 'spec_choice_provider.dart';
 
+/// The Classic SPP printer handlers this build drives.
+const brotherQlHandler = 'brother_ql_raster';
+const brotherPtHandler = 'brother_pt_raster';
+const _classicHandlers = {brotherQlHandler, brotherPtHandler};
+
 @immutable
 class ClassicPrinterProfile {
   final String specYaml;
   final String specKey;
 
-  const ClassicPrinterProfile({required this.specYaml, required this.specKey});
+  /// The spec's handler: which printer language the setup panel speaks.
+  final String protocolHandler;
+
+  const ClassicPrinterProfile({
+    required this.specYaml,
+    required this.specKey,
+    this.protocolHandler = brotherQlHandler,
+  });
 }
 
 @immutable
@@ -76,13 +88,16 @@ final classicPrinterProfileProvider = Provider.autoDispose
         }
         entry = catalogue.specs[index];
       }
-      if (entry.protocolHandler != 'brother_ql_raster' ||
+      final handler = entry.protocolHandler;
+      if (handler == null ||
+          !_classicHandlers.contains(handler) ||
           entry.gattServiceUuids.isNotEmpty) {
         return null;
       }
       return ClassicPrinterProfile(
         specYaml: entry.yaml,
         specKey: specKeyOf(entry.deviceName, entry.manufacturer),
+        protocolHandler: handler,
       );
     });
 

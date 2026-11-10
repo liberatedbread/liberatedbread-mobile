@@ -44,10 +44,17 @@ abstract interface class AcInfinityClient {
 /// Every port can switch mains equipment, so this is as close to silent as the
 /// protocol allows. Subscribing is what starts the status stream, and that is
 /// where climate and port state come from. The only frame this client ever
-/// writes is `get_model_data`, once per occupied port, for the stored levels;
-/// [acinfinityEncodeGetModelData] builds opcode 0x01 and nothing else.
+/// writes is `get_model_data`, once per occupied port of the multi-port
+/// controller layout, for the stored levels; [acinfinityEncodeGetModelData]
+/// builds opcode 0x01 and nothing else. A power strip's relays and a legacy
+/// controller are read from the stream alone.
 class AcInfinityBleClient implements AcInfinityClient {
   final ReadOnlyBleSession _session;
+
+  /// The unit's manufacturer payload for company 0x0902, after the company
+  /// id. Its device type and protocol revision pick the status layout; without
+  /// it only the multi-port controller layout is read.
+  final Uint8List? _advertisement;
 
   /// The stream runs about once a second. A controller that says nothing
   /// usable within this is reported rather than waited on for ever.
@@ -77,10 +84,14 @@ class AcInfinityBleClient implements AcInfinityClient {
   AcInfinityBleClient({
     required BleService ble,
     required String deviceId,
+    List<int>? advertisement,
     this.answerWait = const Duration(seconds: 10),
     this.replyWait = const Duration(seconds: 3),
     this.staleAfter = const Duration(seconds: 10),
-  }) : _session = ReadOnlyBleSession(
+  }) : _advertisement = advertisement == null
+           ? null
+           : Uint8List.fromList(advertisement),
+       _session = ReadOnlyBleSession(
          ble: ble,
          deviceId: deviceId,
          serviceUuid: _service,
@@ -152,7 +163,10 @@ class AcInfinityBleClient implements AcInfinityClient {
   Future<void> _onStatus(Uint8List frame) async {
     final AcInfinityStatusDto status;
     try {
-      status = await acinfinityDecodeStatus(frame: frame);
+      status = await acinfinityDecodeStatus(
+        frame: frame,
+        advertisement: _advertisement,
+      );
     } on Object catch (e) {
       Log.ble.debug('AC Infinity status not decoded', error: e);
       _refusedLayout = e.toString();
@@ -182,9 +196,12 @@ class AcInfinityBleClient implements AcInfinityClient {
     );
   }
 
-  /// One command in flight, waiting for its reply, as the spec asks.
+  /// One command in flight, waiting for its reply, as the spec asks. Only on
+  /// the controller layout, the one upstream ran: strip outlets are relays
+  /// with no levels to store, and a legacy unit is app analysis only.
   Future<void> _readStored(AcInfinityStatusDto status) async {
-    for (final port in status.ports.where((p) => p.occupied)) {
+    if (status.layout != AcInfinityLayout.controller) return;
+    for (final port in status.ports.where((p) => p.occupied == true)) {
       if (_session.isClosed) return;
       final sequence = _sequence = (_sequence % 0xffff) + 1;
       try {

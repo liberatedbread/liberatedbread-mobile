@@ -2,34 +2,45 @@
 // SPDX-License-Identifier: Apache-2.0
 
 pub mod acinfinity;
+pub mod apple_acp;
 pub mod bisecur;
+pub mod brother_pt;
 pub mod brother_ql;
 pub mod cat_printer;
 pub mod cat_printer_mxw01;
 pub mod cdbwsoft_ecb;
+pub mod coap;
 pub mod daniao;
 pub mod daniao_store;
 pub mod daniao_upload;
 pub mod dispatch;
 pub mod dither;
 pub mod enphase;
+pub mod even_g1;
 pub mod fichero_d11;
 pub mod generic;
 pub mod health;
+pub mod ht_w01;
 pub mod http;
 pub mod idotmatrix;
 pub mod image_upload;
+pub mod inmotion;
 pub mod ipl;
 pub mod ipp;
+pub mod juicenet;
 pub mod kasa;
 pub mod ledbadge_bitmap;
 pub mod lifx;
 pub mod limitlessled;
+pub mod mattel_mpid;
 pub mod modbus_sunspec;
 pub mod mqtt;
 pub mod niimbot;
 pub mod orba_midi;
+pub mod pax;
+pub mod philips_air;
 pub mod popled;
+pub mod popled_udp;
 pub mod profiles;
 pub mod rabbit_air;
 pub mod rabbit_air_ble;
@@ -49,6 +60,7 @@ pub mod websocket;
 pub mod wemo_setup;
 pub mod yeelight;
 pub mod yummly;
+pub mod yummly_xw3;
 
 use crate::error::ProtocolError;
 use crate::spec::types::{DeviceSpec, SpecCommand};
@@ -371,6 +383,10 @@ const IMAGE_UPLOAD_HANDLERS: &[ImageUploadHandler] = &[
     ImageUploadHandler {
         name: popled::HANDLER_NAME,
         encode: popled::encode_image,
+    },
+    ImageUploadHandler {
+        name: even_g1::HANDLER_NAME,
+        encode: even_g1::encode_image,
     },
 ];
 

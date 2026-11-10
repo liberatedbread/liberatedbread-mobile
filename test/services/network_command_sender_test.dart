@@ -20,6 +20,7 @@ import 'package:liberated_bread_mobile/services/ecp2_control_service.dart';
 import 'package:liberated_bread_mobile/services/http_control_service.dart';
 import 'package:liberated_bread_mobile/services/kasa_control_service.dart';
 import 'package:liberated_bread_mobile/services/limitlessled_control_service.dart';
+import 'package:liberated_bread_mobile/services/philips_air_control_service.dart';
 import 'package:liberated_bread_mobile/services/yeelight_control_service.dart';
 import 'package:liberated_bread_mobile/services/mqtt_session.dart';
 import 'package:liberated_bread_mobile/services/ws_control_service.dart';
@@ -71,6 +72,21 @@ class _RecordingLimitlessled extends LimitlessledControlClient {
     List<LimitlessledFrameDto> frames,
   ) async {
     sent.add((host: host, port: port));
+  }
+}
+
+class _RecordingPhilipsAir extends PhilipsAirControlClient {
+  final sent = <({int port, String command, Map<String, String> values})>[];
+
+  @override
+  Future<void> sendCommand(
+    String host,
+    int port, {
+    required String specYaml,
+    required String commandName,
+    required Map<String, String> values,
+  }) async {
+    sent.add((port: port, command: commandName, values: values));
   }
 }
 
@@ -550,6 +566,7 @@ void main() {
     NetworkCommandSender routed({
       required _RecordingYeelight yeelight,
       required _RecordingLimitlessled limitlessled,
+      _RecordingPhilipsAir? philipsAir,
       NetworkCapabilitiesDto? capabilities,
       int? devicePort,
     }) => NetworkCommandSender(
@@ -578,7 +595,37 @@ void main() {
       ),
       yeelight: yeelight,
       limitlessled: limitlessled,
+      philipsAir: philipsAir,
     );
+
+    test('a purifier action goes to its CoAP session on 5683', () async {
+      final yeelight = _RecordingYeelight(codec);
+      final limitlessled = _RecordingLimitlessled();
+      final philipsAir = _RecordingPhilipsAir();
+      await routed(
+        yeelight: yeelight,
+        limitlessled: limitlessled,
+        philipsAir: philipsAir,
+      ).sendAction(
+        action(
+          'select_option',
+          'set_mode',
+          transport: NetworkCommandSender.philipsAirTransport,
+        ),
+        {'mode': 'P'},
+      );
+      expect(philipsAir.sent.single.port, 5683);
+      expect(philipsAir.sent.single.command, 'set_mode');
+      expect(philipsAir.sent.single.values, containsPair('mode', 'P'));
+      expect(yeelight.sent, isEmpty);
+      expect(limitlessled.sent, isEmpty);
+      expect(
+        NetworkCommandSender.isIndependentTransport(
+          action('x', 'x', transport: NetworkCommandSender.philipsAirTransport),
+        ),
+        isTrue,
+      );
+    });
 
     test('a Yeelight action goes down its own socket', () async {
       final yeelight = _RecordingYeelight(codec);

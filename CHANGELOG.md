@@ -13,6 +13,103 @@ heading.
 
 ### Added
 
+- **LED space Wi-Fi panels over UDP (`popled_json`).** Joined to a panel's
+  "YS…" hotspot, a scan now sends the spec's dev_info probe to
+  255.255.255.255:9090 (built by the core's frame builder, which reproduces the
+  bytes the spec prints) and adopts the panel that answers, named by its id.
+  Its light gets power and brightness (1-15), each frame acknowledged, in the
+  spec's datagrams: a u16-LE length ahead of the frame, 180-byte pieces 5 ms
+  apart, the sequence starting at 1. The device screen offers the spec's
+  join-the-hotspot notes. Tested against a fake panel; not run on hardware.
+- **Pictures and pride mode on LED space panels, untested over Wi-Fi.** The
+  image editor and group pride mode (every flag, alternating) send the GIF
+  upload a Bluetooth AUTOBABA backpack accepted, carried over the UDP link
+  above. This is NOT the format the spec states (a zlib-compressed BMP inside
+  a `pkts_program` program whose layout it never gives), and no Wi-Fi panel has
+  been seen to take it; SPECS_TO_FIX.md says what would settle it.
+- **Even Realities G1 glasses take pictures.** The image editor sends a
+  576x136 one-bit BMP to the connected temple as the spec's 0x15 chunks, then
+  0x20 and the big-endian CRC-32 that shows it, waiting for each reply. Each
+  temple is its own Bluetooth device and draws only what it is sent, so the
+  other lens needs its own send (or both temples in a group). Built from the
+  spec and tested against its vectors; not run on hardware.
+- **Brother P-touch Cube printing over Bluetooth Classic (Linux).** The label
+  composer prints to a saved PT-P300BT, PT-P710BT or PT-P910BT as one PT
+  raster job over its SPP socket, sized for that model's head and the tape it
+  reports, and reads the printer's status pushes for the outcome. A family
+  spec's print surface is now chosen by variant rather than taken from its
+  first entry. Built from the spec and tested against its vectors; not run on
+  hardware.
+- **Philips Wi-Fi air purifiers over encrypted CoAP (`philips_air_coap`).**
+  Power, mode, fan speed, child lock, display, timer and target humidity, plus
+  PM2.5, allergen index, humidity, temperature and filter life, for the three
+  key sets the spec describes. A small RFC 7252 codec carries the spec's
+  envelope over UDP 5683. Every write starts from a fresh sync and goes under
+  the next counter; a counter at FFFFFFFF is not wrapped, and a refused write
+  is reported, not retried, because the spec does not know how a device treats
+  either. Tested against the spec's envelope vectors and a fake purifier; not
+  run on hardware.
+- **Apple AirPort base stations, read-only (`apple_acp`).** Name, model,
+  firmware, uptime and Wi-Fi network name over ACP on TCP 5009, after SRP-6a
+  with the base station password and inside the AES-128-CTR session. Read on
+  request; the password is not stored. Nothing that writes a setting or
+  restarts the base station can be sent, and legacy mode, which carries the
+  password in a reversible header key, is not implemented. The spec's example
+  frames reproduce; SRP's arithmetic is checked against RFC 5054 and the
+  session keys against RFC 6070 and the spec's example, but the M1/M2 step has
+  no published vector. Tested against a fake base station; not run on
+  hardware.
+- **Enel X JuiceBox chargers, read-only and listen-only (`juicenet_udp`).**
+  Once the charger's stream is pointed at the phone, its status lines are
+  heard and read: charging state, current, voltage, power, session and
+  lifetime energy, temperature, frequency, rating and the limits it reports.
+  The phone never replies, so it never sends the CMD line that sets the
+  charging current; both current-limit commands stay listed and refused.
+  Plaintext only: the encrypted `v09e` / `v08` protocol is recognised and
+  said to be undecodable. The hash reproduces the spec's vectors; tested
+  against a fake charger, not run on hardware.
+- **Fisher-Price Lumalou night light and sound machine (`mattel_mpid`).** The
+  unit's encrypted session (P-256 key agreement, the 100-round key stretch,
+  AES-128-CTR frames with their CRCs) runs underneath the ordinary cards: the
+  night light's ten presets and brightness, sounds, volume, timers, the sleep
+  trainer, naps and routines. Group pride mode puts the light on its rainbow
+  preset. Commands with schedule or playlist arguments stay in the command
+  list unsent (they take byte strings), the clock prescaler stays behind its
+  advanced confirmation, and the pairing-complete message and the DFU service
+  cannot be sent at all. Single-value replies are not decoded, as their layout
+  is unknown. Tested against the spec's vectors and a fake unit; not run on
+  hardware.
+- **PAX 3 and PAX Era, read-only (`pax_ofb`).** Temperature and battery,
+  read with the per-device key the spec derives from the unit's serial and
+  decrypted from AES-128-OFB. The only frame sent is the status request; the
+  heater set point and the lock stay listed and refused, and an Era Pro is
+  not connected to, since its encryption is not stated. No captured frame
+  exists, so the cipher is pinned against independent computations; not run
+  on hardware.
+- **INMOTION V2 electric unicycles, read-only telemetry (`inmotion_euc`).**
+  Model, speed, battery, voltage, current, trip, the speed limit the wheel is
+  enforcing, temperatures and odometer, from the V11, V12, V13 and V14-family
+  layouts the spec states (a V11's layout chosen by its main-board version,
+  fields the spec marks unsure left out). Only the four read requests can be
+  built: the headlight, sounds, lock, ride modes, calibration, transport mode
+  and power-off stay listed and refused, because what a wheel does with a
+  write while ridden is not known. Legacy wheels (V5, V8, V10, Glide 3) are
+  not read yet. Tested against the spec's frames; not run on hardware.
+- **Spec `format_match`, `mask` and role bindings with `values`.** A
+  characteristic that carries several kinds of frame decodes only the one its
+  `format` describes and cards keep their last state across the rest; packed
+  bit fields decode by their mask; and a role bound as `{command, values}`
+  sends those values. Group commands now skip vehicles as they skip locks.
+- **Vevor VT256 / HT-W01 thermal camera settings (`ht_w01_command`).** With
+  the phone joined to the camera's own Wi-Fi, palette, measuring range and
+  emissivity are read and set, and the shutter refreshed, over the 0xFB-framed
+  TCP channel on port 8080. The configuration reset is not sendable: the spec
+  cannot say what it clears. Restart, Wi-Fi channel and distance are not
+  offered either: the first two drop the camera's network, and the distance
+  unit is unknown. Reply values are read only in the `[parameter, value]` shape
+  the spec does not confirm, and the thermal stream is not decoded because its
+  layout is not recovered. The frames match the spec's literal ones; tested
+  against a fake camera, not run on hardware.
 - **Yeelight lights over the LAN (`yeelight_lan`).** The cube lamp's spec now
   drives power, brightness, colour and colour temperature over JSON lines on
   TCP 55443, reads state back, and paints a module's rows on a unit that lists
@@ -42,8 +139,25 @@ heading.
 - **AC Infinity UIS controllers, read-only (`acinfinity_a5`).** Climate and port
   state from the status stream, plus stored levels through the `get_model_data`
   read. Every port write and settings bundle stays listed and refused, because
-  ports switch mains equipment such as heaters. The power strip's status layout
-  is not decoded. Not verified against hardware.
+  ports switch mains equipment such as heaters. Not verified against hardware.
+- **AC Infinity ports 5-8, the UIS power strip and pre-revision-5 controllers,
+  read-only.** The advertisement's device type and protocol revision now pick
+  the status layout, as the spec says to. Eight-port controllers show ports 5-8
+  by the layout the spec infers for them; power strips show outlets (numbered by
+  record position, which one source disputes) and their sensor records; and
+  controllers below revision 5 show climate, level and mode, but no output or
+  fault state, which that layout does not state. Each screen says which of these
+  rests on an uncaptured layout. The spec prints no frame for any of them, so
+  the tests use frames built from its stated layouts. Stored levels are still
+  read only from the multi-port controller layout, and no write became
+  sendable. Single-port and AI-series controllers, and the strip's original
+  header form, stay refused. Not verified against hardware.
+- **Yummly T3 + P3 (XW3) notification decoders.** Core, body and tip
+  temperatures, dock and probe battery, and the dock's replies, decoded by the
+  spec's stated layout. Nobody known to the spec has run an XW3 and the spec
+  prints no XW3 frame, so the tests use frames built from that layout. The app
+  still does not connect to a T3, and nothing that writes to one exists. Not
+  verified against hardware.
 - **Hörmann BiSecur gateways, read-only (`bisecur_mcp`).** Door position and
   status, read on request with a gateway user's name and password. The password
   is not stored, and the screen says it crosses the network unencrypted. The

@@ -11,6 +11,15 @@
 //! status: [1e ff 02 09][kind][body length][flags][selected port][climate][port blocks]
 //! ```
 //!
+//! Three status layouts, chosen the way the spec chooses them: by the
+//! advertisement's device type and protocol revision (manufacturer payload
+//! bytes 12 and 11). The multi-port controller's (`controller_stream.layout`),
+//! the one below revision 5 (`controller_stream.legacy_layout`), and the power
+//! strip's AI-family frame (`power_strip_stream`). The spec prints a frame for
+//! the first alone, and only for four ports; none of the three has been run
+//! against hardware here. A field the spec does not state for a layout is left
+//! empty, never borrowed from another layout.
+//!
 //! READ-ONLY BY CONSTRUCTION, and this is the one that needs it most: every
 //! port can switch a heater or a humidifier. The envelope builder is private
 //! and its only public caller builds opcode 0x01, a read of a fixed selector
@@ -36,52 +45,117 @@ const SELECTOR_OFF_LEVEL: u8 = 0x11;
 const SELECTOR_ON_LEVEL: u8 = 0x12;
 const FIRST_PORT_BLOCK: usize = 22;
 const PORT_BLOCK: usize = 8;
-const DECLARED_PORTS: usize = 4;
 
-/// The controller layout's frame sizes: four ports (captured) and eight
-/// (22 + 8 x 8, which the spec infers and does not declare).
+/// The controller layout's frame sizes: four ports (captured) and eight. The
+/// spec's Controller 69 Pro+ variant states 22 + 8 x 8 = 86 with ports 5-8
+/// continuing the stride from byte 54, inferred from the four-port layout and
+/// never captured, which is why ports 5-8 carry a caveat.
 const FOUR_PORT_FRAME: usize = 54;
 const EIGHT_PORT_FRAME: usize = 86;
 
+/// `legacy_layout`: 4-byte port records from byte 18, below revision 5.
+const FIRST_LEGACY_RECORD: usize = 18;
+const LEGACY_RECORD: usize = 4;
+const LEGACY_BELOW_REVISION: u8 = 5;
+const MAX_PORTS: usize = 8;
+
+/// `power_strip_stream`: the expanded header's fixed part, and record sizes.
+const STRIP_HEADER: usize = 13;
+const STRIP_RECORD: usize = 10;
+const STRIP_SENSOR: usize = 4;
+const STRIP_CALIBRATION: usize = 3;
+
+/// `advertisement.payload_lengths`, and where the revision and type sit.
+const ADVERT_LENGTHS: [usize; 2] = [17, 27];
+const ADVERT_REVISION: usize = 11;
+const ADVERT_TYPE: usize = 12;
+
+const FIVE_TO_EIGHT_CAVEAT: &str = "Ports 5-8 are read by the layout the spec \
+    infers for eight-port controllers (the four-port stride continued). No \
+    eight-port frame has been captured.";
+const LEGACY_CAVEAT: &str = "Read by the layout the spec gives for controllers \
+    below protocol revision 5, from app analysis only; no such frame has been \
+    captured. That layout states no output, fault or empty-port bits, so none \
+    are shown.";
+const STRIP_CAVEAT: &str = "Read by the power-strip layout the spec reports \
+    from app analysis; no strip frame is printed in it. Outlets are numbered \
+    by record position, which one source disputes, and their mode values are \
+    not given.";
 /// Largest frame the reassembler holds. The longest the spec mentions is the
 /// 233-byte `read_everything` reply; a length past this is not a frame.
 const MAX_FRAME: usize = 1024;
 
-/// One port of the status stream.
+/// Which of the spec's status layouts a frame was read by.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AcInfinityLayout {
+    /// `controller_stream.layout`: multi-port controllers at revision 5 or
+    /// later, 8-byte port blocks from byte 22.
+    Controller,
+    /// `controller_stream.legacy_layout`: below revision 5, 4-byte port
+    /// records from byte 18. App analysis only.
+    LegacyController,
+    /// `power_strip_stream`: the UIS power strip's AI-family frame, read by
+    /// its expanded header.
+    PowerStrip,
+}
+
+/// One port, or strip outlet, of the status stream. A field is `None` where
+/// the layout that carried it does not state it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AcInfinityPortDto {
-    /// The 1-based physical port.
+    /// The 1-based physical port, or the strip outlet by record position.
     pub port: u8,
-    /// False when nothing is plugged in; the spec says the rest of the block
-    /// is then meaningless, so the rest stays empty here.
-    pub occupied: bool,
+    /// False when nothing is plugged in; on the controller layout the spec
+    /// says the rest of the block is then meaningless, so it stays empty.
+    /// `None` on the legacy layout, which states no empty-port value.
+    pub occupied: Option<bool>,
     pub load_id: Option<u16>,
     /// The load-type table's text; `None` for a code the table omits.
     pub load_type: Option<String>,
     /// Output level 0-10. `None` for a value outside that range.
     pub level: Option<u8>,
-    pub output_on: bool,
-    pub fault: bool,
-    pub overcurrent: bool,
+    pub output_on: Option<bool>,
+    pub fault: Option<bool>,
+    pub overcurrent: Option<bool>,
     pub mode_code: u8,
-    /// The mode table's text; `None` for a code the table omits.
+    /// The mode table's text; `None` for a code the table omits, and always on
+    /// the strip, whose mode values the spec does not give.
     pub mode: Option<String>,
+}
+
+/// One of the power strip's sensor records.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AcInfinitySensorDto {
+    pub sensor_id: u8,
+    /// The sensor-id table's text; `None` for an id the table omits.
+    pub name: Option<String>,
+    pub unit: Option<String>,
+    /// The scaled value in hundredths, so the record's x10 to x0.01 scales
+    /// all stay integers. `None` is the spec's "no reading".
+    pub value_hundredths: Option<i32>,
+    /// How many decimals the record's accuracy carries (0-2).
+    pub decimals: u8,
 }
 
 /// A decoded status frame.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AcInfinityStatusDto {
-    pub display_celsius: bool,
-    pub selected_port: u8,
+    pub layout: AcInfinityLayout,
+    /// `None` where the layout does not state it.
+    pub display_celsius: Option<bool>,
+    pub selected_port: Option<u8>,
     /// Hundredths of a degree C, of a percent and of a kPa. `None` is the
-    /// spec's "no probe" value. Integers so the screen rounds, not this file.
+    /// spec's "no probe" value, and always on the strip, which reports
+    /// [`Self::sensors`] instead. Integers so the screen rounds, not this file.
     pub temperature_centi_c: Option<i16>,
     pub humidity_centi_percent: Option<i16>,
     pub vpd_centi_kpa: Option<i16>,
     pub ports: Vec<AcInfinityPortDto>,
-    /// Ports 5-8 of an eight-port frame, left undecoded because the spec
-    /// infers their layout and nobody has captured it.
-    pub undecoded_ports: u8,
+    /// The strip's sensor records; empty on the controller layouts.
+    pub sensors: Vec<AcInfinitySensorDto>,
+    /// What this reading rests on that nobody has captured, for the screen to
+    /// say. `None` for the four-port controller frame.
+    pub caveat: Option<String>,
 }
 
 /// The stored levels `get_model_data` answers with for one port.
@@ -292,46 +366,152 @@ fn load_type_name(code: u8) -> Option<&'static str> {
     })
 }
 
-fn port_block(port: u8, block: &[u8]) -> AcInfinityPortDto {
+/// `power_strip_stream.sensor_record` ids. The records do not state VPD's
+/// unit, so it is left out.
+fn sensor_name(id: u8) -> Option<(&'static str, Option<&'static str>)> {
+    Some(match id {
+        0 => ("probe temperature", Some("°F")),
+        1 => ("probe temperature", Some("°C")),
+        2 => ("probe humidity", Some("%")),
+        3 => ("probe VPD", None),
+        4 => ("zone temperature", Some("°F")),
+        5 => ("zone temperature", Some("°C")),
+        6 => ("zone humidity", Some("%")),
+        7 => ("zone VPD", None),
+        _ => return None,
+    })
+}
+
+/// An empty port whose every other field is unstated.
+fn empty_port(port: u8) -> AcInfinityPortDto {
+    AcInfinityPortDto {
+        port,
+        occupied: Some(false),
+        load_id: None,
+        load_type: None,
+        level: None,
+        output_on: None,
+        fault: None,
+        overcurrent: None,
+        mode_code: 0,
+        mode: None,
+    }
+}
+
+fn level_of(raw: u8) -> Option<u8> {
+    (raw <= 10).then_some(raw)
+}
+
+/// `controller_stream.layout`: [load id u16 BE, ff ff = empty][run bits 7-6,
+/// level bits 5-2, output on bit 1, fault bit 0][overcurrent bit 7, program
+/// bits 6-4, mode bits 3-0][3 unresolved bytes][load type].
+fn port_block(port: u8, block: &[u8; PORT_BLOCK]) -> AcInfinityPortDto {
     let load_id = u16::from_be_bytes([block[0], block[1]]);
     if load_id == EMPTY_PORT {
-        return AcInfinityPortDto {
-            port,
-            occupied: false,
-            load_id: None,
-            load_type: None,
-            level: None,
-            output_on: false,
-            fault: false,
-            overcurrent: false,
-            mode_code: 0,
-            mode: None,
-        };
+        return empty_port(port);
     }
     let state = block[2];
     let mode = block[3];
-    let level = (state >> 2) & 0x0f;
     AcInfinityPortDto {
         port,
-        occupied: true,
+        occupied: Some(true),
         load_id: Some(load_id),
         load_type: load_type_name(block[7]).map(str::to_string),
-        level: (level <= 10).then_some(level),
-        output_on: state & 0x02 != 0,
-        fault: state & 0x01 != 0,
-        overcurrent: mode & 0x80 != 0,
+        level: level_of((state >> 2) & 0x0f),
+        output_on: Some(state & 0x02 != 0),
+        fault: Some(state & 0x01 != 0),
+        overcurrent: Some(mode & 0x80 != 0),
         mode_code: mode & 0x0f,
         mode: mode_name(mode & 0x0f).map(str::to_string),
     }
 }
 
-/// Decode a status stream frame, by the multi-port controller layout.
+/// `controller_stream.legacy_layout`: [load id u16 BE][state][level high
+/// nibble, mode low nibble]. The state byte's bits, an empty-port value and a
+/// load type are not stated, so they stay `None`. The mode nibble is named by
+/// the port-mode table, which the spec numbers the same as `set_port_mode`.
+fn legacy_record(port: u8, record: &[u8; LEGACY_RECORD]) -> AcInfinityPortDto {
+    let mode = record[3] & 0x0f;
+    AcInfinityPortDto {
+        port,
+        occupied: None,
+        load_id: Some(u16::from_be_bytes([record[0], record[1]])),
+        load_type: None,
+        level: level_of(record[3] >> 4),
+        output_on: None,
+        fault: None,
+        overcurrent: None,
+        mode_code: mode,
+        mode: mode_name(mode).map(str::to_string),
+    }
+}
+
+/// `power_strip_stream.port_record`: [id u16 BE, 0xff first byte = nothing
+/// connected][second id u16 BE][load type][state: level bits 5-2, output on
+/// bit 1, fault bit 0][mode, low 5 bits][3 unresolved bytes]. The relay state
+/// is read whether or not a load is connected: unlike the controller block,
+/// the spec does not call the rest of an unconnected record meaningless.
+fn strip_record(outlet: u8, record: &[u8; STRIP_RECORD]) -> AcInfinityPortDto {
+    let occupied = record[0] != 0xff;
+    let state = record[5];
+    AcInfinityPortDto {
+        port: outlet,
+        occupied: Some(occupied),
+        load_id: occupied.then(|| u16::from_be_bytes([record[0], record[1]])),
+        load_type: occupied
+            .then(|| load_type_name(record[4]))
+            .flatten()
+            .map(str::to_string),
+        level: level_of((state >> 2) & 0x0f),
+        output_on: Some(state & 0x02 != 0),
+        fault: Some(state & 0x01 != 0),
+        overcurrent: None,
+        mode_code: record[6] & 0x1f,
+        mode: None,
+    }
+}
+
+/// `power_strip_stream.sensor_record`: [sensor id][flags, accuracy in bits
+/// 6-5][value int16 BE], scaled x10, x1, x0.1 or x0.01 by accuracy 0-3.
+fn sensor_record(record: &[u8; STRIP_SENSOR]) -> AcInfinitySensorDto {
+    let accuracy = (record[1] >> 5) & 0x03;
+    let to_hundredths = [1000, 100, 10, 1][usize::from(accuracy)];
+    let (name, unit) = sensor_name(record[0]).unzip();
+    AcInfinitySensorDto {
+        sensor_id: record[0],
+        name: name.map(str::to_string),
+        unit: unit.flatten().map(str::to_string),
+        value_hundredths: reading(record[2], record[3]).map(|v| i32::from(v) * to_hundredths),
+        decimals: accuracy.saturating_sub(1),
+    }
+}
+
+/// The advertisement's protocol revision and device type, from the
+/// manufacturer payload after the company id. Any other length says nothing.
+fn identity(advertisement: &[u8]) -> Option<(u8, u8)> {
+    ADVERT_LENGTHS
+        .contains(&advertisement.len())
+        .then(|| (advertisement[ADVERT_REVISION], advertisement[ADVERT_TYPE]))
+}
+
+/// `device.variants`: the types the app routes through the 69 Pro's
+/// multi-port path, and the AI-family power strips.
+const MULTI_PORT_TYPES: [u8; 9] = [7, 8, 9, 11, 12, 16, 17, 18, 23];
+const STRIP_TYPES: [u8; 2] = [21, 22];
+
+/// Decode a status stream frame by the layout the unit's advertisement picks.
 ///
-/// Only that layout. The power strip's AI-family frame (139 bytes) and the
-/// older 4-byte port records must not be read with this table, as the spec
-/// warns, and they have no literal vector to hold a decoder to, so they are
-/// refused with a reason rather than read wrongly.
-pub fn decode_status(frame: &[u8]) -> Result<AcInfinityStatusDto, ProtocolError> {
+/// `advertisement` is the manufacturer payload for company 0x0902, after the
+/// company id. A power-strip type is read by `power_strip_stream`; a
+/// multi-port controller below revision 5 by the legacy layout, and at 5 or
+/// later by the controller layout. Without an advertisement only the
+/// controller layout's own sizes are read, as before: the other two cannot be
+/// told apart from it by length. Single-port and AI-series types, whose
+/// stream the spec does not state, are refused.
+pub fn decode_status(
+    frame: &[u8],
+    advertisement: Option<&[u8]>,
+) -> Result<AcInfinityStatusDto, ProtocolError> {
     if frame.len() < 6 {
         return Err(ProtocolError::BufferTooShort {
             needed: 6,
@@ -348,6 +528,23 @@ pub fn decode_status(frame: &[u8]) -> Result<AcInfinityStatusDto, ProtocolError>
             frame.len()
         )));
     }
+    match advertisement.and_then(identity) {
+        Some((_, kind)) if STRIP_TYPES.contains(&kind) => decode_strip(frame),
+        Some((revision, kind)) if MULTI_PORT_TYPES.contains(&kind) => {
+            if revision < LEGACY_BELOW_REVISION {
+                decode_legacy(frame)
+            } else {
+                decode_controller(frame)
+            }
+        }
+        Some((_, kind)) => Err(malformed(format!(
+            "device type {kind} streams a layout the spec does not state"
+        ))),
+        None => decode_controller(frame),
+    }
+}
+
+fn decode_controller(frame: &[u8]) -> Result<AcInfinityStatusDto, ProtocolError> {
     if frame.len() != FOUR_PORT_FRAME && frame.len() != EIGHT_PORT_FRAME {
         return Err(malformed(format!(
             "a {} byte status frame is not the multi-port controller layout",
@@ -358,22 +555,104 @@ pub fn decode_status(frame: &[u8]) -> Result<AcInfinityStatusDto, ProtocolError>
         .as_chunks::<PORT_BLOCK>()
         .0
         .iter()
-        .take(DECLARED_PORTS)
         .enumerate()
         .map(|(index, block)| port_block(index as u8 + 1, block))
         .collect();
     Ok(AcInfinityStatusDto {
-        display_celsius: frame[6] & 0x80 != 0,
-        selected_port: frame[7] & 0x0f,
+        layout: AcInfinityLayout::Controller,
+        display_celsius: Some(frame[6] & 0x80 != 0),
+        selected_port: Some(frame[7] & 0x0f),
         temperature_centi_c: reading(frame[8], frame[9]),
         humidity_centi_percent: reading(frame[10], frame[11]),
         vpd_centi_kpa: reading(frame[12], frame[13]),
         ports,
-        undecoded_ports: if frame.len() == EIGHT_PORT_FRAME {
-            4
-        } else {
-            0
-        },
+        sensors: Vec::new(),
+        caveat: (frame.len() == EIGHT_PORT_FRAME).then(|| FIVE_TO_EIGHT_CAVEAT.to_string()),
+    })
+}
+
+/// "Same climate fields" is all the legacy layout says of the header, so the
+/// display flag and selected port at bytes 6-7 are not read.
+fn decode_legacy(frame: &[u8]) -> Result<AcInfinityStatusDto, ProtocolError> {
+    let records = frame.len().saturating_sub(FIRST_LEGACY_RECORD);
+    if records == 0 || !records.is_multiple_of(LEGACY_RECORD) || records / LEGACY_RECORD > MAX_PORTS
+    {
+        return Err(malformed(format!(
+            "a {} byte status frame is not 4-byte port records from byte 18",
+            frame.len()
+        )));
+    }
+    let ports = frame[FIRST_LEGACY_RECORD..]
+        .as_chunks::<LEGACY_RECORD>()
+        .0
+        .iter()
+        .enumerate()
+        .map(|(index, record)| legacy_record(index as u8 + 1, record))
+        .collect();
+    Ok(AcInfinityStatusDto {
+        layout: AcInfinityLayout::LegacyController,
+        display_celsius: None,
+        selected_port: None,
+        temperature_centi_c: reading(frame[8], frame[9]),
+        humidity_centi_percent: reading(frame[10], frame[11]),
+        vpd_centi_kpa: reading(frame[12], frame[13]),
+        ports,
+        sensors: Vec::new(),
+        caveat: Some(LEGACY_CAVEAT.to_string()),
+    })
+}
+
+/// The expanded header only: byte 7 low 6 bits count sensor records, byte 11
+/// high nibble port records (record 0 is the strip) and low nibble the
+/// selected port, byte 12 low nibble 3-byte calibration records from byte 13.
+/// The spec's own check, 13 + records x 10 + sensors x 4 + calibration x 3,
+/// must give the frame length. The original header form ("the counts sit in
+/// byte 8 and byte 9 instead") is not stated fully enough to read, so a frame
+/// failing the check is refused.
+fn decode_strip(frame: &[u8]) -> Result<AcInfinityStatusDto, ProtocolError> {
+    if frame.len() < STRIP_HEADER {
+        return Err(ProtocolError::BufferTooShort {
+            needed: STRIP_HEADER,
+            got: frame.len(),
+        });
+    }
+    let sensors = usize::from(frame[7] & 0x3f);
+    let records = usize::from(frame[11] >> 4);
+    let calibration = usize::from(frame[12] & 0x0f);
+    let first_record = STRIP_HEADER + calibration * STRIP_CALIBRATION;
+    let first_sensor = first_record + records * STRIP_RECORD;
+    let expected = first_sensor + sensors * STRIP_SENSOR;
+    if records == 0 || expected != frame.len() {
+        return Err(malformed(format!(
+            "a {} byte strip frame is not the expanded header, whose counts \
+             promise {expected} bytes",
+            frame.len()
+        )));
+    }
+    let ports = frame[first_record..first_sensor]
+        .as_chunks::<STRIP_RECORD>()
+        .0
+        .iter()
+        .enumerate()
+        .skip(1)
+        .map(|(index, record)| strip_record(index as u8, record))
+        .collect();
+    let sensors = frame[first_sensor..]
+        .as_chunks::<STRIP_SENSOR>()
+        .0
+        .iter()
+        .map(sensor_record)
+        .collect();
+    Ok(AcInfinityStatusDto {
+        layout: AcInfinityLayout::PowerStrip,
+        display_celsius: None,
+        selected_port: Some(frame[11] & 0x0f),
+        temperature_centi_c: None,
+        humidity_centi_percent: None,
+        vpd_centi_kpa: None,
+        ports,
+        sensors,
+        caveat: Some(STRIP_CAVEAT.to_string()),
     })
 }
 
@@ -584,47 +863,49 @@ mod tests {
     /// `controller_stream.constructed_example`, every value it states.
     #[test]
     fn the_constructed_status_example_decodes() {
-        let status = decode_status(&bytes(CONSTRUCTED_STATUS)).unwrap();
-        assert!(status.display_celsius);
-        assert_eq!(status.selected_port, 1);
+        let status = decode_status(&bytes(CONSTRUCTED_STATUS), None).unwrap();
+        assert_eq!(status.layout, AcInfinityLayout::Controller);
+        assert_eq!(status.display_celsius, Some(true));
+        assert_eq!(status.selected_port, Some(1));
         assert_eq!(status.temperature_centi_c, Some(2250));
         assert_eq!(status.humidity_centi_percent, Some(5500));
         assert_eq!(status.vpd_centi_kpa, Some(122));
-        assert_eq!(status.undecoded_ports, 0);
+        assert_eq!(status.caveat, None);
+        assert!(status.sensors.is_empty());
         assert_eq!(status.ports.len(), 4);
 
         let one = &status.ports[0];
-        assert!(one.occupied);
+        assert_eq!(one.occupied, Some(true));
         assert_eq!(one.load_id, Some(10000));
         assert_eq!(one.level, Some(6));
-        assert!(one.output_on);
-        assert!(!one.fault);
+        assert_eq!(one.output_on, Some(true));
+        assert_eq!(one.fault, Some(false));
         assert_eq!(one.mode_code, 2);
         assert_eq!(one.mode.as_deref(), Some("on"));
 
         let two = &status.ports[1];
-        assert!(two.occupied);
+        assert_eq!(two.occupied, Some(true));
         assert_eq!(two.load_id, Some(12000));
-        assert!(!two.output_on);
+        assert_eq!(two.output_on, Some(false));
         assert_eq!(two.mode.as_deref(), Some("off"));
 
-        assert!(!status.ports[2].occupied);
+        assert_eq!(status.ports[2].occupied, Some(false));
         assert_eq!(status.ports[2].load_id, None);
-        assert!(!status.ports[3].output_on);
+        assert_eq!(status.ports[3].output_on, None);
     }
 
     #[test]
     fn no_probe_is_absent_and_a_negative_reading_is_not() {
         let mut frame = bytes(CONSTRUCTED_STATUS);
         frame[8..14].copy_from_slice(&[0x80, 0x00, 0x80, 0x00, 0x80, 0x00]);
-        let status = decode_status(&frame).unwrap();
+        let status = decode_status(&frame, None).unwrap();
         assert_eq!(status.temperature_centi_c, None);
         assert_eq!(status.humidity_centi_percent, None);
         assert_eq!(status.vpd_centi_kpa, None);
 
         frame[8..10].copy_from_slice(&[0xff, 0x9c]);
         assert_eq!(
-            decode_status(&frame).unwrap().temperature_centi_c,
+            decode_status(&frame, None).unwrap().temperature_centi_c,
             Some(-100)
         );
     }
@@ -635,52 +916,303 @@ mod tests {
         frame[29] = 4;
         frame[24] = 0xdb;
         frame[25] = 0x82;
-        let port = &decode_status(&frame).unwrap().ports[0];
+        let port = &decode_status(&frame, None).unwrap().ports[0];
         assert_eq!(port.load_type.as_deref(), Some("heater"));
-        assert!(port.fault);
-        assert!(port.overcurrent);
+        assert_eq!(port.fault, Some(true));
+        assert_eq!(port.overcurrent, Some(true));
         assert_eq!(port.mode_code, 2);
 
         frame[25] = 0x09;
         frame[29] = 200;
         frame[24] = 0xfc;
-        let port = &decode_status(&frame).unwrap().ports[0];
+        let port = &decode_status(&frame, None).unwrap().ports[0];
         assert_eq!(port.mode, None);
         assert_eq!(port.mode_code, 9);
         assert_eq!(port.load_type, None);
         assert_eq!(port.level, None);
     }
 
-    /// Ports 5-8 of the Pro+ are inferred by the spec and never captured.
-    #[test]
-    fn an_eight_port_frame_decodes_the_declared_ports_and_says_so() {
+    /// A manufacturer payload of the spec's 17-byte form: identity, name
+    /// suffix, then the protocol revision (11) and device type (12).
+    fn advert(revision: u8, kind: u8) -> Vec<u8> {
+        let mut payload = vec![0u8; 17];
+        payload[ADVERT_REVISION] = revision;
+        payload[ADVERT_TYPE] = kind;
+        payload
+    }
+
+    /// SYNTHETIC: built for this test from the Controller 69 Pro+ variant's
+    /// statement (22 + 8 x 8 = 86 bytes, ports 5-8 continuing the 8-byte
+    /// stride from byte 54) and `controller_stream.layout`. No eight-port
+    /// frame has been captured; this proves the decoder follows the stated
+    /// layout, not that a 69 Pro+ sends it.
+    fn synthetic_eight_port() -> Vec<u8> {
         let mut frame = bytes(CONSTRUCTED_STATUS);
         frame[5] = 80;
-        frame.extend_from_slice(&[0xff; 32]);
-        let status = decode_status(&frame).unwrap();
-        assert_eq!(status.ports.len(), 4);
-        assert_eq!(status.undecoded_ports, 4);
+        frame.extend_from_slice(&bytes(concat!(
+            // Port 5: load 5000, level 3, output on, auto, humidifier.
+            "13 88 0e 03 00 00 00 02 ",
+            // Port 6: empty.
+            "ff ff 00 01 00 00 00 00 ",
+            // Port 7: load 1, level 0, fault, overcurrent + off, heater.
+            "00 01 01 81 00 00 00 84 ",
+            // Port 8: load 10000, level 10, output on, cycle, fan.
+            "27 10 2a 06 00 00 00 06",
+        )));
+        frame
     }
 
     #[test]
-    fn other_layouts_are_refused_rather_than_misread() {
-        // The power strip's 139-byte frame.
-        let mut strip = vec![0u8; 139];
-        strip[..4].copy_from_slice(&STREAM_MARKER);
-        strip[4] = 0x0c;
-        strip[5] = 133;
-        assert!(decode_status(&strip).is_err());
-        // The legacy 4-byte records: 18 + 4 x 4.
-        let mut legacy = vec![0u8; 34];
-        legacy[..4].copy_from_slice(&STREAM_MARKER);
-        legacy[5] = 28;
-        assert!(decode_status(&legacy).is_err());
-        // Garbage and truncation.
-        assert!(decode_status(&[]).is_err());
-        assert!(decode_status(&[0x1e, 0xff]).is_err());
-        assert!(decode_status(&[0xde; 54]).is_err());
+    fn synthetic_eight_port_frame_decodes_ports_five_to_eight() {
+        let frame = synthetic_eight_port();
+        assert_eq!(frame.len(), EIGHT_PORT_FRAME);
+        for advertisement in [None, Some(advert(7, 18))] {
+            let status = decode_status(&frame, advertisement.as_deref()).unwrap();
+            assert_eq!(status.layout, AcInfinityLayout::Controller);
+            assert_eq!(status.ports.len(), 8);
+            assert!(status.caveat.as_deref().unwrap().contains("Ports 5-8"));
+            // Ports 1-4 read exactly as the four-port example.
+            assert_eq!(status.ports[0].load_id, Some(10000));
+            assert_eq!(status.ports[3].occupied, Some(false));
+
+            let five = &status.ports[4];
+            assert_eq!(five.port, 5);
+            assert_eq!(five.load_id, Some(5000));
+            assert_eq!(five.level, Some(3));
+            assert_eq!(five.output_on, Some(true));
+            assert_eq!(five.mode.as_deref(), Some("auto"));
+            assert_eq!(five.load_type.as_deref(), Some("humidifier"));
+
+            assert_eq!(status.ports[5].occupied, Some(false));
+
+            let seven = &status.ports[6];
+            assert_eq!(seven.fault, Some(true));
+            assert_eq!(seven.overcurrent, Some(true));
+            assert_eq!(seven.output_on, Some(false));
+            assert_eq!(seven.mode.as_deref(), Some("off"));
+            assert_eq!(seven.load_type.as_deref(), Some("heater"));
+
+            let eight = &status.ports[7];
+            assert_eq!(eight.port, 8);
+            assert_eq!(eight.level, Some(10));
+            assert_eq!(eight.mode.as_deref(), Some("cycle"));
+            assert_eq!(eight.load_type.as_deref(), Some("fan"));
+        }
+    }
+
+    /// SYNTHETIC: built for this test from `controller_stream.legacy_layout`
+    /// alone ("same climate fields, 4-byte port records from byte 18 ([load
+    /// id u16 BE][state][level high nibble, mode low nibble])"), which is app
+    /// analysis. Bytes 6-7 and 14-17 carry values the decoder must not read.
+    const SYNTHETIC_LEGACY: &str = concat!(
+        "1e ff 02 09 07 1c 80 01 08 ca 15 7c 00 7a 00 00 00 01 ",
+        "27 10 5a 62 ",
+        "2e e0 00 01 ",
+        "ff ff 00 00 ",
+        "00 05 00 b3",
+    );
+
+    #[test]
+    fn synthetic_legacy_frame_decodes_by_the_stated_layout_only() {
+        let frame = bytes(SYNTHETIC_LEGACY);
+        assert_eq!(frame.len(), 34);
+        let status = decode_status(&frame, Some(&advert(4, 7))).unwrap();
+        assert_eq!(status.layout, AcInfinityLayout::LegacyController);
+        assert!(status.caveat.as_deref().unwrap().contains("revision 5"));
+        assert_eq!(status.display_celsius, None);
+        assert_eq!(status.selected_port, None);
+        assert_eq!(status.temperature_centi_c, Some(2250));
+        assert_eq!(status.humidity_centi_percent, Some(5500));
+        assert_eq!(status.vpd_centi_kpa, Some(122));
+        assert_eq!(status.ports.len(), 4);
+
+        let one = &status.ports[0];
+        assert_eq!(one.load_id, Some(10000));
+        assert_eq!(one.level, Some(6));
+        assert_eq!(one.mode.as_deref(), Some("on"));
+        // The state byte's bits are not stated, so 0x5a says nothing.
+        assert_eq!(one.output_on, None);
+        assert_eq!(one.fault, None);
+        assert_eq!(one.overcurrent, None);
+        assert_eq!(one.occupied, None);
+        assert_eq!(one.load_type, None);
+
+        assert_eq!(status.ports[1].mode.as_deref(), Some("off"));
+        assert_eq!(status.ports[1].level, Some(0));
+        // No empty-port value is stated: ff ff is reported, not interpreted.
+        assert_eq!(status.ports[2].load_id, Some(0xffff));
+        assert_eq!(status.ports[2].occupied, None);
+        assert_eq!(status.ports[2].mode, None);
+        assert_eq!(status.ports[3].level, None, "11 is past the 0-10 range");
+        assert_eq!(status.ports[3].mode.as_deref(), Some("auto"));
+    }
+
+    /// The legacy layout is chosen by revision, so without one it is refused,
+    /// and a legacy unit's frame of the controller's length is not misread.
+    #[test]
+    fn the_legacy_layout_needs_a_revision_below_five() {
+        let frame = bytes(SYNTHETIC_LEGACY);
+        assert!(decode_status(&frame, None).is_err());
+        assert!(decode_status(&frame, Some(&advert(5, 7))).is_err());
+        assert!(decode_status(&frame, Some(&advert(7, 11))).is_err());
+        // 54 bytes would be nine legacy records: more ports than any unit.
+        let controller = bytes(CONSTRUCTED_STATUS);
+        assert!(decode_status(&controller, Some(&advert(4, 11))).is_err());
+        assert!(decode_status(&controller, Some(&advert(5, 11))).is_ok());
+    }
+
+    /// SYNTHETIC: built for this test from `power_strip_stream`'s expanded
+    /// header, port record and sensor record, sized as upstream's capture is
+    /// (9 records, 6 sensors, 4 calibration records: 13 + 90 + 24 + 12 = 139).
+    /// Not a capture. Outlets 1, 2 and 5 carry the light, fan and humidifier
+    /// the spec says upstream's capture shows, in the `3d b8 ff ff` form its
+    /// numbering note describes; the other bytes are invented.
+    fn synthetic_strip() -> Vec<u8> {
+        let frame = bytes(concat!(
+            // Header: kind 0c, body 133, 6 sensors, 9 records + selected
+            // outlet 3, 4 calibration records.
+            "1e ff 02 09 0c 85 00 06 00 00 00 93 04 ",
+            // Calibration: 4 x 3 bytes, not decoded.
+            "00 00 00 00 00 00 00 00 00 00 00 00 ",
+            // Record 0, the strip itself: skipped.
+            "00 00 00 00 00 02 01 00 00 00 ",
+            // Outlet 1: light, on, mode 1.
+            "3d b8 ff ff 81 02 01 00 00 00 ",
+            // Outlet 2: fan, off.
+            "3d b8 ff ff 86 00 01 00 00 00 ",
+            // Outlet 3: nothing connected, relay on.
+            "ff ff ff ff 00 02 00 00 00 00 ",
+            // Outlet 4: nothing connected, fault.
+            "ff ff ff ff 00 01 00 00 00 00 ",
+            // Outlet 5: humidifier, on, mode 0x1f (the 5-bit field's top).
+            "3d b8 ff ff 82 02 ff 00 00 00 ",
+            "ff ff ff ff 00 00 00 00 00 00 ",
+            "ff ff ff ff 00 00 00 00 00 00 ",
+            "ff ff ff ff 00 00 00 00 00 00 ",
+            // Sensors: 79.00 F (x0.01), 22.5 C (x0.1), 55 % (x1), VPD with
+            // no reading, zone 80 F (x10), an id the table omits.
+            "00 60 1e dc ",
+            "01 40 00 e1 ",
+            "02 20 00 37 ",
+            "03 60 80 00 ",
+            "04 00 00 08 ",
+            "09 60 ff 9c",
+        ));
+        assert_eq!(frame.len(), 139);
+        frame
+    }
+
+    #[test]
+    fn synthetic_strip_frame_decodes_outlets_and_sensors() {
+        let frame = synthetic_strip();
+        for kind in STRIP_TYPES {
+            let status = decode_status(&frame, Some(&advert(3, kind))).unwrap();
+            assert_eq!(status.layout, AcInfinityLayout::PowerStrip);
+            assert!(status
+                .caveat
+                .as_deref()
+                .unwrap()
+                .contains("record position"));
+            assert_eq!(status.selected_port, Some(3));
+            assert_eq!(status.display_celsius, None);
+            assert_eq!(status.temperature_centi_c, None);
+            assert_eq!(status.ports.len(), 8);
+
+            let one = &status.ports[0];
+            assert_eq!(one.port, 1);
+            assert_eq!(one.occupied, Some(true));
+            assert_eq!(one.load_id, Some(0x3db8));
+            assert_eq!(one.load_type.as_deref(), Some("light"));
+            assert_eq!(one.output_on, Some(true));
+            assert_eq!(one.fault, Some(false));
+            assert_eq!(one.overcurrent, None);
+            assert_eq!(one.mode_code, 1);
+            assert_eq!(one.mode, None, "the strip's mode values are not given");
+
+            assert_eq!(status.ports[1].load_type.as_deref(), Some("fan"));
+            assert_eq!(status.ports[1].output_on, Some(false));
+
+            let three = &status.ports[2];
+            assert_eq!(three.occupied, Some(false));
+            assert_eq!(three.load_id, None);
+            assert_eq!(three.output_on, Some(true));
+            assert_eq!(status.ports[3].fault, Some(true));
+
+            let five = &status.ports[4];
+            assert_eq!(five.load_type.as_deref(), Some("humidifier"));
+            assert_eq!(five.mode_code, 0x1f);
+            assert_eq!(status.ports[7].port, 8);
+
+            let sensors = &status.sensors;
+            assert_eq!(sensors.len(), 6);
+            assert_eq!(sensors[0].name.as_deref(), Some("probe temperature"));
+            assert_eq!(sensors[0].unit.as_deref(), Some("°F"));
+            assert_eq!(sensors[0].value_hundredths, Some(7900));
+            assert_eq!(sensors[0].decimals, 2);
+            assert_eq!(sensors[1].unit.as_deref(), Some("°C"));
+            assert_eq!(sensors[1].value_hundredths, Some(2250));
+            assert_eq!(sensors[1].decimals, 1);
+            assert_eq!(sensors[2].unit.as_deref(), Some("%"));
+            assert_eq!(sensors[2].value_hundredths, Some(5500));
+            assert_eq!(sensors[2].decimals, 0);
+            assert_eq!(sensors[3].name.as_deref(), Some("probe VPD"));
+            assert_eq!(sensors[3].unit, None);
+            assert_eq!(sensors[3].value_hundredths, None);
+            assert_eq!(sensors[4].name.as_deref(), Some("zone temperature"));
+            assert_eq!(sensors[4].value_hundredths, Some(8000));
+            assert_eq!(sensors[5].sensor_id, 9);
+            assert_eq!(sensors[5].name, None);
+            assert_eq!(sensors[5].value_hundredths, Some(-100));
+        }
+    }
+
+    #[test]
+    fn a_strip_frame_failing_the_header_check_is_refused() {
+        let good = synthetic_strip();
+        let strip = advert(3, 22);
+        // One calibration record fewer, one sensor fewer, no records at all.
+        for (index, value) in [(12, 0x03), (7, 0x05), (11, 0x03)] {
+            let mut bad = good.clone();
+            bad[index] = value;
+            assert!(decode_status(&bad, Some(&strip)).is_err(), "byte {index}");
+        }
+        // The controller layout is never read off a strip.
+        let controller = bytes(CONSTRUCTED_STATUS);
+        assert!(decode_status(&controller, Some(&strip)).is_err());
+        // And the strip's frame is not read without knowing it is a strip.
+        assert!(decode_status(&good, None).is_err());
+        assert!(decode_status(&good, Some(&advert(7, 11))).is_err());
+    }
+
+    #[test]
+    fn types_whose_stream_is_not_stated_are_refused() {
+        let frame = bytes(CONSTRUCTED_STATUS);
+        // Single-port, AI-series, a thermo-hygrometer.
+        for kind in [1, 2, 19, 20, 51, 3] {
+            assert!(
+                decode_status(&frame, Some(&advert(7, kind))).is_err(),
+                "type {kind}"
+            );
+        }
+        // A payload of neither stated length says nothing about the unit.
+        let mut odd = advert(4, 22);
+        odd.push(0);
+        assert!(decode_status(&frame, Some(&odd)).is_ok());
+    }
+
+    #[test]
+    fn malformed_frames_are_refused() {
+        assert!(decode_status(&[], None).is_err());
+        assert!(decode_status(&[0x1e, 0xff], None).is_err());
+        assert!(decode_status(&[0xde; 54], None).is_err());
         let good = bytes(CONSTRUCTED_STATUS);
-        assert!(decode_status(&good[..40]).is_err());
+        assert!(decode_status(&good[..40], None).is_err());
+        let strip = advert(3, 22);
+        assert!(decode_status(&synthetic_strip()[..12], Some(&strip)).is_err());
+        let mut short = good[..12].to_vec();
+        short[5] = 6;
+        assert!(decode_status(&short, Some(&strip)).is_err());
+        assert!(decode_status(&short, Some(&advert(4, 7))).is_err());
     }
 
     fn model_data_reply(sequence: u16, port: u8, items: &str) -> Vec<u8> {

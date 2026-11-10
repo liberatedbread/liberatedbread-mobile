@@ -9,9 +9,12 @@ import '../models/network_device.dart';
 import '../providers/network_control_provider.dart';
 import '../providers/roomba_provider.dart';
 import '../services/roomba_credential_store.dart';
+import 'acp_status_screen.dart';
 import 'bisecur_status_screen.dart';
+import 'ht_w01_screen.dart';
 import 'hub_device_screen.dart';
 import 'ipp_printer_screen.dart';
+import 'juicenet_status_screen.dart';
 import 'label_printer_screen.dart';
 import 'network_device_screen.dart';
 import 'roomba_adoption_screen.dart';
@@ -79,6 +82,27 @@ Future<void> openNetworkControls({
             )
           : controls.biSecurStatus
           ? BiSecurStatusScreen(
+              device: device,
+              controls: controls,
+              category: category,
+              specKey: specKey,
+            )
+          : controls.acpStatus
+          ? AcpStatusScreen(
+              device: device,
+              controls: controls,
+              category: category,
+              specKey: specKey,
+            )
+          : controls.juiceNetStatus
+          ? JuiceNetStatusScreen(
+              device: device,
+              controls: controls,
+              category: category,
+              specKey: specKey,
+            )
+          : controls.htW01Settings
+          ? HtW01Screen(
               device: device,
               controls: controls,
               category: category,

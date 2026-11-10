@@ -61,6 +61,7 @@ final _bulbSpec = DeviceSpecDto(
       onWhenNonzero: false,
       actions: [
         EntityActionDto(
+          fixedParams: {},
           role: 'turn_on',
           serviceUuid: _svc,
           characteristicUuid: _chr,
@@ -68,6 +69,7 @@ final _bulbSpec = DeviceSpecDto(
           userParams: [],
         ),
         EntityActionDto(
+          fixedParams: {},
           role: 'turn_off',
           serviceUuid: _svc,
           characteristicUuid: _chr,

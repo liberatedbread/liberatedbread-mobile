@@ -790,6 +790,103 @@ class FakeSpecCodec implements SpecCodec {
     ];
   }
 
+  /// Every rendered Wi-Fi popled command, in call order, with its values.
+  final List<({String commandName, Map<String, String> values})>
+  renderNetworkPopledCommandCalls = [];
+
+  /// Every popled upload asked for: its size, frame count and frame delay.
+  final List<({int width, int height, int frames, int delayMs})>
+  popledUploadCalls = [];
+
+  /// What [popledUdpDiscoveryFields] answers; the default names nothing.
+  Map<String, String>? Function(List<int> datagram)? popledDiscovery;
+
+  @override
+  Future<Uint8List> renderNetworkPopledCommand({
+    required String specYaml,
+    required String commandName,
+    required Map<String, String> values,
+  }) async {
+    renderNetworkPopledCommandCalls.add((
+      commandName: commandName,
+      values: values,
+    ));
+    return Uint8List.fromList([0xC1, 0x02, ...utf8.encode(commandName)]);
+  }
+
+  /// A toy framing, not the panel's: `[seq lo, seq hi, ...body]` in one
+  /// datagram, so a fake panel can echo the sequence it was sent. The real
+  /// bytes are pinned in rust/src/protocol/popled_udp.rs.
+  @override
+  Future<PopledUdpSendDto> popledUdpFrame({
+    required int seq,
+    required List<int> body,
+  }) async => PopledUdpSendDto(
+    seq: seq,
+    datagrams: [
+      Uint8List.fromList([seq & 0xFF, seq >> 8, ...body]),
+    ],
+    gapMs: 0,
+  );
+
+  /// The toy framing's replies: `[seq lo, seq hi, 0x82, status]` acknowledges,
+  /// `[seq lo, seq hi, 0x83, width?, height?]` answers; anything else is
+  /// nothing.
+  @override
+  Future<List<PopledUdpReplyDto>> popledUdpReadReplies({
+    required List<Uint8List> datagrams,
+  }) async => [
+    for (final d in datagrams)
+      if (d.length >= 4 && d[2] == 0x82)
+        PopledUdpReplyDto(
+          seq: d[0] | d[1] << 8,
+          ackStatus: d[3],
+          answer: false,
+          fields: const {},
+        )
+      else if (d.length >= 3 && d[2] == 0x83)
+        PopledUdpReplyDto(
+          seq: d[0] | d[1] << 8,
+          answer: true,
+          width: d.length >= 5 ? d[3] : null,
+          height: d.length >= 5 ? d[4] : null,
+          fields: const {},
+        ),
+  ];
+
+  @override
+  Future<Map<String, String>?> popledUdpDiscoveryFields({
+    required List<int> datagram,
+  }) async => popledDiscovery?.call(datagram);
+
+  @override
+  Future<Uint8List> popledUdpPanelQuery() async =>
+      Uint8List.fromList(const [0xC1, 0x03, 0x0A, 0x00, 0x1B, 0x00]);
+
+  /// One body per frame between a fixed preamble and commit, so a caller can
+  /// count what it sent.
+  @override
+  Future<List<Uint8List>> popledUdpUploadBodies({
+    required String specYaml,
+    required int width,
+    required int height,
+    required List<Uint8List> frames,
+    required int delayMs,
+  }) async {
+    popledUploadCalls.add((
+      width: width,
+      height: height,
+      frames: frames.length,
+      delayMs: delayMs,
+    ));
+    return [
+      Uint8List.fromList(const [0xC1, 0x02, 0x04, 0x02, 0x00, 0x01]),
+      for (var i = 0; i < frames.length; i++)
+        Uint8List.fromList([0xC1, 0x02, 0x09, i]),
+      Uint8List.fromList(const [0xC1, 0x02, 0x35]),
+    ];
+  }
+
   /// What [parseSensemeDiscoveryReply] answers; the default splits on `;` the
   /// way a well-behaved reply with no escapes would.
   List<String>? Function(List<int> datagram)? sensemeReply;
@@ -2047,7 +2144,14 @@ class FakeSpecCodec implements SpecCodec {
   @override
   Future<RasterPrintDto?> rasterPrintForSpec({
     required String specYaml,
-  }) async => rasterPrintResult;
+    String? variant,
+  }) async {
+    rasterPrintVariants.add(variant);
+    return rasterPrintResult;
+  }
+
+  /// The variant each [rasterPrintForSpec] call asked for, in order.
+  final List<String?> rasterPrintVariants = [];
 
   /// A plain luma threshold — enough for a composer test to see black where
   /// it painted and white elsewhere, without the native library.
@@ -2122,4 +2226,63 @@ class FakeSpecCodec implements SpecCodec {
     required int width,
     required int height,
   }) async => Uint8List.fromList([width & 0xFF, height & 0xFF, ...rgb.take(3)]);
+
+  /// What [rasterPrintVariantForName] answers; null unless a test sets it.
+  String? rasterPrintVariant;
+
+  @override
+  Future<String?> rasterPrintVariantForName({
+    required String specYaml,
+    required String deviceName,
+  }) async => rasterPrintVariant;
+
+  @override
+  Future<Uint8List> brotherPtStatusRequest({
+    required String specYaml,
+    String? variant,
+  }) async => Uint8List.fromList([0x1B, 0x40, 0x1B, 0x69, 0x53]);
+
+  /// A P-touch status frame read the way the Rust decoder reads it: tape
+  /// width at byte 10, media at 11, status type at 18, phase at 19, error
+  /// bits at 8 and 9.
+  @override
+  Future<BrotherPtStatusDto> decodeBrotherPtStatus({
+    required List<int> reply,
+  }) async {
+    if (reply.length < 32 || reply[0] != 0x80) {
+      throw ArgumentError('not a P-touch status frame');
+    }
+    final errors = [if (reply[8] != 0 || reply[9] != 0) 'printer error'];
+    final statusType = reply[18];
+    return BrotherPtStatusDto(
+      mediaWidthMm: reply[10],
+      mediaType: reply[11],
+      statusType: statusType,
+      phaseType: reply[19],
+      errors: errors,
+      readyToPrint: errors.isEmpty && reply[19] == 0 && reply[10] > 0,
+      endsJob: statusType == 1 || statusType == 2 || statusType == 4,
+    );
+  }
+
+  @override
+  Future<LabelCanvasDto> brotherPtLabelCanvas({
+    required String specYaml,
+    String? variant,
+    required int tapeWidthMm,
+  }) async => LabelCanvasDto(
+    widthDots: tapeWidthMm == 24 ? 128 : 70,
+    dpi: 180,
+    mediaName: '$tapeWidthMm mm TZe tape',
+  );
+
+  @override
+  Future<Uint8List> renderBrotherPtJob({
+    required String specYaml,
+    String? variant,
+    required int tapeWidthMm,
+    required Uint8List rgb,
+    required int width,
+    required int height,
+  }) async => Uint8List.fromList([tapeWidthMm, width & 0xFF, height & 0xFF]);
 }

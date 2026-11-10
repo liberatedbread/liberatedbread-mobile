@@ -18,6 +18,7 @@ import 'package:liberated_bread_mobile/providers/saved_device_provider.dart';
 import 'package:liberated_bread_mobile/providers/spec_codec_provider.dart';
 import 'package:liberated_bread_mobile/services/real_ble_service.dart';
 import 'package:liberated_bread_mobile/services/spec_codec.dart';
+import 'package:liberated_bread_mobile/services/mattel_mpid_ble_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../fakes/emulated_ble.dart';
@@ -94,7 +95,14 @@ void main() {
 
       final ble = c.read(bleServiceProvider);
 
-      expect(ble, isA<RealBleService>());
+      expect(
+        ble,
+        isA<MattelMpidBleService>().having(
+          (b) => b.inner,
+          'inner',
+          isA<RealBleService>(),
+        ),
+      );
       expect(c.read(directAttRouterProvider), same(rig.router));
       expect(rig.router.routeHint, isNotNull);
     },

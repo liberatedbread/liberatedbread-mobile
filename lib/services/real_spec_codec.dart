@@ -620,6 +620,51 @@ class RealSpecCodec implements SpecCodec {
   );
 
   @override
+  Future<Uint8List> renderNetworkPopledCommand({
+    required String specYaml,
+    required String commandName,
+    required Map<String, String> values,
+  }) => rust.renderNetworkPopledCommand(
+    specYaml: specYaml,
+    commandName: commandName,
+    values: values,
+  );
+
+  @override
+  Future<PopledUdpSendDto> popledUdpFrame({
+    required int seq,
+    required List<int> body,
+  }) => rust.popledUdpFrame(seq: seq, body: body);
+
+  @override
+  Future<List<PopledUdpReplyDto>> popledUdpReadReplies({
+    required List<Uint8List> datagrams,
+  }) => rust.popledUdpReadReplies(datagrams: datagrams);
+
+  @override
+  Future<Map<String, String>?> popledUdpDiscoveryFields({
+    required List<int> datagram,
+  }) => rust.popledUdpDiscoveryFields(datagram: datagram);
+
+  @override
+  Future<Uint8List> popledUdpPanelQuery() => rust.popledUdpPanelQuery();
+
+  @override
+  Future<List<Uint8List>> popledUdpUploadBodies({
+    required String specYaml,
+    required int width,
+    required int height,
+    required List<Uint8List> frames,
+    required int delayMs,
+  }) => rust.popledUdpUploadBodies(
+    specYaml: specYaml,
+    width: width,
+    height: height,
+    frames: frames,
+    delayMs: delayMs,
+  );
+
+  @override
   Future<List<String>?> parseSensemeDiscoveryReply({
     required List<int> datagram,
   }) => rust.parseSensemeDiscoveryReply(datagram: datagram);
@@ -1227,8 +1272,10 @@ class RealSpecCodec implements SpecCodec {
       rust.cameraForDevice(specYaml: specYaml);
 
   @override
-  Future<RasterPrintDto?> rasterPrintForSpec({required String specYaml}) =>
-      print_rust.rasterPrintForSpec(specYaml: specYaml);
+  Future<RasterPrintDto?> rasterPrintForSpec({
+    required String specYaml,
+    String? variant,
+  }) => print_rust.rasterPrintForSpec(specYaml: specYaml, variant: variant);
 
   @override
   Future<Uint8List> prepareMonoRaster({
@@ -1282,6 +1329,54 @@ class RealSpecCodec implements SpecCodec {
   }) => print_rust.renderBrotherQlJob(
     specYaml: specYaml,
     params: params,
+    rgb: rgb,
+    width: width,
+    height: height,
+  );
+
+  @override
+  Future<String?> rasterPrintVariantForName({
+    required String specYaml,
+    required String deviceName,
+  }) => print_rust.rasterPrintVariantForName(
+    specYaml: specYaml,
+    deviceName: deviceName,
+  );
+
+  @override
+  Future<Uint8List> brotherPtStatusRequest({
+    required String specYaml,
+    String? variant,
+  }) => print_rust.brotherPtStatusRequest(specYaml: specYaml, variant: variant);
+
+  @override
+  Future<BrotherPtStatusDto> decodeBrotherPtStatus({
+    required List<int> reply,
+  }) => print_rust.decodeBrotherPtStatus(reply: reply);
+
+  @override
+  Future<LabelCanvasDto> brotherPtLabelCanvas({
+    required String specYaml,
+    String? variant,
+    required int tapeWidthMm,
+  }) => print_rust.brotherPtLabelCanvas(
+    specYaml: specYaml,
+    variant: variant,
+    tapeWidthMm: tapeWidthMm,
+  );
+
+  @override
+  Future<Uint8List> renderBrotherPtJob({
+    required String specYaml,
+    String? variant,
+    required int tapeWidthMm,
+    required Uint8List rgb,
+    required int width,
+    required int height,
+  }) => print_rust.renderBrotherPtJob(
+    specYaml: specYaml,
+    variant: variant,
+    tapeWidthMm: tapeWidthMm,
     rgb: rgb,
     width: width,
     height: height,

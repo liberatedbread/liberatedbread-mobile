@@ -23,6 +23,7 @@ EntityActionDto _action(
   double? min,
   double? max,
 }) => EntityActionDto(
+  fixedParams: const {},
   role: role,
   serviceUuid: serviceUuid,
   characteristicUuid: charUuid,

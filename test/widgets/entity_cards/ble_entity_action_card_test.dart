@@ -60,6 +60,7 @@ EntityActionDto _action(
   double? min,
   double? max,
 }) => EntityActionDto(
+  fixedParams: const {},
   role: role,
   serviceUuid: _cmdService,
   characteristicUuid: _cmdChar,

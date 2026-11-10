@@ -20,6 +20,18 @@ abstract interface class ClassicSppService {
     Duration timeout,
   });
 
+  /// Write a whole job to the printer's SPP socket and return the status
+  /// frames it pushed back, ending with the first whose byte at
+  /// [stopOffset] is one of [stopValues].
+  Future<List<Uint8List>> sendJob(
+    String address,
+    List<int> job, {
+    required int stopOffset,
+    required Set<int> stopValues,
+    Duration settle,
+    Duration timeout,
+  });
+
   factory ClassicSppService.system() {
     if (!Platform.isLinux) return const _UnsupportedClassicSppService();
     final view = BluezView();
@@ -58,6 +70,19 @@ class _UnsupportedClassicSppService implements ClassicSppService {
   }) async {
     await pair(address);
     throw StateError('unsupported SPP request did not throw');
+  }
+
+  @override
+  Future<List<Uint8List>> sendJob(
+    String address,
+    List<int> job, {
+    required int stopOffset,
+    required Set<int> stopValues,
+    Duration settle = Duration.zero,
+    Duration timeout = const Duration(seconds: 60),
+  }) async {
+    await pair(address);
+    throw StateError('unsupported SPP job did not throw');
   }
 }
 
@@ -113,14 +138,27 @@ typedef SppProbe =
       Duration timeout,
     );
 
+typedef SppJob =
+    Future<List<Uint8List>> Function(
+      String address,
+      List<int> payload, {
+      required Duration timeout,
+      Duration settle,
+      int frameLength,
+      required int stopOffset,
+      required Set<int> stopValues,
+    });
+
 class BluezClassicSppService implements ClassicSppService {
   final ClassicDeviceLoader _loadDevice;
   final SppProbe _probe;
+  final SppJob _job;
   final Duration pairingTimeout;
 
   BluezClassicSppService(
     this._loadDevice, {
     this._probe = linuxSppProbe,
+    this._job = linuxSppJob,
     this.pairingTimeout = const Duration(seconds: 90),
   });
 
@@ -191,6 +229,44 @@ class BluezClassicSppService implements ClassicSppService {
       throw const ClassicSppException(
         'The printer is paired, but its SPP status request failed. Turn '
         'Bluetooth off and on at the printer, then try again.',
+      );
+    }
+  }
+
+  @override
+  Future<List<Uint8List>> sendJob(
+    String address,
+    List<int> job, {
+    required int stopOffset,
+    required Set<int> stopValues,
+    Duration settle = Duration.zero,
+    Duration timeout = const Duration(seconds: 60),
+  }) async {
+    try {
+      return await _job(
+        address,
+        job,
+        timeout: timeout,
+        settle: settle,
+        stopOffset: stopOffset,
+        stopValues: stopValues,
+      );
+    } on ClassicSppException {
+      rethrow;
+    } on SppTransportException catch (e) {
+      Log.ble.warning('SPP job failed for $address', error: e);
+      throw ClassicSppException(
+        e.stage == 'timeout'
+            ? 'The printer took the label but never said it had finished. '
+                  'Check the tape and the printer, then try again.'
+            : 'Could not send the label to the printer. Turn Bluetooth off '
+                  'and on at the printer, then try again.',
+      );
+    } on Object catch (e) {
+      Log.ble.warning('SPP job failed for $address', error: e);
+      throw const ClassicSppException(
+        'Could not send the label to the printer. Turn Bluetooth off and on '
+        'at the printer, then try again.',
       );
     }
   }

@@ -34,6 +34,39 @@ None of this was checked against hardware. The app's reading is in
   protocol 0x00 "to be safe" but declares no command for it, so a spec-driven
   client cannot. It also gives no captured frame and no first `message_index`.
 
+## Found 2026-11-10, implementing the Even G1 BMP and P-touch Cube printing
+
+None of this was checked against hardware. The app's reading is in
+`rust/src/protocol/even_g1.rs` and `rust/src/protocol/brother_pt.rs`.
+
+- even-g1-glasses and brother-ptouch-cube name no `protocol_handler`. The app
+  adopts each by the commands it declares (the four BMP commands; the PT job
+  commands on `rfcomm`) under `even_g1_bmp` and `brother_pt_raster`. Naming
+  a handler in the spec would end the inference.
+- even-g1-glasses fixes the BMP's header and palette sizes but not the palette
+  order, which index lights a pixel, or the row direction. The app sends
+  palette 0 black, 1 white (set bit = lit) and bottom-up rows, the BMP
+  defaults. It also says 576 x 135 (vendor samples) and 576 x 136 (README);
+  the app sends the feature's 136.
+- even-g1-glasses `bmp_end` says to retry up to 10 times on a 3 s timeout;
+  nothing in the schema can state a retry, so the app tries once.
+- brother-ptouch-cube `test_vectors.job_24mm_two_lines` is a 2-line page,
+  but the PT-P710BT surface it is a 128-dot example for declares
+  `min_length_dots: 31`. The app pads to 31 blank lines; the vector should
+  say which model it is for, or that it ignores the minimum.
+- brother-ptouch-cube gives the PT-P300BT no `print_width_dots` below 12 mm,
+  so the app refuses 3.5, 6 and 9 mm tape on that model rather than guess.
+- brother-ptouch-cube states the PT-P910BT's last-page byte (2) and its
+  `ESC i A` only in `protocol_details.model_differences` prose. The app sends
+  page 0 and no `ESC i A` on every model; a per-variant field would let it
+  follow.
+- brother-ptouch-cube `right_margin_dots` does not say which end of the line
+  it counts from ("which physical edge ... is pin 0 ... is not stated"). Every
+  tape is symmetric except the PT-P910BT's 36 mm (45 / 61); the app counts
+  from the line's first bit.
+- brother-ptouch-cube variants carry no `identification`, so the app reads the
+  variant from the inquiry name: the longest `model` the name begins with.
+
 ## LOY SPACE panels: facts measured on a real backpack, 2026-11-08
 
 On a `YS525C110340` (`EXYC-A#CXB3BRI7BTVOICE3`, firmware `V2.8.8#V01`, 64x64),
@@ -52,6 +85,43 @@ the first three are worked around in `rust/src/protocol/popled.rs`.
   1-15. Brightness and power also read back: `c1 03 06 00` answers
   `81 83 06 02 00 <level>`, `c1 03 04 00` answers `81 83 04 02 00 <state>`.
 - Display commands can move from `remaining_unknowns` and `testing` to verified.
+
+## LED space over Wi-Fi: built from the spec, not yet heard
+
+`rust/src/protocol/popled_udp.rs` drives led-space.yaml's UDP path as the spec
+words it. Nothing here has met a panel; these are the places the spec is
+silent, contradicts itself, or contradicts the bench.
+
+- **Outer length prefix (risk).** `popled_wifi_protocol.transport.udp.framing`
+  says each UDP datagram carries a u16-LE length ahead of the frame, and the
+  app sends one. The same spec's BLE `framing.length_prefix: true` said the same
+  of BLE writes, and the backpack measured otherwise (above). If a Wi-Fi panel
+  ignores the prefixed probe, the prefix is the first thing to drop. Replies
+  are read with or without it.
+- **The probe's bytes live in prose.** The softap method prints
+  `aa 55 ff ff 08 00 01 00 c1 03 0a 00 d4 03` and calls it "the same probe as
+  the AUTOBABA backpack" — the bare BLE frame — while the framing block puts a
+  prefix ahead of every datagram. The app sends `0e 00` + those bytes. Ask: a
+  `probe_hex` stating the datagram exactly (sequence 1 makes it fixed), and an
+  `identity_mapping` for the reply.
+- **What 180 counts.** "Split into 180-byte chunks" does not say whether the
+  2-byte prefix is inside the 180, nor whether a split frame's later pieces
+  each carry their own prefix. The app puts 180 frame bytes behind each prefix.
+- **The dev_info reply has no `name`.** `discovery.identity.display: "name"`,
+  but the backpack's answer is one comma-separated record (`id_dev`, model,
+  firmware, …) with no name in it. The app shows the id.
+- **Image upload is unbuildable as stated.** `features[0].format: "zlib-bmp"`
+  rides inside a `pkts_program` JSON whose TLV serialisation is never given.
+  The app sends the backpack's GIF upload instead (slot 59, 960-byte chunks,
+  commit, select), which is the same board family and frame but is NOT what the
+  spec says this app sends; untested over Wi-Fi. Either a capture of the
+  program TLVs or a note that the GIF path works on Wi-Fi panels would close
+  this.
+- **Power is not on the entity.** As on BLE, `power_toggle` states the power;
+  the app gives the Wi-Fi light `turn_on`/`turn_off` from it so the screen and
+  group buttons can reach it. The spec could bind them itself.
+- **Retry pacing.** The vendor resends up to ten times 8 s apart; the app
+  waits 2 s and tries three times, so a missing panel is reported in seconds.
 
 ## Delivered by the 2026-09-26 catalogue refresh
 

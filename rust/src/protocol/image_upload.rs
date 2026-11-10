@@ -116,6 +116,11 @@ const SCHEMES: &[RegisteredScheme] = &[
         header_len: super::seeblue::ENVELOPE_LEN,
         fragment: super::seeblue::fragment_packet,
     },
+    RegisteredScheme {
+        name: super::mattel_mpid::SCHEME,
+        header_len: 0,
+        fragment: super::mattel_mpid::fragment_packet,
+    },
 ];
 
 const CODECS: &[RegisteredCodec] = &[RegisteredCodec {
@@ -243,6 +248,9 @@ fn frame_packet(
     };
     if scheme_name == super::seeblue::SCHEME {
         super::seeblue::check_packet(&packet, protocol_id)?;
+    }
+    if scheme_name == super::mattel_mpid::SCHEME {
+        super::mattel_mpid::check_body(&packet)?;
     }
     let mut parts = (scheme.fragment)(FragmentRequest {
         packet: &packet,

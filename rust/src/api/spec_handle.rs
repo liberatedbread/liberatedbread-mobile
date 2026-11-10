@@ -947,11 +947,17 @@ impl CatalogueHandle {
                 ) else {
                     continue;
                 };
+                // The Wi-Fi LOY SPACE panel states its probe in prose, as
+                // the frame of a query, because the bytes are a builder's
+                // output; the builder is this crate's, so it is asked. Only
+                // that handler: every other prose-only probe stays unsent.
+                let popled = crate::protocol::popled_udp::is_wifi_panel(&entry.spec);
                 let bytes = match probe.probe_hex.as_deref() {
                     Some(hex) => match decode_hex(hex) {
                         Some(bytes) => bytes,
                         None => continue,
                     },
+                    None if popled => crate::protocol::popled_udp::discovery_probe(),
                     None => Vec::new(),
                 };
                 let passive_ok = probe.passive_ok.unwrap_or(false);
@@ -988,12 +994,33 @@ impl CatalogueHandle {
                     passive_ok,
                     lan_protocols: entry.identity.lan_protocols.clone(),
                     response_format: probe.response_format.clone(),
-                    stable_keys: mapping.stable_keys.iter().map(field).collect(),
-                    display_field: mapping.display.as_ref().map(field),
+                    stable_keys: if popled && mapping.stable_keys.is_empty() {
+                        vec![popled_field(crate::protocol::popled_udp::FIELD_ID)]
+                    } else {
+                        mapping.stable_keys.iter().map(field).collect()
+                    },
+                    display_field: if popled && mapping.display.is_none() {
+                        Some(popled_field(crate::protocol::popled_udp::FIELD_NAME))
+                    } else {
+                        mapping.display.as_ref().map(field)
+                    },
                 });
             }
         }
         out
+    }
+}
+
+/// A field of the Wi-Fi LOY SPACE panel's binary dev_info reply, read in the
+/// `popled` dialect. The spec names these keys in `discovery.identity`
+/// (`id_dev`, `name`) rather than in its probe's `identity_mapping`, which it
+/// leaves out because no generic dialect could read a framed reply.
+#[frb(ignore)]
+fn popled_field(name: &str) -> UdpIdentityFieldDto {
+    UdpIdentityFieldDto {
+        dialect: crate::protocol::popled_udp::IDENTITY_DIALECT.to_string(),
+        path: name.to_string(),
+        name: name.to_string(),
     }
 }
 

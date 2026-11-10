@@ -7,6 +7,7 @@
 // UPnP description or reaches Kasa's cipher.
 
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -14,14 +15,20 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/testing.dart';
 import 'package:liberated_bread_mobile/models/network_device.dart';
 import 'package:liberated_bread_mobile/providers/network_control_provider.dart';
+import 'package:liberated_bread_mobile/providers/saved_device_provider.dart'
+    show sharedPreferencesProvider;
 import 'package:liberated_bread_mobile/providers/spec_codec_provider.dart';
 import 'package:liberated_bread_mobile/screens/network_device_screen.dart';
 import 'package:liberated_bread_mobile/services/ecp2_control_service.dart';
 import 'package:liberated_bread_mobile/services/http_control_service.dart';
 import 'package:liberated_bread_mobile/services/limitlessled_control_service.dart';
+import 'package:liberated_bread_mobile/services/philips_air_control_service.dart';
+import 'package:liberated_bread_mobile/services/popled_udp_control_service.dart';
 import 'package:liberated_bread_mobile/services/soap_control_service.dart';
 import 'package:liberated_bread_mobile/services/spec_codec.dart';
 import 'package:liberated_bread_mobile/services/yeelight_control_service.dart';
+import 'package:liberated_bread_mobile/widgets/led_image_widget.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../fakes/fake_spec_codec.dart';
 
@@ -63,6 +70,52 @@ class _FakeBridge extends LimitlessledControlClient {
   }
 }
 
+class _FakePurifier extends PhilipsAirControlClient {
+  _FakePurifier({this.failure});
+  final Object? failure;
+  final reads = <int>[];
+  final sent = <String>[];
+
+  @override
+  Future<Map<String, String>> readStatus(String host, int port) async {
+    final failed = failure;
+    if (failed != null) throw failed;
+    reads.add(port);
+    return const {'state.reported.pwr': '1', 'state.reported.pm25': '7'};
+  }
+
+  @override
+  Future<void> sendCommand(
+    String host,
+    int port, {
+    required String specYaml,
+    required String commandName,
+    required Map<String, String> values,
+  }) async {
+    sent.add(commandName);
+  }
+}
+
+class _FakePanel extends PopledUdpClient {
+  _FakePanel(super.codec);
+  final sent = <({int port, List<int> body})>[];
+
+  @override
+  Future<PopledUdpReplyDto> send(String host, int port, List<int> body) async {
+    sent.add((port: port, body: body));
+    return const PopledUdpReplyDto(
+      seq: 1,
+      ackStatus: 0,
+      answer: false,
+      fields: {},
+    );
+  }
+
+  @override
+  Future<({int width, int height})?> panelSize(String host, int port) async =>
+      null;
+}
+
 NetworkActionDto _action(String role, String transport) => NetworkActionDto(
   role: role,
   commandName: role,
@@ -90,10 +143,17 @@ Future<void> _open(
   List<NetworkEntityDto> entities, {
   YeelightControlClient? yeelight,
   LimitlessledControlClient? bridge,
+  PhilipsAirControlClient? purifier,
+  PopledUdpClient? panel,
+  NetworkCapabilitiesDto? capabilities,
 }) async {
+  SharedPreferences.setMockInitialValues({});
+  final prefs = await SharedPreferences.getInstance();
   await tester.pumpWidget(
     ProviderScope(
       overrides: [
+        // The picture editor a Wi-Fi panel draws remembers its size.
+        sharedPreferencesProvider.overrideWithValue(prefs),
         specCodecProvider.overrideWithValue(codec),
         soapControlClientProvider.overrideWithValue(
           SoapControlClient(
@@ -115,6 +175,10 @@ Future<void> _open(
           yeelightControlClientProvider.overrideWithValue(yeelight),
         if (bridge != null)
           limitlessledControlClientProvider.overrideWithValue(bridge),
+        if (purifier != null)
+          philipsAirControlClientProvider.overrideWithValue(purifier),
+        if (panel != null)
+          popledUdpClientFactoryProvider.overrideWithValue(() => panel),
       ],
       child: const MaterialApp(home: SizedBox()),
     ),
@@ -130,7 +194,11 @@ Future<void> _open(
             sources: const {NetworkDiscoverySource.lanProbe},
             discoveredAt: DateTime.utc(2026),
           ),
-          controls: NetworkControls(specYaml: 'yaml', entities: entities),
+          controls: NetworkControls(
+            specYaml: 'yaml',
+            entities: entities,
+            capabilities: capabilities,
+          ),
         ),
       ),
     ),
@@ -246,6 +314,76 @@ void main() {
     await _close(tester);
   });
 
+  testWidgets('a purifier polls its status over CoAP and sends through it', (
+    tester,
+  ) async {
+    final fan = NetworkEntityDto(
+      name: 'Purifier',
+      platform: 'fan',
+      stateCommand: 'get_status',
+      transport: kPurifier,
+      options: const [],
+      isInstanced: false,
+      actions: [_action('turn_on', kPurifier), _action('turn_off', kPurifier)],
+    );
+    final codec = FakeSpecCodec(
+      networkEntities: (_) => [fan],
+      networkRoleReadings: (name, returned) => [
+        NetworkRoleReadingDto(
+          role: 'is_on',
+          reading: NetworkReadingDto(
+            kind: NetworkReadingKind.onOff,
+            isOn: returned['state.reported.pwr'] == '1',
+            raw: returned['state.reported.pwr'] ?? '',
+          ),
+        ),
+      ],
+    );
+    final purifier = _FakePurifier();
+    await _open(
+      tester,
+      codec,
+      [fan],
+      purifier: purifier,
+      capabilities: _purifierCapabilities,
+    );
+
+    expect(purifier.reads, [5683], reason: 'the load read the status once');
+
+    await tester.tap(find.byType(Switch));
+    await tester.pumpAndSettle();
+    // Which way the switch goes is the fan card's business; that it went to
+    // the purifier's own client, and nowhere else, is this test's.
+    expect(purifier.sent.single, isIn(['turn_on', 'turn_off']));
+
+    await _close(tester);
+  });
+
+  testWidgets('a purifier that never answers says so', (tester) async {
+    final fan = NetworkEntityDto(
+      name: 'Purifier',
+      platform: 'fan',
+      stateCommand: 'get_status',
+      transport: kPurifier,
+      options: const [],
+      isInstanced: false,
+      actions: [_action('turn_on', kPurifier)],
+    );
+    await _open(
+      tester,
+      FakeSpecCodec(networkEntities: (_) => [fan]),
+      [fan],
+      purifier: _FakePurifier(
+        failure: const PhilipsAirException('did not answer the session sync'),
+      ),
+      capabilities: _purifierCapabilities,
+    );
+
+    expect(find.text('did not answer the session sync'), findsOneWidget);
+
+    await _close(tester);
+  });
+
   testWidgets('a write-only bridge loads with nothing to poll, and sends', (
     tester,
   ) async {
@@ -268,7 +406,93 @@ void main() {
 
     await _close(tester);
   });
+
+  testWidgets('a Wi-Fi panel draws its picture editor, its setup notes, and '
+      'sends its light over its own UDP client', (tester) async {
+    final codec =
+        FakeSpecCodec(
+            spec: _panelSpec(),
+            networkEntities: (_) => [_light(kPanel)],
+          )
+          ..setupInstructionsFor = (_) => const SetupInstructionsDto(
+            notes: 'Join the YS hotspot (password 12345678).',
+            methods: [],
+          );
+    final panel = _FakePanel(codec);
+    await _open(
+      tester,
+      codec,
+      [_light(kPanel)],
+      bridge: _FakeBridge(failure: StateError('not a bridge')),
+      panel: panel,
+      capabilities: const NetworkCapabilitiesDto(
+        defaultPort: 9090,
+        tlsSelfSigned: false,
+        advertisedPortUnreliable: false,
+        protocolHandler: kPanel,
+        mqttClientIdGenerated: false,
+      ),
+    );
+
+    expect(find.byType(LedImageWidget), findsOneWidget);
+    expect(find.text('How to connect'), findsOneWidget);
+
+    await tester.tap(find.byType(Switch));
+    await tester.pumpAndSettle();
+
+    expect(codec.renderNetworkPopledCommandCalls.single.commandName, 'turn_on');
+    expect(panel.sent.single.port, 9090);
+    // The panel acknowledged the frame, so the switch keeps what was sent.
+    expect(find.text('On'), findsOneWidget);
+
+    await _close(tester);
+  });
 }
+
+const _purifierCapabilities = NetworkCapabilitiesDto(
+  tlsSelfSigned: false,
+  advertisedPortUnreliable: false,
+  protocolHandler: kPurifier,
+  mqttClientIdGenerated: false,
+);
+
+const kPurifier = 'philips_air_coap';
+
+const kPanel = 'popled_json';
+
+/// led-space.yaml as far as the screen needs it: a picture surface.
+DeviceSpecDto _panelSpec() => DeviceSpecDto(
+  protocolHandler: kPanel,
+  nameMatchers: const [],
+  platformFallbackTypes: const [],
+  txtMatchGroups: const [],
+  hiddenEntityNames: const [],
+  deviceName: 'LED space',
+  manufacturer: 'LOY SPACE',
+  manufacturerStatus: 'active',
+  protocol: 'wifi',
+  category: 'display',
+  localNamePrefixes: const [],
+  localNames: const [],
+  serviceUuids: const [],
+  companyIds: Uint16List(0),
+  macPrefixes: const [],
+  mdnsServiceTypes: const [],
+  ssdpSearchTargets: const [],
+  lanProtocols: const [kPanel],
+  defaultPort: 9090,
+  entities: const [],
+  services: const [],
+  imageUpload: const ImageUploadDto(
+    handler: kPanel,
+    encodable: true,
+    maxWidth: 64,
+    maxHeight: 64,
+    resolutionDeviceReported: true,
+    animation: true,
+    animatedUpload: true,
+  ),
+);
 
 const kYeelight = 'yeelight_lan';
 const kBridge = 'limitlessled_legacy_8899';

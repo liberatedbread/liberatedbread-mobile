@@ -11,7 +11,7 @@ import '../models/iot_device.dart';
 import '../providers/classic_printer_provider.dart';
 import '../providers/saved_device_provider.dart';
 import '../providers/spec_codec_provider.dart';
-import '../services/spec_codec.dart';
+import '../services/classic_spp_service.dart';
 
 class ClassicPrinterSetupPanel extends ConsumerStatefulWidget {
   final IoTDevice device;
@@ -23,7 +23,11 @@ class ClassicPrinterSetupPanel extends ConsumerStatefulWidget {
     required this.device,
     required this.specYaml,
     required this.specKey,
+    this.protocolHandler = brotherQlHandler,
   });
+
+  /// The spec's handler, which decides how the status is asked for and read.
+  final String protocolHandler;
 
   @override
   ConsumerState<ClassicPrinterSetupPanel> createState() =>
@@ -34,7 +38,50 @@ class _ClassicPrinterSetupPanelState
     extends ConsumerState<ClassicPrinterSetupPanel> {
   bool _busy = false;
   String? _error;
-  BrotherQlStatusDto? _status;
+  _PanelStatus? _status;
+
+  /// Ask for and read the status in the printer's own language: a QL's
+  /// `ESC i S`, or a P-touch's invalidate + initialize + `ESC i S`.
+  Future<_PanelStatus> _readStatus(ClassicSppService service) async {
+    final codec = ref.read(specCodecProvider);
+    if (widget.protocolHandler == brotherPtHandler) {
+      final variant = await codec.rasterPrintVariantForName(
+        specYaml: widget.specYaml,
+        deviceName: widget.device.displayName,
+      );
+      final reply = await service.request(
+        widget.device.id,
+        await codec.brotherPtStatusRequest(
+          specYaml: widget.specYaml,
+          variant: variant,
+        ),
+      );
+      final status = await codec.decodeBrotherPtStatus(reply: reply);
+      return _PanelStatus(
+        ready: status.readyToPrint,
+        media: status.mediaWidthMm == 0
+            ? 'No tape loaded'
+            : '${status.mediaWidthMm} mm tape',
+        errors: status.errors,
+      );
+    }
+    final reply = await service.request(
+      widget.device.id,
+      await codec.brotherQlStatusRequest(),
+    );
+    final status = await codec.decodeBrotherQlStatus(reply: reply);
+    return _PanelStatus(
+      ready: status.readyToPrint,
+      media: switch (status.mediaType) {
+        'continuous' => '${status.mediaWidthMm} mm continuous media',
+        'die_cut' =>
+          '${status.mediaWidthMm}×${status.mediaLengthMm} mm '
+              'die-cut labels',
+        _ => 'No media loaded',
+      },
+      errors: status.errors,
+    );
+  }
 
   Future<void> _pairAndVerify() async {
     if (_busy) return;
@@ -46,17 +93,12 @@ class _ClassicPrinterSetupPanelState
     try {
       await service.pair(widget.device.id);
       if (!mounted) return;
-      final codec = ref.read(specCodecProvider);
-      final reply = await service.request(
-        widget.device.id,
-        await codec.brotherQlStatusRequest(),
-      );
-      final status = await codec.decodeBrotherQlStatus(reply: reply);
+      final status = await _readStatus(service);
       if (!mounted) return;
       setState(() => _status = status);
       Log.ble.info(
         'Classic SPP status verified for ${widget.device.id}: '
-        '${status.mediaType} ${status.mediaWidthMm} mm, '
+        '${status.media}, '
         '${status.errors.isEmpty ? 'no errors' : status.errors.join(', ')}',
       );
       try {
@@ -137,17 +179,15 @@ class _ClassicPrinterSetupPanelState
                 Row(
                   children: [
                     Icon(
-                      status.readyToPrint
+                      status.ready
                           ? Icons.check_circle_outline
                           : Icons.warning_amber,
-                      color: status.readyToPrint
-                          ? scheme.tertiary
-                          : scheme.error,
+                      color: status.ready ? scheme.tertiary : scheme.error,
                     ),
                     const SizedBox(width: 10),
                     Expanded(
                       child: Text(
-                        status.readyToPrint
+                        status.ready
                             ? 'Ready over Bluetooth SPP'
                             : 'Connected, but the printer needs attention',
                         style: Theme.of(context).textTheme.titleMedium,
@@ -156,13 +196,7 @@ class _ClassicPrinterSetupPanelState
                   ],
                 ),
                 const SizedBox(height: 12),
-                Text(switch (status.mediaType) {
-                  'continuous' => '${status.mediaWidthMm} mm continuous media',
-                  'die_cut' =>
-                    '${status.mediaWidthMm}×${status.mediaLengthMm} mm '
-                        'die-cut labels',
-                  _ => 'No media loaded',
-                }),
+                Text(status.media),
                 if (status.errors.isNotEmpty) ...[
                   const SizedBox(height: 8),
                   Text(
@@ -195,4 +229,17 @@ class _ClassicPrinterSetupPanelState
       ],
     );
   }
+}
+
+/// What the panel shows of a status, whichever printer language it came in.
+class _PanelStatus {
+  final bool ready;
+  final String media;
+  final List<String> errors;
+
+  const _PanelStatus({
+    required this.ready,
+    required this.media,
+    required this.errors,
+  });
 }

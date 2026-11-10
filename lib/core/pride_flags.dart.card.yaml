@@ -1,0 +1,12 @@
+card: 1
+name: pride_flags
+summary: "Pride flags and rainbow gradients as RGB888 canvases at any size, plus rainbow colours for single-colour lights."
+language: dart
+kind: function
+interface:
+  - PrideFlag
+license: unknown
+provenance:
+  authored_by: agent
+  agent: agent
+  human_reviewed: false

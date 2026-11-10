@@ -62,6 +62,7 @@ DeviceSpecDto _bulbSpec({String name = 'Example Smart Bulb'}) => DeviceSpecDto(
       onWhenNonzero: false,
       actions: [
         EntityActionDto(
+          fixedParams: {},
           role: 'turn_off',
           serviceUuid: _svc,
           characteristicUuid: _chr,

@@ -534,6 +534,86 @@ void _catalogueProbeTransportTests() {
     expect(row.single.answeredLanProtocols, ['senseme']);
   });
 
+  test('a LED space panel\'s framed reply is read through the core', () async {
+    // The probe is the spec's printed frame behind the UDP length the spec
+    // gives a datagram; in production the Rust core builds it (pinned in
+    // rust/tests/vendored_assets.rs). Not a Wi-Fi panel: none has been heard.
+    const probe = [
+      0x0E, 0x00, 0xAA, 0x55, 0xFF, 0xFF, 0x08, 0x00, 0x01, 0x00, //
+      0xC1, 0x03, 0x0A, 0x00, 0xD4, 0x03,
+    ];
+    final panel = await RawDatagramSocket.bind(InternetAddress.loopbackIPv4, 0);
+    panel.listen((event) {
+      if (event != RawSocketEvent.read) return;
+      final datagram = panel.receive();
+      if (datagram == null) return;
+      if (!_sameBytes(datagram.data, probe)) return;
+      // Garbage first, as something else on the port might send.
+      panel.send(const [0xAA, 0x55, 0x00], datagram.address, datagram.port);
+      panel.send(
+        utf8.encode('PANEL 525C110340'),
+        datagram.address,
+        datagram.port,
+      );
+    });
+
+    final read = <List<int>>[];
+    final service = RealNetworkScanService(
+      multicastLock: MulticastLock(isSupported: false),
+      // Not the Rust frame reader, which is tested against real frames in
+      // rust/src/protocol/popled_udp.rs: what is under test is that the
+      // reader is asked, that what it rejects is no row, and that what it
+      // reads becomes one.
+      popledFieldReader: (datagram) async {
+        read.add(datagram);
+        final text = utf8.decode(datagram, allowMalformed: true);
+        if (!text.startsWith('PANEL ')) return null;
+        final id = text.substring(6);
+        return {'id_dev': id, 'name': id};
+      },
+      probeSource: () async => [
+        UdpProbeDto(
+          specKey: 'led-space.yaml',
+          index: 0,
+          displayName: 'LED space',
+          port: panel.port,
+          broadcastAddress: '127.0.0.1',
+          probe: Uint8List.fromList(probe),
+          passiveOk: false,
+          lanProtocols: const ['popled_json'],
+          responseFormat: 'binary',
+          stableKeys: const [
+            UdpIdentityFieldDto(
+              dialect: 'popled',
+              path: 'id_dev',
+              name: 'id_dev',
+            ),
+          ],
+          displayField: const UdpIdentityFieldDto(
+            dialect: 'popled',
+            path: 'name',
+            name: 'name',
+          ),
+        ),
+      ],
+    );
+
+    final found = <NetworkDevice>[];
+    final sub = service
+        .scan(timeout: const Duration(seconds: 3))
+        .listen(found.add);
+    await Future<void>.delayed(const Duration(seconds: 4));
+    await sub.cancel();
+    panel.close();
+
+    expect(read, isNotEmpty, reason: 'the reader was asked');
+    final rows = found.where((d) => d.txt['id_dev'] == '525C110340').toList();
+    expect(rows, hasLength(1));
+    expect(rows.single.host, '127.0.0.1');
+    expect(rows.single.name, '525C110340');
+    expect(rows.single.answeredLanProtocols, ['popled_json']);
+  });
+
   test('a reply that identifies nothing does not become a device', () async {
     // Answering on a vendor port is not by itself a device: something else on
     // the LAN using the same port must not turn into a row the user is asked
@@ -604,4 +684,12 @@ extension on UdpProbeDto {
     stableKeys: stableKeys,
     displayField: displayField,
   );
+}
+
+bool _sameBytes(List<int> a, List<int> b) {
+  if (a.length != b.length) return false;
+  for (var i = 0; i < a.length; i++) {
+    if (a[i] != b[i]) return false;
+  }
+  return true;
 }

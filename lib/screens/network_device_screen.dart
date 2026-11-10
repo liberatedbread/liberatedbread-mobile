@@ -12,6 +12,7 @@ import '../core/device_category.dart';
 import '../core/entity_keys.dart';
 import '../core/sensor_reading_level.dart';
 import '../core/error_text.dart';
+import '../core/group_actions.dart' show isPopledPanel;
 import '../core/log.dart';
 import '../core/decimal_input.dart';
 import '../models/network_device.dart';
@@ -26,6 +27,7 @@ import '../services/json_fields.dart';
 import '../services/mqtt_session.dart' show MqttMessage;
 import '../services/kasa_control_service.dart';
 import '../services/network_command_sender.dart';
+import '../services/popled_udp_image_link.dart';
 import '../services/query_source_reader.dart';
 import '../services/rabbit_air_control_service.dart';
 import '../services/rabbit_air_control_transport.dart';
@@ -38,6 +40,7 @@ import 'setup_instructions_screen.dart';
 import '../widgets/ad_banner_bar.dart';
 import '../widgets/camera_view_card.dart';
 import '../widgets/device_credentials_card.dart';
+import '../widgets/led_image_widget.dart';
 import '../widgets/entity_cards/sensor_level_chip.dart';
 import '../widgets/network_light_card.dart';
 import '../widgets/power_strip_icon.dart';
@@ -238,6 +241,9 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
 
   /// Asked once, the first time a failure wants it.
   Future<SetupInstructionsDto?>? _setupHelp;
+
+  /// A Wi-Fi panel's picture surface, asked of the spec once.
+  Future<ImageUploadDto?>? _popledImageUpload;
   bool _certificateChanged = false;
   bool _resettingCertificate = false;
 
@@ -465,6 +471,13 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
     ),
   );
 
+  /// Whether this device is a Philips purifier read and driven over its
+  /// enveloped CoAP. Asked of the spec's handler rather than of an action,
+  /// because a unit whose controls are all hidden still has readings.
+  bool get _isPhilipsAir =>
+      widget.controls.capabilities?.protocolHandler ==
+      NetworkCommandSender.philipsAirTransport;
+
   /// Whether an instanced entity enumerated any children this poll — a power
   /// strip. Drives the render fork: per-outlet switches instead of the single
   /// "Outlet" switch, which on a strip would only ever read "State unknown".
@@ -670,7 +683,7 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
         // Nothing to fetch and nothing to poll: the robot pushes. Opening the
         // session IS the load, and state arrives on a stream from here on.
         await _connectRoomba();
-      } else if (_isKasa || _isYeelight) {
+      } else if (_isKasa || _isYeelight || _isPhilipsAir) {
         // No description to fetch and no control URLs to resolve — poll the
         // relay state straight over the socket. The port is the protocol's, not
         // a UPnP LOCATION, so the SOAP port check below does not apply.
@@ -784,6 +797,56 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
                 ),
               ),
             ),
+          ),
+        );
+      },
+    );
+  }
+
+  /// The image editor for a Wi-Fi popled panel, sending the BLE backpack's
+  /// GIF upload over UDP (see [PopledUdpImageLink]). Nothing while the spec is
+  /// read, or for a spec whose upload this build cannot encode.
+  Widget _popledImageEditor() {
+    return FutureBuilder<ImageUploadDto?>(
+      future: _popledImageUpload ??= ref
+          .read(specCodecProvider)
+          .loadDeviceSpec(widget.controls.specYaml)
+          .then((spec) => spec.imageUpload)
+          .catchError((Object e) {
+            Log.net.debug('no picture surface for ${widget.device.host}: $e');
+            return null;
+          }),
+      builder: (context, snapshot) {
+        final upload = snapshot.data;
+        if (upload == null || !upload.encodable) {
+          return const SizedBox.shrink();
+        }
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              LedImageWidget(
+                deviceId: widget.device.host,
+                imageUpload: upload,
+                specYaml: widget.controls.specYaml,
+                link: PopledUdpImageLink(
+                  ref.read(specCodecProvider),
+                  _sender.popledClient,
+                  widget.device.host,
+                  _sender.popledPort,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'Pictures go over Wi-Fi the way the Bluetooth version of this '
+                'panel takes them. That has not been tried on a Wi-Fi panel '
+                'yet.',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ],
           ),
         );
       },
@@ -928,8 +991,10 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
     // description, logged, and then re-decoded and setState the whole screen
     // — a full rebuild every four seconds that could not change a thing.
     if (_isRabbitAir) return;
+    // A purifier read is a sync and a GET on a fresh socket, and the spec
+    // says nothing of how many sessions a unit tolerates; it asks less often.
     _statePoll = Timer.periodic(
-      const Duration(seconds: 4),
+      _isPhilipsAir ? const Duration(seconds: 10) : const Duration(seconds: 4),
       (_) => unawaited(_tickStatePoll()),
     );
   }
@@ -964,6 +1029,10 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
     }
     if (_isYeelight) {
       await _refreshStateYeelight(superseded: superseded);
+      return;
+    }
+    if (_isPhilipsAir) {
+      await _refreshStatePhilipsAir(superseded: superseded);
       return;
     }
     // An MQTT device PUSHES. There is no request whose reply is the battery
@@ -1160,6 +1229,22 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
       _stateByCommand[command] = reply.fields;
     }
     if (superseded?.call() ?? false) return;
+    await _decodeEntities();
+  }
+
+  /// The Philips purifier poll: one session's status, decrypted and flattened
+  /// to the dotted paths the spec's mappings name. Every entity reads the same
+  /// `get_status`, so one read fills every command this round asks.
+  Future<void> _refreshStatePhilipsAir({bool Function()? superseded}) async {
+    final client = ref.read(philipsAirControlClientProvider);
+    final fields = await client.readStatus(
+      widget.device.host,
+      _sender.philipsAirPort,
+    );
+    if (superseded?.call() ?? false) return;
+    for (final command in _pollCommands) {
+      _stateByCommand[command] = fields;
+    }
     await _decodeEntities();
   }
 
@@ -2035,6 +2120,14 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
                     !entity.isInstanced &&
                     !_duplicatedByRemote(entity),
               )) ...[_entityCard(entity), const SizedBox(height: 12)],
+              // A Wi-Fi LOY SPACE panel takes pictures as well: the image
+              // editor, sending over the panel's UDP link instead of BLE, and
+              // the spec's join-the-hotspot notes (the failure path shows
+              // them already).
+              if (isPopledPanel(widget.controls.capabilities)) ...[
+                if (_error == null) _setupHelpButton(),
+                _popledImageEditor(),
+              ],
               // A power strip's outlets: one switch per child, named by its
               // alias, under a header that names it a strip. Empty (so nothing
               // renders) on a single-outlet plug.

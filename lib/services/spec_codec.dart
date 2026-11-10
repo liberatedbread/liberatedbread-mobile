@@ -7,7 +7,12 @@ import 'package:flutter/foundation.dart' show immutable;
 import '../src/rust/api/device_api.dart';
 import '../src/rust/api/readonly_api.dart' show ReadOnlySurfaceDto;
 import '../src/rust/api/print_api.dart'
-    show IppPrinterStatusDto, LabelCanvasDto, PrintDither, RasterPrintDto;
+    show
+        BrotherPtStatusDto,
+        IppPrinterStatusDto,
+        LabelCanvasDto,
+        PrintDither,
+        RasterPrintDto;
 import '../src/rust/api/spec_handle.dart'
     show CatalogueEntryDto, SpecLoadFailureDto, UdpProbeDto;
 
@@ -76,6 +81,8 @@ export '../src/rust/api/device_api.dart'
         YeelightRequestDto,
         YeelightReplyDto,
         LimitlessledFrameDto,
+        PopledUdpSendDto,
+        PopledUdpReplyDto,
         TuyaBroadcastDto,
         RabbitAirRequestDto,
         RoombaRequestDto,
@@ -142,6 +149,7 @@ export '../src/rust/api/spec_handle.dart'
 // The printing DTOs, from their own generated module for the same reason.
 export '../src/rust/api/print_api.dart'
     show
+        BrotherPtStatusDto,
         IppMarkerDto,
         IppPrinterStatusDto,
         LabelCanvasDto,
@@ -530,6 +538,50 @@ abstract class SpecCodec {
     required String specYaml,
     required String commandName,
     required Map<String, String> values,
+  });
+
+  // ── LOY SPACE / popled panel over Wi-Fi (UDP 9090) ─────────────────────
+  // The BLE backpack's frame in UDP datagrams, per led-space.yaml. None of
+  // it has been run against a panel; see rust/src/protocol/popled_udp.rs.
+
+  /// Render a Wi-Fi popled command to its frame body; [popledUdpFrame] then
+  /// frames it with the client's own sequence number.
+  Future<Uint8List> renderNetworkPopledCommand({
+    required String specYaml,
+    required String commandName,
+    required Map<String, String> values,
+  });
+
+  /// Frame [body] with [seq] and split it into the panel's datagrams.
+  Future<PopledUdpSendDto> popledUdpFrame({
+    required int seq,
+    required List<int> body,
+  });
+
+  /// Every complete frame in what a panel sent back, in order; anything that
+  /// is not one reads as nothing.
+  Future<List<PopledUdpReplyDto>> popledUdpReadReplies({
+    required List<Uint8List> datagrams,
+  });
+
+  /// The identity a datagram answering the panel's discovery probe carries
+  /// (the `popled` identity dialect), or null for one that names no panel.
+  Future<Map<String, String>?> popledUdpDiscoveryFields({
+    required List<int> datagram,
+  });
+
+  /// The body of the query that makes a panel state its size.
+  Future<Uint8List> popledUdpPanelQuery();
+
+  /// The frame bodies that store and show [frames] on a Wi-Fi panel, each to
+  /// be sent in its own acknowledged frame: the BLE backpack's GIF upload,
+  /// not the spec's zlib-bmp program, and untested over Wi-Fi.
+  Future<List<Uint8List>> popledUdpUploadBodies({
+    required String specYaml,
+    required int width,
+    required int height,
+    required List<Uint8List> frames,
+    required int delayMs,
   });
 
   /// The fields of a SenseME discovery reply, the `field:N` identity dialect,
@@ -1132,8 +1184,12 @@ abstract class SpecCodec {
   Future<CameraDto?> cameraForDevice({required String specYaml});
 
   /// The spec's raster-print surface — transport, head geometry, rolls — or
-  /// null when the spec is not a raster printer.
-  Future<RasterPrintDto?> rasterPrintForSpec({required String specYaml});
+  /// null when the spec is not a raster printer. A family spec answers for
+  /// [variant] when given, and with its first head otherwise.
+  Future<RasterPrintDto?> rasterPrintForSpec({
+    required String specYaml,
+    String? variant,
+  });
 
   /// Reduce a composed RGBA canvas (straight alpha) to the black-and-white
   /// RGB888 a raster printer takes — what the preview shows is what prints.
@@ -1171,6 +1227,39 @@ abstract class SpecCodec {
   Future<Uint8List> renderBrotherQlJob({
     required String specYaml,
     required BrotherQlJobParamsDto params,
+    required Uint8List rgb,
+    required int width,
+    required int height,
+  });
+
+  /// Which of a raster-printer family's variants a device is, from the name
+  /// it answers to; null when none fits (use the spec's first surface).
+  Future<String?> rasterPrintVariantForName({
+    required String specYaml,
+    required String deviceName,
+  });
+
+  /// The bytes that make a P-touch Cube answer with its 32-byte status.
+  Future<Uint8List> brotherPtStatusRequest({
+    required String specYaml,
+    String? variant,
+  });
+
+  /// Decode one 32-byte P-touch status frame (throws when malformed).
+  Future<BrotherPtStatusDto> decodeBrotherPtStatus({required List<int> reply});
+
+  /// The canvas to compose a P-touch label on for [tapeWidthMm] tape.
+  Future<LabelCanvasDto> brotherPtLabelCanvas({
+    required String specYaml,
+    String? variant,
+    required int tapeWidthMm,
+  });
+
+  /// Encode a composed black-and-white RGB888 label as a whole P-touch job.
+  Future<Uint8List> renderBrotherPtJob({
+    required String specYaml,
+    String? variant,
+    required int tapeWidthMm,
     required Uint8List rgb,
     required int width,
     required int height,

@@ -664,7 +664,9 @@ fn the_vendored_xkglow_set_rgb_color_honours_its_parameters() {
 /// The encoding gate asks whether a *command* can be encoded; these specs put
 /// the obstacle one level up, on the characteristic. coolledx length-prefixes,
 /// escapes and delimits its frames, pax derives its key per device, and niu's
-/// ECB key is per device too and declared nowhere. A slider built on them would
+/// ECB key is per device too and declared nowhere. (`pax_ofb` now reads a PAX
+/// through its own read-only module; the generic encoder still executes none
+/// of its writes, and the heater and lock never resolve a control.) A slider built on them would
 /// write bytes the device silently drops. Rendering a control that cannot work
 /// is worse than rendering none.
 ///
@@ -678,7 +680,10 @@ fn characteristics_needing_unimplemented_transforms_resolve_no_actions() {
 
     let cases = [
         ("coolledx-led-sign.yaml", "length-prefix framing"),
-        ("pax-vape.yaml", "OFB encryption with a per-device key"),
+        (
+            "pax-vape.yaml",
+            "OFB encryption with a per-device key, and pax_ofb is read-only",
+        ),
         ("niu-escooter.yaml", "ECB with a per-device key"),
     ];
 
@@ -2015,6 +2020,36 @@ fn the_shining_glasses_sibling_declares_no_pixel_surface_to_encode() {
     );
 }
 
+/// The Even G1 names no `protocol_handler`; it is adopted by the BMP commands
+/// it declares, and its upload is the whole BMP transfer for one temple
+/// through the FFI the editor calls.
+#[test]
+fn the_vendored_even_g1_encodes_its_bmp_transfer() {
+    use liberated_bread_core::api::device_api::{encode_image_frame, load_device_spec};
+
+    let yaml = fs::read_to_string(spec_path("even-g1-glasses.yaml")).expect("readable");
+    let dto = load_device_spec(yaml.clone()).expect("the G1 loads");
+    let img = dto.image_upload.expect("declares image_upload");
+    assert_eq!(img.handler.as_deref(), Some("even_g1_bmp"));
+    assert!(img.encodable);
+    assert_eq!((img.max_width, img.max_height), (Some(576), Some(136)));
+
+    let plan = encode_image_frame(yaml.clone(), 576, 136, vec![0u8; 576 * 136 * 3], 0, 248)
+        .expect("the vendored G1 spec encodes");
+    assert_eq!(plan.service_uuid, "6e400001-b5a3-f393-e0a9-e50e24dcca9e");
+    assert_eq!(plan.writes.len(), 53, "51 chunks, end, CRC");
+    assert_eq!(
+        plan.writes[0].bytes[..8],
+        [0x15, 0x00, 0x00, 0x1C, 0x00, 0x00, b'B', b'M']
+    );
+    assert_eq!(plan.writes[51].bytes, [0x20, 0x0D, 0x0E]);
+    assert_eq!(plan.writes[52].bytes[0], 0x16);
+    assert_eq!(plan.writes[52].bytes.len(), 5);
+    assert_eq!(plan.reply_waits.len(), 2);
+    // The first write is 200 bytes; a link that cannot carry it is told so.
+    assert!(encode_image_frame(yaml, 8, 8, vec![0u8; 8 * 8 * 3], 0, 182).is_err());
+}
+
 /// The two places the schema puts an mDNS service type, held together.
 ///
 /// `device.identification.mdns_service_type` and every
@@ -3282,13 +3317,19 @@ fn every_resolved_action_reports_the_transport_its_spec_declares() {
         ) {
             continue;
         }
-        // These two resolve from declared commands and report their handler's
+        // These resolve from declared commands and report their handler's
         // name instead of the transport declared, because `tcp-json` and `udp`
-        // already route to Kasa's and Rabbit Air's framings. tests/lan_handlers.rs
-        // pins what each reports.
+        // already route to Kasa's and Rabbit Air's framings, and `coap` is the
+        // IKEA gateway's DTLS surface as well as the Philips purifier's
+        // envelope. tests/lan_handlers.rs pins what each reports. (The LED space
+        // panel's commands are the twins `popled_udp::bind_network_surface`
+        // gives its BLE ones.)
         if matches!(
             spec.protocol_handler.as_deref(),
-            Some("yeelight_lan") | Some("limitlessled_legacy_8899")
+            Some("yeelight_lan")
+                | Some("limitlessled_legacy_8899")
+                | Some("philips_air_coap")
+                | Some("popled_json")
         ) {
             continue;
         }
@@ -4330,6 +4371,10 @@ fn every_declared_udp_probe_parses() {
                     // the same case: its probe is a TLV frame whose sequence
                     // number and checksum change per send, so the spec gives
                     // a builder in `protocol_details` rather than fixed bytes.
+                    // (The core has that builder and sends it, see
+                    // `the_catalogue_hands_over_the_probes_the_app_already_sends`;
+                    // the YAML itself still carries no payload, which is
+                    // what this list records.)
                     // Furbo is the different, explicitly unactionable case: its
                     // TUTK layouts are not reproduced and its presence on the
                     // port is only a hypothesis, so this is a research backlog,
@@ -4533,6 +4578,8 @@ fn the_catalogue_hands_over_the_probes_the_app_already_sends() {
     // bridge's two strings, BiSecur's LogicBox probe and Sengled's
     // search_devices — every other declared probe is `passive_ok` with no
     // payload (Tuya, Synology) or has no payload at all (the Aqara hub, S-20).
+    // The LED space panel's probe is in prose in its spec, but it is the
+    // popled frame builder's output, so the core builds it (below).
     // Pinned here rather than in Dart because this is
     // where the data is: a spec that adds a probe should show up as a change
     // to this list, which is the whole point of reading them as data.
@@ -4560,10 +4607,39 @@ fn the_catalogue_hands_over_the_probes_the_app_already_sends() {
         vec![
             "big-ass-fans-senseme.yaml:31415",
             "hormann-bisecur-gateway.yaml:4001",
+            "led-space.yaml:9090",
             "limitlessled-milight-bridge.yaml:48899",
             "limitlessled-milight-bridge.yaml:48899",
             "sengled-wifi-bulb.yaml:9080",
         ]
+    );
+
+    // The LED space panel: the spec prints the frame in its softap method
+    // (`aa 55 ff ff 08 00 01 00 c1 03 0a 00 d4 03`) and says a UDP datagram
+    // carries a u16-LE length ahead of it. Built, not copied; its reply is a
+    // frame too, read in the core's own `popled` dialect for the keys the
+    // spec's `discovery.identity` names. The Aqara hub's prose probe, whose
+    // bytes carry this phone's address, stays unsent.
+    let panel = by_key("led-space.yaml", 9090);
+    assert_eq!(panel.len(), 1);
+    assert_eq!(
+        panel[0].probe,
+        [
+            0x0E, 0x00, 0xAA, 0x55, 0xFF, 0xFF, 0x08, 0x00, 0x01, 0x00, 0xC1, 0x03, 0x0A, 0x00,
+            0xD4, 0x03
+        ]
+    );
+    assert_eq!(panel[0].broadcast_address, "255.255.255.255");
+    assert_eq!(panel[0].lan_protocols, ["popled_json"]);
+    assert_eq!(panel[0].stable_keys[0].dialect, "popled");
+    assert_eq!(panel[0].stable_keys[0].path, "id_dev");
+    assert_eq!(panel[0].display_field.as_ref().unwrap().path, "name");
+    assert!(
+        probes
+            .iter()
+            .filter(|p| p.spec_key == "aqara-hub.yaml")
+            .all(|p| p.probe.is_empty()),
+        "only the popled handler's builder stands in for a prose probe"
     );
 
     // A SenseME reply may come back broadcast, so the probe listens on its own
@@ -4964,7 +5040,7 @@ fn the_catalogue_handle_matches_and_sweeps_like_the_by_value_doors() {
 #[test]
 fn the_vendored_printers_drive_their_print_paths() {
     let niimbot = std::fs::read_to_string(spec_path("niimbot-d110.yaml")).unwrap();
-    let raster = liberated_bread_core::api::print_api::raster_print_for_spec(niimbot.clone())
+    let raster = liberated_bread_core::api::print_api::raster_print_for_spec(niimbot.clone(), None)
         .unwrap()
         .expect("the D110 is a raster printer");
     assert_eq!(raster.transport.as_deref(), Some("ble_write_plan"));
@@ -4987,8 +5063,288 @@ fn the_vendored_printers_drive_their_print_paths() {
     let ipp = std::fs::read_to_string(spec_path("ipp-network-printer.yaml")).unwrap();
     assert!(liberated_bread_core::api::print_api::ipp_status_supported(ipp.clone()).unwrap());
     assert!(
-        liberated_bread_core::api::print_api::raster_print_for_spec(ipp)
+        liberated_bread_core::api::print_api::raster_print_for_spec(ipp, None)
             .unwrap()
             .is_none()
     );
+}
+
+/// The P-touch Cube names no `protocol_handler`; it is adopted by the PT
+/// raster commands it declares on `rfcomm`, prints over the RFCOMM stream,
+/// and each variant gets its own head rather than the spec's first entry.
+#[test]
+fn the_vendored_ptouch_cube_prints_per_variant_over_rfcomm() {
+    use liberated_bread_core::api::print_api::{
+        brother_pt_label_canvas, brother_pt_status_request, decode_brother_pt_status,
+        raster_print_for_spec, render_brother_pt_job,
+    };
+
+    let yaml = fs::read_to_string(spec_path("brother-ptouch-cube.yaml")).unwrap();
+    let first = raster_print_for_spec(yaml.clone(), None).unwrap().unwrap();
+    assert_eq!(first.handler.as_deref(), Some("brother_pt_raster"));
+    assert_eq!(first.transport.as_deref(), Some("rfcomm_stream"));
+    assert!(first.encodable);
+    assert!(!first.hardware_tested);
+    assert_eq!(first.variants, ["PT-P300BT", "PT-P300BTz"]);
+
+    let p910 = raster_print_for_spec(yaml.clone(), Some("PT-P910BT".into()))
+        .unwrap()
+        .unwrap();
+    assert_eq!((p910.dpi, p910.head_dots), (360, Some(560)));
+    assert_eq!(p910.variants, ["PT-P910BT"]);
+
+    let canvas = brother_pt_label_canvas(yaml.clone(), Some("PT-P710BT".into()), 12).unwrap();
+    assert_eq!((canvas.width_dots, canvas.dpi), (70, 180));
+    let job = render_brother_pt_job(
+        yaml.clone(),
+        Some("PT-P710BT".into()),
+        12,
+        vec![0u8; 70 * 40 * 3],
+        70,
+        40,
+    )
+    .unwrap();
+    assert!(job[..100].iter().all(|b| *b == 0));
+    assert_eq!(*job.last().unwrap(), 0x1A);
+    assert_eq!(
+        brother_pt_status_request(yaml, Some("PT-P710BT".into())).unwrap()[100..],
+        [0x1B, 0x40, 0x1B, 0x69, 0x53]
+    );
+    let status = decode_brother_pt_status(vec![
+        0x80, 0x20, 0x42, 0x30, 0x72, 0x30, 0, 0, 0, 0, 0x0C, 0x01, 0, 0, 0, 0, 0, 0, 0x01, 0, 0,
+        0, 0, 0, 0x01, 0x08, 0, 0, 0, 0, 0, 0,
+    ])
+    .unwrap();
+    assert!(status.ends_job);
+}
+
+/// The Lumalou's commands are the decrypted bodies of MPID frames, and once
+/// `mattel_mpid` binds the command characteristic they encode through the
+/// generic path to the spec's own `test_vectors.command_bodies`. GLOBAL_STATE
+/// decodes by the spec's `format` from the plaintext in its frame vector, and
+/// the other frames on the same characteristic decode to nothing, per its
+/// `format_match`.
+#[test]
+fn the_lumalou_encodes_its_command_bodies_and_decodes_its_state() {
+    use liberated_bread_core::api::device_api::{decode_value, encode_command, load_device_spec};
+    use liberated_bread_core::protocol::mattel_mpid::{self, RX_UUID, SERVICE_UUID, TX_UUID};
+    use std::collections::HashMap;
+
+    let yaml = fs::read_to_string(spec_path("fisher-price-lumalou.yaml")).expect("readable");
+    let hex = |text: &str| -> Vec<u8> {
+        (0..text.len())
+            .step_by(2)
+            .map(|i| u8::from_str_radix(&text[i..i + 2], 16).unwrap())
+            .collect()
+    };
+    let encode = |command: &str, params: &[(&str, f64)]| {
+        encode_command(
+            Some(yaml.clone()),
+            Some(SERVICE_UUID.to_string()),
+            TX_UUID.to_string(),
+            command.to_string(),
+            params
+                .iter()
+                .map(|(k, v)| (k.to_string(), *v))
+                .collect::<HashMap<_, _>>(),
+        )
+        .unwrap_or_else(|e| panic!("{command}: {e}"))
+    };
+    assert_eq!(
+        encode("set_light_color", &[("color", 4.0)]),
+        hex("0110fe023c043a")
+    );
+    assert_eq!(
+        encode("set_volume", &[("level", 4.0)]),
+        hex("0110fe02370431")
+    );
+    assert_eq!(encode("request_global_state", &[]), hex("0110fe015352"));
+    assert_eq!(
+        encode(
+            "set_current_date",
+            &[
+                ("hour_bcd", 7.0),
+                ("minute_bcd", 48.0),
+                ("second_bcd", 0.0),
+                ("weekday", 1.0),
+            ],
+        ),
+        hex("0110fe05300730000103")
+    );
+    // The rainbow pride mode picks is preset 9.
+    assert_eq!(
+        encode("set_light_color", &[("color", 9.0)]),
+        hex("0110fe023c0937")
+    );
+
+    let decoded = decode_value(
+        Some(yaml.clone()),
+        Some(SERVICE_UUID.to_string()),
+        RX_UUID.to_string(),
+        hex("0150fe0e020110345164001002131010451048"),
+    )
+    .expect("GLOBAL_STATE decodes");
+    let field = |name: &str| {
+        let d = decoded
+            .iter()
+            .find(|d| d.name == name)
+            .unwrap_or_else(|| panic!("{name} missing from {decoded:?}"));
+        (d.uint_value.or(d.int_value), d.value_label.clone())
+    };
+    // `rx_seq9_decoded`, field by field.
+    for (name, value) in [
+        ("operation_mode", 0),
+        ("activity_state", 1),
+        ("music_status", 1),
+        ("current_song", 3),
+        ("volume", 4),
+        ("playlist_duration", 5),
+        ("light_status", 1),
+        ("light_brightness", 6),
+        ("light_color", 4),
+        ("nap_status", 0),
+        ("nap_duration", 0),
+        ("r2r_status", 1),
+        ("r2r_alarm_status", 0),
+        ("time_prescaler", 0),
+        ("current_stage", 2),
+        ("clock_display", 1),
+        ("clock_brightness", 3),
+        ("clock_format", 1),
+        ("routine_music_status", 0),
+        ("task_reward_sfx", 1),
+        ("routine_reward_sfx", 0),
+        ("light_duration", 4),
+        ("routine_volume", 5),
+        ("routine_mode_status", 1),
+        ("alarm_executing", 0),
+    ] {
+        assert_eq!(field(name).0, Some(value), "{name}");
+    }
+    assert_eq!(field("light_color").1.as_deref(), Some("green"));
+    assert_eq!(field("current_stage").1.as_deref(), Some("settle"));
+
+    // A CURRENT_DATE tick and an acknowledgement event share the
+    // characteristic; neither is GLOBAL_STATE.
+    for other in ["0150fe05132359000317", "007f0103000000000000"] {
+        let decoded = decode_value(
+            Some(yaml.clone()),
+            Some(SERVICE_UUID.to_string()),
+            RX_UUID.to_string(),
+            hex(other),
+        )
+        .expect("a frame of another kind is not an error");
+        assert!(decoded.is_empty(), "{other} decoded as {decoded:?}");
+    }
+
+    // Every command the surface offers encodes to a body the session layer
+    // will seal; the ones with byte-string arguments are not offered, and the
+    // time prescaler stays behind the spec's advanced flag.
+    let dto = load_device_spec(yaml.clone()).expect("loads");
+    let tx = dto
+        .services
+        .iter()
+        .flat_map(|s| &s.characteristics)
+        .find(|c| c.uuid == TX_UUID)
+        .expect("the command characteristic");
+    let byte_args = [
+        "set_music_playlist",
+        "set_sleepy_times",
+        "set_r2r_times",
+        "set_r2r_alarms",
+        "set_day_routine",
+    ];
+    let mut offered = 0;
+    for command in &tx.commands {
+        if byte_args.contains(&command.name.as_str()) {
+            assert!(!command.is_encodable, "{} takes bytes", command.name);
+            continue;
+        }
+        assert!(
+            command.is_encodable,
+            "{}: {:?}",
+            command.name, command.unsupported_encoding
+        );
+        assert_eq!(
+            command.advanced,
+            command.name == "set_time_prescaler",
+            "{}",
+            command.name
+        );
+        let params: Vec<(&str, f64)> = command
+            .parameters
+            .iter()
+            .filter(|p| p.name != "checksum")
+            .map(|p| {
+                let value = p
+                    .allowed
+                    .as_ref()
+                    .and_then(|a| a.first().copied())
+                    .map(|v| v as f64)
+                    .or(p.min)
+                    .unwrap_or(0.0);
+                (p.name.as_str(), value)
+            })
+            .collect();
+        let body = encode(&command.name, &params);
+        if command.name != "enable_rx" {
+            assert_eq!(body[..3], [0x01, 0x10, 0xFE], "{}", command.name);
+        }
+        mattel_mpid::check_body(&body).unwrap_or_else(|e| panic!("{}: {e}", command.name));
+        offered += 1;
+    }
+    assert_eq!(offered, tx.commands.len() - byte_args.len());
+
+    // The light the group's pride mode drives, and nothing bound to the
+    // prescaler.
+    let light = dto
+        .entities
+        .iter()
+        .find(|e| e.name == "Night Light")
+        .expect("the night light");
+    let roles: BTreeSet<&str> = light.actions.iter().map(|a| a.role.as_str()).collect();
+    for role in ["turn_on", "turn_off", "set_brightness", "set_effect"] {
+        assert!(
+            roles.contains(role),
+            "the night light lacks {role}: {roles:?}"
+        );
+    }
+    // Roles bound in the mapping form carry their values: on is warm (0),
+    // and the soothing buttons send state 1 and 0.
+    let fixed = |entity: &str, role: &str| {
+        let action = dto
+            .entities
+            .iter()
+            .find(|e| e.name == entity)
+            .and_then(|e| e.actions.iter().find(|a| a.role == role))
+            .unwrap_or_else(|| panic!("{entity} {role}"));
+        (
+            action.command_name.clone().unwrap(),
+            action.fixed_params.clone(),
+        )
+    };
+    assert_eq!(
+        fixed("Night Light", "turn_on"),
+        (
+            "set_light_color".to_string(),
+            HashMap::from([("color".to_string(), 0.0)])
+        )
+    );
+    assert_eq!(
+        fixed("Start Soothing", "press").1,
+        HashMap::from([("state".to_string(), 1.0)])
+    );
+    assert_eq!(
+        fixed("Stop Soothing", "press").1,
+        HashMap::from([("state".to_string(), 0.0)])
+    );
+    assert_eq!(
+        fixed("Sleep Trainer", "turn_off").1,
+        HashMap::from([("state".to_string(), 0.0)])
+    );
+    assert!(dto
+        .entities
+        .iter()
+        .flat_map(|e| &e.actions)
+        .all(|a| a.command_name.as_deref() != Some("set_time_prescaler")));
 }

@@ -46,7 +46,11 @@ class _PerSpecCodec extends FakeSpecCodec {
   @override
   Future<RasterPrintDto?> rasterPrintForSpec({
     required String specYaml,
-  }) async => bySpec[specYaml];
+    String? variant,
+  }) async {
+    rasterPrintVariants.add(variant);
+    return bySpec[specYaml];
+  }
 }
 
 RasterPrintDto _raster(String? transport, {List<String> variants = const []}) =>
@@ -139,5 +143,38 @@ void main() {
 
     final printers = await container.read(savedPrintersProvider.future);
     expect(printers.map((printer) => printer.name), ['D110']);
+  });
+
+  test('a saved P-touch Cube is offered over SPP for its own head', () async {
+    SharedPreferences.setMockInitialValues({
+      'saved_devices_v1':
+          '['
+          '{"id":"A0:66:10:00:00:01","name":"PT-P710BT0001",'
+          '"lastSeen":"2026-07-30T12:00:00.000",'
+          '"category":"printer","specKey":"Cube|Test"}'
+          ']',
+    });
+    final prefs = await SharedPreferences.getInstance();
+    final codec = _PerSpecCodec({
+      'cube-yaml': _raster('rfcomm_stream', variants: ['PT-P710BT']),
+    })..rasterPrintVariant = 'PT-P710BT';
+    final container = ProviderContainer(
+      overrides: [
+        sharedPreferencesProvider.overrideWithValue(prefs),
+        specCodecProvider.overrideWithValue(codec),
+        specCatalogueProvider.overrideWith(
+          (ref) async => FallbackSpecCatalogue.fromParsed(codec, [
+            (spec: _spec('Cube'), yaml: 'cube-yaml'),
+          ]),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    final printers = await container.read(savedPrintersProvider.future);
+    expect(printers, hasLength(1));
+    expect(printers.single.isClassic, isTrue);
+    expect(printers.single.variant, 'PT-P710BT');
+    expect(codec.rasterPrintVariants, ['PT-P710BT']);
   });
 }

@@ -60,7 +60,15 @@ class ReadOnlyNotice extends StatelessWidget {
 class ReadOnlyCommandsCard extends StatelessWidget {
   final List<ReadOnlyCommandDto> commands;
 
-  const ReadOnlyCommandsCard({super.key, required this.commands});
+  /// What a sent command's row says. A read-only handler's sends are reads;
+  /// a handler that also writes settings says so.
+  final String sentLabel;
+
+  const ReadOnlyCommandsCard({
+    super.key,
+    required this.commands,
+    this.sentLabel = 'Sent by this app, to read.',
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -97,7 +105,7 @@ class ReadOnlyCommandsCard extends StatelessWidget {
                         Text(command.name, style: text.titleSmall),
                         Text(
                           command.sent
-                              ? 'Sent by this app, to read.'
+                              ? sentLabel
                               : command.refusal ?? 'Refused by this app.',
                           style: text.bodySmall,
                         ),

@@ -300,6 +300,11 @@ class _EntityValueBuilderState extends ConsumerState<EntityValueBuilder> {
       rethrow;
     }
     if (!mounted || generation != _generation) return;
+    // A frame of another kind on the same characteristic (a spec's
+    // `format_match` said this is not the state): nothing to show, and the
+    // card keeps its last state. The Lumalou streams its clock once a second
+    // between state reports.
+    if (decoded.isEmpty) return;
     // Older bytes than what is on screen; see [_arrivalSeq].
     if (seq < _appliedSeq) return;
     _appliedSeq = seq;
