@@ -230,6 +230,7 @@ abstract class RustLibApi extends BaseApi {
 
   Future<AcInfinityStatusDto> crateApiReadonlyApiAcinfinityDecodeStatus({
     required List<int> frame,
+    Uint8List? advertisement,
   });
 
   Future<Uint8List> crateApiReadonlyApiAcinfinityEncodeGetModelData({
@@ -2129,12 +2130,14 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   @override
   Future<AcInfinityStatusDto> crateApiReadonlyApiAcinfinityDecodeStatus({
     required List<int> frame,
+    Uint8List? advertisement,
   }) {
     return handler.executeNormal(
       NormalTask(
         callFfi: (port_) {
           final serializer = SseSerializer(generalizedFrbRustBinding);
           sse_encode_list_prim_u_8_loose(frame, serializer);
+          sse_encode_opt_list_prim_u_8_strict(advertisement, serializer);
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
@@ -2147,7 +2150,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeErrorData: sse_decode_AnyhowException,
         ),
         constMeta: kCrateApiReadonlyApiAcinfinityDecodeStatusConstMeta,
-        argValues: [frame],
+        argValues: [frame, advertisement],
         apiImpl: this,
       ),
     );
@@ -2156,7 +2159,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   TaskConstMeta get kCrateApiReadonlyApiAcinfinityDecodeStatusConstMeta =>
       const TaskConstMeta(
         debugName: 'acinfinity_decode_status',
-        argNames: ['frame'],
+        argNames: ['frame', 'advertisement'],
       );
 
   @override
@@ -9428,6 +9431,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  AcInfinityLayout dco_decode_ac_infinity_layout(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return AcInfinityLayout.values[raw as int];
+  }
+
+  @protected
   AcInfinityPortDto dco_decode_ac_infinity_port_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
@@ -9435,15 +9444,30 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       throw Exception('unexpected arr length: expect 10 but see ${arr.length}');
     return AcInfinityPortDto(
       port: dco_decode_u_8(arr[0]),
-      occupied: dco_decode_bool(arr[1]),
+      occupied: dco_decode_opt_box_autoadd_bool(arr[1]),
       loadId: dco_decode_opt_box_autoadd_u_16(arr[2]),
       loadType: dco_decode_opt_String(arr[3]),
       level: dco_decode_opt_box_autoadd_u_8(arr[4]),
-      outputOn: dco_decode_bool(arr[5]),
-      fault: dco_decode_bool(arr[6]),
-      overcurrent: dco_decode_bool(arr[7]),
+      outputOn: dco_decode_opt_box_autoadd_bool(arr[5]),
+      fault: dco_decode_opt_box_autoadd_bool(arr[6]),
+      overcurrent: dco_decode_opt_box_autoadd_bool(arr[7]),
       modeCode: dco_decode_u_8(arr[8]),
       mode: dco_decode_opt_String(arr[9]),
+    );
+  }
+
+  @protected
+  AcInfinitySensorDto dco_decode_ac_infinity_sensor_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 5)
+      throw Exception('unexpected arr length: expect 5 but see ${arr.length}');
+    return AcInfinitySensorDto(
+      sensorId: dco_decode_u_8(arr[0]),
+      name: dco_decode_opt_String(arr[1]),
+      unit: dco_decode_opt_String(arr[2]),
+      valueHundredths: dco_decode_opt_box_autoadd_i_32(arr[3]),
+      decimals: dco_decode_u_8(arr[4]),
     );
   }
 
@@ -9451,16 +9475,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   AcInfinityStatusDto dco_decode_ac_infinity_status_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 7)
-      throw Exception('unexpected arr length: expect 7 but see ${arr.length}');
+    if (arr.length != 9)
+      throw Exception('unexpected arr length: expect 9 but see ${arr.length}');
     return AcInfinityStatusDto(
-      displayCelsius: dco_decode_bool(arr[0]),
-      selectedPort: dco_decode_u_8(arr[1]),
-      temperatureCentiC: dco_decode_opt_box_autoadd_i_16(arr[2]),
-      humidityCentiPercent: dco_decode_opt_box_autoadd_i_16(arr[3]),
-      vpdCentiKpa: dco_decode_opt_box_autoadd_i_16(arr[4]),
-      ports: dco_decode_list_ac_infinity_port_dto(arr[5]),
-      undecodedPorts: dco_decode_u_8(arr[6]),
+      layout: dco_decode_ac_infinity_layout(arr[0]),
+      displayCelsius: dco_decode_opt_box_autoadd_bool(arr[1]),
+      selectedPort: dco_decode_opt_box_autoadd_u_8(arr[2]),
+      temperatureCentiC: dco_decode_opt_box_autoadd_i_16(arr[3]),
+      humidityCentiPercent: dco_decode_opt_box_autoadd_i_16(arr[4]),
+      vpdCentiKpa: dco_decode_opt_box_autoadd_i_16(arr[5]),
+      ports: dco_decode_list_ac_infinity_port_dto(arr[6]),
+      sensors: dco_decode_list_ac_infinity_sensor_dto(arr[7]),
+      caveat: dco_decode_opt_String(arr[8]),
     );
   }
 
@@ -9729,6 +9755,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
 
   @protected
   int dco_decode_box_autoadd_i_16(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return raw as int;
+  }
+
+  @protected
+  int dco_decode_box_autoadd_i_32(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return raw as int;
   }
@@ -10613,6 +10645,16 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   List<AcInfinityPortDto> dco_decode_list_ac_infinity_port_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return (raw as List<dynamic>).map(dco_decode_ac_infinity_port_dto).toList();
+  }
+
+  @protected
+  List<AcInfinitySensorDto> dco_decode_list_ac_infinity_sensor_dto(
+    dynamic raw,
+  ) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return (raw as List<dynamic>)
+        .map(dco_decode_ac_infinity_sensor_dto)
+        .toList();
   }
 
   @protected
@@ -11575,6 +11617,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   int? dco_decode_opt_box_autoadd_i_16(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return raw == null ? null : dco_decode_box_autoadd_i_16(raw);
+  }
+
+  @protected
+  int? dco_decode_opt_box_autoadd_i_32(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return raw == null ? null : dco_decode_box_autoadd_i_32(raw);
   }
 
   @protected
@@ -13078,18 +13126,25 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  AcInfinityLayout sse_decode_ac_infinity_layout(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var inner = sse_decode_i_32(deserializer);
+    return AcInfinityLayout.values[inner];
+  }
+
+  @protected
   AcInfinityPortDto sse_decode_ac_infinity_port_dto(
     SseDeserializer deserializer,
   ) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     var var_port = sse_decode_u_8(deserializer);
-    var var_occupied = sse_decode_bool(deserializer);
+    var var_occupied = sse_decode_opt_box_autoadd_bool(deserializer);
     var var_loadId = sse_decode_opt_box_autoadd_u_16(deserializer);
     var var_loadType = sse_decode_opt_String(deserializer);
     var var_level = sse_decode_opt_box_autoadd_u_8(deserializer);
-    var var_outputOn = sse_decode_bool(deserializer);
-    var var_fault = sse_decode_bool(deserializer);
-    var var_overcurrent = sse_decode_bool(deserializer);
+    var var_outputOn = sse_decode_opt_box_autoadd_bool(deserializer);
+    var var_fault = sse_decode_opt_box_autoadd_bool(deserializer);
+    var var_overcurrent = sse_decode_opt_box_autoadd_bool(deserializer);
     var var_modeCode = sse_decode_u_8(deserializer);
     var var_mode = sse_decode_opt_String(deserializer);
     return AcInfinityPortDto(
@@ -13107,27 +13162,50 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  AcInfinitySensorDto sse_decode_ac_infinity_sensor_dto(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_sensorId = sse_decode_u_8(deserializer);
+    var var_name = sse_decode_opt_String(deserializer);
+    var var_unit = sse_decode_opt_String(deserializer);
+    var var_valueHundredths = sse_decode_opt_box_autoadd_i_32(deserializer);
+    var var_decimals = sse_decode_u_8(deserializer);
+    return AcInfinitySensorDto(
+      sensorId: var_sensorId,
+      name: var_name,
+      unit: var_unit,
+      valueHundredths: var_valueHundredths,
+      decimals: var_decimals,
+    );
+  }
+
+  @protected
   AcInfinityStatusDto sse_decode_ac_infinity_status_dto(
     SseDeserializer deserializer,
   ) {
     // Codec=Sse (Serialization based), see doc to use other codecs
-    var var_displayCelsius = sse_decode_bool(deserializer);
-    var var_selectedPort = sse_decode_u_8(deserializer);
+    var var_layout = sse_decode_ac_infinity_layout(deserializer);
+    var var_displayCelsius = sse_decode_opt_box_autoadd_bool(deserializer);
+    var var_selectedPort = sse_decode_opt_box_autoadd_u_8(deserializer);
     var var_temperatureCentiC = sse_decode_opt_box_autoadd_i_16(deserializer);
     var var_humidityCentiPercent = sse_decode_opt_box_autoadd_i_16(
       deserializer,
     );
     var var_vpdCentiKpa = sse_decode_opt_box_autoadd_i_16(deserializer);
     var var_ports = sse_decode_list_ac_infinity_port_dto(deserializer);
-    var var_undecodedPorts = sse_decode_u_8(deserializer);
+    var var_sensors = sse_decode_list_ac_infinity_sensor_dto(deserializer);
+    var var_caveat = sse_decode_opt_String(deserializer);
     return AcInfinityStatusDto(
+      layout: var_layout,
       displayCelsius: var_displayCelsius,
       selectedPort: var_selectedPort,
       temperatureCentiC: var_temperatureCentiC,
       humidityCentiPercent: var_humidityCentiPercent,
       vpdCentiKpa: var_vpdCentiKpa,
       ports: var_ports,
-      undecodedPorts: var_undecodedPorts,
+      sensors: var_sensors,
+      caveat: var_caveat,
     );
   }
 
@@ -13431,6 +13509,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   int sse_decode_box_autoadd_i_16(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     return (sse_decode_i_16(deserializer));
+  }
+
+  @protected
+  int sse_decode_box_autoadd_i_32(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return (sse_decode_i_32(deserializer));
   }
 
   @protected
@@ -14514,6 +14598,20 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var ans_ = <AcInfinityPortDto>[];
     for (var idx_ = 0; idx_ < len_; ++idx_) {
       ans_.add(sse_decode_ac_infinity_port_dto(deserializer));
+    }
+    return ans_;
+  }
+
+  @protected
+  List<AcInfinitySensorDto> sse_decode_list_ac_infinity_sensor_dto(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    var len_ = sse_decode_i_32(deserializer);
+    var ans_ = <AcInfinitySensorDto>[];
+    for (var idx_ = 0; idx_ < len_; ++idx_) {
+      ans_.add(sse_decode_ac_infinity_sensor_dto(deserializer));
     }
     return ans_;
   }
@@ -16064,6 +16162,17 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
 
     if (sse_decode_bool(deserializer)) {
       return (sse_decode_box_autoadd_i_16(deserializer));
+    } else {
+      return null;
+    }
+  }
+
+  @protected
+  int? sse_decode_opt_box_autoadd_i_32(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    if (sse_decode_bool(deserializer)) {
+      return (sse_decode_box_autoadd_i_32(deserializer));
     } else {
       return null;
     }
@@ -17927,21 +18036,43 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_ac_infinity_layout(
+    AcInfinityLayout self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.index, serializer);
+  }
+
+  @protected
   void sse_encode_ac_infinity_port_dto(
     AcInfinityPortDto self,
     SseSerializer serializer,
   ) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_u_8(self.port, serializer);
-    sse_encode_bool(self.occupied, serializer);
+    sse_encode_opt_box_autoadd_bool(self.occupied, serializer);
     sse_encode_opt_box_autoadd_u_16(self.loadId, serializer);
     sse_encode_opt_String(self.loadType, serializer);
     sse_encode_opt_box_autoadd_u_8(self.level, serializer);
-    sse_encode_bool(self.outputOn, serializer);
-    sse_encode_bool(self.fault, serializer);
-    sse_encode_bool(self.overcurrent, serializer);
+    sse_encode_opt_box_autoadd_bool(self.outputOn, serializer);
+    sse_encode_opt_box_autoadd_bool(self.fault, serializer);
+    sse_encode_opt_box_autoadd_bool(self.overcurrent, serializer);
     sse_encode_u_8(self.modeCode, serializer);
     sse_encode_opt_String(self.mode, serializer);
+  }
+
+  @protected
+  void sse_encode_ac_infinity_sensor_dto(
+    AcInfinitySensorDto self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_u_8(self.sensorId, serializer);
+    sse_encode_opt_String(self.name, serializer);
+    sse_encode_opt_String(self.unit, serializer);
+    sse_encode_opt_box_autoadd_i_32(self.valueHundredths, serializer);
+    sse_encode_u_8(self.decimals, serializer);
   }
 
   @protected
@@ -17950,13 +18081,15 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     SseSerializer serializer,
   ) {
     // Codec=Sse (Serialization based), see doc to use other codecs
-    sse_encode_bool(self.displayCelsius, serializer);
-    sse_encode_u_8(self.selectedPort, serializer);
+    sse_encode_ac_infinity_layout(self.layout, serializer);
+    sse_encode_opt_box_autoadd_bool(self.displayCelsius, serializer);
+    sse_encode_opt_box_autoadd_u_8(self.selectedPort, serializer);
     sse_encode_opt_box_autoadd_i_16(self.temperatureCentiC, serializer);
     sse_encode_opt_box_autoadd_i_16(self.humidityCentiPercent, serializer);
     sse_encode_opt_box_autoadd_i_16(self.vpdCentiKpa, serializer);
     sse_encode_list_ac_infinity_port_dto(self.ports, serializer);
-    sse_encode_u_8(self.undecodedPorts, serializer);
+    sse_encode_list_ac_infinity_sensor_dto(self.sensors, serializer);
+    sse_encode_opt_String(self.caveat, serializer);
   }
 
   @protected
@@ -18223,6 +18356,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   void sse_encode_box_autoadd_i_16(int self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_i_16(self, serializer);
+  }
+
+  @protected
+  void sse_encode_box_autoadd_i_32(int self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self, serializer);
   }
 
   @protected
@@ -19089,6 +19228,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_i_32(self.length, serializer);
     for (final item in self) {
       sse_encode_ac_infinity_port_dto(item, serializer);
+    }
+  }
+
+  @protected
+  void sse_encode_list_ac_infinity_sensor_dto(
+    List<AcInfinitySensorDto> self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.length, serializer);
+    for (final item in self) {
+      sse_encode_ac_infinity_sensor_dto(item, serializer);
     }
   }
 
@@ -20440,6 +20591,16 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_bool(self != null, serializer);
     if (self != null) {
       sse_encode_box_autoadd_i_16(self, serializer);
+    }
+  }
+
+  @protected
+  void sse_encode_opt_box_autoadd_i_32(int? self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    sse_encode_bool(self != null, serializer);
+    if (self != null) {
+      sse_encode_box_autoadd_i_32(self, serializer);
     }
   }
 

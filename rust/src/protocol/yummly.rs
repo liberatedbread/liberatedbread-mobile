@@ -14,9 +14,10 @@
 //! ```
 //!
 //! XW2 ONLY. The T3 + P3 generation shares the spec but nobody has run it, so
-//! nothing here claims it. The bytes this file can produce are the challenge
-//! reply and the named reads in [`YummlyRead`]; 0xac, the request that drops a
-//! probe into its bootloader, cannot be built.
+//! nothing here claims it; its notifications have decoders of their own in
+//! [`super::yummly_xw3`], which nothing connects to. The bytes this file can
+//! produce are the challenge reply and the named reads in [`YummlyRead`];
+//! 0xac, the request that drops a probe into its bootloader, cannot be built.
 
 use crate::error::ProtocolError;
 

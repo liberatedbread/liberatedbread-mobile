@@ -35,14 +35,31 @@ class AcInfinityFeedDto {
           frames == other.frames;
 }
 
-/// One port of the status stream.
+/// Which of the spec's status layouts a frame was read by.
+enum AcInfinityLayout {
+  /// `controller_stream.layout`: multi-port controllers at revision 5 or
+  /// later, 8-byte port blocks from byte 22.
+  controller,
+
+  /// `controller_stream.legacy_layout`: below revision 5, 4-byte port
+  /// records from byte 18. App analysis only.
+  legacyController,
+
+  /// `power_strip_stream`: the UIS power strip's AI-family frame, read by
+  /// its expanded header.
+  powerStrip,
+}
+
+/// One port, or strip outlet, of the status stream. A field is `None` where
+/// the layout that carried it does not state it.
 class AcInfinityPortDto {
-  /// The 1-based physical port.
+  /// The 1-based physical port, or the strip outlet by record position.
   final int port;
 
-  /// False when nothing is plugged in; the spec says the rest of the block
-  /// is then meaningless, so the rest stays empty here.
-  final bool occupied;
+  /// False when nothing is plugged in; on the controller layout the spec
+  /// says the rest of the block is then meaningless, so it stays empty.
+  /// `None` on the legacy layout, which states no empty-port value.
+  final bool? occupied;
   final int? loadId;
 
   /// The load-type table's text; `None` for a code the table omits.
@@ -50,23 +67,24 @@ class AcInfinityPortDto {
 
   /// Output level 0-10. `None` for a value outside that range.
   final int? level;
-  final bool outputOn;
-  final bool fault;
-  final bool overcurrent;
+  final bool? outputOn;
+  final bool? fault;
+  final bool? overcurrent;
   final int modeCode;
 
-  /// The mode table's text; `None` for a code the table omits.
+  /// The mode table's text; `None` for a code the table omits, and always on
+  /// the strip, whose mode values the spec does not give.
   final String? mode;
 
   const AcInfinityPortDto({
     required this.port,
-    required this.occupied,
+    this.occupied,
     this.loadId,
     this.loadType,
     this.level,
-    required this.outputOn,
-    required this.fault,
-    required this.overcurrent,
+    this.outputOn,
+    this.fault,
+    this.overcurrent,
     required this.modeCode,
     this.mode,
   });
@@ -101,54 +119,110 @@ class AcInfinityPortDto {
           mode == other.mode;
 }
 
+/// One of the power strip's sensor records.
+class AcInfinitySensorDto {
+  final int sensorId;
+
+  /// The sensor-id table's text; `None` for an id the table omits.
+  final String? name;
+  final String? unit;
+
+  /// The scaled value in hundredths, so the record's x10 to x0.01 scales
+  /// all stay integers. `None` is the spec's "no reading".
+  final int? valueHundredths;
+
+  /// How many decimals the record's accuracy carries (0-2).
+  final int decimals;
+
+  const AcInfinitySensorDto({
+    required this.sensorId,
+    this.name,
+    this.unit,
+    this.valueHundredths,
+    required this.decimals,
+  });
+
+  @override
+  int get hashCode =>
+      sensorId.hashCode ^
+      name.hashCode ^
+      unit.hashCode ^
+      valueHundredths.hashCode ^
+      decimals.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is AcInfinitySensorDto &&
+          runtimeType == other.runtimeType &&
+          sensorId == other.sensorId &&
+          name == other.name &&
+          unit == other.unit &&
+          valueHundredths == other.valueHundredths &&
+          decimals == other.decimals;
+}
+
 /// A decoded status frame.
 class AcInfinityStatusDto {
-  final bool displayCelsius;
-  final int selectedPort;
+  final AcInfinityLayout layout;
+
+  /// `None` where the layout does not state it.
+  final bool? displayCelsius;
+  final int? selectedPort;
 
   /// Hundredths of a degree C, of a percent and of a kPa. `None` is the
-  /// spec's "no probe" value. Integers so the screen rounds, not this file.
+  /// spec's "no probe" value, and always on the strip, which reports
+  /// [`Self::sensors`] instead. Integers so the screen rounds, not this file.
   final int? temperatureCentiC;
   final int? humidityCentiPercent;
   final int? vpdCentiKpa;
   final List<AcInfinityPortDto> ports;
 
-  /// Ports 5-8 of an eight-port frame, left undecoded because the spec
-  /// infers their layout and nobody has captured it.
-  final int undecodedPorts;
+  /// The strip's sensor records; empty on the controller layouts.
+  final List<AcInfinitySensorDto> sensors;
+
+  /// What this reading rests on that nobody has captured, for the screen to
+  /// say. `None` for the four-port controller frame.
+  final String? caveat;
 
   const AcInfinityStatusDto({
-    required this.displayCelsius,
-    required this.selectedPort,
+    required this.layout,
+    this.displayCelsius,
+    this.selectedPort,
     this.temperatureCentiC,
     this.humidityCentiPercent,
     this.vpdCentiKpa,
     required this.ports,
-    required this.undecodedPorts,
+    required this.sensors,
+    this.caveat,
   });
 
   @override
   int get hashCode =>
+      layout.hashCode ^
       displayCelsius.hashCode ^
       selectedPort.hashCode ^
       temperatureCentiC.hashCode ^
       humidityCentiPercent.hashCode ^
       vpdCentiKpa.hashCode ^
       ports.hashCode ^
-      undecodedPorts.hashCode;
+      sensors.hashCode ^
+      caveat.hashCode;
 
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
       other is AcInfinityStatusDto &&
           runtimeType == other.runtimeType &&
+          layout == other.layout &&
           displayCelsius == other.displayCelsius &&
           selectedPort == other.selectedPort &&
           temperatureCentiC == other.temperatureCentiC &&
           humidityCentiPercent == other.humidityCentiPercent &&
           vpdCentiKpa == other.vpdCentiKpa &&
           ports == other.ports &&
-          undecodedPorts == other.undecodedPorts;
+          sensors == other.sensors &&
+          caveat == other.caveat;
 }
 
 /// The stored levels `get_model_data` answers with for one port.

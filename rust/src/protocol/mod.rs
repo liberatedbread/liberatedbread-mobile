@@ -49,6 +49,7 @@ pub mod websocket;
 pub mod wemo_setup;
 pub mod yeelight;
 pub mod yummly;
+pub mod yummly_xw3;
 
 use crate::error::ProtocolError;
 use crate::spec::types::{DeviceSpec, SpecCommand};

@@ -9,7 +9,8 @@ use crate::api::device_api::SafetyAdvisoryDto;
 use crate::protocol::{acinfinity, bisecur, modbus_sunspec, readonly, yummly};
 
 pub use crate::protocol::acinfinity::{
-    AcInfinityFeedDto, AcInfinityPortDto, AcInfinityStatusDto, AcInfinityStoredDto,
+    AcInfinityFeedDto, AcInfinityLayout, AcInfinityPortDto, AcInfinitySensorDto,
+    AcInfinityStatusDto, AcInfinityStoredDto,
 };
 pub use crate::protocol::bisecur::{
     BiSecurGroupDto, BiSecurPortDto, BiSecurReplyDto, BiSecurReplyKind, BiSecurSplitDto,
@@ -191,8 +192,14 @@ pub fn acinfinity_encode_get_model_data(port: u8, sequence: u16) -> anyhow::Resu
     Ok(acinfinity::encode_get_model_data(port, sequence)?)
 }
 
-pub fn acinfinity_decode_status(frame: Vec<u8>) -> anyhow::Result<AcInfinityStatusDto> {
-    Ok(acinfinity::decode_status(&frame)?)
+/// `advertisement` is the unit's manufacturer payload for company 0x0902
+/// (after the company id), which picks the status layout. `None` reads only
+/// the multi-port controller layout.
+pub fn acinfinity_decode_status(
+    frame: Vec<u8>,
+    advertisement: Option<Vec<u8>>,
+) -> anyhow::Result<AcInfinityStatusDto> {
+    Ok(acinfinity::decode_status(&frame, advertisement.as_deref())?)
 }
 
 pub fn acinfinity_decode_model_data(

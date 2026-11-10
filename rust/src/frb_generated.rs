@@ -1304,12 +1304,15 @@ fn wire__crate__api__readonly_api__acinfinity_decode_status_impl(
             let mut deserializer =
                 flutter_rust_bridge::for_generated::SseDeserializer::new(message);
             let api_frame = <Vec<u8>>::sse_decode(&mut deserializer);
+            let api_advertisement = <Option<Vec<u8>>>::sse_decode(&mut deserializer);
             deserializer.end();
             move |context| {
                 transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
                     (move || {
-                        let output_ok =
-                            crate::api::readonly_api::acinfinity_decode_status(api_frame)?;
+                        let output_ok = crate::api::readonly_api::acinfinity_decode_status(
+                            api_frame,
+                            api_advertisement,
+                        )?;
                         Ok(output_ok)
                     })(),
                 )
@@ -9143,17 +9146,30 @@ impl SseDecode for crate::protocol::acinfinity::AcInfinityFeedDto {
     }
 }
 
+impl SseDecode for crate::protocol::acinfinity::AcInfinityLayout {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut inner = <i32>::sse_decode(deserializer);
+        return match inner {
+            0 => crate::protocol::acinfinity::AcInfinityLayout::Controller,
+            1 => crate::protocol::acinfinity::AcInfinityLayout::LegacyController,
+            2 => crate::protocol::acinfinity::AcInfinityLayout::PowerStrip,
+            _ => unreachable!("Invalid variant for AcInfinityLayout: {}", inner),
+        };
+    }
+}
+
 impl SseDecode for crate::protocol::acinfinity::AcInfinityPortDto {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
         let mut var_port = <u8>::sse_decode(deserializer);
-        let mut var_occupied = <bool>::sse_decode(deserializer);
+        let mut var_occupied = <Option<bool>>::sse_decode(deserializer);
         let mut var_loadId = <Option<u16>>::sse_decode(deserializer);
         let mut var_loadType = <Option<String>>::sse_decode(deserializer);
         let mut var_level = <Option<u8>>::sse_decode(deserializer);
-        let mut var_outputOn = <bool>::sse_decode(deserializer);
-        let mut var_fault = <bool>::sse_decode(deserializer);
-        let mut var_overcurrent = <bool>::sse_decode(deserializer);
+        let mut var_outputOn = <Option<bool>>::sse_decode(deserializer);
+        let mut var_fault = <Option<bool>>::sse_decode(deserializer);
+        let mut var_overcurrent = <Option<bool>>::sse_decode(deserializer);
         let mut var_modeCode = <u8>::sse_decode(deserializer);
         let mut var_mode = <Option<String>>::sse_decode(deserializer);
         return crate::protocol::acinfinity::AcInfinityPortDto {
@@ -9171,25 +9187,49 @@ impl SseDecode for crate::protocol::acinfinity::AcInfinityPortDto {
     }
 }
 
+impl SseDecode for crate::protocol::acinfinity::AcInfinitySensorDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_sensorId = <u8>::sse_decode(deserializer);
+        let mut var_name = <Option<String>>::sse_decode(deserializer);
+        let mut var_unit = <Option<String>>::sse_decode(deserializer);
+        let mut var_valueHundredths = <Option<i32>>::sse_decode(deserializer);
+        let mut var_decimals = <u8>::sse_decode(deserializer);
+        return crate::protocol::acinfinity::AcInfinitySensorDto {
+            sensor_id: var_sensorId,
+            name: var_name,
+            unit: var_unit,
+            value_hundredths: var_valueHundredths,
+            decimals: var_decimals,
+        };
+    }
+}
+
 impl SseDecode for crate::protocol::acinfinity::AcInfinityStatusDto {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
-        let mut var_displayCelsius = <bool>::sse_decode(deserializer);
-        let mut var_selectedPort = <u8>::sse_decode(deserializer);
+        let mut var_layout =
+            <crate::protocol::acinfinity::AcInfinityLayout>::sse_decode(deserializer);
+        let mut var_displayCelsius = <Option<bool>>::sse_decode(deserializer);
+        let mut var_selectedPort = <Option<u8>>::sse_decode(deserializer);
         let mut var_temperatureCentiC = <Option<i16>>::sse_decode(deserializer);
         let mut var_humidityCentiPercent = <Option<i16>>::sse_decode(deserializer);
         let mut var_vpdCentiKpa = <Option<i16>>::sse_decode(deserializer);
         let mut var_ports =
             <Vec<crate::protocol::acinfinity::AcInfinityPortDto>>::sse_decode(deserializer);
-        let mut var_undecodedPorts = <u8>::sse_decode(deserializer);
+        let mut var_sensors =
+            <Vec<crate::protocol::acinfinity::AcInfinitySensorDto>>::sse_decode(deserializer);
+        let mut var_caveat = <Option<String>>::sse_decode(deserializer);
         return crate::protocol::acinfinity::AcInfinityStatusDto {
+            layout: var_layout,
             display_celsius: var_displayCelsius,
             selected_port: var_selectedPort,
             temperature_centi_c: var_temperatureCentiC,
             humidity_centi_percent: var_humidityCentiPercent,
             vpd_centi_kpa: var_vpdCentiKpa,
             ports: var_ports,
-            undecoded_ports: var_undecodedPorts,
+            sensors: var_sensors,
+            caveat: var_caveat,
         };
     }
 }
@@ -10340,6 +10380,18 @@ impl SseDecode for Vec<crate::protocol::acinfinity::AcInfinityPortDto> {
         let mut ans_ = vec![];
         for idx_ in 0..len_ {
             ans_.push(<crate::protocol::acinfinity::AcInfinityPortDto>::sse_decode(deserializer));
+        }
+        return ans_;
+    }
+}
+
+impl SseDecode for Vec<crate::protocol::acinfinity::AcInfinitySensorDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut len_ = <i32>::sse_decode(deserializer);
+        let mut ans_ = vec![];
+        for idx_ in 0..len_ {
+            ans_.push(<crate::protocol::acinfinity::AcInfinitySensorDto>::sse_decode(deserializer));
         }
         return ans_;
     }
@@ -11943,6 +11995,17 @@ impl SseDecode for Option<i16> {
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
         if (<bool>::sse_decode(deserializer)) {
             return Some(<i16>::sse_decode(deserializer));
+        } else {
+            return None;
+        }
+    }
+}
+
+impl SseDecode for Option<i32> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        if (<bool>::sse_decode(deserializer)) {
+            return Some(<i32>::sse_decode(deserializer));
         } else {
             return None;
         }
@@ -14922,6 +14985,28 @@ impl flutter_rust_bridge::IntoIntoDart<crate::protocol::acinfinity::AcInfinityFe
     }
 }
 // Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::protocol::acinfinity::AcInfinityLayout {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        match self {
+            Self::Controller => 0.into_dart(),
+            Self::LegacyController => 1.into_dart(),
+            Self::PowerStrip => 2.into_dart(),
+            _ => unreachable!(),
+        }
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::protocol::acinfinity::AcInfinityLayout
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::protocol::acinfinity::AcInfinityLayout>
+    for crate::protocol::acinfinity::AcInfinityLayout
+{
+    fn into_into_dart(self) -> crate::protocol::acinfinity::AcInfinityLayout {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
 impl flutter_rust_bridge::IntoDart for crate::protocol::acinfinity::AcInfinityPortDto {
     fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
         [
@@ -14951,16 +15036,42 @@ impl flutter_rust_bridge::IntoIntoDart<crate::protocol::acinfinity::AcInfinityPo
     }
 }
 // Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::protocol::acinfinity::AcInfinitySensorDto {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.sensor_id.into_into_dart().into_dart(),
+            self.name.into_into_dart().into_dart(),
+            self.unit.into_into_dart().into_dart(),
+            self.value_hundredths.into_into_dart().into_dart(),
+            self.decimals.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::protocol::acinfinity::AcInfinitySensorDto
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::protocol::acinfinity::AcInfinitySensorDto>
+    for crate::protocol::acinfinity::AcInfinitySensorDto
+{
+    fn into_into_dart(self) -> crate::protocol::acinfinity::AcInfinitySensorDto {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
 impl flutter_rust_bridge::IntoDart for crate::protocol::acinfinity::AcInfinityStatusDto {
     fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
         [
+            self.layout.into_into_dart().into_dart(),
             self.display_celsius.into_into_dart().into_dart(),
             self.selected_port.into_into_dart().into_dart(),
             self.temperature_centi_c.into_into_dart().into_dart(),
             self.humidity_centi_percent.into_into_dart().into_dart(),
             self.vpd_centi_kpa.into_into_dart().into_dart(),
             self.ports.into_into_dart().into_dart(),
-            self.undecoded_ports.into_into_dart().into_dart(),
+            self.sensors.into_into_dart().into_dart(),
+            self.caveat.into_into_dart().into_dart(),
         ]
         .into_dart()
     }
@@ -18743,32 +18854,65 @@ impl SseEncode for crate::protocol::acinfinity::AcInfinityFeedDto {
     }
 }
 
+impl SseEncode for crate::protocol::acinfinity::AcInfinityLayout {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <i32>::sse_encode(
+            match self {
+                crate::protocol::acinfinity::AcInfinityLayout::Controller => 0,
+                crate::protocol::acinfinity::AcInfinityLayout::LegacyController => 1,
+                crate::protocol::acinfinity::AcInfinityLayout::PowerStrip => 2,
+                _ => {
+                    unimplemented!("");
+                }
+            },
+            serializer,
+        );
+    }
+}
+
 impl SseEncode for crate::protocol::acinfinity::AcInfinityPortDto {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
         <u8>::sse_encode(self.port, serializer);
-        <bool>::sse_encode(self.occupied, serializer);
+        <Option<bool>>::sse_encode(self.occupied, serializer);
         <Option<u16>>::sse_encode(self.load_id, serializer);
         <Option<String>>::sse_encode(self.load_type, serializer);
         <Option<u8>>::sse_encode(self.level, serializer);
-        <bool>::sse_encode(self.output_on, serializer);
-        <bool>::sse_encode(self.fault, serializer);
-        <bool>::sse_encode(self.overcurrent, serializer);
+        <Option<bool>>::sse_encode(self.output_on, serializer);
+        <Option<bool>>::sse_encode(self.fault, serializer);
+        <Option<bool>>::sse_encode(self.overcurrent, serializer);
         <u8>::sse_encode(self.mode_code, serializer);
         <Option<String>>::sse_encode(self.mode, serializer);
+    }
+}
+
+impl SseEncode for crate::protocol::acinfinity::AcInfinitySensorDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <u8>::sse_encode(self.sensor_id, serializer);
+        <Option<String>>::sse_encode(self.name, serializer);
+        <Option<String>>::sse_encode(self.unit, serializer);
+        <Option<i32>>::sse_encode(self.value_hundredths, serializer);
+        <u8>::sse_encode(self.decimals, serializer);
     }
 }
 
 impl SseEncode for crate::protocol::acinfinity::AcInfinityStatusDto {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
-        <bool>::sse_encode(self.display_celsius, serializer);
-        <u8>::sse_encode(self.selected_port, serializer);
+        <crate::protocol::acinfinity::AcInfinityLayout>::sse_encode(self.layout, serializer);
+        <Option<bool>>::sse_encode(self.display_celsius, serializer);
+        <Option<u8>>::sse_encode(self.selected_port, serializer);
         <Option<i16>>::sse_encode(self.temperature_centi_c, serializer);
         <Option<i16>>::sse_encode(self.humidity_centi_percent, serializer);
         <Option<i16>>::sse_encode(self.vpd_centi_kpa, serializer);
         <Vec<crate::protocol::acinfinity::AcInfinityPortDto>>::sse_encode(self.ports, serializer);
-        <u8>::sse_encode(self.undecoded_ports, serializer);
+        <Vec<crate::protocol::acinfinity::AcInfinitySensorDto>>::sse_encode(
+            self.sensors,
+            serializer,
+        );
+        <Option<String>>::sse_encode(self.caveat, serializer);
     }
 }
 
@@ -19515,6 +19659,16 @@ impl SseEncode for Vec<crate::protocol::acinfinity::AcInfinityPortDto> {
         <i32>::sse_encode(self.len() as _, serializer);
         for item in self {
             <crate::protocol::acinfinity::AcInfinityPortDto>::sse_encode(item, serializer);
+        }
+    }
+}
+
+impl SseEncode for Vec<crate::protocol::acinfinity::AcInfinitySensorDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <i32>::sse_encode(self.len() as _, serializer);
+        for item in self {
+            <crate::protocol::acinfinity::AcInfinitySensorDto>::sse_encode(item, serializer);
         }
     }
 }
@@ -20681,6 +20835,16 @@ impl SseEncode for Option<i16> {
         <bool>::sse_encode(self.is_some(), serializer);
         if let Some(value) = self {
             <i16>::sse_encode(value, serializer);
+        }
+    }
+}
+
+impl SseEncode for Option<i32> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <bool>::sse_encode(self.is_some(), serializer);
+        if let Some(value) = self {
+            <i32>::sse_encode(value, serializer);
         }
     }
 }
