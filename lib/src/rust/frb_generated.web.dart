@@ -13,6 +13,7 @@ import 'api/enphase_api.dart';
 import 'api/health_api.dart';
 import 'api/ipl_api.dart';
 import 'api/mock_api.dart';
+import 'api/philips_air_api.dart';
 import 'api/print_api.dart';
 import 'api/radio_api.dart';
 import 'api/readonly_api.dart';
@@ -945,6 +946,14 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   ParameterDto dco_decode_parameter_dto(dynamic raw);
+
+  @protected
+  PhilipsAirControlFrameDto dco_decode_philips_air_control_frame_dto(
+    dynamic raw,
+  );
+
+  @protected
+  PhilipsAirReplyDto dco_decode_philips_air_reply_dto(dynamic raw);
 
   @protected
   PlaylistWritesDto dco_decode_playlist_writes_dto(dynamic raw);
@@ -2333,6 +2342,16 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   ParameterDto sse_decode_parameter_dto(SseDeserializer deserializer);
+
+  @protected
+  PhilipsAirControlFrameDto sse_decode_philips_air_control_frame_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  PhilipsAirReplyDto sse_decode_philips_air_reply_dto(
+    SseDeserializer deserializer,
+  );
 
   @protected
   PlaylistWritesDto sse_decode_playlist_writes_dto(
@@ -4105,6 +4124,18 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_parameter_dto(ParameterDto self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_philips_air_control_frame_dto(
+    PhilipsAirControlFrameDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_philips_air_reply_dto(
+    PhilipsAirReplyDto self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_playlist_writes_dto(

@@ -14,6 +14,7 @@ import '../services/lifx_control_service.dart';
 import '../services/limitlessled_control_service.dart';
 import '../services/rabbit_air_ble_client.dart';
 import '../services/network_command_sender.dart';
+import '../services/philips_air_control_service.dart';
 import '../services/rabbit_air_control_service.dart';
 import '../services/rabbit_air_key_store.dart';
 import '../services/rabbit_air_provision_service.dart';
@@ -75,6 +76,12 @@ final kasaControlClientProvider = Provider<KasaControlClient>(
 /// on the codec the way the Kasa client does.
 final yeelightControlClientProvider = Provider<YeelightControlClient>(
   (ref) => YeelightControlClient(ref.watch(specCodecProvider)),
+);
+
+/// The Philips encrypted-CoAP purifier transport. Its codec is called
+/// directly, as the read-only clients' are.
+final philipsAirControlClientProvider = Provider<PhilipsAirControlClient>(
+  (ref) => PhilipsAirControlClient(),
 );
 
 /// The legacy LimitlessLED transport, which only moves datagrams.
@@ -286,6 +293,7 @@ final networkCommandSenderFactoryProvider =
           ecp2: ref.read(ecp2ControlServiceProvider),
           yeelight: ref.read(yeelightControlClientProvider),
           limitlessled: ref.read(limitlessledControlClientProvider),
+          philipsAir: ref.read(philipsAirControlClientProvider),
           // Returned, not fire-and-forgotten: the sender awaits the save before
           // re-reading the store (so the token it just filed is findable) and
           // logs a keystore failure instead of letting it become an unhandled

@@ -19,6 +19,7 @@ import 'package:liberated_bread_mobile/screens/network_device_screen.dart';
 import 'package:liberated_bread_mobile/services/ecp2_control_service.dart';
 import 'package:liberated_bread_mobile/services/http_control_service.dart';
 import 'package:liberated_bread_mobile/services/limitlessled_control_service.dart';
+import 'package:liberated_bread_mobile/services/philips_air_control_service.dart';
 import 'package:liberated_bread_mobile/services/soap_control_service.dart';
 import 'package:liberated_bread_mobile/services/spec_codec.dart';
 import 'package:liberated_bread_mobile/services/yeelight_control_service.dart';
@@ -63,6 +64,32 @@ class _FakeBridge extends LimitlessledControlClient {
   }
 }
 
+class _FakePurifier extends PhilipsAirControlClient {
+  _FakePurifier({this.failure});
+  final Object? failure;
+  final reads = <int>[];
+  final sent = <String>[];
+
+  @override
+  Future<Map<String, String>> readStatus(String host, int port) async {
+    final failed = failure;
+    if (failed != null) throw failed;
+    reads.add(port);
+    return const {'state.reported.pwr': '1', 'state.reported.pm25': '7'};
+  }
+
+  @override
+  Future<void> sendCommand(
+    String host,
+    int port, {
+    required String specYaml,
+    required String commandName,
+    required Map<String, String> values,
+  }) async {
+    sent.add(commandName);
+  }
+}
+
 NetworkActionDto _action(String role, String transport) => NetworkActionDto(
   role: role,
   commandName: role,
@@ -90,6 +117,8 @@ Future<void> _open(
   List<NetworkEntityDto> entities, {
   YeelightControlClient? yeelight,
   LimitlessledControlClient? bridge,
+  PhilipsAirControlClient? purifier,
+  NetworkCapabilitiesDto? capabilities,
 }) async {
   await tester.pumpWidget(
     ProviderScope(
@@ -115,6 +144,8 @@ Future<void> _open(
           yeelightControlClientProvider.overrideWithValue(yeelight),
         if (bridge != null)
           limitlessledControlClientProvider.overrideWithValue(bridge),
+        if (purifier != null)
+          philipsAirControlClientProvider.overrideWithValue(purifier),
       ],
       child: const MaterialApp(home: SizedBox()),
     ),
@@ -130,7 +161,11 @@ Future<void> _open(
             sources: const {NetworkDiscoverySource.lanProbe},
             discoveredAt: DateTime.utc(2026),
           ),
-          controls: NetworkControls(specYaml: 'yaml', entities: entities),
+          controls: NetworkControls(
+            specYaml: 'yaml',
+            entities: entities,
+            capabilities: capabilities,
+          ),
         ),
       ),
     ),
@@ -246,6 +281,76 @@ void main() {
     await _close(tester);
   });
 
+  testWidgets('a purifier polls its status over CoAP and sends through it', (
+    tester,
+  ) async {
+    final fan = NetworkEntityDto(
+      name: 'Purifier',
+      platform: 'fan',
+      stateCommand: 'get_status',
+      transport: kPurifier,
+      options: const [],
+      isInstanced: false,
+      actions: [_action('turn_on', kPurifier), _action('turn_off', kPurifier)],
+    );
+    final codec = FakeSpecCodec(
+      networkEntities: (_) => [fan],
+      networkRoleReadings: (name, returned) => [
+        NetworkRoleReadingDto(
+          role: 'is_on',
+          reading: NetworkReadingDto(
+            kind: NetworkReadingKind.onOff,
+            isOn: returned['state.reported.pwr'] == '1',
+            raw: returned['state.reported.pwr'] ?? '',
+          ),
+        ),
+      ],
+    );
+    final purifier = _FakePurifier();
+    await _open(
+      tester,
+      codec,
+      [fan],
+      purifier: purifier,
+      capabilities: _purifierCapabilities,
+    );
+
+    expect(purifier.reads, [5683], reason: 'the load read the status once');
+
+    await tester.tap(find.byType(Switch));
+    await tester.pumpAndSettle();
+    // Which way the switch goes is the fan card's business; that it went to
+    // the purifier's own client, and nowhere else, is this test's.
+    expect(purifier.sent.single, isIn(['turn_on', 'turn_off']));
+
+    await _close(tester);
+  });
+
+  testWidgets('a purifier that never answers says so', (tester) async {
+    final fan = NetworkEntityDto(
+      name: 'Purifier',
+      platform: 'fan',
+      stateCommand: 'get_status',
+      transport: kPurifier,
+      options: const [],
+      isInstanced: false,
+      actions: [_action('turn_on', kPurifier)],
+    );
+    await _open(
+      tester,
+      FakeSpecCodec(networkEntities: (_) => [fan]),
+      [fan],
+      purifier: _FakePurifier(
+        failure: const PhilipsAirException('did not answer the session sync'),
+      ),
+      capabilities: _purifierCapabilities,
+    );
+
+    expect(find.text('did not answer the session sync'), findsOneWidget);
+
+    await _close(tester);
+  });
+
   testWidgets('a write-only bridge loads with nothing to poll, and sends', (
     tester,
   ) async {
@@ -270,5 +375,13 @@ void main() {
   });
 }
 
+const _purifierCapabilities = NetworkCapabilitiesDto(
+  tlsSelfSigned: false,
+  advertisedPortUnreliable: false,
+  protocolHandler: kPurifier,
+  mqttClientIdGenerated: false,
+);
+
+const kPurifier = 'philips_air_coap';
 const kYeelight = 'yeelight_lan';
 const kBridge = 'limitlessled_legacy_8899';

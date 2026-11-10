@@ -20,7 +20,9 @@ use super::types::{
     SpecCommand, TemplateElement, ValueType,
 };
 use crate::codec::types::{unsupported_single_write_kind, unsupported_single_write_transform};
-use crate::protocol::{http, kasa, limitlessled, mqtt, rabbit_air, soap, websocket, yeelight};
+use crate::protocol::{
+    http, kasa, limitlessled, mqtt, philips_air, rabbit_air, soap, websocket, yeelight,
+};
 use std::borrow::Cow;
 use std::collections::HashMap;
 
@@ -1278,6 +1280,16 @@ fn qualify_network<'a>(
             }
             transport = limitlessled::HANDLER_NAME;
         }
+        // A Philips purifier's enveloped CoAP writes. `coap` is also the IKEA
+        // gateway's DTLS surface, so the handler admits it, and only the
+        // control writes: `sync` and `get_status` are the session's own
+        // plumbing, which no control sends.
+        t if t == philips_air::TRANSPORT && protocol_handler == Some(philips_air::HANDLER_NAME) => {
+            if !philips_air::is_control_command(command) {
+                return None;
+            }
+            transport = philips_air::HANDLER_NAME;
+        }
         _ => return None,
     }
 
@@ -1481,6 +1493,10 @@ fn state_transport_readable(spec: &DeviceSpec, command: &SpecCommand) -> bool {
             handler == Some(kasa::HANDLER_NAME) || handler == Some(yeelight::HANDLER_NAME)
         }
         Some(t) if t == rabbit_air::TRANSPORT => handler == Some(rabbit_air::HANDLER_NAME),
+        Some(t) if t == philips_air::TRANSPORT => {
+            handler == Some(philips_air::HANDLER_NAME)
+                && command.path.as_deref() == Some(philips_air::STATUS_PATH)
+        }
         _ => true,
     }
 }

@@ -3282,13 +3282,14 @@ fn every_resolved_action_reports_the_transport_its_spec_declares() {
         ) {
             continue;
         }
-        // These two resolve from declared commands and report their handler's
+        // These resolve from declared commands and report their handler's
         // name instead of the transport declared, because `tcp-json` and `udp`
-        // already route to Kasa's and Rabbit Air's framings. tests/lan_handlers.rs
-        // pins what each reports.
+        // already route to Kasa's and Rabbit Air's framings, and `coap` is the
+        // IKEA gateway's DTLS surface as well as the Philips purifier's
+        // envelope. tests/lan_handlers.rs pins what each reports.
         if matches!(
             spec.protocol_handler.as_deref(),
-            Some("yeelight_lan") | Some("limitlessled_legacy_8899")
+            Some("yeelight_lan") | Some("limitlessled_legacy_8899") | Some("philips_air_coap")
         ) {
             continue;
         }

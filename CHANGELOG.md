@@ -13,6 +13,15 @@ heading.
 
 ### Added
 
+- **Philips Wi-Fi air purifiers over encrypted CoAP (`philips_air_coap`).**
+  Power, mode, fan speed, child lock, display, timer and target humidity, plus
+  PM2.5, allergen index, humidity, temperature and filter life, for the three
+  key sets the spec describes. A small RFC 7252 codec carries the spec's
+  envelope over UDP 5683. Every write starts from a fresh sync and goes under
+  the next counter; a counter at FFFFFFFF is not wrapped, and a refused write
+  is reported, not retried, because the spec does not know how a device treats
+  either. Tested against the spec's envelope vectors and a fake purifier; not
+  run on hardware.
 - **Yeelight lights over the LAN (`yeelight_lan`).** The cube lamp's spec now
   drives power, brightness, colour and colour temperature over JSON lines on
   TCP 55443, reads state back, and paints a module's rows on a unit that lists
