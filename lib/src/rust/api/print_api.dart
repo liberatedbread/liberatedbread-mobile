@@ -11,12 +11,33 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
 // These functions are ignored because they are not marked as `pub`: `brother_placement`, `raster_print_dto`
 // These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `BrotherPlacement`
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_fields_are_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_fields_are_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`
 
 /// The spec's raster-print surface, or None when the spec is not a raster
 /// printer (no `raster_print` marker, or no `image_upload` entry beside it).
-Future<RasterPrintDto?> rasterPrintForSpec({required String specYaml}) =>
-    RustLib.instance.api.crateApiPrintApiRasterPrintForSpec(specYaml: specYaml);
+///
+/// A family spec (the P-touch Cube) has one surface per head; `variant`,
+/// when the caller knows which model it is printing to, picks that one, and
+/// None keeps the spec's first.
+Future<RasterPrintDto?> rasterPrintForSpec({
+  required String specYaml,
+  String? variant,
+}) => RustLib.instance.api.crateApiPrintApiRasterPrintForSpec(
+  specYaml: specYaml,
+  variant: variant,
+);
+
+/// The variant of a raster-printer family a device is, from the name it
+/// answers to (see [`raster_print::variant_for_device_name`]). None when the
+/// spec names no variant that fits; pass that on and the spec's first print
+/// surface is used.
+Future<String?> rasterPrintVariantForName({
+  required String specYaml,
+  required String deviceName,
+}) => RustLib.instance.api.crateApiPrintApiRasterPrintVariantForName(
+  specYaml: specYaml,
+  deviceName: deviceName,
+);
 
 /// Reduce a composed RGBA canvas (straight alpha) to the black-and-white
 /// RGB888 every raster printer encoder takes, and the preview shows.
@@ -42,6 +63,50 @@ Future<LabelCanvasDto> brotherQlLabelCanvas({
 }) => RustLib.instance.api.crateApiPrintApiBrotherQlLabelCanvas(
   specYaml: specYaml,
   params: params,
+);
+
+/// The bytes that make a P-touch Cube report its status — invalidate,
+/// initialize, `ESC i S` — sized for `variant`.
+Future<Uint8List> brotherPtStatusRequest({
+  required String specYaml,
+  String? variant,
+}) => RustLib.instance.api.crateApiPrintApiBrotherPtStatusRequest(
+  specYaml: specYaml,
+  variant: variant,
+);
+
+/// Decode one 32-byte P-touch status record.
+Future<BrotherPtStatusDto> decodeBrotherPtStatus({required List<int> reply}) =>
+    RustLib.instance.api.crateApiPrintApiDecodeBrotherPtStatus(reply: reply);
+
+/// The canvas to compose a P-touch label on: the dots that print across
+/// `tape_width_mm` tape on `variant`'s head, continuous along the feed.
+Future<LabelCanvasDto> brotherPtLabelCanvas({
+  required String specYaml,
+  String? variant,
+  required int tapeWidthMm,
+}) => RustLib.instance.api.crateApiPrintApiBrotherPtLabelCanvas(
+  specYaml: specYaml,
+  variant: variant,
+  tapeWidthMm: tapeWidthMm,
+);
+
+/// Encode a composed label as a whole P-touch job for `tape_width_mm` tape
+/// on `variant`: the byte stream to write to the printer's SPP socket.
+Future<Uint8List> renderBrotherPtJob({
+  required String specYaml,
+  String? variant,
+  required int tapeWidthMm,
+  required List<int> rgb,
+  required int width,
+  required int height,
+}) => RustLib.instance.api.crateApiPrintApiRenderBrotherPtJob(
+  specYaml: specYaml,
+  variant: variant,
+  tapeWidthMm: tapeWidthMm,
+  rgb: rgb,
+  width: width,
+  height: height,
 );
 
 /// Encode a composed label as a Brother QL raster job. `rgb` is RGB888 of
@@ -82,6 +147,57 @@ Future<IppPrinterStatusDto> decodeIppPrinterAttributes({
 }) => RustLib.instance.api.crateApiPrintApiDecodeIppPrinterAttributes(
   reply: reply,
 );
+
+/// A decoded P-touch Cube status record.
+class BrotherPtStatusDto {
+  /// Loaded tape in whole millimetres (3.5 mm reports 4); 0 = none.
+  final int mediaWidthMm;
+  final int mediaType;
+
+  /// 0 reply, 1 completed, 2 error, 4 turned off, 5 notification, 6 phase.
+  final int statusType;
+  final int phaseType;
+  final List<String> errors;
+
+  /// No error bits, not printing, tape loaded: what a job needs first.
+  final bool readyToPrint;
+
+  /// Completed, error or turned off: the frame that ends a job.
+  final bool endsJob;
+
+  const BrotherPtStatusDto({
+    required this.mediaWidthMm,
+    required this.mediaType,
+    required this.statusType,
+    required this.phaseType,
+    required this.errors,
+    required this.readyToPrint,
+    required this.endsJob,
+  });
+
+  @override
+  int get hashCode =>
+      mediaWidthMm.hashCode ^
+      mediaType.hashCode ^
+      statusType.hashCode ^
+      phaseType.hashCode ^
+      errors.hashCode ^
+      readyToPrint.hashCode ^
+      endsJob.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is BrotherPtStatusDto &&
+          runtimeType == other.runtimeType &&
+          mediaWidthMm == other.mediaWidthMm &&
+          mediaType == other.mediaType &&
+          statusType == other.statusType &&
+          phaseType == other.phaseType &&
+          errors == other.errors &&
+          readyToPrint == other.readyToPrint &&
+          endsJob == other.endsJob;
+}
 
 /// One ink or toner supply from an IPP printer's status.
 class IppMarkerDto {

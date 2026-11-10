@@ -7,7 +7,12 @@ import 'package:flutter/foundation.dart' show immutable;
 import '../src/rust/api/device_api.dart';
 import '../src/rust/api/readonly_api.dart' show ReadOnlySurfaceDto;
 import '../src/rust/api/print_api.dart'
-    show IppPrinterStatusDto, LabelCanvasDto, PrintDither, RasterPrintDto;
+    show
+        BrotherPtStatusDto,
+        IppPrinterStatusDto,
+        LabelCanvasDto,
+        PrintDither,
+        RasterPrintDto;
 import '../src/rust/api/spec_handle.dart'
     show CatalogueEntryDto, SpecLoadFailureDto, UdpProbeDto;
 
@@ -142,6 +147,7 @@ export '../src/rust/api/spec_handle.dart'
 // The printing DTOs, from their own generated module for the same reason.
 export '../src/rust/api/print_api.dart'
     show
+        BrotherPtStatusDto,
         IppMarkerDto,
         IppPrinterStatusDto,
         LabelCanvasDto,
@@ -1132,8 +1138,12 @@ abstract class SpecCodec {
   Future<CameraDto?> cameraForDevice({required String specYaml});
 
   /// The spec's raster-print surface — transport, head geometry, rolls — or
-  /// null when the spec is not a raster printer.
-  Future<RasterPrintDto?> rasterPrintForSpec({required String specYaml});
+  /// null when the spec is not a raster printer. A family spec answers for
+  /// [variant] when given, and with its first head otherwise.
+  Future<RasterPrintDto?> rasterPrintForSpec({
+    required String specYaml,
+    String? variant,
+  });
 
   /// Reduce a composed RGBA canvas (straight alpha) to the black-and-white
   /// RGB888 a raster printer takes — what the preview shows is what prints.
@@ -1171,6 +1181,39 @@ abstract class SpecCodec {
   Future<Uint8List> renderBrotherQlJob({
     required String specYaml,
     required BrotherQlJobParamsDto params,
+    required Uint8List rgb,
+    required int width,
+    required int height,
+  });
+
+  /// Which of a raster-printer family's variants a device is, from the name
+  /// it answers to; null when none fits (use the spec's first surface).
+  Future<String?> rasterPrintVariantForName({
+    required String specYaml,
+    required String deviceName,
+  });
+
+  /// The bytes that make a P-touch Cube answer with its 32-byte status.
+  Future<Uint8List> brotherPtStatusRequest({
+    required String specYaml,
+    String? variant,
+  });
+
+  /// Decode one 32-byte P-touch status frame (throws when malformed).
+  Future<BrotherPtStatusDto> decodeBrotherPtStatus({required List<int> reply});
+
+  /// The canvas to compose a P-touch label on for [tapeWidthMm] tape.
+  Future<LabelCanvasDto> brotherPtLabelCanvas({
+    required String specYaml,
+    String? variant,
+    required int tapeWidthMm,
+  });
+
+  /// Encode a composed black-and-white RGB888 label as a whole P-touch job.
+  Future<Uint8List> renderBrotherPtJob({
+    required String specYaml,
+    String? variant,
+    required int tapeWidthMm,
     required Uint8List rgb,
     required int width,
     required int height,

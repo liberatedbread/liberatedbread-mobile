@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import 'dart:async';
 import 'dart:ffi';
+import 'dart:io' show sleep;
 import 'dart:isolate';
 import 'dart:typed_data';
 
@@ -53,6 +54,96 @@ Future<Uint8List> linuxSppProbe(
     );
   }
   return Isolate.run(() => _serialExchange(address, channel, payload, left()));
+}
+
+/// Resolve SPP over SDP, then write a whole print job over RFCOMM and read
+/// the [frameLength]-byte status frames the printer pushes back, until one
+/// carries a value in [stopValues] at [stopOffset] (the frame that ends the
+/// job) or [timeout] runs out. [settle] is the pause between connecting and
+/// the first write, which some printers need. Returns every frame read.
+Future<List<Uint8List>> linuxSppJob(
+  String address,
+  List<int> payload, {
+  required Duration timeout,
+  Duration settle = Duration.zero,
+  int frameLength = 32,
+  required int stopOffset,
+  required Set<int> stopValues,
+}) async {
+  final clock = Stopwatch()..start();
+  int left() {
+    final ms = timeout.inMilliseconds - clock.elapsedMilliseconds;
+    if (ms <= 0) {
+      throw const SppTransportException('timeout', 'SPP job timed out');
+    }
+    return ms;
+  }
+
+  final request = await buildSppSdpRequest();
+  final response = await Isolate.run(
+    () => _sdpExchange(address, request, left()),
+  );
+  final channel = await rfcommChannelFromSdpResponse(response);
+  if (channel == null) {
+    throw const SppTransportException(
+      'sdp',
+      'the printer did not publish an SPP RFCOMM channel',
+    );
+  }
+  final settleMs = settle.inMilliseconds;
+  return Isolate.run(
+    () => _jobExchange(
+      address,
+      channel,
+      payload,
+      settleMs,
+      left(),
+      frameLength,
+      stopOffset,
+      stopValues,
+    ),
+  );
+}
+
+List<Uint8List> _jobExchange(
+  String address,
+  int channel,
+  List<int> payload,
+  int settleMs,
+  int timeoutMs,
+  int frameLength,
+  int stopOffset,
+  Set<int> stopValues,
+) {
+  final clock = Stopwatch()..start();
+  int left() {
+    final ms = timeoutMs - clock.elapsedMilliseconds;
+    if (ms <= 0) {
+      throw const SppTransportException('timeout', 'SPP job timed out');
+    }
+    return ms;
+  }
+
+  var serial = -1;
+  try {
+    serial = _openSocket(_SocketKind.rfcomm, address, channel, left());
+    if (settleMs > 0) sleep(Duration(milliseconds: settleMs));
+    _writeAll(serial, payload, left);
+    final frames = <Uint8List>[];
+    final pending = BytesBuilder();
+    while (true) {
+      pending.add(_readSome(serial, left));
+      while (pending.length >= frameLength) {
+        final bytes = pending.takeBytes();
+        final frame = Uint8List.fromList(bytes.sublist(0, frameLength));
+        pending.add(bytes.sublist(frameLength));
+        frames.add(frame);
+        if (stopValues.contains(frame[stopOffset])) return frames;
+      }
+    }
+  } finally {
+    if (serial >= 0) _close(serial);
+  }
 }
 
 Uint8List _sdpExchange(String address, List<int> payload, int timeoutMs) {

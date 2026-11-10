@@ -3,6 +3,7 @@
 
 pub mod acinfinity;
 pub mod bisecur;
+pub mod brother_pt;
 pub mod brother_ql;
 pub mod cat_printer;
 pub mod cat_printer_mxw01;

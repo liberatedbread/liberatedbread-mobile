@@ -1055,6 +1055,7 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
           device: widget.device,
           specYaml: profile.specYaml,
           specKey: profile.specKey,
+          protocolHandler: profile.protocolHandler,
         );
 
       case _ScreenState.enphase:

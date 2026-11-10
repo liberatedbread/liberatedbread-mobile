@@ -2047,7 +2047,14 @@ class FakeSpecCodec implements SpecCodec {
   @override
   Future<RasterPrintDto?> rasterPrintForSpec({
     required String specYaml,
-  }) async => rasterPrintResult;
+    String? variant,
+  }) async {
+    rasterPrintVariants.add(variant);
+    return rasterPrintResult;
+  }
+
+  /// The variant each [rasterPrintForSpec] call asked for, in order.
+  final List<String?> rasterPrintVariants = [];
 
   /// A plain luma threshold — enough for a composer test to see black where
   /// it painted and white elsewhere, without the native library.
@@ -2122,4 +2129,63 @@ class FakeSpecCodec implements SpecCodec {
     required int width,
     required int height,
   }) async => Uint8List.fromList([width & 0xFF, height & 0xFF, ...rgb.take(3)]);
+
+  /// What [rasterPrintVariantForName] answers; null unless a test sets it.
+  String? rasterPrintVariant;
+
+  @override
+  Future<String?> rasterPrintVariantForName({
+    required String specYaml,
+    required String deviceName,
+  }) async => rasterPrintVariant;
+
+  @override
+  Future<Uint8List> brotherPtStatusRequest({
+    required String specYaml,
+    String? variant,
+  }) async => Uint8List.fromList([0x1B, 0x40, 0x1B, 0x69, 0x53]);
+
+  /// A P-touch status frame read the way the Rust decoder reads it: tape
+  /// width at byte 10, media at 11, status type at 18, phase at 19, error
+  /// bits at 8 and 9.
+  @override
+  Future<BrotherPtStatusDto> decodeBrotherPtStatus({
+    required List<int> reply,
+  }) async {
+    if (reply.length < 32 || reply[0] != 0x80) {
+      throw ArgumentError('not a P-touch status frame');
+    }
+    final errors = [if (reply[8] != 0 || reply[9] != 0) 'printer error'];
+    final statusType = reply[18];
+    return BrotherPtStatusDto(
+      mediaWidthMm: reply[10],
+      mediaType: reply[11],
+      statusType: statusType,
+      phaseType: reply[19],
+      errors: errors,
+      readyToPrint: errors.isEmpty && reply[19] == 0 && reply[10] > 0,
+      endsJob: statusType == 1 || statusType == 2 || statusType == 4,
+    );
+  }
+
+  @override
+  Future<LabelCanvasDto> brotherPtLabelCanvas({
+    required String specYaml,
+    String? variant,
+    required int tapeWidthMm,
+  }) async => LabelCanvasDto(
+    widthDots: tapeWidthMm == 24 ? 128 : 70,
+    dpi: 180,
+    mediaName: '$tapeWidthMm mm TZe tape',
+  );
+
+  @override
+  Future<Uint8List> renderBrotherPtJob({
+    required String specYaml,
+    String? variant,
+    required int tapeWidthMm,
+    required Uint8List rgb,
+    required int width,
+    required int height,
+  }) async => Uint8List.fromList([tapeWidthMm, width & 0xFF, height & 0xFF]);
 }

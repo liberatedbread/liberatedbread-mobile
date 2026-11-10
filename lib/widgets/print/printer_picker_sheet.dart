@@ -8,6 +8,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/log.dart';
 import '../../providers/ble_provider.dart';
+import '../../providers/classic_printer_provider.dart';
 import '../../providers/printer_provider.dart';
 import '../../providers/spec_codec_provider.dart';
 import '../../screens/print_label_screen.dart';
@@ -123,6 +124,16 @@ Future<SavedPrinter?> _pickPrinter(BuildContext context, WidgetRef ref) async {
 Future<LabelPrintTarget> _targetFor(WidgetRef ref, SavedPrinter printer) async {
   final codec = ref.read(specCodecProvider);
   final ble = printer.ble;
+  if (ble != null && printer.isClassic) {
+    return BrotherPtTarget.resolve(
+      codec: codec,
+      spp: ref.read(classicSppServiceProvider),
+      address: ble.id,
+      specYaml: printer.specYaml,
+      variant: printer.variant,
+      name: printer.name,
+    );
+  }
   if (ble != null) {
     return ConnectingBleTarget(
       BleRasterTarget(

@@ -34,6 +34,39 @@ None of this was checked against hardware. The app's reading is in
   protocol 0x00 "to be safe" but declares no command for it, so a spec-driven
   client cannot. It also gives no captured frame and no first `message_index`.
 
+## Found 2026-11-10, implementing the Even G1 BMP and P-touch Cube printing
+
+None of this was checked against hardware. The app's reading is in
+`rust/src/protocol/even_g1.rs` and `rust/src/protocol/brother_pt.rs`.
+
+- even-g1-glasses and brother-ptouch-cube name no `protocol_handler`. The app
+  adopts each by the commands it declares (the four BMP commands; the PT job
+  commands on `rfcomm`) under `even_g1_bmp` and `brother_pt_raster`. Naming
+  a handler in the spec would end the inference.
+- even-g1-glasses fixes the BMP's header and palette sizes but not the palette
+  order, which index lights a pixel, or the row direction. The app sends
+  palette 0 black, 1 white (set bit = lit) and bottom-up rows, the BMP
+  defaults. It also says 576 x 135 (vendor samples) and 576 x 136 (README);
+  the app sends the feature's 136.
+- even-g1-glasses `bmp_end` says to retry up to 10 times on a 3 s timeout;
+  nothing in the schema can state a retry, so the app tries once.
+- brother-ptouch-cube `test_vectors.job_24mm_two_lines` is a 2-line page,
+  but the PT-P710BT surface it is a 128-dot example for declares
+  `min_length_dots: 31`. The app pads to 31 blank lines; the vector should
+  say which model it is for, or that it ignores the minimum.
+- brother-ptouch-cube gives the PT-P300BT no `print_width_dots` below 12 mm,
+  so the app refuses 3.5, 6 and 9 mm tape on that model rather than guess.
+- brother-ptouch-cube states the PT-P910BT's last-page byte (2) and its
+  `ESC i A` only in `protocol_details.model_differences` prose. The app sends
+  page 0 and no `ESC i A` on every model; a per-variant field would let it
+  follow.
+- brother-ptouch-cube `right_margin_dots` does not say which end of the line
+  it counts from ("which physical edge ... is pin 0 ... is not stated"). Every
+  tape is symmetric except the PT-P910BT's 36 mm (45 / 61); the app counts
+  from the line's first bit.
+- brother-ptouch-cube variants carry no `identification`, so the app reads the
+  variant from the inquiry name: the longest `model` the name begins with.
+
 ## LOY SPACE panels: facts measured on a real backpack, 2026-11-08
 
 On a `YS525C110340` (`EXYC-A#CXB3BRI7BTVOICE3`, firmware `V2.8.8#V01`, 64x64),

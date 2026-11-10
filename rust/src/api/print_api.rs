@@ -95,13 +95,35 @@ impl From<&PrintChoice> for PrintChoiceDto {
 
 /// The spec's raster-print surface, or None when the spec is not a raster
 /// printer (no `raster_print` marker, or no `image_upload` entry beside it).
-pub fn raster_print_for_spec(spec_yaml: String) -> anyhow::Result<Option<RasterPrintDto>> {
+///
+/// A family spec (the P-touch Cube) has one surface per head; `variant`,
+/// when the caller knows which model it is printing to, picks that one, and
+/// None keeps the spec's first.
+pub fn raster_print_for_spec(
+    spec_yaml: String,
+    variant: Option<String>,
+) -> anyhow::Result<Option<RasterPrintDto>> {
     let spec = crate::protocol::dispatch::parse_or_cached(&spec_yaml)?;
-    Ok(raster_print_dto(&spec))
+    Ok(raster_print_dto(&spec, variant.as_deref()))
 }
 
-pub(crate) fn raster_print_dto(spec: &crate::spec::types::DeviceSpec) -> Option<RasterPrintDto> {
-    let feature = raster_print::raster_feature(spec)?;
+/// The variant of a raster-printer family a device is, from the name it
+/// answers to (see [`raster_print::variant_for_device_name`]). None when the
+/// spec names no variant that fits; pass that on and the spec's first print
+/// surface is used.
+pub fn raster_print_variant_for_name(
+    spec_yaml: String,
+    device_name: String,
+) -> anyhow::Result<Option<String>> {
+    let spec = crate::protocol::dispatch::parse_or_cached(&spec_yaml)?;
+    Ok(raster_print::variant_for_device_name(&spec, &device_name))
+}
+
+fn raster_print_dto(
+    spec: &crate::spec::types::DeviceSpec,
+    variant: Option<&str>,
+) -> Option<RasterPrintDto> {
+    let feature = raster_print::raster_feature_for(spec, variant)?;
     let transport = spec
         .protocol_handler
         .as_deref()
@@ -282,6 +304,92 @@ pub fn brother_ql_label_canvas(
     })
 }
 
+/// A decoded P-touch Cube status record.
+#[derive(Debug, Clone)]
+pub struct BrotherPtStatusDto {
+    /// Loaded tape in whole millimetres (3.5 mm reports 4); 0 = none.
+    pub media_width_mm: u8,
+    pub media_type: u8,
+    /// 0 reply, 1 completed, 2 error, 4 turned off, 5 notification, 6 phase.
+    pub status_type: u8,
+    pub phase_type: u8,
+    pub errors: Vec<String>,
+    /// No error bits, not printing, tape loaded: what a job needs first.
+    pub ready_to_print: bool,
+    /// Completed, error or turned off: the frame that ends a job.
+    pub ends_job: bool,
+}
+
+/// The bytes that make a P-touch Cube report its status — invalidate,
+/// initialize, `ESC i S` — sized for `variant`.
+pub fn brother_pt_status_request(
+    spec_yaml: String,
+    variant: Option<String>,
+) -> anyhow::Result<Vec<u8>> {
+    let spec = crate::protocol::dispatch::parse_or_cached(&spec_yaml)?;
+    Ok(crate::protocol::brother_pt::status_request(
+        &spec,
+        variant.as_deref(),
+    ))
+}
+
+/// Decode one 32-byte P-touch status record.
+pub fn decode_brother_pt_status(reply: Vec<u8>) -> anyhow::Result<BrotherPtStatusDto> {
+    let status = crate::protocol::brother_pt::decode_status(&reply)?;
+    Ok(BrotherPtStatusDto {
+        media_width_mm: status.media_width_mm,
+        media_type: status.media_type,
+        status_type: status.status_type,
+        phase_type: status.phase_type,
+        ready_to_print: status.ready_to_print(),
+        ends_job: status.ends_job(),
+        errors: status.errors,
+    })
+}
+
+/// The canvas to compose a P-touch label on: the dots that print across
+/// `tape_width_mm` tape on `variant`'s head, continuous along the feed.
+pub fn brother_pt_label_canvas(
+    spec_yaml: String,
+    variant: Option<String>,
+    tape_width_mm: u8,
+) -> anyhow::Result<LabelCanvasDto> {
+    let spec = crate::protocol::dispatch::parse_or_cached(&spec_yaml)?;
+    let tape = crate::protocol::brother_pt::tape(&spec, variant.as_deref(), tape_width_mm)?;
+    Ok(LabelCanvasDto {
+        width_dots: tape.print_dots as u32,
+        length_dots: None,
+        dpi: tape
+            .feature
+            .print_geometry
+            .as_ref()
+            .and_then(|g| g.dpi)
+            .unwrap_or(ASSUMED_DPI),
+        media_name: Some(tape.media.name.clone()),
+    })
+}
+
+/// Encode a composed label as a whole P-touch job for `tape_width_mm` tape
+/// on `variant`: the byte stream to write to the printer's SPP socket.
+pub fn render_brother_pt_job(
+    spec_yaml: String,
+    variant: Option<String>,
+    tape_width_mm: u8,
+    rgb: Vec<u8>,
+    width: u32,
+    height: u32,
+) -> anyhow::Result<Vec<u8>> {
+    let spec = crate::protocol::dispatch::parse_or_cached(&spec_yaml)?;
+    Ok(crate::protocol::brother_pt::encode_print_job(
+        &spec,
+        variant.as_deref(),
+        tape_width_mm,
+        &rgb,
+        width,
+        height,
+    )?)
+}
+
 /// Encode a composed label as a Brother QL raster job. `rgb` is RGB888 of
 /// `width` x `height`, at most the canvas [`brother_ql_label_canvas`] gives;
 /// a narrower canvas is centred in the printable width. The result is the
@@ -441,7 +549,7 @@ mod tests {
 
     #[test]
     fn brother_is_a_raw_stream_printer_with_its_rolls() {
-        let dto = raster_print_for_spec(vendored("brother-ql-1110nwb.yaml"))
+        let dto = raster_print_for_spec(vendored("brother-ql-1110nwb.yaml"), None)
             .unwrap()
             .expect("brother prints");
         assert_eq!(dto.transport.as_deref(), Some("raw_stream"));
@@ -460,12 +568,14 @@ mod tests {
     #[test]
     fn ble_printers_run_write_plans() {
         for name in ["cat-printer.yaml", "fichero-d11-printer.yaml"] {
-            let dto = raster_print_for_spec(vendored(name)).unwrap().expect(name);
+            let dto = raster_print_for_spec(vendored(name), None)
+                .unwrap()
+                .expect(name);
             assert_eq!(dto.transport.as_deref(), Some("ble_write_plan"), "{name}");
             assert!(dto.encodable);
             assert!(dto.printable_dots.is_some(), "{name} has a width");
         }
-        let fichero = raster_print_for_spec(vendored("fichero-d11-printer.yaml"))
+        let fichero = raster_print_for_spec(vendored("fichero-d11-printer.yaml"), None)
             .unwrap()
             .unwrap();
         assert_eq!(fichero.printable_dots, Some(96));
@@ -487,7 +597,7 @@ features:
     max_width: 384
   - type: "raster_print"
 "#;
-        let dto = raster_print_for_spec(yaml.to_string())
+        let dto = raster_print_for_spec(yaml.to_string(), None)
             .unwrap()
             .expect("a raster printer");
         assert!(!dto.encodable);
@@ -497,7 +607,7 @@ features:
     /// The MXW01 was the test above's example until its encoder landed.
     #[test]
     fn the_mxw01_prints_over_a_ble_write_plan() {
-        let dto = raster_print_for_spec(vendored("cat-printer-mxw01.yaml"))
+        let dto = raster_print_for_spec(vendored("cat-printer-mxw01.yaml"), None)
             .unwrap()
             .expect("mxw01 is a raster printer");
         assert!(dto.encodable);
@@ -507,7 +617,9 @@ features:
     #[test]
     fn a_non_printer_has_no_raster_surface() {
         let yaml = "device:\n  name: X\n  manufacturer: Y\n  manufacturer_status: active\n  protocol: ble\n  category: light\n";
-        assert!(raster_print_for_spec(yaml.to_string()).unwrap().is_none());
+        assert!(raster_print_for_spec(yaml.to_string(), None)
+            .unwrap()
+            .is_none());
     }
 
     fn params(width: u8, length: u8, die_cut: bool) -> BrotherQlJobParamsDto {
@@ -681,7 +793,7 @@ features:
             env!("CARGO_MANIFEST_DIR")
         ))
         .unwrap();
-        let dto = raster_print_for_spec(yaml)
+        let dto = raster_print_for_spec(yaml, None)
             .unwrap()
             .expect("a raster printer");
         assert_eq!(dto.transport.as_deref(), Some("ble_write_plan"));
@@ -770,7 +882,7 @@ features:
         ))
         .unwrap();
         assert!(ipp_status_supported(yaml.clone()).unwrap());
-        assert!(raster_print_for_spec(yaml.clone()).unwrap().is_none());
+        assert!(raster_print_for_spec(yaml.clone(), None).unwrap().is_none());
         // Its sensors describe what the status screen reads; none binds a
         // generic control, so the entity panel stays out of the way.
         let surface = crate::api::device_api::network_entities_for_device(yaml, vec![]).unwrap();

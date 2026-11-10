@@ -311,6 +311,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  BrotherPtStatusDto dco_decode_brother_pt_status_dto(dynamic raw);
+
+  @protected
   BrotherQlJobParamsDto dco_decode_brother_ql_job_params_dto(dynamic raw);
 
   @protected
@@ -1505,6 +1508,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   WebSocketSurfaceDto sse_decode_box_autoadd_web_socket_surface_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  BrotherPtStatusDto sse_decode_brother_pt_status_dto(
     SseDeserializer deserializer,
   );
 
@@ -3032,6 +3040,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_box_autoadd_web_socket_surface_dto(
     WebSocketSurfaceDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_brother_pt_status_dto(
+    BrotherPtStatusDto self,
     SseSerializer serializer,
   );
 
