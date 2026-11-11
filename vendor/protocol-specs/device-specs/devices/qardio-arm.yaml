@@ -162,7 +162,7 @@ device:
           - action: "Discover services 00001810-0000-1000-8000-00805f9b34fb and 0000180f-0000-1000-8000-00805f9b34fb; read Battery Level 00002a19-0000-1000-8000-00805f9b34fb if present."
             actor: "client"
             expect: "One byte, 0-100 percent. LibreArm refuses to start below 10 percent and warns below 20."
-          - action: "Enable updates on 00002a35-0000-1000-8000-00805f9b34fb using its exposed mechanism: indications in the SIG profile (CCCD 02 00), rather than assuming notifications."
+          - action: "Enable updates on 00002a35-0000-1000-8000-00805f9b34fb. Notifications (CCCD 01 00) are what the open Android client writes, and it receives records; the SIG profile specifies indications (CCCD 02 00). Use whichever the cuff's GATT declares, preferring notifications if both are."
             actor: "client"
             expect: >
               On a fresh cuff the OS raises a pairing prompt here; accept
@@ -215,7 +215,7 @@ device:
               expect: "A green light shines through the hatch; the stored bond is gone."
             - action: "On the phone that was paired, open Bluetooth settings and forget the QardioArm entry so the phone does not try to reuse the old keys."
               actor: "user"
-            - action: "Connect and enable 00002a35-0000-1000-8000-00805f9b34fb updates using its exposed property (indications in the SIG profile); accept the new pairing prompt."
+            - action: "Connect and enable 00002a35-0000-1000-8000-00805f9b34fb updates (notifications, or indications if that is all the GATT declares); accept the new pairing prompt."
               actor: "client"
     rejoin:
       in_place_supported: false
@@ -292,7 +292,8 @@ services:
     characteristics:
       - uuid: "00002a35-0000-1000-8000-00805f9b34fb"
         name: "Blood Pressure Measurement"
-        properties: ["indicate"]
+        properties: ["notify", "indicate"]
+        verification: "reported"
         notes: >
           The SIG Blood Pressure Measurement record, little-endian
           throughout, decoded exactly as the characteristic definition says
@@ -312,14 +313,14 @@ services:
           and carry no value. The pressure unit follows flags bit 0: mmHg
           when clear, kPa when set (multiply by 7.500617 for mmHg).
 
-          The SIG profile specifies INDICATE (CCCD 02 00). The current iOS
-          client calls CoreBluetooth's update-enable API and waits for the
-          configuration callback; that API enables the mechanism the
-          characteristic offers. The Android port instead writes CCCD 01 00
-          (notification), which is a client assumption, not evidence that the
-          cuff declares or requires notifications. Use the exposed property
-          and its corresponding CCCD value; the cuff's actual GATT property
-          still needs a dump. Records arrive while the cuff inflates and
+          PROPERTIES ARE NOT FROM A GATT DUMP. The SIG profile specifies
+          INDICATE (CCCD 02 00). The open Android client writes CCCD 01 00
+          (notifications) directly and receives records, so the cuff at
+          least supports notifications; the current iOS client calls
+          CoreBluetooth's update-enable API, which picks whichever mechanism
+          the characteristic declares. Both are listed because the evidence
+          supports notify and the profile specifies indicate; which the cuff
+          actually declares still needs a dump. Records arrive while the cuff inflates and
           deflates, not only at the end: a client keeps the last record whose
           systolic and diastolic both decode finite and above zero with
           systolic greater than diastolic, debounces 1.5 s after the last
@@ -736,10 +737,11 @@ evidence:
         MIT-licensed Android port by Drew Green. Independently confirms the
         same service, characteristic and control UUIDs and the same two
         command bytes, and writes the control characteristic with response.
-        It writes CCCD 01 00 directly on 0x2a35: a client assumption, not a
-        device requirement. It also lacks kPa conversion, signed-exponent and
-        special-value handling, complete optional-field length checks and
-        battery support — recorded here as a weaker parser, not as wire-format
+        It writes CCCD 01 00 (notifications) directly on 0x2a35 and receives
+        records, which is the evidence that the cuff supports notifications
+        even though the SIG profile specifies indications. It also lacks kPa
+        conversion, signed-exponent and special-value handling, complete
+        optional-field length checks and battery support — recorded here as a weaker parser, not as wire-format
         evidence.
     - type: "public_research"
       url: "https://ptylr.com/posts/2025-09-28-librearm-breathing-new-life-into-qardioarm-devices"
@@ -795,10 +797,11 @@ evidence:
   documentation_review: >
     Two open-source clients, the vendor manual and the SIG characteristic
     definition were first read on 2026-10-11. A 2026-11-01 review of the
-    pinned revisions corrected the update setup: the SIG characteristic uses
-    indications, and the current iOS client waits for the configuration
-    callback. The Android port's direct notification CCCD write and incomplete
-    SFLOAT/optional-field handling are client limitations, not protocol facts.
+    pinned revisions noted that the SIG characteristic uses indications and
+    that the current iOS client waits for the configuration callback. The
+    Android port's direct notification CCCD write receives records, so 0x2a35 is declared notify and indicate until a GATT dump says which.
+    Its incomplete SFLOAT/optional-field handling is a client limitation, not
+    a protocol fact.
     The clients share an author lineage, so they count as one recovery checked
     twice, not two independent recoveries. The vendor app's string table was
     used only to confirm UUIDs and to note the DFU library.

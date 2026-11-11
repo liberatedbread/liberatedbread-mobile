@@ -167,6 +167,76 @@ device:
         stores authorized client RSA public keys under adbd, approved via the
         on-screen dialog (fire_tv_adb.authentication).
 
+  pairing:
+    required: true
+    confidence: "medium"
+    # Not a Bluetooth bond: the gate is a client TLS certificate the TV
+    # registers after an on-screen code exchange on port 6467.
+    security_mode: "app_layer"
+    bonding: "none"
+    pin:
+      source: "device_screen"
+      length: 6
+      notes: >
+        Six HEXADECIMAL characters (0-9, A-F), not decimal digits, shown on the
+        TV only while a pairing exchange is open. The code itself never crosses
+        the wire: the client sends a SHA-256 digest binding it to both
+        certificates (protocol_details.androidtv_remote_v2.pairing.secret), and
+        a mistyped or stale code comes back as STATUS_BAD_SECRET. What the
+        client keeps afterwards is its own self-signed RSA certificate and
+        private key — lose them and the client must pair again.
+    exclusivity:
+      single_connection: "unknown"
+      single_bond: false
+      recovery: >
+        Pairing a new client does not evict an old one; the Remote Service keeps
+        every certificate it has paired. If a client is asked to pair on every
+        connect, or pairing loops, clear the Android TV Remote Service's storage
+        on the TV (see unpair) and pair again. Fire TV's ADB path is different:
+        only one ADB client session is reliably usable at a time.
+      notes: >
+        Whether the session port tolerates several simultaneous remote sessions
+        (the Google TV phone app plus a home-automation client, say) is not
+        stated by the androidtvremote2 / Home Assistant sources used here.
+    enter_pairing_mode:
+      required: false
+      notes: >
+        Nothing to switch on: the Remote Service accepts a PairingRequest on
+        6467 whenever the TV is awake, and it is the client's Configuration
+        message that makes the code appear on screen. No "network control"
+        setting needs enabling on Google/Android TV. The Fire TV variant is the
+        exception — ADB Debugging must first be turned on in Developer Options,
+        and the first connection raises an on-screen "Allow USB debugging?"
+        approval rather than a code.
+    unpair:
+      supported: true
+      requires_factory_reset: false
+      clears: >
+        Every paired client certificate at once; the TV's apps, accounts and
+        settings are untouched.
+      procedures:
+        - name: "Clear the Android TV Remote Service's storage"
+          verified: false
+          basis: "Home Assistant androidtv_remote integration troubleshooting docs."
+          power_state: "on"
+          glyph: "generic/on-screen-menu.svg"
+          steps:
+            - action: "On the TV open Settings > Apps > Show system apps > Android TV Remote Service; Force stop, then Storage > Clear storage."
+              actor: "user"
+              expect: "Every previously paired client is asked to pair again on its next connect."
+      notes: >
+        There is no per-client revoke list in the Android TV UI; clearing the
+        service's storage is all-or-nothing. On Fire TV, revoke ADB
+        authorisations from Developer Options instead.
+    notes: >
+      Pairing is once per client and entirely local: the client presents a
+      self-signed certificate on 6467, the TV shows a 6-character hex code, the
+      user types it into the client, and from then on the TV accepts that
+      certificate on the 6466 session port. No Google account or cloud call is
+      involved, so it keeps working with no internet. Full byte-level flow in
+      protocol_details.androidtv_remote_v2.pairing; the user-facing steps are
+      in setup method 'device_ui'.
+
   variants:
     - model: "Shield TV (2019)"
       name: "Nvidia Shield TV / Shield TV Pro"

@@ -156,6 +156,38 @@ device:
         media control). The Wi-Fi passphrase is handled by the Home app's
         provisioning, not by anything this spec documents.
 
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "none"
+    bonding: "none"
+    exclusivity:
+      single_connection: false
+      single_bond: false
+      recovery: >
+        Nothing to clear. Any sender on the LAN may connect; the conflict that
+        does happen is at the app level — a LAUNCH from one sender replaces the
+        receiver app another sender started, so a client should GET_STATUS and
+        join the running session rather than relaunch blindly.
+    enter_pairing_mode:
+      required: false
+      notes: >
+        No code, prompt or button. Once the device is on the network, opening
+        TLS to 8009 and sending CONNECT is enough. The TLS server certificate is
+        self-signed and clients do not verify it; no client certificate is
+        asked for.
+    notes: >
+      Local CASTv2 is unauthenticated for the sender: any host on the same LAN
+      can discover the device, connect and launch or control media, which is
+      the behaviour node-castv2 and pychromecast both rely on. The deviceauth
+      namespace runs the other way — it lets a sender check that the RECEIVER
+      holds a Google-issued certificate — and is optional for a client that
+      only wants control. The Google account binding made during Home-app
+      setup (see setup method 'cloud_account') does not gate local control,
+      so it survives the loss of Google's cloud. Cast receivers built into
+      third-party TVs may additionally need the TV's own network-standby or
+      "Chromecast built-in" setting left on to be reachable.
+
 # The CASTv2 wire protocol. TLS 8009 protobuf, so http_endpoints below is a
 # placeholder — control is this, not REST. Lives under `protocol_details`, the
 # schema's namespace for single-spec protocol blocks (the top level is closed).

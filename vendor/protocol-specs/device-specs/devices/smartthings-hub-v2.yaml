@@ -164,6 +164,45 @@ device:
         - "ZigBee and Z-Wave network keys"
       issued_to_client: []
 
+  pairing:
+    required: true
+    confidence: "medium"
+    security_mode: "app_layer"
+    bonding: "none"
+    pin:
+      source: "vendor_app"
+      notes: >
+        Not a code but a bearer token, and it comes from Samsung's cloud, not
+        from the hub. The official SmartThings CLI sends the signed-in
+        account's OAuth token to the driver-log API on port 9495. Per the
+        vendor app's diagnostics flow, the Edge API on port 8766 takes a
+        per-hub token that the cloud API issues to a signed-in client. No
+        local exchange, button or printed code yields either one.
+    unpair:
+      supported: "unknown"
+      notes: >
+        The tokens belong to the Samsung account, so revoking one is
+        presumably an account-side action (sign out, or revoke the app's
+        access). Whether the hub notices, and how quickly, is not
+        established. A factory reset unclaims the hub entirely.
+    enter_pairing_mode:
+      required: false
+      notes: >
+        Nothing is done at the hub. The welcome code on its underside claims
+        the hub into a Samsung account during setup ("Redeem the welcome
+        code into a Samsung account"). That is account binding, not client
+        pairing, and it also needs the cloud.
+    notes: >
+      Every local port this hub serves is behind a cloud-issued credential.
+      This project's probe of a real hub got 401 UnauthorizedError from
+      both 8766 and 9495 without a bearer token. The token itself comes from
+      the official CLI's source and the vendor app's behaviour, and a
+      working authorised call has not been made here. The CLI also pins
+      the hub's TLS certificate, whose CN embeds the hub's UUID. If Samsung's
+      cloud goes, no new client can be authorised, which is why this spec
+      is identify_only. Joining Zigbee, Z-Wave and Matter devices to the hub
+      is a separate network join run from the SmartThings app.
+
 # Vendor-specific protocol detail this schema does not model. Namespaced so the
 # top level can stay closed; nothing here is a declared contract.
 protocol_details:
@@ -185,8 +224,8 @@ protocol_details:
       notes: >
         Service and port are corroborated by community observation (Nov 2024)
         and by the vendor app's mDNS discovery. The transport is HTTPS, not
-        WebSocket: the app matches the discovered endpoint against
-        DiagnosticsProtocol.L3_HTTPS. The feat=ctrl TXT key rests solely on
+        WebSocket: the app classifies the discovered endpoint as
+        an HTTPS diagnostics protocol. The feat=ctrl TXT key rests solely on
         this spec's own probe — treat it as unverified.
       auth:
         confidence: "medium"

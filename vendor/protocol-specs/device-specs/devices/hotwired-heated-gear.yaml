@@ -24,7 +24,7 @@ device:
     code (zero callers anywhere in the BLE path); bytes 3-6 are fixed-zero
     padding. No keep-alive heartbeat — write-with-retry pattern instead.
     Multi-device: the app manages up to 5 garment slots simultaneously
-    (MyApplication.pairList) — each garment is an independent BLE peripheral
+    (in an app-wide paired-garment list) — each garment is an independent BLE peripheral
     with its own connection; nothing relays commands between garments.
     MAX HEAT LEVEL: 10 (0x0A). DO NOT EXCEED.
     WARNING: No BLE security — any nearby device can control the heat.
@@ -274,15 +274,26 @@ services:
             type: "uint8"
             notes: "Unused by the app; meaning unknown."
 
-  # Fallback service for older hardware variant
-  - uuid: "0000ffb0-0000-1000-8000-00805f9b34fb"
-    name: "HOTWIRED Heated Gear Control Service (alt characteristics)"
-    notes: >
-      Groups the fee1/fee2 fallback characteristics. Their parent service UUID
-      is NOT known: the app never references a 0000fee0 service — it matches
-      the fee1/fee2 characteristics while iterating ALL discovered services
-      (per the app's BLE service). The duplicated ffb0 UUID here is a
-      grouping placeholder, not a confirmed on-device service.
+# The set_heat frame lives on the ffb1 characteristic as a real command with a
+# template — see it there. It was documented here as well, in a top-level
+# `commands:` block whose byte-by-byte `frame:` table no consumer reads, so the
+# one entity that exists to set the heat level had nothing to send. Everything
+# that block carried (the worked hex examples, the echo acknowledgment, the
+# 3-second retransmit) is stated in the command's description.
+
+# Vendor-specific protocol detail this schema does not model. Namespaced so the
+# top level can stay closed; nothing here is a declared contract.
+protocol_details:
+  fallback_characteristics:
+    description: >
+      The older hardware revision's fee1/fee2 characteristics. Their parent
+      service UUID is NOT known: the app never references a 0000fee0
+      service; it matches fee1/fee2 while iterating ALL discovered services
+      (per the app's BLE service), and a client must do the same. They used
+      to sit under a second copy of the ffb0 service as a grouping
+      placeholder, which read as a claim that the module has two ffb0
+      services; they live here instead. The climate entity names them as
+      fallback_characteristic / fallback_state_characteristic.
     characteristics:
       - uuid: "0000fee2-0000-1000-8000-00805f9b34fb"
         name: "Command Write (fallback)"
@@ -299,16 +310,6 @@ services:
           app enables notifications only on ffb2 and discards fee1 values
           without parsing (per the app's BLE service).
 
-# The set_heat frame lives on the ffb1 characteristic as a real command with a
-# template — see it there. It was documented here as well, in a top-level
-# `commands:` block whose byte-by-byte `frame:` table no consumer reads, so the
-# one entity that exists to set the heat level had nothing to send. Everything
-# that block carried (the worked hex examples, the echo acknowledgment, the
-# 3-second retransmit) is stated in the command's description.
-
-# Vendor-specific protocol detail this schema does not model. Namespaced so the
-# top level can stay closed; nothing here is a declared contract.
-protocol_details:
   notifications:
     characteristic: "0000ffb2-0000-1000-8000-00805f9b34fb"
     fallback_characteristic: "0000fee1-0000-1000-8000-00805f9b34fb"

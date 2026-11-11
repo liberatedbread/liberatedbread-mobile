@@ -22,8 +22,8 @@ apps and cloud services.
     which breakfast spikes you and unfit for deciding an insulin dose; the
     same holds for blood-pressure and SpO2 readings (a personal log, not a
     clinical one), gas alarms (the buzzer is the safety device, not a
-    notification), motorised doors and anything on wheels. Specs for such
-    devices carry a `safety_advisory` that says so again where a client will
+    notification), motorised doors and anything on wheels. Every health
+    spec, and a growing number of the others, carries a `safety_advisory` that says so again where a client will
     show it.
 
 ## Getting Started

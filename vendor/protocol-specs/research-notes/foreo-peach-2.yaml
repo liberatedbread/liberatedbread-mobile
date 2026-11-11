@@ -1,93 +1,112 @@
-# FOREO Peach 2 — Device Spec (static-analysis derived, hardware-unverified)
-# Source: FOREO For You app 4.4.1 (559), sha256
-# 90a4ec8f5c22c1085d1500f6bf1954c28edcd81531f0eed94bf8a13aa494ae79
+# FOREO Peach 2 — research summary (static analysis + 2026-11-07 capture)
 
 device:
   id: foreo-peach-2
-  name: FOREO Peach 2 IPL hair removal (family: Peach 2 / go / Pro MAX / Duo)
-  manufacturer: FOREO AB (mfr by VIS Shanghai)
-  category: ipl_hair_removal
-  safety_class: IPL_CLASS_UNRATED   # 7.3 J/cm2 optical output; skin-contact + eye-safety interlocks in firmware
+  name: "FOREO Peach 2 IPL hair removal (family: Peach 2 / go / Pro MAX / Duo)"
+  manufacturer: FOREO AB
+  safety_class: IPL_CLASS_UNRATED
+  testing: capture-verified (stock app; no replacement-client replay)
 
 transport:
   type: bluetooth_le
-  local_only: true        # unlock + all control computable offline; server used only for registration bookkeeping
+  local_only: true
+  pairing: none observed in either captured connection
+  advertised_names:
+    configured_exact: [PEACH2, PEACH2GO, PEACH2Duo, PEACH2ProMAX]
+    reported_aliases: ["PEACH 2", "PEACH™ 2", "PEACH2 Pro MAX"]
+    fuzzy_match: false
+    timeout_seconds: 30
 
-bluetooth_le:
-  pairing:
-    bonding: none         # app never bonds; plaintext GATT
-    name_patterns: ["PEACH2", "PEACH 2", "PEACH2GO", "PEACH2ProMAX", "PEACH2 Pro MAX"]
-    notes: >
-      Device ships locked (will not power on) until activated over BLE.
-      Activation bytes derive solely from the device BLE MAC (keyless
-      permutation) — no FOREO server round-trip needed by the firmware.
-  services:
-    - uuid16: "0xFFF0"    # hypothesis: containing service; app resolves dynamically
-      characteristics:
-        - uuid16: "0xFFF1"
-          access: [write, read]
-          role: command channel (opcode || payload, no framing; read-back verify, FFFFFFFF = busy)
-    - uuid16: "0x0A10"
-      access: [write]
-      role: security access — write 01 A1 <MAC[3..5]> once after every connect
-    - uuid16: "0x0A20"
-      access: [read, write]
-      role: activation — locked if value starts 00; write 01 02 <8-byte chipId(MAC)>
-    - uuid16: "0x0A30"
-      access: [read, write]
-      role: wake-up — write 01 unless already enabled
-    - uuid16: "0x0A05"
-      access: [read]
-      role: serial number
-    - uuid16: "0x0A07"
-      access: [read]
-      role: chip id
-    - uuid16: "0x0A0C"
-      access: [read]
-      role: skin-sensor polling (calibration)
-    - uuid16: "0x0A08"
-      access: [write]
-      role: OTA trigger (reboot to TI OAD mode, service f000ffc0-0451-4000-b000-000000000000)
-    - uuid16: "0x180F"
-      characteristics:
-        - uuid16: "0x2A19"
-          access: [read, notify]
-          role: battery level
-    - uuid16: "0x180A"
-      characteristics:
-        - uuid16: "0x2A28"
-          access: [read]
-          role: SW revision; last char selects old (a-c) vs new command dialect
+scan_to_add:
+  activation_advertisement:
+    source: raw scan record with address-derived marker and following nibble ending 1 or 0
+    capture_value: unknown
+  already_active_result_delay_seconds: 10
+  preconnect_device_info_api_bypass: [PEACH2, PEACH2GO, PEACH2ProMAX]
+  registration: separate later account step; complete server behavior unknown
+  security_access:
+    response: ATT Write Response
+    post_success_delay_ms: 500
+    challenge_response_validated: false
+    role: connection setup; not Pro activation or IPL firing
+
+capture:
+  artifact: foreoPeach2.pcapng
+  sha256: b301ad5b7d29608989238cc05945e6f12b428adb5e3dd529771dd888508f5021
+  software_revision: PEACH2 F.REV.K
+  activation_state: already active (0A20 begins 01; no activation write captured)
+  operations:
+    write_requests: 27
+    write_responses: 27
+    read_requests: 210
+    read_responses: 210
+    notification_packets: 517
+  confirmed:
+    - FFF0 contains FFF1, 0A10 and 0A20
+    - security-access value matches the documented MAC derivation
+    - serial read from 0A02 (14 ASCII bytes; value not retained here)
+    - intensity writes 3 and 5; intensity query 0B01
+    - seven Basic writes 0AD0 01 and one query 0BD0 returning Basic
+    - automatic fan 0AC0 0A
+    - 0AC4 accepts a seven-byte cooling profile; 0BC4 0007 reads it
+  absent_from_normal_mode: [0A30, 0A07, 0x180F, TI OAD, D0FF]
+  corrections:
+    - 0A05 is under separate service 0x181c and was not the serial read
+    - 0A08 is read + notify, not a verified OTA-trigger write
+    - new cooling payload is seven bytes, not one byte
+  unobserved: [locked-unit activation, Pro mode, 0A30 wake-up, OTA]
+
+services:
+  - uuid16: "0xFFF0"
+    characteristics:
+      - {uuid16: "0xFFF1", access: [read, write], role: command channel; 26 acknowledged writes and 26 reads}
+      - {uuid16: "0x0A10", access: [read, write], role: security access; one acknowledged write}
+      - {uuid16: "0x0A20", access: [read, write], role: activation; two reads, no activation write}
+      - {uuid16: "0x0A02", access: [read, write], role: serial number; one 14-byte read}
+      - {uuid16: "0x0A18", access: [read, write], role: body NTC; 165 one-byte notifications, units unknown}
+      - {uuid16: "0x0A19", access: [read, write], role: head NTC; 110 one-byte notifications, units unknown}
+      - {uuid16: "0x0A0C", access: [read, notify], role: accelerometer; 180 one-byte reads, axes/units unknown}
+      - {uuid16: "0x0A0D", access: [read, notify], role: vibrator setting; 15 one-byte notifications}
+      - {uuid16: "0x0A09", access: [read, notify], role: unknown; 13 one-byte notifications}
+      - {uuid16: "0x0A44", access: [read, notify], role: unknown; 214 one-byte notifications}
+      - {uuid16: "0x0A08", access: [read, notify], role: unknown; do not use as OTA trigger}
+  - uuid16: "0x181C"
+    characteristics:
+      - {uuid16: "0x0A05", access: [read, write], role: unknown}
+  - uuid16: "0x180A"
+    characteristics:
+      - {uuid16: "0x2A28", access: [read], role: SW revision / dialect selection}
 
 protocol:
-  framing: none — first byte 0A=write / 0B=read, second byte sub-opcode; queries answered by reading 0xFFF1 back
-  commands:
-    "0A01 <level>": set IPL intensity (0-5)
-    "0B01": read IPL intensity
-    "0AD0 01": removal mode Basic (new firmware)
-    "0AD0 06": removal mode Pro (new firmware; paywalled in app, firmware accepts unconditionally)
-    "0BD0": read removal mode (>= 6 => Pro)
-    "0AA2 0202020202": flash mode Basic (old firmware)
-    "0AA2 0303030303": flash mode Pro (old firmware)
-    "0AA2 0101010101": flash mode Face (old firmware)
-    "0AC4 <val>": set cooling level (new firmware)
-    "0AC0 <val>": set cooling level (old); 0AC0 0A = auto-fan
-    "0AB4/0BB4": head-NTC threshold set/read
-    "0AB5/0BB5": body-NTC threshold set/read
-    "0AD1/0BD1": flash voltage table set/read
-  activation:
-    security_access: "write 01 A1 <mac3 mac4 mac5> to 0x0A10 after every connect"
-    unlock: "read 0x0A20; if byte0 == 00, write 01 02 <chipId>; chipId = keyless nibble permutation of BLE MAC (see research-notes/foreo-peach-2.md)"
-    wake: "read 0x0A30; unless starts 01, write 01"
+  framing: raw opcode || payload on FFF1; 0A=set / 0B=query; read FFF1 after every write
+  write_ack: observed 18-byte read-back beginning 01
+  new_dialect:
+    intensity_set: "0A01 <level 0..5>"
+    intensity_get: "0B01"
+    removal_basic: "0AD0 01"
+    removal_pro: "0AD0 06 (app constant; direct firmware acceptance unknown)"
+    removal_get: "0BD0"
+    auto_fan: "0AC0 0A"
+    cooling_set: "0AC4 <7-byte profile>"
+    cooling_get: "0BC4 0007"
+  duo_mode:
+    basic: "0AA2 02 02 02 02 02 (app constant; not captured)"
+    pro: "0AA2 03 03 03 03 03 (app constant; not captured)"
+  unmapped_write: "0AB1 A5 accepted after calibration polling; semantics unknown"
+
+activation:
+  security_access: "01 A1 <mac3 mac4 mac5> to 0A10 after every connect (capture-confirmed)"
+  unlock: "If 0A20 begins 00, write 01 02 <8-byte chipId> (static analysis only)"
+  wake: "Only if 0A30 exists: read it and write 01 when needed (static analysis only)"
 
 paywall:
-  mechanism: server-side subscription (Recurly), enforced app-side only
-  gated: [pro_removal_mode]
-  bypass: replacement app writes 0AD0 06 directly; no credential required by firmware
+  mechanism: active server-side subscription normally required; testing == 1 is a separate exception
+  enforcement: app gate before settings write; independent firmware enforcement unknown
+  downgrade: Basic write on Pro with inactive subscription is app-derived; capture does not prove it ran
+  observed: seven Basic writes and no Pro write; account subscription state unknown
 
-status:
-  apk_acquired: true
-  apk_decompiled: true
-  protocol_recovered: true   # static analysis; not yet hardware-verified
-  hci_snoop_needed: true     # confirm on real unit (user plans purchase)
-  community_support: none known
+references:
+  authoritative_spec: device-specs/devices/foreo-peach-2.yaml
+  analysis_apk_sha256: 90a4ec8f5c22c1085d1500f6bf1954c28edcd81531f0eed94bf8a13aa494ae79
+  comparison_4_2_0_sha256: 304f62e696975c580248dd3c1d63034f1e66a0177f8d4498dc6777144b4fd2a5
+  sanitized_capture_analysis: peach2/evidence/capture-analysis-2026-11-08.json

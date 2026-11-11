@@ -457,15 +457,15 @@ def pairings(specs: dict[str, dict]):
             yield device_id, pairing
 
 
-def test_ble_devices_answer_the_pairing_question(specs):
-    """A BLE spec must say whether a client has to pair, even if the answer is no.
+def test_every_device_answers_the_pairing_question(specs):
+    """Every device spec must say whether a client has to pair, even if the answer is no.
 
-    'No pairing, open GATT' is the most common answer and the most useful one:
-    it is what tells an implementer not to go hunting for a pairing flow that
-    does not exist. Silence says the same thing to a reader who assumes the
-    best and the opposite to a reader who assumes the worst, which is why the
-    block is required here rather than merely allowed. `required: unknown` is
-    the honest third answer and satisfies this.
+    'No pairing, open GATT' is the most common BLE answer and the most useful
+    one: it is what tells an implementer not to go hunting for a pairing flow
+    that does not exist. Silence says the same thing to a reader who assumes
+    the best and the opposite to a reader who assumes the worst, which is why
+    the block is required here rather than merely allowed. `required: unknown`
+    is the honest third answer and satisfies this.
 
     Bluetooth Classic specs are gated the same way, and for them the answer
     is more often yes: a BR/EDR device either takes an insecure RFCOMM socket
@@ -473,19 +473,20 @@ def test_ble_devices_answer_the_pairing_question(specs):
     (nearly every printer and OBD dongle), and which of the two it is decides
     whether a client can connect at all without a person at the host.
 
-    WiFi and bus devices are not gated: pairing in this sense is a property of
-    the radio link, and a device reached over HTTP or a diagnostic connector
-    has no equivalent. Those may still carry the block (a hub with a physical
-    link button does) but are not required to.
+    Off BLE the question moves up a layer -- what must a client obtain before
+    the local control surface answers it -- and it blocks implementers just as
+    often: the TV waiting on an on-screen Allow, the bulb whose LAN toggle is
+    off, the plug whose key only a cloud ever issued, or, just as usefully, an
+    open API whose only gate is the network. docs/protocols/pairing.md maps
+    each of those onto the same vocabulary. Reference specs document a
+    standard rather than hardware, so there is nothing to pair with.
     """
     missing = [
         device_id
         for device_id, spec in specs.items()
-        if spec["device"].get("protocol") in BLUETOOTH_PROTOCOLS
-        and not is_reference(spec)
-        and "pairing" not in spec["device"]
+        if not is_reference(spec) and "pairing" not in spec["device"]
     ]
-    assert not missing, f"Bluetooth specs without a device.pairing block: {missing}"
+    assert not missing, f"Device specs without a device.pairing block: {missing}"
 
 
 def test_pairing_states_required_and_confidence(specs):
@@ -3054,6 +3055,15 @@ def test_the_retired_top_level_lock_shapes_are_rejected(closed_world_spec, retir
     )
 
 
+def _has_ble_scan_name_matcher(spec: dict) -> bool:
+    methods = (spec["device"].get("discovery") or {}).get("methods") or []
+    return any(
+        method.get("type") == "ble_scan"
+        and ((method.get("ble") or {}).get("local_name") or {}).get("value")
+        for method in methods
+    )
+
+
 def test_every_ble_spec_can_be_matched_by_something(specs):
     """A BLE spec with no matcher in `device.identification` is undiscoverable.
 
@@ -3083,6 +3093,11 @@ def test_every_ble_spec_can_be_matched_by_something(specs):
             spec["device"].get("protocol") in CLASSIC_PROTOCOLS
             and any(_inquiry_can_match(m) for m in _inquiry_methods(spec))
         )
+        # A `ble_scan` name matcher in `discovery` is an axis too: the app
+        # matches its regex / contains comparisons, which identification's
+        # plain prefix lists cannot express. A short, collision-prone name is
+        # better stated as a regex there than as a bare prefix here.
+        and not _has_ble_scan_name_matcher(spec)
         # A spec may argue that no signal distinguishes this device from
         # anything else -- fardriver does, and does it well. That argument
         # belongs in `discovery.none`, where a checker can see it, not in a
@@ -4539,6 +4554,11 @@ def test_classic_references_resolve(specs):
             if not field or "." not in field:
                 continue
             frame, _, name = field.partition(".")
+            if spec["device"].get("protocol") == "bluetooth_classic":
+                assert frame in frames, (
+                    f"{device_id}: entity {entity.get('name')!r} reads {field!r}, but "
+                    f"no Classic command response or unsolicited frame is named {frame!r}"
+                )
             if frame in frames:
                 assert name in frames[frame], (
                     f"{device_id}: entity {entity.get('name')!r} reads {field!r}, but "
@@ -4650,3 +4670,194 @@ def test_the_schema_allows_a_documented_initialization_step_without_bytes():
         for error in validator.iter_errors(spec)
         if "initialization" in str(error.path)
     ]
+
+
+_DOTTED_BLOCK_REF = re.compile(
+    r"\b(payload_formats|protocol_details)\.([A-Za-z_][A-Za-z0-9_]*)(\*?)"
+)
+_URL = re.compile(r"https?://\S+")
+
+
+def _block_keys(node, block: str, found: set[str]) -> set[str]:
+    """Every key of every `block` mapping anywhere in the spec.
+
+    `payload_formats` is declared at the root and on a setup method, and a
+    method's prose points at its own, so a reference may land in either.
+    """
+    if isinstance(node, dict):
+        for key, value in node.items():
+            if key == block and isinstance(value, dict):
+                found.update(value)
+            _block_keys(value, block, found)
+    elif isinstance(node, list):
+        for item in node:
+            _block_keys(item, block, found)
+    return found
+
+
+def test_dotted_block_references_resolve():
+    """`payload_formats.X` / `protocol_details.X` in a spec names a real block.
+
+    A spec once shipped truncated mid-command, and its prose kept pointing at
+    a dozen `protocol_details` and `payload_formats` blocks that were never in
+    the file. Validation passed: a reference in prose is just a string. Each
+    such pointer must name a key of a block of that name in the same spec
+    (`X*` names a family of keys sharing the prefix X). URLs are skipped:
+    a page called protocol_details.html is not a reference.
+    """
+    broken = []
+    for path in SPEC_PATHS:
+        spec = load(path)
+        text = _URL.sub("", path.read_text(encoding="utf-8"))
+        for block, key, wildcard in sorted(set(_DOTTED_BLOCK_REF.findall(text))):
+            keys = _block_keys(spec, block, set())
+            ok = (
+                any(str(k).startswith(key) for k in keys) if wildcard else key in keys
+            )
+            if not ok:
+                broken.append(f"{path.name}: {block}.{key}{wildcard}")
+    assert not broken, "dangling block references:\n" + "\n".join(broken)
+
+
+def test_spec_files_end_with_a_newline():
+    """A spec that does not end in a newline was probably cut off mid-write."""
+    unterminated = [
+        path.name
+        for path in SPEC_PATHS
+        if not path.read_bytes().endswith(b"\n")
+    ]
+    assert not unterminated, f"spec files not ending in a newline: {unterminated}"
+
+
+# Service UUIDs a radio STACK advertises on every product built with it, so
+# they say nothing about which product is in range. A consumer treats any
+# `identification.service_uuids` entry as a strong match, so one of these
+# there claims every device on that stack. Keep them under `services`.
+STACK_WIDE_SERVICE_UUIDS = {
+    # SIG member UUID of Wicentric: the Arm Cordio WDX profile.
+    "0000fef6-0000-1000-8000-00805f9b34fb",
+}
+
+
+def test_identification_does_not_match_on_a_stack_wide_uuid(specs):
+    offenders = []
+    for device_id, spec in specs.items():
+        identification = spec["device"].get("identification") or {}
+        for uuid in identification.get("service_uuids") or []:
+            if str(uuid).lower() in STACK_WIDE_SERVICE_UUIDS:
+                offenders.append(f"{device_id}: {uuid}")
+    assert not offenders, (
+        "identification.service_uuids lists a UUID every product on that "
+        f"BLE stack advertises: {offenders}"
+    )
+
+
+def test_service_uuids_are_unique_per_spec(specs):
+    """Each `services[]` entry is one service on the device.
+
+    Two specs once repeated a real service UUID as a "grouping placeholder"
+    for characteristics whose parent service is unknown. A consumer that
+    indexes services by UUID keeps one and silently drops the other's
+    characteristics, and a reader takes it as a claim that the device has
+    two such services. Unparented characteristics belong in
+    `protocol_details`.
+    """
+    duplicated = []
+    for device_id, spec in specs.items():
+        seen: set[str] = set()
+        for service in spec.get("services") or []:
+            uuid = str(service.get("uuid", "")).lower()
+            if uuid in seen:
+                duplicated.append(f"{device_id}: {uuid}")
+            seen.add(uuid)
+    assert not duplicated, f"services[].uuid repeated within a spec: {duplicated}"
+
+
+def _commands_by_name(node, found: dict) -> dict:
+    """Every command, wherever the spec declares it (characteristics, root)."""
+    if isinstance(node, dict):
+        for key, value in node.items():
+            if key == "commands" and isinstance(value, dict):
+                for name, command in value.items():
+                    if isinstance(command, dict):
+                        found[name] = command
+            _commands_by_name(value, found)
+    elif isinstance(node, list):
+        for item in node:
+            _commands_by_name(item, found)
+    return found
+
+
+# Commands a review found NOT marked advanced although their spec or guide
+# treats them as hazardous: they silence a medication reminder, or change the
+# output mode / unlock / cooling of an IPL hair-removal device, or start its
+# patch test. Pinned so a later edit cannot quietly drop the gate.
+MUST_BE_ADVANCED = {
+    "quin-pillcalendar": ["set_alarm_slot", "clear_alarm_slot"],
+    "foreo-peach-2": [
+        "set_removal_mode_pro",
+        "set_flash_mode",
+        "set_cooling",
+        "set_cooling_old",
+        "activate",
+    ],
+    "braun-silk-expert-pro5": ["start_patch_test"],
+}
+
+
+@pytest.mark.parametrize("device_id", sorted(MUST_BE_ADVANCED))
+def test_hazardous_commands_are_advanced(specs, device_id):
+    commands = _commands_by_name(specs[device_id], {})
+    for name in MUST_BE_ADVANCED[device_id]:
+        command = commands[name]
+        assert command.get("advanced") is True, f"{device_id}.{name} is not advanced"
+        assert str(command.get("advanced_reason", "")).strip(), (
+            f"{device_id}.{name} is advanced without an advanced_reason"
+        )
+
+
+def _identification_name_prefixes(spec: dict) -> list[str]:
+    blocks = [spec["device"].get("identification") or {}]
+    blocks += [v.get("identification") or {} for v in spec["device"].get("variants") or []]
+    prefixes: list[str] = []
+    for block in blocks:
+        if block.get("local_name_prefix"):
+            prefixes.append(block["local_name_prefix"])
+        prefixes.extend(block.get("local_name_prefixes") or [])
+    return prefixes
+
+
+# Advertised names of common products no spec here covers. Name prefixes are
+# matched case-insensitively, so a short prefix like "pix" claimed every
+# Pixel phone, Pixel Buds, Pixoo panel and PIXMA printer in range.
+WELL_KNOWN_FOREIGN_NAMES = [
+    "Pixel 8 Pro",
+    "Pixel Buds Pro",
+    "Pixoo-64",
+    "PIXMA TS5350",
+    "Galaxy Buds2 Pro",
+    "AirPods Pro",
+    "JBL Flip 6",
+]
+
+
+def test_identification_prefixes_do_not_claim_well_known_products(specs):
+    claims = [
+        f"{device_id}: {prefix!r} matches {name!r}"
+        for device_id, spec in specs.items()
+        for prefix in _identification_name_prefixes(spec)
+        for name in WELL_KNOWN_FOREIGN_NAMES
+        if name.lower().startswith(prefix.lower())
+    ]
+    assert not claims, "identification prefixes too wide:\n" + "\n".join(claims)
+
+
+# Bare prefixes a review narrowed to a discovery regex because they were too
+# short to identify on; pinned so they do not come back.
+RETIRED_BARE_PREFIXES = {"humsienk-bms": "hs", "pix-backpack": "pix"}
+
+
+@pytest.mark.parametrize("device_id", sorted(RETIRED_BARE_PREFIXES))
+def test_retired_bare_prefixes_stay_retired(specs, device_id):
+    prefixes = [p.lower() for p in _identification_name_prefixes(specs[device_id])]
+    assert RETIRED_BARE_PREFIXES[device_id] not in prefixes

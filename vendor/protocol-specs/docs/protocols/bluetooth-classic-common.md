@@ -208,7 +208,7 @@ The question asked about every SPP device, and the answer splits by platform:
 | Linux (BlueZ) | `bluez` | Yes | `rfcomm bind`, or the socket API; SDP browse with `sdptool` |
 | Windows | `windows` | Yes | WinRT `RfcommDeviceService`, or the legacy virtual COM port |
 | macOS | `iobluetooth` | Yes | IOBluetooth exposes RFCOMM, L2CAP and SDP |
-| **iOS / iPadOS** | `corebluetooth` | **No** | CoreBluetooth is BLE only. The vendor's iOS path is MFi (iAP2 over the ExternalAccessory framework) or nothing — which is why the OBDLink MX+ carries iAP2 and why "Android only" is the honest label on most of these |
+| **iOS / iPadOS** | `corebluetooth` | **No** | CoreBluetooth exposes GATT only — no RFCOMM, no SPP. The vendor's iOS path is MFi (iAP2 over the ExternalAccessory framework) or nothing — which is why the OBDLink MX+ carries iAP2 and why "Android only" is the honest label on most of these |
 
 A `bluetooth_classic` spec therefore always carries a
 `device.host_compatibility` verdict for `corebluetooth` on its BR/EDR link,

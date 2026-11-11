@@ -62,15 +62,17 @@ device:
       carry power only, no data to tap. Uncracked. Out of scope — flag and
       stop.
 
-    LEARN/PAIR: press the opener's learn button, then the bridge (emulating a
-    wall panel) is recorded with its fixed code + current rolling counter as
-    the seed; the opener then tracks the expected next codes.
+    NO LEARN STEP FOR THE WIRED LINK: the opener's learn button enrols RADIO
+    remotes and keypads, not wall controls. A Sec+ 2.0 bridge picks a random
+    client ID (the 40-bit fixed field) and the opener accepts its packets as
+    long as the rolling counter keeps moving forward; Sec+ 1.0 wired commands
+    carry no rolling code at all. See device.pairing.
 
     SAFETY: this actuates a heavy motorised door. Control is a single toggle
     that opens or closes; a bridge with door-position status should gate
-    commands on the current state. The Security+ rolling code is the opener's
-    only auth — anyone who can pair a panel can drive the door, which is why
-    the learn-button press (physical access) is the pairing gate.
+    commands on the current state. The Security+ rolling code is anti-replay,
+    not authorisation — anyone who can reach the wall-control wires can drive
+    the door, so physical access to the terminals is the only gate.
 
     SIBLING HARDWARE (VERIFIED LIVE 2026-08-19): a LAN sweep found a SECOND
     Chamberlain-family device alongside the closed-port MyQ hub from the
@@ -109,8 +111,9 @@ device:
       Requires aftermarket hardware: a ratgdo or Konnected board wired to the
       opener's wall-control terminals (Ground, Control/data, Obstruction — on
       LiftMaster/Chamberlain Sec+ 2.0 the red/white/common terminals). The
-      board runs in parallel with the existing wall button. After wiring, pair
-      by pressing the opener's learn button. Confidence medium: the wired UART
+      board runs in parallel with the existing wall button. No learn-button
+      press is needed for the wired link (see device.pairing). Confidence
+      medium: the wired UART
       parameters and wall-panel emulation are proven by ratgdo/Konnected
       firmware in the field, but this project has not driven hardware.
     methods:
@@ -124,8 +127,8 @@ device:
             actor: user
           - action: "Wire the bridge board to Ground / Control / Obstruction terminals (parallel to the wall console)."
             actor: user
-          - action: "Press the opener's learn button to pair the emulated wall panel; the board seeds its rolling-code counter."
-            actor: user
+          - action: "Power the board; on Sec+ 2.0 it queries the opener and brings its rolling-code counter into sync on its own. No learn-button press is needed."
+            actor: client
             expect: "The board reports door status and can open/close; the physical wall button keeps working."
     factory_reset:
       applicable: true
@@ -188,9 +191,50 @@ device:
         - "Security+ rolling-code counter (persisted on the bridge board)"
       issued_to_client: []
       notes: >
-        No network credential crosses to the opener; the Security+ rolling code
-        is the only authentication and it is seeded by the physical
-        learn-button press.
+        No network credential crosses to the opener. The Sec+ 2.0 rolling code
+        is the only thing resembling authentication, and the bridge seeds it
+        itself (random client ID, counter persisted on the board); no button
+        press at the opener is involved.
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "none"
+    bonding: "none"
+    exclusivity:
+      single_connection: false
+      single_bond: false
+      recovery: >
+        If the opener ignores a Sec+ 2.0 bridge it used to obey, the bridge's
+        rolling counter has fallen behind what the opener last saw from that
+        client ID — typically after a reflash restored an old counter. Use the
+        bridge's Sync, move the rolling-code counter well forward, or give it a
+        new client ID (ratgdo: bump the Client ID number, or reinstall with
+        Erase, which generates a fresh one). Two bridges sharing one client ID
+        will keep desynchronising each other; the wall console itself can stay.
+    enter_pairing_mode:
+      required: false
+      notes: >
+        The opener's LEARN button is not part of this link. It opens the
+        opener's window for enrolling radio remotes, keypads and MyQ
+        accessories, and a wired bridge can trigger that same window itself
+        (ratgdo's Learn switch sends the wall-panel learn command), which is a
+        reason to keep the bridge's network side locked down.
+    notes: >
+      Nothing a person does at the opener authorises the wired bridge. On
+      Security+ 2.0 the bridge chooses its own client ID for the fixed field
+      and sends rolling-code packets on the wall-control line; the opener acts
+      on any well-formed packet whose counter is ahead of the last one it saw
+      from that ID. That rolling code is anti-replay, not authorisation —
+      esphome-ratgdo has no pairing step, simply queries status on boot and
+      jumps its counter forward if the opener stays silent, and a project
+      collaborator's answer in its issue tracker is that no pairing is needed.
+      Security+ 1.0 wired commands
+      are plain bytes with no rolling code. So physical access to the
+      wall-control terminals is the whole gate. The opener does report a count
+      of wall controls it knows about (ratgdo's Paired Devices), which
+      suggests it records client IDs as it hears them, but nothing has to be
+      enrolled first. Security+ 3.0 (white learn button) moved accessories to
+      encrypted BLE and is out of reach.
 
 local_access:
   status: bridge_hardware

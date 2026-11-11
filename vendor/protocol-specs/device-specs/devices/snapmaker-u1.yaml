@@ -199,6 +199,35 @@ device:
         (trusted_clients covers RFC-1918). The certificate scheme applies
         only to the secure-MQTT channel; the on-device CA (15-year validity)
         signs one client cert per approved client.
+  pairing:
+    required: false
+    confidence: high
+    security_mode: none
+    bonding: none
+    exclusivity:
+      single_connection: false
+      single_bond: false
+    enter_pairing_mode:
+      required: false
+      notes: >
+        Nothing to enter for the HTTP/WebSocket API. The secure-MQTT channel's
+        approval is prompted by the client, not by a button: the request shows
+        an Approve prompt on the touchscreen, which the user taps.
+    notes: >
+      The documented control surface — Moonraker REST and JSON-RPC WebSocket
+      on port 80 — needs no credential from a LAN client: stock
+      moonraker.conf lists every RFC-1918 range under trusted_clients, and
+      this was confirmed live (2026-08-14) with unauthenticated reads.
+      Confidence high for that. There is a second, optional path that DOES
+      pair, documented from Snapmaker's GPL forks and not driven here: the
+      secure-MQTT channel. A client publishes an auth request over plain MQTT
+      on 1884 under the access code — 12345678 by default, the same on every
+      unit, so a protocol fact rather than a secret — the user approves it on
+      the touchscreen, and the printer issues that client its own CA-signed
+      certificate and key for mTLS on 8883. Each approved client gets its own
+      certificate, so many can coexist; revoking one is not documented beyond
+      the per-client mapping file on the printer. No cloud is involved in
+      either path. See the device notes and `credentials.issued_to_client`.
 
 http_endpoints:
   # All served by Moonraker on port 80 (internal 7125 behind nginx); upload

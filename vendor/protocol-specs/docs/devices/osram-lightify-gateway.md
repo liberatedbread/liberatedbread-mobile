@@ -1,6 +1,6 @@
 # OSRAM Lightify Gateway
 
-> **Status**: Shutdown — Lightify cloud switched off 2026-08-31
+> **Status**: Shutdown — Lightify cloud switched off 2021-08-31
 > **Protocol**: WiFi
 > **Manufacturer**: OSRAM (consumer arm later LEDVANCE)
 > **Manufacturer Status**: Shutdown

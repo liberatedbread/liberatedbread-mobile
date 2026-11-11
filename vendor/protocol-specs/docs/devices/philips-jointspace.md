@@ -81,7 +81,8 @@ Pairing (once per client; wire paths are `/6/pair/request` and
 3. All subsequent requests use digest auth with device id / `auth_key`.
    Credentials survive until the TV is reset or unpaired.
 
-The HMAC shared key is a constant shipped in every published client
+The HMAC shared key is a constant published in open-source clients —
+suborb/philips_android_tv (`philips.py`) and haphilipsjs carry it
 (`ZmVay1EQVFOaZhwQ4Kv81ypLAZNczV9sG4KkseXWn1NEk6cXmPKO/MCa9sryslvLCFMnNe4Z4CPXzToowvhHvA==`,
 base64). One divergence in the sources: suborb's 2016 original base64-encoded
 the HMAC's *hex* digest; haphilipsjs base64-encodes the raw digest and is the

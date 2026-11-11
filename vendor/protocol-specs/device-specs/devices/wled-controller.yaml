@@ -308,12 +308,63 @@ device:
       issued_to_client: []
       notes: >
         WLED issues no per-client credential: anything that can reach port 80
-        has full control, including the settings pages, unless OTA lock is
-        enabled. There is no pairing step, no token and no per-client identity
+        has full control, including the settings pages, unless a settings PIN
+        or OTA lock is set (device.pairing). There is no pairing step, no token
+        and no per-client identity
         to store. For a consumer this cuts both ways — nothing to manage, and
         no way to tell one client from another — and it means network reach is
         the whole of the security model. Treat a WLED controller as trusting
         its LAN completely.
+
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "none"
+    bonding: "none"
+    pin:
+      source: "user_chosen"
+      length: 4
+      notes: >
+        Only when the owner has set one, on Config → Security & Updates, and
+        it never gates light control. /json/state, the WebSocket, /win and
+        the realtime protocols stay open regardless. What the PIN gates is
+        configuration: the settings pages, writes to /json/cfg (HTTP 401
+        while locked), the /edit file manager and uploads, and the /update
+        firmware page. A locked settings page answers with a PIN form, and
+        the PIN goes back in the clear as the PIN field of a POST to that
+        settings URL; a wrong entry starts a 3-second cooldown. The unlock is
+        device-wide, not per client — once anyone enters it, every client has
+        config access until it times out (15 minutes after the last settings
+        save) or someone opens /settings/lock. The separate OTA lock passphrase (default "wledota",
+        compiled in unless the build sets its own) blocks firmware upload and
+        some settings changes, and with "Deny access to WiFi settings if
+        locked" also the WiFi page; it is needed again to turn the lock off.
+    exclusivity:
+      single_connection: false
+      single_bond: false
+      recovery: >
+        HTTP is unlimited in principle, but the WebSocket holds at most 8
+        clients on ESP32 and 3 on ESP8266, and a new one past the limit
+        closes the oldest. If a dashboard or app keeps losing its live
+        updates, count the open browser tabs and integrations on that
+        controller and close the extras.
+      notes: >
+        The WebSocket figures are from WLED's own WebSocket documentation.
+        There is no per-client credential to evict, so nothing else is
+        exclusive.
+    enter_pairing_mode:
+      required: false
+    notes: >
+      Nothing pairs: WLED has no token, no button step and no client list, and
+      any host that reaches port 80 controls the lights. The two optional
+      locks above — the 4-digit settings PIN and the OTA lock passphrase —
+      are both chosen by the owner, protect configuration and firmware
+      rather than control. A forgotten PIN also locks the Security page that
+      holds the web-UI reset, so the way out is the >12 s button hold in
+      setup.factory_reset, which erases both. Basis: WLED's settings documentation
+      and wled00/wled_server.cpp and set.cpp, where the PIN check
+      (correctPIN, PIN_TIMEOUT 15 min, PIN_RETRY_COOLDOWN 3 s) is
+      implemented. No cloud is involved at any point.
   # Firmware lines rather than hardware models: the same JSON and WebSocket
   # API is spoken by all of them, which is why a client should feature-detect
   # rather than branch on a version string. WLED+ names these as its supported
@@ -592,8 +643,10 @@ protocol_details:
     notes: >
       The socket carries state and info in the same shape as /json/si. Sending a
       state object over the socket applies it, so a client need not fall back to
-      HTTP for writes. Connection capacity is small — a couple of concurrent
-      clients — so an app should hold one socket per device, not one per view.
+      HTTP for writes. Connection capacity is small — 8 concurrent clients on
+      ESP32, 3 on ESP8266, and a new one past the limit closes the oldest
+      (WLED WebSocket docs) — so an app should hold one socket per device,
+      not one per view.
     verification: "reported"
 
   mqtt_configuration:

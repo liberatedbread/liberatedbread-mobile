@@ -333,7 +333,7 @@ services:
         notes: "Read once at connect; the value is not used."
       - characteristic: "e6807e21-b90a-11e5-a837-0800200c9a66"
         read: true
-        notes: "Channel 1 description (payload_formats.BedditChannelDescription)."
+        notes: "Channel 1 description (payload_formats.SampleChannelDescriptor)."
       - characteristic: "e6807e25-b90a-11e5-a837-0800200c9a66"
         read: true
         notes: "Channel 2 description."
@@ -388,7 +388,7 @@ services:
           code "u2" (uint16 samples), then the channel name as UTF-8 from
           byte 4 to the end of the value. The variable-length name has no
           fixed-length field below; see
-          payload_formats.BedditChannelDescription. The app aborts the
+          payload_formats.SampleChannelDescriptor. The app aborts the
           session if the value is shorter than 5 bytes or the type code is
           not "u2".
         format:
@@ -413,7 +413,7 @@ services:
           LE samples to the end of the value. Sample count = (length - 1) /
           2. The app aborts on a value shorter than 3 bytes or of even
           length. Only the header and the first sample are fixed-position;
-          see payload_formats.BedditChannelPacket for the full layout and
+          see payload_formats.SampleChannelNotification for the full layout and
           protocol_details.gap_padding for lost packets.
         format:
           - offset: 0
@@ -498,7 +498,7 @@ services:
           packet type (0x80 or 0x90), byte 1 the sequence, then uint16 LE
           samples. The length must be even and at least 4, and any other
           type byte makes the app abort. See
-          payload_formats.BedditForcePacket.
+          payload_formats.ForceStreamNotification.
         commands:
           start_force_stream:
             description: >
@@ -566,7 +566,7 @@ services:
         notes: "UTF-8, whole value. The app labels it the main firmware version."
 
 payload_formats:
-  BedditChannelDescription:
+  SampleChannelDescriptor:
     description: >
       Value of e6807e21-b90a-11e5-a837-0800200c9a66 (channel 1) and
       e6807e25-b90a-11e5-a837-0800200c9a66 (channel 2), read once per
@@ -594,7 +594,7 @@ payload_formats:
     # Constructed example, not a capture: 0x2710 = 10000 -> 100.00 Hz,
     # 'u2', name 'force'. The rate is illustrative; the real rate is unknown.
 
-  BedditChannelPacket:
+  SampleChannelNotification:
     description: >
       One notification on e6807e20-b90a-11e5-a837-0800200c9a66 (channel 1)
       or e6807e24-b90a-11e5-a837-0800200c9a66 (channel 2) after
@@ -617,7 +617,7 @@ payload_formats:
     example: "00 10 27 11 27 12 27"
     # Constructed: sequence 0, samples 0x2710=10000, 0x2711=10001, 0x2712=10002.
 
-  BedditForcePacket:
+  ForceStreamNotification:
     description: >
       One notification on f82fd8a9-329d-4c44-a178-e82f91ec9fe6 after
       start_force_stream (f82fd8a8 layout, single force channel).
@@ -634,7 +634,7 @@ payload_formats:
     parse_rules:
       - "Length must be at least 4 and even. Otherwise reject; the app aborts the session."
       - "Byte 0 must be 0x80 or 0x90. Anything else: reject; the app treats it as a protocol violation and aborts the session."
-      - "Sequence and gap handling are the same as for BedditChannelPacket; the expected counter starts at 0."
+      - "Sequence and gap handling are the same as for SampleChannelNotification; the expected counter starts at 0."
       - "Sample rate comes from f82fd8aa-329d-4c44-a178-e82f91ec9fe6 in whole Hz."
       - "Accept any valid length (see protocol_details.att_mtu)."
     example: "80 00 e8 03 e9 03 ea 03"

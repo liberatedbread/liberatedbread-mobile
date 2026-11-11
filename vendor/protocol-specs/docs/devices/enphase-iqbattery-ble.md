@@ -1,6 +1,6 @@
 # Enphase IQ Battery (Encharge) / IQ System Controller (Enpower) — BLE
 
-> **Status**: Research — protocol documented from app decompile; advertisement identity live-verified
+> **Status**: Discovery + encrypted status reads supported; other installer flows remain research
 > **Protocol**: BLE (Digi XBee 3 BLE + Enphase relay payloads)
 > **Manufacturer**: Enphase Energy
 > **Manufacturer Status**: Active
@@ -16,6 +16,13 @@ Installers use this link to commission the units onto the site; it also
 carries live statistics and control. The gateway these units report to is
 documented separately in [Enphase Envoy](enphase-envoy.md).
 
+The mobile client supports discovery, the SRP-6a/AES unlock and read-only
+status queries **4, 5 and 8**. Provisioning, relay/grid control and other
+installer writes are not exposed. No live hardware unlock has been performed,
+so this is implementation support rather than a connection guarantee. The
+recovered interface is **XBee 3**, not XBee Series 2 / "XBee2". Communications
+Kit 2 has a separate, unverified GATT and credential profile and is not covered.
+
 ## Hardware
 
 | Property | Value |
@@ -29,15 +36,17 @@ documented separately in [Enphase Envoy](enphase-envoy.md).
 | Property | Value |
 |----------|-------|
 | Setup required | Yes — installer commissioning |
-| Method | `ble_direct` (BLE provisioning push) |
+| Method | `ble_provisioning` (BLE provisioning push) |
 | Advertised name | `Enpower/<serial>`, `Encharg/<serial>` |
-| Passphrase protection | SRP-6a unlock + AES-encrypted channel; XBee factory-default password `password` |
+| Passphrase protection | SRP-6a unlock + AES-encrypted channel; generic XBee default `password`, manager-specific `030609` |
 | Confidence | medium (app-derived; only advertisement verified on hardware) |
 
-Commissioning over BLE: connect to the XBee 3 BLE service, perform the SRP-6a
-unlock (XBee API frame `0x2C`, user `apiservice`, default password
-`password`), then send User Data Relay frames to the radio's serial interface
-carrying the provisioning frames: link key push (frame type 1,
+Commissioning over BLE: connect to the XBee 3 BLE service and perform the SRP-6a
+unlock (XBee API frame `0x2C`, user `apiservice`). The generic library default is
+`password`, but both provisioning-manager constructor paths for the PAN/link-key
+checks use `030609`. Use the value for the flow being implemented rather than
+assuming one universal password. Then send User Data Relay frames to the radio's
+serial interface carrying the provisioning frames: link key push (frame type 1,
 `[0x01][0x10][16 key bytes]`), gateway serial write (type 7), and
 pairing/commissioning status polls (types 4/5). The 16-byte 802.15.4 link key
 is generated locally by the commissioning app; no cloud is needed on the BLE
@@ -61,8 +70,8 @@ gateway serial) re-joins a unit to the site mesh in place; no reset needed.
 | `f9279ee9-2cd0-410c-81cc-adf11e4e5aea` | RX | Device notifies XBee API frames (CCCD 0x2902) |
 
 XBee API frame types in play (public digi-xbee-java): `0x2C` BLE Unlock,
-`0xAC` BLE Unlock Response, `0xAD` User Data Relay Output (client→device),
-`0x2D` User Data Relay (device→client). After the SRP-6a unlock, both
+`0xAC` BLE Unlock Response, `0x2D` User Data Relay (client→device), `0xAD`
+User Data Relay Output (device→client). After the SRP-6a unlock, both
 directions are AES-encrypted with session keys from the handshake. Enphase
 payloads ride in the relay frames' user-data field, addressed to the radio's
 serial interface (micropython interface on the IQ Extender).
@@ -80,9 +89,14 @@ carry the payload from byte 2 on.
 | 4 | ZB_PAIRING_STATUS | 802.15.4 pairing status |
 | 5 | ZB_COMMISSIONING_STATUS | Commissioning status |
 | 6 | ZB_READ_LINK_KEY | Read back stored link key |
-| 7 | ZB_WRITE_ENVOY_SN | Write gateway serial |
+| 7 | Gateway serial write | Write gateway serial |
 | 8 | ZB_READ_ENVOY_SN | Read gateway serial (PAN ID derivation/verify) |
 | 9 | READ_ENPOWER_TELEM | Read Enpower telemetry |
+
+The gateway-serial write is `[07][one-byte serial length][serial ASCII]`, so its
+total length is the gateway serial length plus two. The read requests are
+`06 00` (link key), `08 00` (Envoy serial) and `09 00` (Enpower telemetry).
+Responses drop those first two bytes before parsing.
 
 ### Object-model protobuf layer
 

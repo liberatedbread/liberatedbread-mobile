@@ -265,7 +265,7 @@ protocol_details:
     "0x11":
       length: 1
       fields:
-        - {name: "ambient_light", offset: 0, type: "uint8", true_values: [1]}
+        - {name: "ambient_light", offset: 0, type: "uint8", true_values: [1], notes: "The cited parser treats any nonzero byte as true; only 0 and 1 are documented."}
     "0x12":
       length: 4
       fields:

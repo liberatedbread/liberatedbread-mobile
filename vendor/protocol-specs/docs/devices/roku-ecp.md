@@ -61,7 +61,7 @@ same refusal 403 means.
 ## ECP2: the authenticated WebSocket session
 
 The official Roku app is unaffected by Limited mode because it speaks ECP2,
-reverse-engineered from the 14.0 APK's `com.roku.mobile.ecp` stack and
+reverse-engineered from the 14.0 app's ECP session layer and
 re-implemented live against the fleet on 2026-08-11:
 
 - Connect `ws://<ip>:8060/ecp-session` with subprotocol `ecp-2` and header
@@ -69,8 +69,10 @@ re-implemented live against the fleet on 2026-08-11:
 - The device sends `{"notify": "authenticate", "param-challenge": "...",
   "param-methods": ["client-id", "jwt"]}`. Client-id auth needs no account:
   answer `{"request": "authenticate", "request-id": "1", "param-response":
-  base64(SHA-1(challenge + secret))}`, where the secret ships in the APK
-  (`ClientIdChallengeResponseStrategy`): the UUID
+  base64(SHA-1(challenge + secret))}`, where the secret is a fixed client id
+  shared by every ECP2 client and published in open-source re-implementations
+  such as [msdrigg/roam](https://github.com/msdrigg/roam)
+  (`ECPProtocol.swift`): the UUID
   `95E610D0-7C29-44EF-FB0F-97F1FCE4C297` with every hex nibble `n` replaced
   by `(24 - n) & 15`, i.e. `F3A278B8-1C6F-44A9-9D89-F1979CA4C6F1`.
 - Frames are `{"request": "query-apps", "request-id": "N"}` →

@@ -441,6 +441,35 @@ device:
         side and the bulbs connect to a self-signed CA). The bulb's MAC is
         the only handle a client needs to keep and it is not a secret.
 
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "none"
+    bonding: "none"
+    exclusivity:
+      single_connection: false
+      single_bond: false
+      recovery: >
+        UDP 9080 is connectionless and takes commands from anyone, so several
+        clients coexist. The one exclusive thing is the bulb's broker: it
+        connects to exactly one MQTT host, the one named in /bimqtt by the
+        server it was provisioned with. A bulb still pointed at Sengled's
+        cloud cannot be moved to your broker in place — that is a factory
+        reset and the provisioning exchange again (setup.rejoin).
+    enter_pairing_mode:
+      required: false
+    notes: >
+      No client credential exists on either local channel. Over UDP 9080 the
+      bulb answers any host on its network, whether or not it can still reach
+      Sengled, which is what keeps bulbs paired with the Sengled Home app
+      years ago usable now. Over MQTT the bulb is the client: it presents no
+      username, password or certificate and trusts the broker it was told
+      about, so "pairing" there amounts to whoever provisioned it choosing
+      which server it reports to. Basis: SengledTools and the Home Assistant
+      local-server add-on, which drive both paths with no credential. The
+      setup method 'Sengled Home app pairing through Sengled's cloud' is
+      Wi-Fi onboarding, not a client authorisation.
+
 # Bespoke material: the UDP function catalogue, the stand-in cloud, the
 # broker requirements and the MQTT message vocabulary.
 protocol_details:

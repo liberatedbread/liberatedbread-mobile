@@ -107,9 +107,13 @@ device:
           onto the home network and answers on TCP 5577.
         softap:
           ssid_prefix: "LEDnet"
-          open_network: true
+          open_network: false
+          passphrase_source: >
+            Product-wide vendor default 88888888, printed in the Magic Home
+            controller instructions; the app can change it, and the reset
+            button restores the default. Not a per-unit secret.
         steps:
-          - action: "Power a new/reset controller and join its setup AP."
+          - action: "Power a new/reset controller and join its setup AP (LEDnetXXXX, passphrase 88888888 unless the owner changed it)."
             actor: "user"
           - action: "On UDP 48899, send 'HF-A11ASSISTHREAD'; expect '+ok'."
             actor: "client"
@@ -141,7 +145,7 @@ device:
           steps:
             - action: "Switch the controller off and on five times in quick succession."
               actor: "user"
-              expect: "An open network named LEDnetXXXX appears; the default passphrase is 88888888."
+              expect: "A WPA-protected network named LEDnetXXXX appears; its default passphrase is 88888888."
         - name: "Reset button held (units with an accessible button)"
           verified: false
           basis: "The Magic Home controller instructions; the two published hold times disagree, so watch the LEDs rather than the clock."
@@ -169,6 +173,41 @@ device:
         The home passphrase is sent as an AT-style command over the UDP 48899
         config channel — no encryption. Post-setup TCP 5577 control is
         unauthenticated: anything on the LAN can drive the controller.
+
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "none"
+    bonding: "none"
+    exclusivity:
+      single_connection: "unknown"
+      single_bond: false
+      recovery: >
+        If TCP 5577 refuses or stalls while the controller still answers the
+        UDP 48899 probe, suspect another client holding sockets: close the
+        Magic Home app, stop any second integration pointed at the same
+        controller, and power-cycle it to drop stale connections. A
+        controller that never answers on 5577 may be one of the variants
+        that listen on 34001 instead (flux_led switches to that port when the
+        discovery reply's model string names Armacost).
+      notes: >
+        These modules are widely held in user reports to accept only a small
+        number of simultaneous TCP connections, but no source checked here —
+        flux_led, Home Assistant's flux_led documentation, zengge-lightcontrol
+        — states a figure, so this stays unknown. flux_led keeps one
+        persistent connection per device and reconnects on drop, which is the
+        safe pattern either way.
+    enter_pairing_mode:
+      required: false
+    notes: >
+      Nothing gates a LAN client: TCP 5577 takes commands from anyone with no
+      handshake, token or button, and nothing is stored about the client. The
+      cloud relay (an outbound connection the module opens to the vendor's
+      server, configured with the AT+SOCKB command over UDP 48899 — flux_led
+      exposes it as enable/disable remote access) is independent of local
+      control, so blocking the controller from the internet changes nothing
+      here. The status page some modules serve on port 80 is not the control
+      path either. Onboarding is setup method 'softap_http'.
 
 # The Zengge/Magic Home LAN protocol. Lives under `protocol_details`, the
 # schema's namespace for single-spec protocol blocks (the top level is closed).
@@ -265,3 +304,9 @@ helpful_urls:
     kind: "manual"
     description: >
       Manual for a Zengge controller of the family this spec covers. These ship under many retail names — Magic Home is the app, Zengge is the OEM.
+  - title: "Magic Home CC WiFi lighting controller manual (PDF)"
+    url: "https://manuals.plus/magic-home/ccwifi-wifi-lighting-controller-manual.pdf"
+    kind: "manual"
+    description: >
+      Vendor instructions giving the setup AP's default password 88888888 and
+      the hold-reset-ten-seconds recovery for a forgotten one.

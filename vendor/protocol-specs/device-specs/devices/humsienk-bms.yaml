@@ -127,10 +127,12 @@ device:
     "WATT" protocol on 0000fff0.
 
   identification:
-    local_name_prefix: "HS"
     notes: >
-      "HS" is a two-letter prefix and plenty of unrelated BLE devices start
-      with it, so treat a name match as a candidate only. Confirm after
+      No name prefix is declared here. "HS" is a two-letter prefix that
+      plenty of unrelated BLE devices start with (and prefixes are matched
+      case-insensitively), and this spec offers FET-off writes, so a bare
+      prefix is too loose to identify on. The name's observed shape is the
+      regex in discovery; even a regex match is a candidate only. Confirm after
       connecting. The GATT table must contain service
       00000001-0000-1000-8000-00805f9b34fb with write characteristic
       00000002 and notify characteristic 00000003, and the handshake frame
@@ -138,24 +140,28 @@ device:
       command byte 0x00. Whether the pack also advertises the service UUID
       is not established. The one published name is "HS" followed by 16
       upper-case hex digits, which looks like a per-unit serial (written
-      HS<serial> here). One example is not a pattern, so the matcher stays a
-      plain prefix. No manufacturer data or OUI is documented.
+      HS<serial> here). One example is not a pattern, but it is the only
+      shape on record, so the matcher follows it: a pack named otherwise is
+      missed until a second example widens the regex. No manufacturer data
+      or OUI is documented.
 
   discovery:
     methods:
       - type: "ble_scan"
         ble:
           local_name:
-            match: "prefix"
-            value: "HS"
+            match: "regex"
+            value: "^HS[0-9A-F]{16}$"
         notes: >
-          Name prefix only. The service UUID is deliberately not a scan
+          Name only, in the one published shape: "HS" and 16 upper-case hex
+          digits. The humsienk-esp32 bridge finds packs by the bare "HS"
+          prefix, which is wider than this spec wants for a device with
+          FET-off writes. The service UUID is deliberately not a scan
           matcher. Whether it is advertised is not established, and in a
           ble_scan method it would be OR-ed with the name, which would admit
           any device advertising 16-bit service 0x0001. Pair the name with
           the post-connect GATT and handshake check in
-          device.identification.notes. The humsienk-esp32 bridge finds packs
-          by name prefix alone.
+          device.identification.notes.
     identity:
       stable_keys: ["address"]
       display: "local_name"
@@ -174,8 +180,8 @@ device:
       - type: "ble_direct"
         verified: false
         description: >
-          Scan for a name starting "HS", connect without pairing, confirm the
-          GATT table, subscribe to 00000003, raise the MTU if the stack
+          Scan for a name "HS" + 16 hex digits, connect without pairing,
+          confirm the GATT table, subscribe to 00000003, raise the MTU if the stack
           allows, send the handshake, then poll 0x21 / 0x22 / 0x20.
         ble:
           pairing_required: false
@@ -185,7 +191,7 @@ device:
               advertises while it is on. Bring the phone or bridge close. App
               users advise within about 1 m (1-3 ft) for the first connection.
             actor: user
-          - action: "Scan for a local name starting with HS."
+          - action: "Scan for a local name matching ^HS[0-9A-F]{16}$ (HS and 16 upper-case hex digits)."
             actor: client
           - action: >
               Connect (no pairing, no bonding) and discover services. Require

@@ -168,7 +168,7 @@ device:
     - model: "Haiku H/I Series"
       identification: { model_prefix: "Haiku H/I" }
     - model: "Haiku L Series"
-      identification: { model_prefix: "Haiku L" }
+      identification: { model_prefix: "Haiku L Series" }
     - model: "Haiku Light"
       identification: { model_prefix: "Haiku Light" }
 
@@ -356,6 +356,8 @@ device:
     confidence: "medium"
     security_mode: "none"
     bonding: "none"
+    enter_pairing_mode:
+      required: false
     notes: >
       Nothing pairs on the control path. The TCP socket on 31415 takes any LAN
       client with no key, token or handshake (aiobafi6, oogje, and the vendor
@@ -714,6 +716,9 @@ payload_formats:
       - {name: "light_mode", description: "Field 68, varint.", values: {0: "off", 1: "on", 2: "auto"}}
       - {name: "light_brightness", description: "Field 69, varint 0-100.", unit: "%"}
       - {name: "light_color_temperature", description: "Field 71, varint.", unit: "K"}
+      - {name: "light_motion_timeout", description: "Field 73, varint.", unit: "s"}
+      - {name: "light_return_to_auto", description: "Field 74, varint 0/1."}
+      - {name: "light_return_to_auto_timeout", description: "Field 75, varint.", unit: "s"}
       - {name: "light_dim_to_warm", description: "Field 77, varint 0/1."}
       - {name: "light_occupancy", description: "Field 85, varint 0/1. API version 5+."}
       - {name: "temperature", description: "Field 86, int32 varint.", unit: "C", scale: 0.01}

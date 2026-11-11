@@ -45,13 +45,26 @@ def test_constructed_v1_measurement_matches_spec_vector():
     vector = SPEC["protocol_details"]["test_vectors"]["v1_measurement"]
     frame = bytes.fromhex(vector["frame_hex"])
     assert frame == v1_frame(0x50, struct.pack("<fffHH", 2.5, 3.5, 4.5, 50, 60))
-    assert parse_v1(frame) == (2.5, 3.5, 4.5, 50, 60)
+    assert parse_v1(frame) == (
+        vector["current_pci_l"],
+        vector["one_day_pci_l"],
+        vector["one_month_pci_l"],
+        vector["pulse_count"],
+        vector["previous_pulse_count"],
+    )
 
 
 def test_constructed_v2_measurement_matches_spec_vector():
     vector = SPEC["protocol_details"]["test_vectors"]["v2_measurement"]
     frame = bytes.fromhex(vector["frame_hex"])
-    assert parse_v2_measurement(frame) == (b"\x00\x00", 100, 110, 120, 13, 14)
+    assert parse_v2_measurement(frame) == (
+        b"\x00\x00",
+        vector["current_bq_m3"],
+        vector["one_day_bq_m3"],
+        vector["one_month_bq_m3"],
+        vector["pulse_count"],
+        vector["previous_pulse_count"],
+    )
 
 
 def test_native_units_remain_distinct_and_conversion_is_exact():

@@ -223,6 +223,59 @@ device:
         serial before pairing — so they must not be treated as secret
         material.
 
+  pairing:
+    required: true
+    confidence: "medium"
+    # Client-triggered on-screen PIN traded for an AUTH_TOKEN over the API.
+    security_mode: "app_layer"
+    bonding: "none"
+    pin:
+      source: "device_screen"
+      length: 4
+      notes: >
+        PUT /pairing/start (pair_start) makes the TV show a 4-digit PIN at the
+        top of the screen; PUT /pairing/pair (pair_confirm) sends it as
+        RESPONSE_VALUE with the PAIRING_REQ_TOKEN and client DEVICE_ID, and
+        returns ITEM.AUTH_TOKEN — the bearer token the client stores and sends
+        as the AUTH header. Pair with the TV already on (pyvizio).
+    exclusivity:
+      single_connection: false
+      single_bond: false
+      recovery: >
+        Each client keeps its own token; pairing another does not revoke it.
+        BLOCKED from /pairing/start means a pairing session is already open —
+        finish it or send /pairing/cancel, then start again.
+        MAX_CHALLENGES_EXCEEDED means too many wrong PINs; restart from
+        /pairing/start. A "requires_pairing" result on a command means the
+        token is missing or has been deleted on the TV.
+    enter_pairing_mode:
+      required: false
+      notes: >
+        No menu toggle or button: the API answers as soon as the TV is on the
+        LAN, and the client's pair_start raises the PIN. SmartCast speakers and
+        sound bars generally need no token at all (pyvizio), so the PIN step is
+        a TV-class requirement.
+    unpair:
+      supported: true
+      requires_factory_reset: false
+      clears: "One paired client and its AUTH_TOKEN; settings and other clients stay."
+      procedures:
+        - name: "Delete the client under Mobile Devices"
+          verified: false
+          basis: "This spec's setup notes, drawn from pyvizio / exiva; Vizio manuals describe a Mobile Devices list with per-device delete."
+          power_state: "on"
+          glyph: "generic/on-screen-menu.svg"
+          steps:
+            - action: "Settings > System > Mobile Devices; select the client and delete it."
+              actor: "user"
+              expect: "That client's requests now answer requires_pairing."
+    notes: >
+      Pairing is a client-run PIN exchange over the same HTTPS API (port 7345
+      on current firmware, 9000 on older), entirely local, with no Vizio
+      account involved; the token has no documented expiry. Identity reads
+      answer without a token. Step-by-step in setup method 'device_ui' and the
+      Begin/Finish/Cancel Pairing http_endpoints.
+
 helpful_urls:
   - title: "exiva — Vizio SmartCast API (2016+ Models)"
     url: "https://github.com/exiva/Vizio_SmartCast_API"

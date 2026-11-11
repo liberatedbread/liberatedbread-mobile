@@ -1,5 +1,10 @@
 # Beddit 3 / 3.5 Sleep Monitor — Research Notes
 
+> **Superseded.** `device-specs/devices/beddit-sleep-monitor.yaml` is the current
+> account. The service UUID and characteristic roles below are an early read and
+> are wrong: the spec gives the service as `e6807d20-…`, with `e6807d21` as the
+> control point and `e6807d22` as status.
+
 Under-mattress sensor-strip sleep tracker. Finnish startup Beddit was acquired by Apple
 in May 2017; Beddit 3.5 (BLE 4.2, "Model 3.5") shipped 2018. Category: sleep tracker.
 
@@ -20,7 +25,7 @@ in May 2017; Beddit 3.5 (BLE 4.2, "Model 3.5") shipped 2018. Category: sleep tra
 - **Package**: `com.beddit.beddit` (legacy Android app, frozen ~2018/2019)
 - **Source**: apkeep, apk-pure (2026-08-03)
 - **APK SHA-256**: `f3b995c9e1e9c38c27bee95668508b2a2a746f9afd0e9f4e665cca4bd9b3f9f2` (25 MB, single DEX)
-- jadx decompile clean; BLE code under `com.beddit.sensor.le` (lightly obfuscated class
+- jadx decompile clean; BLE code in the app's low-energy sensor package (lightly obfuscated class
   names, but full logic readable).
 
 ## BLE UUIDs (recovered from static pass)
@@ -42,8 +47,8 @@ From the app's BLE sensor-session classes:
 - BT Classic SPP UUID `00001101-...` also present (legacy Beddit 3.0 fallback path?).
 - `612d9e68-...` seen in DEX is a Postmark email API token, **not** a BLE UUID.
 - Session flow: read DIS → read channel descriptors from service `e6807e20`
-  → subscribe to data chars; stream parsing in `com.beddit.sensor` (SensorChannelDetails etc.).
-- Hardware type string `HARDWARE_TYPE_IDENTIFIER_BTLE_V3` in `SensorManager`.
+  → subscribe to data chars; stream parsing in the app's sensor package (channel-descriptor classes).
+- The app's sensor manager carries a hardware-type identifier for BLE v3 hardware.
 
 ## Open questions
 - Advertising name pattern (likely "Beddit") — not in DEX strings; needs live scan.

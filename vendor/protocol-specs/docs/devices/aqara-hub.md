@@ -77,9 +77,14 @@ factory reset needed.
 
 | Property | Value |
 |----------|-------|
-| Pairing required | Yes — but the "pairing" is account binding, not a local exchange |
-| Security mode | `app_layer` (bindKey issued by the vendor cloud) |
+| Pairing required | No local client pairing: discovery and the Wi-Fi handoff answer anyone. The cloud-issued `bindKey` is account binding, which is part of setup |
+| Security mode | `none` on the documented LAN surface; control is cloud-only |
 | One client at a time | N/A on LAN; account-bound in cloud |
+
+Local control routes outside this spec have their own gates: a HomeKit
+setup code on supported models, a Matter pairing code from the Aqara app,
+or the per-hub developer-mode key on older Xiaomi-era firmware. None of
+them is verified here.
 
 Zigbee sensors pair *to the hub* (standard Zigbee joining while the hub is in
 pairing mode), not to the phone. Aqara's BLE locks are a separate, fully

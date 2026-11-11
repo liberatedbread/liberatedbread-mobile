@@ -33,15 +33,16 @@ replacement client needs.
 
 ## Initial Setup
 
-Out of the box the controller hosts an **open SoftAP** — SSID prefix `SP108E_`,
-device at `192.168.4.1`. You can drive it directly from that AP, or provision it
+Out of the box the controller hosts its own **SoftAP** — SSID prefix `SP108E_`,
+device at `192.168.4.1`, default pin `12345678` (product-wide, from the vendor
+instructions). You can drive it directly from that AP, or provision it
 onto your home network.
 
 | Property | Value |
 |----------|-------|
 | Setup required | Only to join a home network; direct SoftAP control works out of the box |
 | Method | `softap_udp` (credentials over TCP 8189, token reply on UDP 8188) |
-| Setup AP / advertised name | `SP108E_…` (open, no passphrase) |
+| Setup AP / advertised name | `SP108E_…` (WPA, default pin `12345678`) |
 | Passphrase protection | Effectively plaintext — per-frame random-key XOR obfuscation, keys sent alongside the data |
 | Confidence | medium (recovered from the app; not replayed on hardware) |
 

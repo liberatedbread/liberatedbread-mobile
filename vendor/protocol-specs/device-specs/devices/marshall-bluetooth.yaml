@@ -124,11 +124,11 @@ device:
       prefixes are the two defaults the sources show ("MOTIF II A.N.C. [LE]"
       from the upstream author's unit, "MONITOR III A.N.C. [LE]" from the
       vendor manual); the device-name characteristic lets an owner rename a
-      unit, after which only the " [LE]" suffix matcher in discovery and the
-      company id remain. Do NOT match on service 0000fe8f: that is the
-      Tymphany speaker protocol (see device.notes), not this surface. MAC
-      prefixes are useless on the LE side, whose address is random and
-      rotates.
+      unit, after which only the company id remains (the discovery regex
+      needs a known model name before the " [LE]" suffix). Do NOT match on
+      service 0000fe8f: that is the Tymphany speaker protocol (see
+      device.notes), not this surface. MAC prefixes are useless on the LE
+      side, whose address is random and rotates.
 
   discovery:
     methods:
@@ -136,7 +136,14 @@ device:
         ble:
           local_name:
             match: "regex"
-            value: '^.* \[LE\]$'
+            value: '^(MOTIF|MONITOR|MAJOR) .*\[LE\]$'
+        notes: >
+          The " [LE]" suffix alone is not Marshall's: any dual-mode product
+          can name its LE side that way. The regex is anchored on the model
+          families this surface is recorded for (Motif, Monitor, Major), as
+          the sources show the names, upper-case. A unit the owner renamed,
+          and the speakers (whose LE names are not recorded), are left to the
+          company-id method below.
       - type: "ble_scan"
         ble:
           manufacturer_data:
@@ -192,7 +199,7 @@ device:
         steps:
           - action: "Power the product on (earbuds: in the case with the lid open; headphones and speakers: switched on)."
             actor: "user"
-          - action: "Scan for an LE advertisement whose local name ends in \" [LE]\" (or carries company id 0x065A); note its current random address."
+          - action: "Scan for an LE advertisement whose local name is the model name followed by \" [LE]\" (for example \"MOTIF II A.N.C. [LE]\"), or that carries company id 0x065A; note its current random address."
             actor: "client"
             request:
               protocol: "ble_gatt"
@@ -748,76 +755,6 @@ services:
         properties: ["read", "write"]
         notes: "Payload unknown. No legacy alias."
 
-  # Grouping placeholder, on the hotwired-heated-gear precedent: the vendor apps
-  # look these up by characteristic UUID across ALL services, so their parent
-  # service is not recorded. The duplicated UUID is not an on-device claim.
-  - uuid: "fa302d24-d775-4343-b9ed-8cc68ace3284"
-    name: "Characteristics with no recorded parent service (legacy aliases, earbud battery)"
-    notes: >
-      Grouping placeholder, not a second service on the device. Holds (1) the
-      legacy 0000aaXX aliases older firmware exposes in place of the 1337
-      characteristics, and (2) the earbud / case battery characteristics on
-      the 7a573e5d-9330-4d9b-8660-63c33fc5XXXX base. Neither source records
-      which service contains them. Look each up by UUID across all
-      services. A legacy alias carries the same payload as its modern twin;
-      only the two with documented payloads (noise control, EQ) and the ones
-      a client is most likely to probe are named in full here, and the whole
-      mapping is in protocol_details.uuid_schemes.characteristic_codes.
-    characteristics:
-      - uuid: "0000aa20-0000-1000-8000-00805f9b34fb"
-        name: "Noise control mode (legacy alias of 0x0013)"
-        properties: ["read", "write", "notify"]
-        notes: "Same one-byte payload as 00000013-1337-1dea-feed-c0ffee70c0de: 0x00 off, 0x01 ANC, 0x02 transparency. Older firmware."
-        format:
-          - offset: 0
-            length: 1
-            name: "mode"
-            type: "uint8"
-            values:
-              "0": "off"
-              "1": "noise_cancelling"
-              "2": "transparency"
-      - uuid: "0000aa25-0000-1000-8000-00805f9b34fb"
-        name: "EQ step settings (legacy alias of 0x0017)"
-        properties: ["read", "write"]
-        notes: "Same two writes as 00000017-1337-1dea-feed-c0ffee70c0de: [0x01, step, preset] then [0x00, step]. Older firmware."
-      - uuid: "0000aa02-0000-1000-8000-00805f9b34fb"
-        name: "Classic pairing mode (legacy alias of 0x0001)"
-        properties: ["read", "write"]
-        notes: "Payload unknown."
-      - uuid: "0000aa04-0000-1000-8000-00805f9b34fb"
-        name: "Device name (legacy alias of 0x0003)"
-        properties: ["read", "write"]
-        notes: "Payload unknown."
-      - uuid: "0000aa08-0000-1000-8000-00805f9b34fb"
-        name: "Volume (legacy alias of 0x0007)"
-        properties: ["read", "write", "notify"]
-        notes: "Payload unknown."
-      - uuid: "7a573e5d-9330-4d9b-8660-63c33fc50001"
-        name: "Right earbud battery level"
-        properties: ["read", "notify"]
-        notes: "Tymphany UUID base. Payload not documented; presumably a percentage like 0x2a19, but that is not established, so no format is declared. Properties are an assumption from its role (upstream lists the UUID only)."
-      - uuid: "7a573e5d-9330-4d9b-8660-63c33fc50002"
-        name: "Left earbud battery level"
-        properties: ["read", "notify"]
-        notes: "As the right earbud: payload not documented, properties assumed."
-      - uuid: "7a573e5d-9330-4d9b-8660-63c33fc50003"
-        name: "Charging case battery level"
-        properties: ["read", "notify"]
-        notes: "As the right earbud: payload not documented, properties assumed."
-      - uuid: "7a573e5d-9330-4d9b-8660-63c33fc50101"
-        name: "Right earbud battery level status"
-        properties: ["read", "notify"]
-        notes: "Presumably mirrors Battery Level Status (0x2bed) for one earbud; not established. Properties assumed."
-      - uuid: "7a573e5d-9330-4d9b-8660-63c33fc50102"
-        name: "Left earbud battery level status"
-        properties: ["read", "notify"]
-        notes: "As the right earbud's status; not established."
-      - uuid: "7a573e5d-9330-4d9b-8660-63c33fc50103"
-        name: "Charging case battery level status"
-        properties: ["read", "notify"]
-        notes: "As the right earbud's status; not established."
-
   - uuid: "0000180f-0000-1000-8000-00805f9b34fb"
     name: "Battery Service"
     notes: >
@@ -1050,6 +987,77 @@ entities:
       payload is undocumented and so bound to nothing).
 
 protocol_details:
+  unparented_characteristics:
+    description: >
+      Characteristics whose parent service neither source records: (1) the
+      legacy 0000aaXX aliases older firmware exposes in place of the 1337
+      characteristics, and (2) the earbud / case battery characteristics on
+      the 7a573e5d-9330-4d9b-8660-63c33fc5XXXX base. The vendor apps look
+      them up by characteristic UUID across ALL discovered services, and so
+      must a client. They used to sit under a second copy of the
+      fa302d24-d775-4343-b9ed-8cc68ace3284 service as a grouping
+      placeholder, which read as a claim that the device has two such
+      services; they live here instead. A legacy alias carries the same
+      payload as its modern twin; only the two with documented payloads
+      (noise control, EQ) and the ones a client is most likely to probe are
+      named in full here, and the whole mapping is in
+      uuid_schemes.characteristic_codes. Entities name the two documented
+      aliases as fallback_characteristic.
+    characteristics:
+      - uuid: "0000aa20-0000-1000-8000-00805f9b34fb"
+        name: "Noise control mode (legacy alias of 0x0013)"
+        properties: ["read", "write", "notify"]
+        notes: "Same one-byte payload as 00000013-1337-1dea-feed-c0ffee70c0de: 0x00 off, 0x01 ANC, 0x02 transparency. Older firmware."
+        format:
+          - offset: 0
+            length: 1
+            name: "mode"
+            type: "uint8"
+            values:
+              "0": "off"
+              "1": "noise_cancelling"
+              "2": "transparency"
+      - uuid: "0000aa25-0000-1000-8000-00805f9b34fb"
+        name: "EQ step settings (legacy alias of 0x0017)"
+        properties: ["read", "write"]
+        notes: "Same two writes as 00000017-1337-1dea-feed-c0ffee70c0de: [0x01, step, preset] then [0x00, step]. Older firmware."
+      - uuid: "0000aa02-0000-1000-8000-00805f9b34fb"
+        name: "Classic pairing mode (legacy alias of 0x0001)"
+        properties: ["read", "write"]
+        notes: "Payload unknown."
+      - uuid: "0000aa04-0000-1000-8000-00805f9b34fb"
+        name: "Device name (legacy alias of 0x0003)"
+        properties: ["read", "write"]
+        notes: "Payload unknown."
+      - uuid: "0000aa08-0000-1000-8000-00805f9b34fb"
+        name: "Volume (legacy alias of 0x0007)"
+        properties: ["read", "write", "notify"]
+        notes: "Payload unknown."
+      - uuid: "7a573e5d-9330-4d9b-8660-63c33fc50001"
+        name: "Right earbud battery level"
+        properties: ["read", "notify"]
+        notes: "Tymphany UUID base. Payload not documented; presumably a percentage like 0x2a19, but that is not established, so no format is declared. Properties are an assumption from its role (upstream lists the UUID only)."
+      - uuid: "7a573e5d-9330-4d9b-8660-63c33fc50002"
+        name: "Left earbud battery level"
+        properties: ["read", "notify"]
+        notes: "As the right earbud: payload not documented, properties assumed."
+      - uuid: "7a573e5d-9330-4d9b-8660-63c33fc50003"
+        name: "Charging case battery level"
+        properties: ["read", "notify"]
+        notes: "As the right earbud: payload not documented, properties assumed."
+      - uuid: "7a573e5d-9330-4d9b-8660-63c33fc50101"
+        name: "Right earbud battery level status"
+        properties: ["read", "notify"]
+        notes: "Presumably mirrors Battery Level Status (0x2bed) for one earbud; not established. Properties assumed."
+      - uuid: "7a573e5d-9330-4d9b-8660-63c33fc50102"
+        name: "Left earbud battery level status"
+        properties: ["read", "notify"]
+        notes: "As the right earbud's status; not established."
+      - uuid: "7a573e5d-9330-4d9b-8660-63c33fc50103"
+        name: "Charging case battery level status"
+        properties: ["read", "notify"]
+        notes: "As the right earbud's status; not established."
+
   uuid_schemes:
     description: >
       Four UUID families. A client resolves every function modern-first,

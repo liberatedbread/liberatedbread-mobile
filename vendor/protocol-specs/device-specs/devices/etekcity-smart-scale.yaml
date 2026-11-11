@@ -11,7 +11,7 @@ device:
     status: untested
   protocol: "ble"
   category: "scale"
-  category_hierarchy: ["measurement", "health", "body_composition"]
+  category_hierarchy: ["measurement", "other"]
   notes: >
     The VeSync app is a multi-device platform. The ESN00 kitchen scale's own
     BLE interface is service 0x1910 with characteristics 0x2C10 (read),

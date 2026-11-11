@@ -32,15 +32,16 @@ spec's `device.setup` block; the patterns are explained in
 | [Ember Mug](ember-mug.md) | BLE | Complete | None needed | Ember Technologies |
 | [Bluetooth LED Name Badge](bluetooth-led-name-badge.md) | BLE | Complete | None needed | Generic (multiple vendors) |
 | [iDotMatrix](idotmatrix.md) | BLE | Complete | None needed | iDotMatrix / LedHun |
-| [LEDs2RAVE4 / Lunchbox Dream LED](leds2rave4-lunchbox-led.md) | BLE | Complete | None needed | LEDs2RAVE4 / Lunchbox Packs (SP107E / SP110E / SPOTLED) |
-| [SPOTLED LED Panels](spotled-led-panel.md) | BLE | Complete | None needed | Host No.4 Technology / generic OEM |
+| [LEDs2RAVE4 / Lunchbox Dream LED](leds2rave4-lunchbox-led.md) | BLE | Minimally verified (SPOTLED) | None needed | LEDs2RAVE4 / Lunchbox Packs (SP107E / SP110E / SPOTLED) |
+| [iLEDColor LED Matrix Panels](iledcolor-led-panel.md) | BLE | Minimally verified | None needed; optional app password | Shenzhen I-ledshow |
+| [SPOTLED LED Panels](spotled-led-panel.md) | BLE | Minimally verified | None needed | Host No.4 Technology / generic OEM |
 | [CoolLEDX / CoolLED1248 Signs](coolledx-led-sign.md) | BLE | In Progress | None needed | Juntong Technology |
 | [Shining Mask](shining-mask.md) | BLE | Complete | None needed | Shenzhen Shining Bright Technology |
 | [PAX Vape](pax-vape.md) | BLE | Complete | None needed | PAX Labs |
 | [Shining Glasses](shining-glasses.md) | BLE | Complete | None needed | Shenzhen Shining Bright Technology |
 | [Magic Display](magic-display.md) | BLE | Complete | None needed | tirohk / AiTURE |
 | [Chef iQ Sense](chef-iq-sense.md) | BLE + Wi-Fi | Complete | BLE provisioning (medium) | Chefman / Chef iQ |
-| [AUTOBABA LED Backpack](autobaba-led-backpack.md) | BLE + Wi-Fi | Complete | None needed | LOY SPACE / popled.cn |
+| [AUTOBABA LED Backpack](autobaba-led-backpack.md) | BLE + Wi-Fi | Minimally verified | None needed | LOY SPACE / popled.cn |
 | [Nyan BT Image Controller](nyan-bt-image-controller.md) | BLE | Complete | None needed | NYAN GEAR / LOY SPACE |
 | [LED space Wi-Fi LED Screen](led-space.md) | Wi-Fi (device AP) + BLE variant | Complete | None needed (device hosts its AP) | LOY SPACE / popled.cn |
 | [SP105E Magic LED Controller](sp105e-magic-led.md) | BLE | Spec Available | None needed | Sperll-era OEM (BTF-LIGHTING, ALITOVE, …) |
@@ -109,6 +110,7 @@ spec's `device.setup` block; the patterns are explained in
 | [Quin / Daviky Smart Pill Boxes](quin-pillcalendar.md) | Bluetooth Classic SPP (BLE discovery) | Spec Available | None needed; wake box (medium) | ZHUHAI QUIN TECHNOLOGY / Daviky |
 | [Triumph Tiger 900](triumph-tiger-900.md) | OBD-II (CAN) | In Progress | None needed | Triumph Motorcycles |
 | [BMW Motorcycle Diagnostics](bmw-motorcycle-diagnostics.md) | OBD-II (BMW D-CAN) | In Progress | None needed | BMW Motorrad |
+| [Nissan Leaf Battery Data (ZE0 / AZE0 / ZE1)](nissan-leaf-obd2.md) | OBD-II (CAN, via BLE ELM327) | In Progress | Plug in an adapter (read-only) | Nissan (NissanConnect EV ended UK/EU 2026-03-30) |
 | [Fardriver ND-series Motor Controller](fardriver-controller.md) | BLE | Research | None needed | Nanjing Fardriver |
 | [Bafang BBS02 Mid-Drive](bafang-bbs02.md) | UART (BLE via bridge) | Research | None needed | Bafang |
 | [Tongsheng TSDZ2 Mid-Drive](tsdz2-tongsheng.md) | UART (9600 baud) | Research | None needed | Tongsheng |
@@ -118,7 +120,7 @@ spec's `device.setup` block; the patterns are explained in
 | [Rabbit Air Purifiers](rabbit-air-purifier.md) | WiFi (UDP 9009) | Complete | BLE-assisted / SoftAP via vendor app (medium) | Rabbit Air (vendor publishes the LAN library) |
 | [Beurer PO60 Pulse Oximeter](beurer-po60-pulse-oximeter.md) | BLE | Spec Available | BLE passkey bonding (medium) | Beurer |
 | [Beurer Series 800 (BM92) Blood Pressure Monitor](beurer-series800-blood-pressure.md) | BLE (standard BP profile) | Spec Available | BLE bonding (medium) | Beurer |
-| [FOREO Peach 2 IPL](foreo-peach-2.md) | BLE | Spec Available | None — offline MAC-derived unlock (low) | FOREO |
+| [FOREO Peach 2 IPL](foreo-peach-2.md) | BLE | Capture verified (stock app) | None — offline MAC-derived unlock (reported) | FOREO |
 | [Braun Silk-expert Pro 5 IPL](braun-silk-expert-pro5.md) | BLE | Spec Available | BLE bonding (medium) | Braun / P&G |
 | [Silk'n Infinity / Silk'n 7 IPL](silkn-infinity.md) | BLE | Spec Available | None needed | Silk'n (Home Skinovations) |
 | [Hyperice Hypervolt Plus](hyperice-hypervolt-plus.md) | BLE | Spec Available | None needed | Hyperice |
@@ -135,7 +137,7 @@ spec's `device.setup` block; the patterns are explained in
 | [Zigbee Soil Tester (TS0601 family)](zigbee-soil-tester.md) | Zigbee | Spec Available | Any Zigbee coordinator — Z2M native (low) | Tuya OEM (GIEX/HOBEIAN/COOLO) |
 | [Vevor VT256 Thermal Imager](vevor-vt256-thermal-imager.md) | WiFi (device AP; RTSP + TCP 8080) | Spec Available | Join device AP (low) | Vevor / Hti-Xintai HT-W01 |
 | [Flowtoys Props (Connect bridge)](flowtoys-props.md) | BLE + WiFi-OSC bridge → nRF24 RF | Spec Available | None needed (bridge) | Flowtoys (open-source bridge firmware) |
-| [Enphase IQ Battery / Enpower BLE](enphase-iqbattery-ble.md) | BLE (Digi XBee 3 service) | Spec Available | SRP-6a unlock (medium) | Enphase Energy |
+| [Enphase IQ Battery / Enpower BLE](enphase-iqbattery-ble.md) | BLE (Digi XBee 3 service) | Discovery + status reads | SRP-6a unlock (medium) | Enphase Energy |
 | [LimitlessLED / Mi-Light WiFi Bridge](limitlessled-milight-bridge.md) | WiFi (UDP 8899 / 48899) | Spec Available | None needed | LimitlessLED / Mi-Light (High-Flying module) |
 | [Brother QL-1110NWB Label Printer](brother-ql-1110nwb.md) | WiFi (TCP 9100) + BT Classic SPP | Spec Available | On-device pairing (low) | Brother |
 | [MXW01 Cat Printer](cat-printer-mxw01.md) | BLE | Spec Available | None needed | Generic (MXW01 family) |
@@ -200,6 +202,7 @@ spec's `device.setup` block; the patterns are explained in
 | [TiVo Network Remote](tivo-network-remote.md) | LAN (TCP 31339) | Spec Available | Enable Network Remote Control (medium) | TiVo / Xperi |
 | [Drobo NAS Status Daemon](drobo-nasd-status.md) | LAN (TCP 5000) | Spec Available | None needed | Drobo (liquidated) |
 | [Hot Wheels id Race Portal](hot-wheels-id-race-portal.md) | BLE | Spec Available | None needed (connect and subscribe) | Mattel (id system discontinued 2023) |
+| [Hasbro Furby Connect](hasbro-furby-connect.md) | BLE | Spec Available | None needed (connect, keep-quiet writes) | Hasbro (app deprecated; unsupported) |
 | [Kano Coding Wand](kano-coding-wand.md) | BLE | Spec Available | None needed (connect and subscribe) | Kano Computing (in administration 2023) |
 | [Artiphon Orba 2](artiphon-orba-2.md) | BLE-MIDI + SysEx | Spec Available | None needed (one central) | Artiphon (liquidated 2025) |
 | [Petronics Mousr](petronics-mousr.md) | BLE (Nordic UART) | Spec Available | None found (untested) | Petronics (consumer product abandoned) |
@@ -212,6 +215,7 @@ spec's `device.setup` block; the patterns are explained in
 | [Hörmann BiSecur Gateway](hormann-bisecur-gateway.md) | LAN (UDP 4001 discovery, TCP 4000) | Spec Available | Log in as a gateway user (medium) | Hörmann (replaced by homee) |
 | [Insteon Hub (2245-222 / 2242-222)](insteon-hub.md) | LAN (HTTP 25105 / TCP 9761) | Spec Available | Label credentials, Basic auth (medium) | Insteon (cloud outage 2022; revived) |
 | [Keto-Mojo GK+ Glucose & Ketone Meter](keto-mojo-gk-plus.md) | BLE | Spec Available | None needed (connect and request records) | Keto-Mojo (active) |
+| [Yogasleep Dohm Connect](yogasleep-dohm-connect.md) | BLE | Spec Available | Bond after a top-button hold, read the device ID (medium) | Yogasleep / Marpac (active; app neglected) |
 | [Orbit B-hyve Bluetooth Hose Timers](orbit-bhyve-ble.md) | BLE (encrypted) | Spec Available | Export the network key once from the Orbit account (medium) | Orbit (active) |
 | [LIVISI SmartHome (SHC 1 / SHC 2)](livisi-smarthome.md) | LAN (HTTP 8080, WebSocket events) | Spec Available | Local SmartHome on; local password, token login (medium) | LIVISI (servers off 2024-03-01) |
 | [Qingping / ClearGrass Sensors (stock BLE)](qingping-stock-ble.md) | BLE (passive 0xFDCD service data) | Spec Available | None needed (no connection) | Qingping / ClearGrass |
@@ -236,6 +240,7 @@ spec's `device.setup` block; the patterns are explained in
 | [BlueDriver Bluetooth Pro OBD-II Scan Tool](bluedriver-obd2.md) | BLE | Spec Available (untested) | ble_direct (medium) | Lemur Vehicle Monitors |
 | [Blueriiot Blue Connect (Go / Plus) pool analyser](blueriiot-blue-connect.md) | BLE | Spec Available (untested) | ble_direct (medium) | Blueriiot / Fluidra |
 | [Boosted boards and Boosted Rev](boosted-boards.md) | BLE | Spec Available (untested) | ble_direct (medium) | Boosted Inc. |
+| [Piaggio gitamini / gita pro](piaggio-gita-mini.md) | BLE | Spec Available (untested) | QR registration + ECDH/session (medium) | Piaggio Fast Forward |
 | [Brother P-touch Cube label printers](brother-ptouch-cube.md) | Bluetooth Classic | Spec Available (untested) | bt_classic_pairing (medium) | Brother Industries, Ltd. |
 | [Eurotronic Comet Blue Radiator Thermostat](eurotronic-comet-blue.md) | BLE | Spec Available (untested) | ble_direct (high) | Eurotronic Technology GmbH |
 | [Even Realities G1 Smart Glasses](even-g1-glasses.md) | BLE | Spec Available (untested) | ble_direct (medium) | Even Realities |
@@ -257,7 +262,7 @@ spec's `device.setup` block; the patterns are explained in
 | [Meizu MYVU / Star Air AR Glasses](meizu-myvu-glasses.md) | BLE + Bluetooth Classic relay | Spec Available (untested) | ble_direct (medium) | Meizu |
 | [Pix Backpack / Pix Mini](pix-backpack.md) | BLE | Spec Available (untested) | ble_direct (medium) | Pix Inc. |
 | [Weber iGrill Bluetooth Thermometers](weber-igrill.md) | BLE | Spec Available (untested) | ble_direct (medium) | Weber-Stephen Products (formerly iDevices) |
-| [LOY / LOYPRO LED Displays](loypro-led-display.md) | BLE | Identify only (advertising evidence) | Read-only confirmation (low) | LOY / YSKJ OEM family |
+| [LOY / LOYPRO Helmet LED Displays](loypro-led-display.md) | BLE | Minimally verified (information query) | Read-only confirmation (high) | LOY / YSKJ OEM family |
 
 ## Not everything here was liberated
 

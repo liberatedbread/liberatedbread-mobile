@@ -1,6 +1,6 @@
 {
   "name": "Liberated Bread Device Specs",
-  "version": "267",
+  "version": "271",
   "specs": [
     "device-specs/devices/94fifty-basketball.yaml",
     "device-specs/devices/ab-shutter-3.yaml",
@@ -97,6 +97,7 @@
     "device-specs/devices/govee-rgb-light.yaml",
     "device-specs/devices/govee-rgbic-light.yaml",
     "device-specs/devices/gree-ac-lan.yaml",
+    "device-specs/devices/hasbro-furby-connect.yaml",
     "device-specs/devices/hello-fairy.yaml",
     "device-specs/devices/hestan-cue.yaml",
     "device-specs/devices/hikvision-isapi-camera.yaml",
@@ -163,6 +164,7 @@
     "device-specs/devices/motool-slacker.yaml",
     "device-specs/devices/niimbot-d110.yaml",
     "device-specs/devices/ninebot-segway-ble.yaml",
+    "device-specs/devices/nissan-leaf-obd2.yaml",
     "device-specs/devices/niu-escooter.yaml",
     "device-specs/devices/nuki-smart-lock.yaml",
     "device-specs/devices/nyan-bt-image-controller.yaml",
@@ -184,6 +186,7 @@
     "device-specs/devices/petronics-mousr.yaml",
     "device-specs/devices/philips-air-coap.yaml",
     "device-specs/devices/philips-jointspace.yaml",
+    "device-specs/devices/piaggio-gita-mini.yaml",
     "device-specs/devices/pix-backpack.yaml",
     "device-specs/devices/proglow-motorcycle-led.yaml",
     "device-specs/devices/prusalink-local-api.yaml",
@@ -267,6 +270,7 @@
     "device-specs/devices/yale-august-ble.yaml",
     "device-specs/devices/yeelight-cube-lamp.yaml",
     "device-specs/devices/yeelight-wifi.yaml",
+    "device-specs/devices/yogasleep-dohm-connect.yaml",
     "device-specs/devices/yummly-smart-thermometer.yaml",
     "device-specs/devices/zigbee-soil-tester.yaml"
   ]

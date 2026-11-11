@@ -55,8 +55,7 @@ device:
     BlueRadios BRSP serial-port service, so the 1st-gen boards
     (Single/Dual/Dual+) expose a serial pipe, not a GATT
     profile. This spec identifies them and leaves their payload unmapped.
-    Both halves of that mapping are reported, not confirmed. An older note
-    in this repository had it the other way round.
+    Both halves of that mapping are reported, not confirmed.
 
     GATT MODEL. Every value has its own characteristic. There is no
     framing, no checksum and no session handshake on any of them. Numbers

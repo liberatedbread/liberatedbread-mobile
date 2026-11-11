@@ -78,6 +78,32 @@ device:
       notes: >
         No WiFi, no account and no passphrase: physical access to the harness
         is the only credential.
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "none"
+    bonding: "none"
+    exclusivity:
+      single_connection: true
+      recovery: >
+        Unplug the display before connecting a programming cable or bridge.
+        The cable takes the display's place on the harness connector, and the
+        line has room for one talker: a display and a programmer on the same
+        wire corrupt each other's frames, which shows up as checksum failures
+        rather than as a refusal.
+    enter_pairing_mode:
+      required: false
+    notes: >
+      Nothing gates the documented surface. The controller answers the
+      read_device_info request and every block read and write on a bare
+      1200-baud connection: no handshake, password, unlock code or
+      security-access step precedes them in OpenBafangTool or either
+      bafang-python fork, and nothing is stored about who connected. Physical
+      access to the display connector is the whole of the authorisation,
+      which is also why the write messages carry `advanced: true` — the
+      motor will accept a dangerous block from anyone holding a cable. The
+      dealer tool BESST is login-gated, but that gate sits in the vendor's
+      software, not on the wire.
 
 helpful_urls:
   - title: "OpenBafangTool UART protocol docs"

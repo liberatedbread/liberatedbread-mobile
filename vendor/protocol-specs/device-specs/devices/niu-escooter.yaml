@@ -40,8 +40,8 @@ device:
     password-verify handshake that exchanges random challenges. GATT layout
     is in `services` below.
     Per-vehicle flags gate whether the ACC switch, alarm sound and cushion
-    lock are controllable over BLE, over the cloud, or both (the app's
-    isSupport*SwitchByBt / *ByIot capability flags).
+    lock are controllable over BLE, over the cloud, or both (per-feature
+    capability flags the app reads for each vehicle).
 
     THE CATCH: those BLE keys are cloud-issued -- the app fetches them from
     /v5/smart_key/ble_info into its BLE-key model. The local channel is
@@ -134,6 +134,50 @@ device:
         its live location. Never record a real token, account identifier or
         serial in this repository.
 
+  pairing:
+    required: true
+    confidence: "low"
+    # Low: everything below the cloud API is from static analysis of the
+    # vendor app. No open implementation of the BLE link exists and no
+    # scooter has been connected to.
+    security_mode: "app_layer"
+    bonding: "unknown"
+    pin:
+      source: "vendor_app"
+      notes: >
+        The per-vehicle AES-128 key material the BLE channel runs under. The
+        app fetches it from the cloud's /v5/smart_key/ble_info for the
+        scooter's serial, using the account's bearer token; nothing is shown
+        on the scooter or printed on it, as far as the app reveals. Per-unit,
+        so no value appears here.
+    unpair:
+      supported: "unknown"
+      requires_factory_reset: false
+      notes: >
+        The only documented release is the account-side unbind in the vendor
+        app (setup.factory_reset), which frees the scooter for a new owner.
+        Whether that rotates the BLE key, so a client holding the old one is
+        locked out, is not known.
+    enter_pairing_mode:
+      required: false
+      notes: >
+        The app-derived flow has no step at the scooter: in range, the app
+        connects and runs the password-verify handshake with the key it
+        already holds. Not confirmed against hardware.
+    notes: >
+      Two gates, both cloud-held. The documented surface is NIU's cloud API,
+      which needs an account bearer token and the scooter bound to that
+      account (setup method cloud_account). The stock BLE link is a real
+      local control channel, but before it answers, a client must complete
+      a two-frame random-challenge password-verify exchange under the
+      per-vehicle key, and that key comes only from the cloud (see the
+      services notes for the framing). So nothing here works without NIU's
+      service: a client that has fetched and stored the key might keep
+      working after the cloud is gone, but that is untested, and a scooter
+      whose key was never fetched has no known local route. Whether the
+      scooter additionally demands a link-layer BLE bond is not
+      established, hence bonding "unknown".
+
 cloud:
   required: true
   vendor_service: "NIU cloud"
@@ -196,7 +240,7 @@ cloud:
     - path: "/v5/smart_key/ble_info"
       method: "GET"
       name: "ble_key_info"
-      returns: "Per-scooter BLE key provisioning data (BLE MACs and key software versions, parsed into BleKeyInfoBean) -- the credentials the stock BLE control channel requires"
+      returns: "Per-scooter BLE key provisioning data (BLE MACs and key software versions, parsed into the app's BLE-key model) -- the credentials the stock BLE control channel requires"
       verification: "reported"
       notes: >
         GET with sn as a query parameter (the app's helper appends the

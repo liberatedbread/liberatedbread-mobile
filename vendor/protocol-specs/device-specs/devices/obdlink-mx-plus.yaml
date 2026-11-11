@@ -179,6 +179,13 @@ device:
     confidence: "low"
     security_mode: "unknown"
     bonding: "unknown"
+    enter_pairing_mode:
+      required: "unknown"
+      notes: >
+        Whether the BLE pipe is gated by the Connect-button window that
+        bluetooth_classic.pairing documents for the Classic side is the open
+        question below. A client that fails to connect over BLE should try
+        pressing Connect first, since that costs nothing.
     notes: >
       Describes the BLE GATT pipe, the link this spec's `protocol: ble` names.
       Whether it demands pairing or a bond is not established: the vendor

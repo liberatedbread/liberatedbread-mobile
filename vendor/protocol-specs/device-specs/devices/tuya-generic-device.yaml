@@ -22,7 +22,7 @@ device:
       Tuya discovery verified live 2026-08-16: a real device on the segment
       beaconed the encrypted (6667) datagram every ~10 s; decrypting it with the
       fixed broadcast key md5("yGAdlopoPVldABfn") (AES-128-ECB) yielded the
-      self-description {"ip":..., "gwId":"03712560…", "version":"3.3",
+      self-description {"ip":..., "gwId":"<device-id>", "version":"3.3",
       "productKey":"…", "active":2, "encrypt":true}, confirming the frame layout
       (prefix 00 00 55 aa, optional return code, ciphertext, CRC, suffix
       00 00 aa 55) and the field mapping. Identify-only: no control channel is
@@ -189,6 +189,54 @@ device:
         key that unwraps the 6667 beacon is a published discovery constant, not
         a device secret; the per-device local key that would permit control is
         never obtained or stored.
+  pairing:
+    required: true
+    confidence: medium
+    # TCP 6668 asks nothing at connect; the per-device local key encrypts
+    # every 0x55aa frame (and, on 3.4/3.5, keys the session negotiation).
+    security_mode: app_layer
+    bonding: none
+    pin:
+      source: vendor_app
+      length: 16
+      notes: >
+        The per-device local key, 16 characters. Tuya's cloud issues it when
+        the device is paired into a Smart Life / Tuya Smart account and gives
+        it to the vendor app; a third party retrieves it from the same cloud
+        with a Tuya IoT developer project linked to that app account
+        (tinytuya's wizard, tuya-cli). It is never shown by the device or the
+        app UI. Per device, so no value appears here — and not to be confused
+        with the published broadcast key that only unwraps the 6667 beacon.
+    exclusivity:
+      single_connection: true
+      recovery: >
+        Close the Smart Life / Tuya Smart app (and any other local
+        integration) before connecting: the device takes one TCP connection
+        at a time, and an app holding it makes this client time out.
+    unpair:
+      supported: false
+      requires_factory_reset: true
+      notes: >
+        No per-client revocation; every local client shares the one key. The
+        key changes whenever the device is reset or removed and re-added in
+        the vendor app (removal returns it to pairing mode), so every local
+        client must fetch it again afterwards.
+    enter_pairing_mode:
+      required: false
+      notes: >
+        Nothing to do at the device for local control. The vendor-app pairing
+        that creates the key (Smart/EZ or AP mode) is provisioning, covered by
+        the vendor app and this spec's reset notes.
+    notes: >
+      This spec is identify-only and holds no key, but the local control
+      surface it points at (0x55aa on TCP 6668) is gated by the per-device
+      local key, which only Tuya's cloud discloses. Fetch it once and local
+      control needs no further cloud; but because the key rotates on every
+      re-pair, a device that is reset after the cloud (or the developer
+      project's API access, which Tuya runs as a renewable trial) is gone
+      cannot be keyed again — reflashing to open firmware is then the
+      remaining route. Source: tinytuya's documentation and the projects
+      cited in helpful_urls.
 
 local_access:
   # 'native' rather than 'none_known': the blocker is a credential, not the

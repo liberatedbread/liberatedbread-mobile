@@ -94,8 +94,9 @@ device:
     exactly matches the BM85 layout (status at byte 18) or appends extra
     bytes for the afib/triple flags the Pro app models; (2) bonding type
     (JustWorks vs passkey) and whether indications require an encrypted
-    link — the app requests OS bonding and no app-level PIN was found, so
-    JustWorks/Numeric Comparison is expected but unconfirmed; (3) whether
+    link — the app requests OS bonding and no app-level PIN was found;
+    sibling manuals show a passkey on the monitor's display (see
+    device.pairing), unconfirmed for the BM92; (3) whether
     BM92 actually exposes 0x2A49 Blood Pressure Feature and what it claims;
     (4) FCC ID (device.report lists a 2023-08-30 filing but is bot-blocked;
     the printed manual should carry it); (5) whether a user-slot selection
@@ -169,9 +170,10 @@ device:
       streaming. The 2023 US manual says to hold MEMORY for three seconds
       to reopen settings, while the Pro 1.17.2 tutorial says five seconds;
       follow the prompt for the actual device/app version. The Pro app
-      requests OS bonding and no app-level PIN was found, so Just Works or
-      Numeric Comparison is expected but unconfirmed. It works locally
-      without registering an account.
+      requests OS bonding and no app-level PIN exists for blood-pressure
+      devices; sibling manuals have the monitor display a passkey for the
+      OS dialog (see device.pairing; unconfirmed against hardware). It works
+      locally without registering an account.
     methods:
       - type: "ble_direct"
         verified: false
@@ -182,7 +184,7 @@ device:
         ble:
           advertised_name: "PREMIUM800"
           pairing_required: true
-          pin_source: "None found in either app; expected JustWorks/Numeric Comparison bonding (unconfirmed)."
+          pin_source: "None in either app; sibling manuals show a PIN on the monitor display for the OS passkey prompt (unconfirmed for BM92)."
         steps:
           - action: "With the monitor switched on, hold MEMORY to enter settings. The US manual says three seconds; the Pro 1.17.2 tutorial says five seconds."
             actor: "user"
@@ -242,16 +244,22 @@ device:
   pairing:
     required: true
     confidence: "low"
-    security_mode: "unknown"
+    # Inferred from sibling models, not this one: see pin.notes.
+    security_mode: "passkey_entry"
     bonding: "required"
     pin:
-      source: "unknown"
+      source: "device_screen"
+      length: 6
       notes: >
-        No app-level PIN exists anywhere in either companion app for the
-        blood-pressure devices, so Just Works or numeric comparison is the
-        expectation — but the app simply calls the OS bonding API and lets the
-        stack decide, which means the association model is whatever the
-        monitor asks for, and nobody has watched it ask.
+        Beurer's manuals for HealthManager Pro siblings say the monitor
+        shows a PIN on its own display the first time it connects and the
+        user types it into the phone — the BM 96 manual says so, and the
+        BM 54 manual gives it as six digits. That also explains the app-code
+        finding: neither app contains a PIN of its own because the passkey
+        dialog is the operating system's, raised by the OS bonding call. Not
+        confirmed for the BM92 itself, whose manual could not be retrieved;
+        treat the length as the family's, and size the field from the
+        prompt.
     exclusivity:
       single_connection: true
       single_bond: "unknown"
@@ -263,13 +271,29 @@ device:
       required: false
       notes: >
         The monitor advertises after a measurement or when woken; there is no
-        separate pairing button in the documented flow.
+        separate pairing button in the documented flow. Sibling manuals put
+        an automatic-transfer Bluetooth on/off setting in the device's own
+        setup menu (BM 85) — if the monitor never advertises, check that it
+        has not been switched off there.
+    unpair:
+      supported: "unknown"
+      notes: >
+        The phone side is ordinary: forget the monitor in the OS Bluetooth
+        settings and remove it in the app. No source describes clearing the
+        monitor's own record of a bond, and the device has no factory reset
+        established either (see `setup.factory_reset`), so a monitor that
+        refuses a second phone may have no documented way back.
     notes: >
-      The whole of this block is expectation rather than observation, which is
-      why it is low confidence: the app requests OS bonding and the rest is
-      inference from what is absent in the code. One btsnoop capture of a real
-      sync would settle the association model, whether indications need an
-      encrypted link, and whether the monitor holds one bond or several.
+      The gate is an ordinary link-layer bond with a passkey the monitor
+      displays — the reading that best fits both the app code (it calls the
+      OS bonding API and carries no PIN) and Beurer's own manuals for
+      sibling HealthManager Pro monitors (a PIN appears on the monitor at
+      first connection and is entered on the phone). Low confidence because
+      the BM92's own manual was not available and nobody has watched it
+      pair; the vendor app and account are not involved in the bond itself.
+      One btsnoop capture of a real sync would settle the association
+      model, whether indications need an encrypted link, and whether the
+      monitor holds one bond or several.
 services:
   - uuid: "00001810-0000-1000-8000-00805f9b34fb"
     name: "Blood Pressure Service"

@@ -185,6 +185,25 @@ device:
         measurements. No credential is needed or issued for local reads; the
         stored ThingSpeak keys matter only to the cloud-upload path.
 
+  pairing:
+    required: false
+    confidence: "high"
+    security_mode: "none"
+    bonding: "none"
+    enter_pairing_mode:
+      required: false
+    notes: >
+      Nothing pairs, and this project saw it: on 2026-08-14 GET /json and
+      /json?live=true on a firmware-7.02 sensor answered on plain HTTP port
+      80 with no credential, no account and no prior exchange (see
+      device.testing). No key is issued to a client and none is stored for
+      one; the ThingSpeak keys and PurpleAir registration belong to the
+      sensor's own cloud uploads and play no part in local reads, so the
+      vendor cloud's loss changes nothing here. The flip side is that any
+      host on the LAN can read the sensor. The /config page (Wi-Fi
+      settings) was not exercised, so whether it asks for anything is not
+      established here.
+
 http_endpoints:
   - method: "GET"
     path: "/json"

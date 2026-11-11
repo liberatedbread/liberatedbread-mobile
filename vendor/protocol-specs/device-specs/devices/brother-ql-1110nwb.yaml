@@ -251,6 +251,42 @@ device:
       notes: >
         No client authentication on any print transport: anything that can
         open TCP 9100 (or SPP, or LPR) can print. Segment accordingly.
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "none"
+    bonding: "none"
+    exclusivity:
+      recovery: >
+        On the network nothing to clear. Over Bluetooth, power-cycle the
+        printer: once a Bluetooth host connects, the printer stays connected
+        to it until switched off and will not take a second device.
+      notes: >
+        The Bluetooth exclusivity is Brother's own statement in the user's
+        guide. Whether TCP 9100 serialises concurrent jobs or refuses a second
+        socket was not established; a client should send one job per
+        connection and close it.
+    enter_pairing_mode:
+      required: false
+      notes: >
+        Nothing to enter for the network transports. The Bluetooth path is the
+        exception and is a host-OS Classic pairing, described in `notes` below
+        and in setup method "Bluetooth Classic pairing with the host OS".
+    notes: >
+      The documented control surface — the raster byte stream on TCP 9100,
+      LPR 515 and FTP 21 — accepts any client with no credential, so there is
+      nothing to pair; the printer's web admin login guards only its settings
+      pages (Brother recommends setting one), not printing. Bluetooth Classic
+      SPP is different: it bonds with the host. Press the Bluetooth button
+      (the LED lights blue) and pair from the host. Hosts doing Secure Simple
+      Pairing (Bluetooth 2.1+) pair without a PIN unless the "Request Secure
+      Simple Pairing settings" option is enabled, in which case the user also
+      presses the Bluetooth button while its LED flashes blue. A host limited
+      to Bluetooth 2.0 legacy pairing is asked for a PIN whose factory value is
+      the last four digits of the printer's serial number (changeable in the
+      Communication Settings tool) — per-unit, so not reproduced here. The
+      bond persists across power cycles. Source: Brother's QL-1110NWB user's
+      guide; not replayed here.
 
   # The Bluetooth Classic path only; the LAN transports do not go through a
   # host Bluetooth stack.

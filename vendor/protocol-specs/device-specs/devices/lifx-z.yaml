@@ -405,6 +405,34 @@ device:
         port 56700, so no client credential is issued and anything on the LAN
         can drive the strip.
 
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "none"
+    bonding: "none"
+    exclusivity:
+      single_connection: false
+      single_bond: false
+      recovery: >
+        Nothing to clear. The LAN protocol is connectionless UDP, so the LIFX
+        app, Home Assistant and any number of scripts can talk to the strip at
+        once. What does run out is throughput: LIFX's LAN documentation asks
+        clients to stay around 20 messages per second per device, and a
+        client that floods it sees dropped packets, not a refusal.
+    enter_pairing_mode:
+      required: false
+    notes: >
+      The LIFX LAN protocol has no authentication, no session and nothing
+      stored about the client: any host that reaches UDP 56700 can read and
+      set the strip, cloud or no cloud. The cloud claim made during
+      onboarding (Wan.SetAuthKey, setup notes) binds the strip to a LIFX
+      account for remote access only and does not gate the LAN. Two
+      ecosystem pairings sit alongside it and are separate from this
+      surface: HomeKit, which pairs a controller against the setup code on
+      the device or its packaging, and Matter on eligible firmware, which
+      commissions against its own printed setup code and, per the device
+      notes, removes the HomeKit pairing. Neither is needed for LAN control.
+
 protocol_handler: "lifx_lan_udp"
 
 lifx_lan_protocol:

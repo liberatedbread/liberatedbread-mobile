@@ -51,7 +51,7 @@ device:
       bytes 2-3: humidity, uint16 LE, /100.0 %  (0x12C7 = 4807 -> 48.07 %)
       bytes 4-6: secondary channel — byte 4 is a channel-layout selector
                  (0-3) and bytes 5-6 a signed int16 LE /100.0 value
-                 (Engbird v2.3.9 DeviceUtil.parseAdvertisementPacket,
+                 (Engbird v2.3.9 advertisement parser,
                  full scan-record offsets 14-21 = manufacturer data 0-7):
                    selector 0: temp = bytes 0-1, humidity = bytes 2-3
                    selector 1: temp = bytes 5-6, humidity = bytes 2-3,

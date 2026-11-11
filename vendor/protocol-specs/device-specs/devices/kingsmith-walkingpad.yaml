@@ -146,9 +146,27 @@ device:
     also exists; its semantics are unconfirmed and it does not cleanly track
     the WiLink/FTMS split, so it is not used for generation detection here.
   identification:
+    local_name_prefixes:
+      - "KS-HDSC-X21C"
+      - "KS-HDSY-X21C"
+      - "KS-NGCH-X21C"
+      - "KS-NACH-X21C"
+      - "KS-MC21"
+      - "KS-SMC21C"
+      - "ZP-ZEALR1"
+      - "KS-HD-"
+      - "KS-AP-RF3"
+      - "KS-AP-RP3"
+      - "KS-AP-ZP3"
     service_uuids:
       - "0000fe00-0000-1000-8000-00805f9b34fb"   # legacy WiLink models
-      - "00001826-0000-1000-8000-00805f9b34fb"   # FTMS models (MC21/X21/KS-HD-*)
+    notes: >
+      WiLink's private FE00 service is a family signal. FTMS 0x1826 is not:
+      require one of the advertised-name prefixes from the app product table
+      before selecting this spec, then use 0x1826 to choose the FTMS variant.
+      KS-HD- and the exact KS-AP-RF3/RP3/ZP3 prefixes cover the documented
+      FTMS Z1/R3/Z3 generation; do not broaden that to generic KS-AP-. The
+      more explicit X21 and MC21 prefixes preserve the less common spellings.
   variants:
     - model: "WiLink"
       identification:
@@ -163,17 +181,17 @@ device:
           - "00001826-0000-1000-8000-00805f9b34fb"
       notes: >
         Standard Fitness Machine Service generation (MC21 / X21 / KS-HD-* /
-        ZP-ZEALR1): Treadmill Control Point 0x2AD9, Treadmill Data 0x2ACD,
-        ODM pre-amble on MC-21-class units.
+        KS-AP-RF3/RP3/ZP3 / ZP-ZEALR1): Treadmill Control Point 0x2AD9,
+        Treadmill Data 0x2ACD, ODM pre-amble on MC-21-class units.
 
   setup:
     required: false
     confidence: high
     notes: >
-      No provisioning, pairing or bonding on either protocol generation: scan
-      for the advertised name ("WalkingPad*" / "KS-*" / "ZP-ZEALR1*") or the
-      service UUIDs 0xFE00 / 0x1826, connect over GATT and send commands.
-      Confidence high: multiple independent open implementations
+      No provisioning, pairing or bonding on either protocol generation: use
+      WiLink's FE00 service or the documented KingSmith FTMS name prefixes,
+      then connect over GATT and send commands. Generic FTMS 0x1826 alone is
+      not a KingSmith identification. Confidence high: multiple independent open implementations
       (ph4-walkingpad, QWalkingPad, walkingpad-controller) do exactly this
       against production hardware. Single-connection limit: only one central
       at a time.
@@ -191,7 +209,7 @@ device:
         steps:
           - action: "Power on the pad with its physical remote or side switch so it advertises."
             actor: user
-          - action: "Scan for service UUID 0xFE00 (legacy) or 0x1826 (FTMS); match name prefixes WalkingPad / KS- / ZP-ZEALR1 / KINGSMITH / DYNAMAX (full per-model prefix list: KS Fit's bundled product table, see device notes)."
+          - action: "Match WiLink service 0xFE00 or a documented FTMS name prefix from device.identification; do not select KingSmith from generic 0x1826 alone. Use 0x1826 only to route an already matched FTMS device."
             actor: client
           - action: "Connect over GATT and discover services; pick WiLink or FTMS flow by what the device exposes."
             actor: client

@@ -42,7 +42,7 @@ device:
     notes: >
       Hisense publishes nothing about this interface. Everything here was
       recovered by the community from packet captures, the RemoteNow and
-      VIDAA Android APKs (libmqttcrypt.so in particular), and live probing —
+      VIDAA Android APKs (their native crypto library in particular), and live probing —
       Krazy998/mqtt-hisensetv documented the broker and topic vocabulary in
       2019, newAM/hisensetv and sehaas/ha_hisense_tv productised the static
       and cert generations, and warrenrees/pyvidaa reverse-engineered the
@@ -213,16 +213,81 @@ device:
         pairing flow — the TV has no protocol for enrolling a new
         certificate. Every working client presents the same cert baked into
         the official app: CN=VidaaAppAndroidV01, issued by the private
-        RemoteCA root, extracted from the VIDAA APK's PKCS#12 keystore
-        (assets/client_mobile_android.p12, or res/3R.p12 under newer
-        obfuscated resource names; store password
-        186e990688070325a1c4b0ce275d2388, recovered from libmqttcrypt.so).
-        RemoteNow-era sets that require certs accept the older
-        rcm_certchain_pem.cer / rcm_pem_privkey.pkcs8 pair circulated in
-        d3nd3/Hisense-mqtt-keyfiles. A clean-room client therefore cannot
+        RemoteCA root, held in a password-protected PKCS#12 keystore bundled
+        inside the VIDAA Android app. This spec deliberately does not
+        reproduce the keystore's location in the package or its store
+        password: both are vendor key material, not wire protocol.
+        pyvidaa's VIDAA_PROTOCOL_ANALYSIS.md (see helpful_urls) documents
+        how a user extracts the certificate and private key from their own
+        copy of the app; a client should ask for that PEM pair rather than
+        ship it. RemoteNow-era sets that require certs accept an older
+        certificate-chain / private-key pair from the RemoteNow app,
+        circulated in d3nd3/Hisense-mqtt-keyfiles. A clean-room client therefore cannot
         complete modern pairing without redistributing Hisense's key
         material or asking the user to extract it — that, not the topic
         vocabulary, is the barrier to a fully open implementation.
+
+  pairing:
+    required: true
+    confidence: "medium"
+    # The gate is an on-screen PIN that authorises the client's chosen MQTT
+    # client id; on modern firmware it also yields access/refresh tokens.
+    security_mode: "app_layer"
+    bonding: "none"
+    pin:
+      source: "device_screen"
+      length: 4
+      notes: >
+        Four decimal digits in an on-screen dialogue that the CLIENT raises
+        (gettvstate on static-login firmware, vidaa_app_connect on modern
+        firmware); the client publishes them as {"authNum": "XXXX"} to
+        actions/authenticationcode and has roughly 60 seconds before the
+        dialogue times out. What persists is the TV's record that this client
+        id is authorised, plus — on modern firmware — an access/refresh token
+        pair the client must store and rotate (see
+        protocol_details.remoteapp_common.authentication.after_pairing). A
+        client that changes its client id, or lets its refresh token lapse, is
+        unpaired and must enter a new PIN.
+    exclusivity:
+      single_connection: false
+      single_bond: false
+      recovery: >
+        Give every client its own stable client id and keep it. Two
+        integrations sharing one id knock each other off the broker (MQTT drops
+        the older session for a reused id), which looks like a flapping
+        connection rather than a pairing failure. A TV that has reached its cap
+        of paired clients needs old pairings removed before a new one takes.
+      notes: >
+        The broker accepts several simultaneous clients; the per-TV cap on
+        paired clients is reported in this spec's sources but its size is not.
+    enter_pairing_mode:
+      required: false
+      notes: >
+        No button or menu step on the TV for the PIN itself — the client's
+        request puts the dialogue on screen. On current VIDAA builds the
+        broker may first need All Settings > Support > Remote Control Service
+        switched on (a third-party Hisense-connect guide states this; menu
+        spelling varies), and on modern firmware the mutual-TLS client
+        certificate described in setup.credentials.notes must be in hand
+        before the PIN exchange can even start.
+    unpair:
+      supported: "unknown"
+      clears: "One authorised client id and its issued tokens."
+      notes: >
+        protocol_details.remoteapp_common.pairing.user_visible reports that old
+        pairings can be removed in the TV's settings, but none of the sources
+        used here name the menu. Short of that, a factory reset clears every
+        authorised client id, and on modern firmware an unused client's refresh
+        token simply expires (refreshtoken_duration_day, observed 30-365 days).
+    notes: >
+      The local broker on 36669 accepts an unpaired connection and serves
+      broadcast state, but ignores commands until the client id has been
+      authorised by the on-screen PIN — that PIN exchange is the pairing, laid
+      out per firmware generation in protocol_details.remoteapp_common.pairing
+      and as the last steps of setup method 'device_ui'. Nothing involves
+      Hisense's cloud, so pairing keeps working offline. The real obstacle to
+      an independent client is not the PIN but the mutual-TLS certificate
+      modern firmware demands, which no pairing step issues.
 
   variants:
     - model: "75P7"
@@ -262,7 +327,7 @@ helpful_urls:
     description: "Python library (plus Home Assistant component and MQTT bridge) reverse-engineered from the VIDAA app; discovery code, credential generation and live field notes."
   - title: "pyvidaa — VIDAA_PROTOCOL_ANALYSIS.md"
     url: "https://github.com/warrenrees/pyvidaa/blob/master/VIDAA_PROTOCOL_ANALYSIS.md"
-    description: "The primary source for the TLS details, the P12 password, the dynamic credential algorithm (with worked example), the pairing flow, and 2026-08-04 live-wire findings."
+    description: "The primary source for the TLS details, extracting the client certificate from the app, the dynamic credential algorithm (with worked example), the pairing flow, and 2026-08-04 live-wire findings."
   - title: "Krazy998/mqtt-hisensetv — the original 2019 topic documentation"
     url: "https://github.com/Krazy998/mqtt-hisensetv"
     description: "First public write-up of the broker: static credentials, sendkey/sourcelist/changesource/launchapp/changevolume vocabulary, authenticationcode pairing."
@@ -277,7 +342,7 @@ helpful_urls:
     description: "Documents the mosquitto bridge configuration with client certificates and the PIN pairing flow inside Home Assistant."
   - title: "d3nd3/Hisense-mqtt-keyfiles — RemoteNow-era client certificate pair"
     url: "https://github.com/d3nd3/Hisense-mqtt-keyfiles"
-    description: "rcm_certchain_pem.cer / rcm_pem_privkey.pkcs8 extracted from the RemoteNow app; the cert some pre-VIDAA models demand."
+    description: "A certificate-chain / private-key pair extracted from the RemoteNow app; the cert some pre-VIDAA models demand."
   - title: "Home Assistant community — Hisense TV Control thread"
     url: "https://community.home-assistant.io/t/hisense-tv-control/97638"
     description: "Six years of model-by-model reports: which sets need TLS, which need certs, channel_param changechannel payloads, bridge configs."

@@ -55,8 +55,8 @@ Matter controller (Google Home, Apple Home, Home Assistant) using the QR
 code on the dock. The vendor-app path exists but the app build audited here
 cannot drive it, so which current app manages the cube is an open question.
 Whether TCP 55443 needs an explicit "LAN control" toggle on cube firmware is
-likewise unverified — community drivers connect directly, suggesting the
-port is open on at least some firmware.
+not verified on hardware here, but a community cube driver lists LAN Control
+as a prerequisite, so plan on switching it on in the vendor app.
 
 **Factory reset**: **not recovered**. The manual text available did not
 yield a procedure and the app has no cube code to read one from. Candidates,

@@ -1,6 +1,6 @@
 # TP-Link Kasa Smart Plug
 
-> **Status**: Local protocol documented from public reverse engineering; not replayed against hardware here
+> **Status**: Verified on legacy Kasa hardware; bulb, plug and power-strip switching manually confirmed
 > **Protocol**: WiFi (JSON over TCP/UDP port 9999, XOR-autokey cipher)
 > **Manufacturer**: TP-Link
 > **Manufacturer Status**: Active (company alive; the local protocol is what's endangered)
@@ -18,6 +18,13 @@ Assistant's `tplink` integration — has implemented it ever since.
 
 Control is entirely LAN-local: block the plug from the internet at the router
 and everything here still works.
+
+Live discovery and `get_sysinfo` were exercised in August 2026 across KP200,
+HS210, HS300, KL430 and EP40 hardware. On 2026-11-08 a maintainer manually
+confirmed normal switching and state readback for a Kasa bulb, a single-outlet
+plug and a child outlet on a power strip. KL430 light-strip commands were
+verified separately. Provisioning, energy readings, scheduling and cloud
+operations are not covered by that manual confirmation.
 
 !!! warning "The local protocol is being retired"
     TP-Link the company is alive, so this is `manufacturer_status: active`;

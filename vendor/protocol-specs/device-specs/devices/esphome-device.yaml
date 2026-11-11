@@ -393,6 +393,61 @@ device:
         owner set when they built the firmware. A client should treat a missing
         PSK as "ask the owner", not as a failure to work around: the web server
         is the path that needs no secret, when the build has one.
+  pairing:
+    required: true
+    confidence: medium
+    # Noise_NNpsk0 over TCP 6053 is the gate; there is no link-layer pairing.
+    # Per node, the TXT record says whether it applies — see notes.
+    security_mode: app_layer
+    bonding: none
+    pin:
+      source: user_chosen
+      notes: >
+        The native-API encryption key: 32 random bytes, base64-encoded (44
+        characters), from the node's own YAML (`api: encryption: key:`). The
+        ESPHome dashboard generates one when it creates a config, so "chosen"
+        here means the owner holds it, not that they typed it. Per-node and
+        secret, so no value appears here. A client gets it from the owner (it
+        is in their config or their Home Assistant entry), never from the
+        node.
+    exclusivity:
+      single_connection: false
+      single_bond: false
+      recovery: >
+        A node that refuses a new native-API client while others work is
+        usually full: the connection limit (api `max_connections`) defaults to
+        4 on ESP8266/RP2040 and 5 on ESP32 and the LibreTiny chips, and is
+        compiled in. Close another client (a second Home Assistant, an
+        `esphome logs` session) or reflash with a higher limit.
+    unpair:
+      supported: true
+      requires_factory_reset: false
+      clears: "The PSK — and with it every native-API client at once."
+      notes: >
+        There is no per-client credential to revoke. Change the key in the
+        YAML and reflash (OTA is enough), then give the new key to the clients
+        that should keep access. A key provisioned at runtime rather than in
+        YAML is cleared by the factory_reset component instead.
+    enter_pairing_mode:
+      required: false
+      notes: >
+        Nothing to do at the hardware. The one window-like case is a build
+        compiled with encryption support but no key, which publishes
+        `api_provisioning=zero-psk`: until a key is set, a client can open a
+        Noise session with an all-zero PSK and provision one, so the first
+        client to do so wins.
+    notes: >
+      Per node, read from the _esphomelib._tcp TXT record before connecting:
+      `api_encryption` present means the native API only answers Noise frames
+      keyed with the owner's PSK — a plaintext Hello is refused; no
+      encryption key means plaintext protobuf is accepted from anyone on the
+      LAN. Modern dashboard-made configs encrypt by default, which is why
+      this block says `required: true`. The legacy `api: password:` login is
+      gone (removed in 2026.1.0). The web server on port 80, when built in,
+      is separate: open unless the builder added `web_server: auth:`
+      (credentials of their choosing), and where web OTA is enabled it lets
+      anyone who reaches it reflash the node. No cloud anywhere, so nothing
+      here can be lost to one. See `credentials.issued_to_client`.
 
 local_access:
   status: native

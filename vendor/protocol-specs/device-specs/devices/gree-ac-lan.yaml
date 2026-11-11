@@ -151,6 +151,50 @@ device:
         AES-encrypted, but the generic key used for scan/bind is shared across
         all Gree devices, so binding is possible by anyone on the LAN.
 
+  pairing:
+    required: true
+    confidence: "medium"
+    # The bind is a key handout, not an authorisation: it asks nothing of
+    # the client and nothing of the user.
+    security_mode: "app_layer"
+    bonding: "none"
+    exclusivity:
+      single_connection: false
+      single_bond: false
+      recovery: >
+        Nothing to clear: the unit hands its key to every client that binds,
+        and the vendor app keeps working alongside. A bind that times out is
+        usually the cipher, not the client. Retry it under AES-GCM
+        (encryption_version 2) before concluding the unit no longer talks
+        locally.
+    unpair:
+      supported: false
+      notes: >
+        There is nothing to revoke. The per-device key goes to any host that
+        asks for it, so access cannot be withdrawn from one client, and no
+        source establishes whether a Wi-Fi module reset rotates the key. The
+        network is the only access control.
+    enter_pairing_mode:
+      required: false
+      notes: >
+        The bind is answered whenever the unit is on the network: no button,
+        no window, nothing on the display. The two-minute window and the
+        MODE + WiFi remote gesture in setup.factory_reset belong to Wi-Fi
+        onboarding, not to binding.
+    notes: >
+      The gate is the bind exchange, and any LAN host can pass it. A client
+      sends a bind pack encrypted under the generic key that every Gree unit
+      shares (published by tomikaa87/gree-remote and cmroche/greeclimate).
+      The unit answers bindok with its per-device AES key, and status and cmd
+      packs are encrypted under that key from then on (see the FLOW in
+      device.notes). No user action, account or cloud is involved, so the
+      vendor cloud's fate does not affect it, and a client may simply bind
+      again each time it starts instead of storing the key. Firmware is what
+      closes it. Newer Wi-Fi modules use AES-GCM with a different generic
+      key, and owners report that some Gree+ module updates (around
+      firmware 1.21) stop answering on UDP 7000 altogether. If local control
+      matters, do not update the module.
+
 # The Gree LAN wire protocol. Lives under `protocol_details`, the schema's
 # namespace for single-spec protocol blocks (the top level is closed).
 protocol_details:

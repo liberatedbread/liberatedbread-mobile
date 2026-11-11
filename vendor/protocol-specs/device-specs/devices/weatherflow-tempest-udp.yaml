@@ -173,6 +173,38 @@ device:
         passphrase is handled by the app's onboarding, not the API documented
         here.
 
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "none"
+    bonding: "none"
+    exclusivity:
+      single_connection: false
+      single_bond: false
+      recovery: >
+        Nothing to close or clear — any number of listeners receive the same
+        broadcast. A listener that hears nothing is almost always on a
+        different subnet or VLAN from the hub, or behind a host firewall
+        dropping inbound UDP 50222; broadcasts do not cross a router. Bind
+        to 50222 with address reuse so another local listener (weewx, Home
+        Assistant) does not hold the port exclusively.
+    enter_pairing_mode:
+      required: false
+      notes: >
+        The "pairing mode" in setup.factory_reset is the radio link between
+        a Tempest or SKY sensor and its hub, run from the vendor app. It has
+        nothing to do with a LAN client and is not needed to receive
+        broadcasts; only a sensor whose observations have stopped reaching
+        the hub needs it.
+    notes: >
+      There is nothing to pair because there is no session: the hub
+      broadcasts JSON datagrams to UDP 50222 on its subnet and a client only
+      listens. No credential exists, nothing is sent to the hub, and no
+      vendor cloud is consulted, so its loss does not affect this path.
+      Basis: WeatherFlow's published UDP API (v171). The same openness means
+      a datagram's claimed serial proves nothing; a consumer that cares
+      should check the sender address and message shape.
+
 # UDP broadcast receive-only; http_endpoints is a placeholder for the access
 # surface (there is no HTTP and no request/response — the client only listens).
 http_endpoints:

@@ -207,11 +207,16 @@ def test_control_commands_are_the_two_byte_f1_pairs(spec):
         assert not command.get("advanced")
 
 
-def test_measurement_setup_does_not_force_notifications(spec):
+def test_measurement_declares_both_update_mechanisms(spec):
+    """No GATT dump exists: the SIG profile says indicate, while the open
+    Android client enables notifications (CCCD 01 00) and receives records.
+    Declaring indicate alone would steer a client away from the one path
+    known to work, so both are declared and the uncertainty is marked."""
     measurement = characteristic(spec, MEASUREMENT_UUID)
-    assert measurement["properties"] == ["indicate"]
+    assert set(measurement["properties"]) == {"notify", "indicate"}
+    assert measurement["verification"] == "reported"
+    assert "GATT DUMP" in measurement["notes"]
     steps = spec["device"]["setup"]["methods"][0]["steps"]
     enable = next(step["action"] for step in steps if MEASUREMENT_UUID in step["action"])
+    assert "CCCD 01 00" in enable
     assert "CCCD 02 00" in enable
-    assert "CCCD 01 00" not in enable
-    assert "configuration callback" in measurement["notes"]

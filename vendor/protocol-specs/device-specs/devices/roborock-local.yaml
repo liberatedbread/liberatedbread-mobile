@@ -170,6 +170,53 @@ device:
       notes: >
         The local key gates the AES-128-ECB TCP session and is obtained from the
         cloud. Onboarding is app-mediated and not documented here.
+  pairing:
+    required: true
+    confidence: "medium"
+    # The TCP transport demands nothing; the per-device local key that every
+    # frame is encrypted under is the real gate.
+    security_mode: "app_layer"
+    bonding: "none"
+    pin:
+      source: "vendor_app"
+      notes: >
+        The per-device local key, held by the Roborock cloud and handed to
+        whatever logs into the owning Roborock account (an emailed code), as
+        the vendor app and python-roborock both do. Per-device, so no value
+        appears here. It is never shown on the robot, so there is no route to
+        it that skips the account.
+    exclusivity:
+      single_bond: false
+      notes: >
+        Every client that holds the key can talk to the robot; nothing is
+        issued per client. Whether the robot limits simultaneous local TCP
+        sessions was not established here.
+    unpair:
+      supported: false
+      requires_factory_reset: true
+      notes: >
+        There is no per-client revocation. The key is expected to change only
+        when the robot is reset and re-added to an account (the Wi-Fi reset in
+        setup.factory_reset is the usual trigger), which costs every client its
+        access and needs a fresh cloud fetch. That rotation is the community's
+        understanding, not a verified observation.
+    enter_pairing_mode:
+      required: false
+      notes: >
+        Nothing to do at the robot. The work is the one-time cloud login in
+        setup method `cloud_account`.
+    notes: >
+      The gate is a per-device local key that only the Roborock cloud
+      discloses: a client logs into the owner's account once, reads each
+      robot's key and IP, and from then on encrypts every TCP 58867 frame
+      under it with no further cloud contact for commands and polling (maps
+      and routines stay cloud-fetched). Store the key — once it is cached the
+      cloud is no longer in the command path, but a robot that is reset after
+      the cloud is gone cannot be given a new key this way. Whether the robot
+      keeps serving local TCP indefinitely with its internet blocked was not
+      established. Older miIO-generation Roborock models use a token on UDP
+      54321 instead (see xiaomi-miio), and a rooted robot running Valetudo
+      needs neither (see valetudo).
 
 # The wire protocol. Bespoke framing/key material lives under
 # `protocol_details`, the schema's namespace for single-spec protocol blocks

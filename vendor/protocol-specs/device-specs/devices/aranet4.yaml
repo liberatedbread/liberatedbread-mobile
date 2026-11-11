@@ -173,7 +173,7 @@ device:
             actor: client
           - action: "Read f0cd3001 (13 bytes) for current readings + interval + ago, or f0cd1503 (9 bytes) for readings only."
             actor: client
-            expect: "Fields decode per payload_formats.current_readings; sentinel bits mark invalid values during calibration."
+            expect: "Fields decode per the f0cd3001 characteristic's format; sentinel bits mark invalid values during calibration."
     factory_reset:
       applicable: true
       confidence: low
@@ -278,8 +278,8 @@ services:
         name: "Current readings + interval + ago (Aranet4)"
         properties: ["read"]
         notes: >
-          13 bytes, little-endian struct <HHHBBBHH> — see
-          payload_formats.current_readings. Unauthenticated on >= v1.2.0
+          13 bytes, little-endian struct <HHHBBBHH>, laid out in `format`
+          below. Unauthenticated on >= v1.2.0
           with integrations enabled; bonded otherwise.
         format:
           - offset: 0

@@ -91,7 +91,7 @@ matches the other. Forget the cuff on the phone, press the pinhole, reconnect.
 | UUID | Name | Properties | Description |
 |------|------|-----------|-------------|
 | `00001810-0000-1000-8000-00805f9b34fb` | Blood Pressure Service | | Standard SIG service plus one vendor characteristic |
-| `00002a35-0000-1000-8000-00805f9b34fb` | Blood Pressure Measurement | indicate (SIG) | Enable the exposed update mechanism and wait for confirmation; indications use CCCD `02 00`. The Android port's hard-coded `01 00` is not a protocol requirement |
+| `00002a35-0000-1000-8000-00805f9b34fb` | Blood Pressure Measurement | notify, indicate (not from a GATT dump) | The SIG profile specifies indications (CCCD `02 00`); the open Android port writes `01 00` (notifications) and receives records, so notifications work. Enable whichever the cuff's GATT declares |
 | `583cb5b3-875d-40ed-9098-c39eb0c1983d` | QardioArm control | write | Two-byte command, first byte `f1` |
 | `0000180f-0000-1000-8000-00805f9b34fb` | Battery Service | | Standard; "when the cuff exposes it" |
 | `00002a19-0000-1000-8000-00805f9b34fb` | Battery Level | read | 0–100 %; LibreArm blocks a start at ≤ 10 % |

@@ -220,6 +220,39 @@ device:
         anyone who knows the transform and can see the setup traffic can
         recover it. Steady-state HTTP control itself is unauthenticated.
 
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "none"
+    bonding: "none"
+    exclusivity:
+      single_connection: false
+      single_bond: false
+      recovery: >
+        A second client is not refused, but the light serves requests one at
+        a time, so Control Center, Stream Deck and a home-automation poller
+        on the same light queue behind each other and can time out under
+        load. Keep one keep-alive connection per client, poll every few
+        seconds rather than continuously, and expect writes from another
+        client to land between yours — there is no version field to detect
+        them, only the next poll.
+      notes: >
+        Serialisation was measured by the cited community protocol
+        characterisation on a Key Light Air; no server-side connection limit
+        was found there.
+    enter_pairing_mode:
+      required: false
+    notes: >
+      Nothing pairs and nothing is issued: once the light is on the LAN, any
+      client that reaches TCP 9123 has full control, with no account,
+      button or token, and the vendor cloud plays no part. This is true only
+      of the classic HTTP family this spec covers. The Key Light Air MK.2
+      (mDNS TXT tls present) requires a client TLS certificate on the same
+      port, and how a third-party client obtains one is unresolved
+      (remaining_unknowns) — do not assume that model is open. Basis:
+      python-elgato and the matterbridge-elgato protocol notes, both of which
+      drive the classic lights with no credential.
+
 http_endpoints:
   - method: "GET"
     path: "/elgato/accessory-info"

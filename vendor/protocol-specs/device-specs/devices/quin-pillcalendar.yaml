@@ -466,7 +466,7 @@ bluetooth_classic:
 initialization:
   - command: "query_firmware_version"
     expect_response: false
-    delay_after_ms: 100
+    delay_ms: 100
     notes: >
       The vendor app sends the serial-number query 100 ms later without
       waiting for this reply, but it needs BOTH replies before it counts the
@@ -800,6 +800,13 @@ commands:
       unused ones, or old alarms keep ringing (evidence.open_questions);
       clear_alarm_slot is the disabled form on its own. The app leaves 50 ms
       before each slot frame. No reply is parsed.
+    advanced: true
+    advanced_reason: >
+      Overwrites a medication reminder on the box: enabled 00 silences it,
+      and any other value replaces the time it rings at. The box cannot
+      report what a slot holds, and the vendor app numbers slots by sorting
+      reminders by time, so a slot number may not be the reminder you
+      expect. Write the whole list, as the vendor app does, and check it.
     response:
       expected: "unknown"
       notes: "The vendor app parses no reply to this frame. If the box does answer, the reply's length is unknown and a client loses sync on it."

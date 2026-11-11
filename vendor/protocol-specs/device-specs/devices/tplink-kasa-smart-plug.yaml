@@ -10,27 +10,26 @@ device:
     status: verified
     detail: minimally-verified
     notes: >
-      Read path verified live 2026-08-14 against a real HS210 3-way switch
-      (alias placeholdered as "3-Way Switch", mac 00:31:92:AA:BB:CC), driving the protocol exactly
-      as documented in kasa_protocol below. UDP discovery: the XOR-autokey
-      get_sysinfo broadcast to 255.255.255.255:9999 (no length prefix) drew
-      unauthenticated replies from EIGHT Kasa devices on the LAN across five
-      model families — KP200, HS210, HS300, KL430, EP40 — each decoding to a
-      valid sysinfo with model/alias/sw_ver. TCP control channel: a
-      get_sysinfo to port 9999 with the documented 4-byte big-endian length
-      prefix + XOR-autokey body returned the full sysinfo (model HS210(US),
-      dev_name "Smart Wi-Fi 3-Way Light Switch", relay_state 0, rssi -59)
-      with no authentication — confirming the length framing, the 0xAB
-      running-key cipher (encrypt and decrypt directions) and the
-      no-auth property together. These KP200/EP40/KL430 builds (2024-2025
-      firmware) still answer plaintext 9999, so the KP125M-era port closure
-      is not universal. Not exercised: any state-changing write
-      (system.set_relay_state and friends) — the switch controls real
-      lighting and nobody authorized a toggle. The Smart Bulb / Light Strip
-      variant state_probes and the two variant-scoped light entities'
-      bindings are likewise unexercised against hardware (the strip's
-      commands themselves were verified on a KL430; the probe and the
-      entity state paths were not).
+      Discovery and the read path were verified live 2026-08-14 against an
+      HS210 3-way switch (alias placeholdered as "3-Way Switch", mac
+      00:31:92:AA:BB:CC), using the protocol documented below. UDP discovery:
+      the XOR-autokey get_sysinfo broadcast to 255.255.255.255:9999 (no length
+      prefix) drew unauthenticated replies from eight Kasa devices across five
+      model families — KP200, HS210, HS300, KL430 and EP40 — each decoding to
+      valid sysinfo. TCP get_sysinfo to port 9999 with the documented 4-byte
+      big-endian length prefix returned full HS210(US) sysinfo with no
+      authentication, confirming framing, both cipher directions and the
+      no-auth property. These KP200/EP40/KL430 builds (2024-2025 firmware)
+      still answer plaintext 9999, so the KP125M-era port closure is not
+      universal. A maintainer manually confirmed normal switching and state
+      readback on 2026-11-08 for a Kasa smart bulb, a single-outlet plug and a
+      child outlet on a multi-outlet power strip; the corresponding relay,
+      bulb and get_sysinfo commands are confirmed. KL430 light-strip switching
+      and brightness were already verified separately. `minimally-verified`
+      remains the whole-spec verdict: no additional model or firmware is
+      implied, and provisioning, factory reset, energy readings, scheduling,
+      cloud operations, and the bulb/strip brightness and state-probe behavior
+      not explicitly named here remain unexercised by this confirmation.
   protocol: "wifi"
   category: "switch"
   transport: "tcp"  # JSON documents on a raw socket
@@ -59,8 +58,10 @@ device:
 
     This spec is transcribed from softScheck's write-up and python-kasa; the
     on-the-wire cipher and command vectors below are reproduced by
-    scripts/test_kasa_spec.py from the YAML alone, but nothing here has been
-    replayed against hardware by this project (verification: reported).
+    scripts/test_kasa_spec.py from the YAML alone. Live discovery, reads and
+    core switching on selected legacy Kasa hardware are confirmed in
+    device.testing; commands and features not named there retain their own
+    narrower verification grades.
   openness:
     status: "documented_api"
     reverse_engineered: true
@@ -206,6 +207,34 @@ device:
         the passphrase is effectively plaintext and the open setup AP is the
         only transport protection during provisioning. Post-setup control is
         unauthenticated: anything that can reach port 9999 can drive the plug.
+
+  pairing:
+    # For the legacy port-9999 protocol this spec covers. Newer firmware on
+    # the same product names is a different story; see notes.
+    required: false
+    confidence: "high"
+    security_mode: "none"
+    bonding: "none"
+    enter_pairing_mode:
+      required: false
+    notes: >
+      The legacy protocol has no client authorisation of any kind. The XOR
+      autokey is obfuscation with a fixed initial key, not a credential.
+      This project's 2026-08-14 session read full sysinfo over TCP 9999
+      from an HS210 with no prior exchange, and got replies to the
+      discovery broadcast from KP200, HS300, KL430 and EP40 units. Owning a
+      Kasa cloud account changes nothing on this path. Newer hardware and
+      firmware (HS100 v4 on 1.1.0, EP25, KP125M, Tapo) is different: it
+      closes port 9999, answers discovery on UDP 20002, and speaks KLAP over
+      HTTP. A KLAP client must prove it knows the email and password of
+      the TP-Link cloud account the device was bound to, as a hash in a
+      two-step seed handshake. python-kasa notes that never-bound devices
+      accept blank credentials, and it also tries a set of built-in setup
+      credentials. So such devices need the cloud account once, and keep
+      working locally with it afterwards. The newest firmware advertises a
+      further scheme, TPAP, which python-kasa does not yet support (fixture
+      markers, November 2026). None of this applies to the units this spec
+      describes.
 
   # The models this one spec covers. The plug models differ in exactly one
   # thing that changes the control surface: whether the plug has metering
@@ -568,13 +597,13 @@ commands:
     transport: "tcp-json"
     body: '{"system":{"set_relay_state":{"state":1}}}'
     example_body: '{"system":{"set_relay_state":{"state":1}}}'
-    verification: "reported"
+    verification: "confirmed"
   relay_off:
     description: "Open the relay — turn the outlet off."
     transport: "tcp-json"
     body: '{"system":{"set_relay_state":{"state":0}}}'
     example_body: '{"system":{"set_relay_state":{"state":0}}}'
-    verification: "reported"
+    verification: "confirmed"
   relay_on_child:
     description: >
       Close one outlet's relay on a power strip — the same set_relay_state,
@@ -587,7 +616,7 @@ commands:
         type: "string"
         source: "instance:id"
         description: "The strip's own id for the outlet (deviceId + 2-digit outlet index), from get_sysinfo's children[].id."
-    verification: "reported"
+    verification: "confirmed"
   relay_off_child:
     description: "Open one outlet's relay on a power strip. See relay_on_child."
     transport: "tcp-json"
@@ -598,7 +627,7 @@ commands:
         type: "string"
         source: "instance:id"
         description: "The strip's own id for the outlet; see relay_on_child."
-    verification: "reported"
+    verification: "confirmed"
   # Kasa SMART BULBS (KL110/KL130/KL430 …) answer the same protocol as a plug
   # but switch and dim through the lightingservice's transition_light_state, not
   # set_relay_state, and report their state in get_sysinfo.light_state
@@ -609,13 +638,13 @@ commands:
     transport: "tcp-json"
     body: '{"smartlife.iot.smartbulb.lightingservice":{"transition_light_state":{"on_off":1,"transition_period":0}}}'
     example_body: '{"smartlife.iot.smartbulb.lightingservice":{"transition_light_state":{"on_off":1,"transition_period":0}}}'
-    verification: "reported"
+    verification: "confirmed"
   light_off:
     description: "Turn a Kasa smart bulb off."
     transport: "tcp-json"
     body: '{"smartlife.iot.smartbulb.lightingservice":{"transition_light_state":{"on_off":0,"transition_period":0}}}'
     example_body: '{"smartlife.iot.smartbulb.lightingservice":{"transition_light_state":{"on_off":0,"transition_period":0}}}'
-    verification: "reported"
+    verification: "confirmed"
   set_brightness:
     description: "Set a Kasa smart bulb's brightness (1-100), switching it on."
     transport: "tcp-json"
@@ -692,7 +721,7 @@ commands:
       - name: "mac"
         type: "string"
         description: "Wi-Fi MAC address."
-    verification: "reported"
+    verification: "confirmed"
   get_emeter:
     description: >
       Read the energy meter's instantaneous readings. Metering models only

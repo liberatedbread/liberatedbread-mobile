@@ -165,9 +165,9 @@ device:
 
   pairing:
     required: false
-    confidence: "low"
+    confidence: "medium"
     security_mode: "none"
-    bonding: "optional"
+    bonding: "unknown"
     exclusivity:
       single_connection: true
       single_bond: "unknown"
@@ -176,9 +176,17 @@ device:
       required: false
       notes: "No application pairing mode or key exchange is used by the inspected clients."
     notes: >
-      `required: false` means no application-level pairing step is needed by
-      these clients, not that every OS/firmware combination forbids bonding.
-      The vendor confirms one active phone connection at a time.
+      Connect and go, for both generations. Three independent working
+      clients — jdeath/rd200v2 (the Home Assistant custom integration, V1
+      and V2), lopsided98/radonpy (V1) and ESPHome's radon_eye_ble
+      component — connect, write the read command and take notifications
+      without ever asking the host to pair, and an ESPHome node has no OS
+      stack that would pair behind its back, which is what lifts this to
+      medium. `bonding` is unknown rather than optional because nobody has
+      recorded whether the monitor accepts a bond a phone OS offers. The
+      vendor confirms one active phone connection at a time, so the vendor
+      app holding the monitor is the usual reason it vanishes from a
+      client.
 
   variants:
     - model: "RD200 V1 (older)"

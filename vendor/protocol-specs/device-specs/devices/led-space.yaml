@@ -29,13 +29,14 @@ device:
     device address from the reply sender (expected to be the ESP-style AP
     gateway 192.168.4.1 — not directly captured here). Commands are JSON
     objects app-side, serialized to binary 0xAA55-framed TLV on the wire by the
-    native library libys_parse_tlv (parseJson/parseBin); replies come back as
+    app's bundled native TLV library (one entry point encodes JSON to a
+    frame, another decodes a frame back to JSON); replies come back as
     {"ack":{...},"sno":N}. Same wire frame as BLE: [0xAA, 0x55, 0xFF, 0xFF,
     len (u16-LE), sno (u16-LE), flags (0xC1), subflag, ...payload,
     checksum (u16-LE additive)] — over UDP each datagram chunk additionally
-    carries an outer u16-LE length prefix (PacketDateUtils.toPacket), and large
-    payloads are split into 180-byte chunks (writeFscNum; writeNum 120 on the
-    other send path) with a ~5 ms inter-packet interval.
+    carries an outer u16-LE length prefix (the app's packet builder), and large
+    payloads are split into 180-byte chunks (120 on the app's other send
+    path) with a ~5 ms inter-packet interval.
     Command vocabulary matches the AUTOBABA / NYAN specs (power, light 0-15,
     get dev_info/param_dev/param_wifi, delete del_all, rotate, pgm_play) and
     adds platform commands seen only in this app: dispatch, show_dev,
@@ -44,8 +45,8 @@ device:
     i.e. station-mode provisioning that points the panel at a server over a
     home network. Program upload uses the pkts_program JSON structure
     (60 sparse program slots, id_pro 11-19 seen in app templates) with
-    zlib-compressed BMP pixel payloads (zip_bmp) built app-side by BmpUtils.
-    Default screen geometry 64x64 (SharedPreferences default); 160x32 seen in
+    zlib-compressed BMP pixel payloads (zip_bmp) built app-side by its BMP encoder.
+    Default screen geometry 64x64 (the app's stored-settings default); 160x32 seen in
     UI code; dev_model default "gy", round panels detected by model containing
     "CXB5".
     CONFIDENCE: HIGH for the platform match — BLE UUIDs
@@ -137,7 +138,7 @@ device:
             actor: "client"
             request:
               protocol: "udp"
-              message: 'parseJson({"cmd":{"get":"dev_info"}}) broadcast to 255.255.255.255:9090'
+              message: 'TLV-serialized {"cmd":{"get":"dev_info"}} broadcast to 255.255.255.255:9090'
             expect: 'A reply datagram decoding to {"ack":{"dev_info":{...}},"sno":N}; adopt the sender address for unicast commands.'
             timeout_seconds: 10
           - action: "Send commands unicast to the learned device address on UDP 9090."
@@ -185,14 +186,46 @@ device:
         (whose default is published in the vendor app's own help pages) is
         the only barrier.
 
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "none"
+    bonding: "none"
+    pin:
+      source: "fixed_default"
+      value: "12345678"
+      notes: >
+        Not a pairing PIN: this is the WPA passphrase of the panel's own "YS…"
+        hotspot, the same on every unit and printed in the app's help text.
+        The owner can change it; a changed one is theirs and has no
+        documented software recovery if lost (setup.factory_reset). Once a
+        client has joined the hotspot, UDP 9090 asks for nothing further.
+    exclusivity:
+      single_connection: "unknown"
+      single_bond: false
+      recovery: >
+        The control client has to be on the panel's own hotspot, so the
+        practical limit is how many stations the panel's AP admits, which is
+        not established. If a second phone cannot find the panel, disconnect
+        the first from the "YS…" network.
+    enter_pairing_mode:
+      required: false
+    notes: >
+      No pairing, token or owner binding: the panel hosts its hotspot
+      whenever it is powered, and any client that joins it can broadcast the
+      dev_info probe on UDP 9090 and then command it (setup method
+      'softap_udp'). Joining the hotspot with its passphrase is the whole of
+      the access control, and it is a Wi-Fi association rather than a
+      pairing with this client. The popled.cn cloud plays no part in local
+      control. App-derived; not replayed against hardware.
+
 # Custom consumer-side handler: JSON command serialization into the popled 0xAA55
 # framed binary-TLV transport (shared with the AUTOBABA LED Backpack and the
 # NYAN BT Image Controller). Declarative.
 protocol_handler: "popled_json"
 
 # Full-color image / animation upload. The app renders content, converts to
-# 24-bit BMP (BmpUtils), zlib-compresses it (ZLibUtils.compress = java.util.zip
-# Deflater) and embeds it Base64-encoded as zip_bmp inside the pkts_program JSON
+# 24-bit BMP, zlib-compresses it (the platform's standard Deflater) and embeds it Base64-encoded as zip_bmp inside the pkts_program JSON
 # program structure; the TLV library serializes the whole program. The wire
 # payload is this zlib-compressed BMP, not a GIF (GIF frames take the parallel
 # zip_gif path). Default geometry 64x64; actual geometry is device-reported
@@ -234,8 +267,8 @@ protocol_details:
         framing: >
           Each datagram chunk carries an outer u16-LE length prefix followed by
           that many bytes of 0xAA55-framed TLV payload
-          (PacketDateUtils.toPacket). Large sends are split into 180-byte
-          chunks (writeFscNum; 120 on the writeNum path) at ~5 ms intervals.
+          (the app's packet builder). Large sends are split into 180-byte
+          chunks (120 on the app's other send path) at ~5 ms intervals.
           Replies decode through the same TLV layer to JSON.
         retry: "Vendor app: up to 10 resends at 8 s intervals until an ACK-shaped reply (matching sno) arrives; error replies are {\"cmd\":\"err\"} / {\"cmd\":\"failed\"}."
         receive_buffer: 1024
@@ -246,13 +279,13 @@ protocol_details:
       app_counter_base: 4294901761
       notes: >
         The app keeps its sequence counter as the 32-bit value 4294901761
-        (0xFFFF0001) — stored as the string "4294901761" in Constant.sno and
-        passed to the native TLV serializer as (int)4294901761L
-        (Main2Activity.parseJson). Only the low 16 bits reach the wire: the
+        (0xFFFF0001) — stored as the string "4294901761" in the app's constants and
+        passed to the native TLV serializer narrowed to a 32-bit int
+        by its JSON-to-TLV path. Only the low 16 bits reach the wire: the
         frame's sno (u16-LE) is app_counter & 0xFFFF, so the first frame carries
         sno=1 (0xFFFF0001 & 0xFFFF = 1), matching the worked discovery frame
         above. The counter advances by one per command
-        (Constant.getSnoLength = counter + 1) and the wire sno wraps every 65536.
+        (next = counter + 1) and the wire sno wraps every 65536.
         The app tracks reply sno values and accepts the next sequential one.
     response_envelope: '{"ack":{...},"sno":N}'
     commands_seen_only_in_this_app:

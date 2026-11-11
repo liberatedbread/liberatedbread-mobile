@@ -308,8 +308,8 @@ cloud:
   required: true
   vendor_service: "devolo Home Control cloud (mydevolo)"
   hosts:
-    - "https://homecontrol.mydevolo.com (mprm REST/WebSocket; hardcoded default in the app, C.DEFAULT_MPRM_URL)"
-    - "https://www.mydevolo.com/v1/ (dcloud account backend; hardcoded in the app, BuildConfig.DCLOUD_URL)"
+    - "https://homecontrol.mydevolo.com (mprm REST/WebSocket; hardcoded default in the app)"
+    - "https://www.mydevolo.com/v1/ (dcloud account backend; hardcoded in the app's build configuration)"
     - "test/dev hosts under devolo.net also hardcoded in the app (dcloud-dev / dcloud-test / dc-beta / hc-test-v8 / mprm-test), not production"
   auth:
     type: "session_cookie"

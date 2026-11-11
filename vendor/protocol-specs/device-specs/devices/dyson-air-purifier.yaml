@@ -27,8 +27,10 @@ device:
   transport: "mqtt"
   notes: >
     Dyson connected purifiers advertise a local MQTT broker on port 1883 via
-    mDNS. The device is the broker. Local credentials are derived from the
-    device serial and WiFi password during/after pairing. Known topics are
+    mDNS. The device is the broker. The local login is the device serial
+    plus a hash of the Wi-Fi password printed on its sticker (stickerless
+    models: a credential fetched from the MyDyson account) — see
+    device.pairing. Known topics are
     scoped by product type and serial — {productType}/{serial}/status/current
     and {productType}/{serial}/command — and local control does not require
     internet access after pairing. The vendor app bundles 39 purifier
@@ -99,15 +101,16 @@ device:
           client has no path off-device. For air purifiers (Dyson's "EC" /
           environmental-control machine category) the app addresses that broker
           by the hostname devices.dyson.net, which the machine — the AP's
-          gateway and captive DNS server — resolves to itself locally; the app
-          builds it as a "BrokerDetailsLocal" and its connection-journey logs
-          call it the "machine AP broker" / "local machine broker" (evidence: its
-          connectivity code, the MachineCategory.EC branch). Other
+          gateway and captive DNS server — resolves to itself locally; the
+          app's MQTT broker-details model describes it as a local broker on
+          the machine's own AP, and its setup-flow logging labels it the same
+          way (evidence: the app's connectivity code, in the path it takes for
+          EC-category machines). Other
           Dyson categories (e.g. robots) instead point at the literal AP gateway
           192.168.60.1:1883; the exact address the purifier's captive DNS
           returns for devices.dyson.net was not captured, so gateway_ip is left
           unset rather than guessed. No HTTP provisioning path exists in the
-          current vendor app's connection-journey code.
+          current vendor app's connection-setup code.
         softap:
           ssid_prefix: "DYSON-"
           ssid_examples: ["DYSON-XX-XXXXXXXX-475"]
@@ -185,6 +188,60 @@ device:
         Because the local password is derived from a printed static secret,
         anyone who photographs the sticker keeps local control forever —
         including after a resale.
+
+  pairing:
+    required: true
+    confidence: "medium"
+    # Not a BLE concept here: the gate is the login on the machine's own
+    # MQTT broker, and the credential is fixed per unit, not issued.
+    security_mode: "app_layer"
+    bonding: "none"
+    pin:
+      source: "printed_label"
+      notes: >
+        The MQTT username is the serial number; the password is base64 of the
+        SHA-512 digest of the Wi-Fi password printed on the machine's sticker
+        and on the spare label in the box (setup.credentials, mqtt.auth).
+        Machines released from about 2020 on ship without that sticker. For
+        those the same password hash comes from the MyDyson account instead:
+        the account's device list returns it AES-encrypted under a key and IV
+        that are fixed in every open-source client (libdyson-neon, opendyson),
+        so it is the account login, not the cipher, that guards it. Per-unit
+        either way, so no value appears here.
+    exclusivity:
+      single_connection: false
+      single_bond: false
+      recovery: >
+        If a correct login is refused or times out, power-cycle the machine.
+        ha-dyson reports that the broker has a small connection pool and that
+        some models (TP07, TP09, HP07, HP09) hold dead connections open until
+        it is full, which locks every client out until a restart.
+    unpair:
+      supported: false
+      requires_factory_reset: false
+      notes: >
+        Nothing is issued, so nothing can be revoked. Every client presents
+        the same unit credential. On sticker models it is fixed at
+        manufacture, and a Wi-Fi reset clears the network but not the MQTT
+        login, so anyone who has read the sticker keeps local access after a
+        resale. Whether re-onboarding a stickerless model changes its
+        cloud-held credential has not been established.
+    enter_pairing_mode:
+      required: false
+      notes: >
+        No button and no window. A client can log in whenever the machine is
+        on the network; knowing the sticker, or having the account, is the
+        whole proof.
+    notes: >
+      The gate is the login on the machine's own MQTT broker on TCP 1883. A
+      CONNECT without credentials was refused here with CONNACK 4 (bad
+      username or password) on a live unit, but no accepted login has been
+      replayed, so confidence is medium (libdyson-neon and ha-dyson implement
+      both credential routes). Cloud dependence differs by route. The sticker
+      route never touches the vendor. The account route needs MyDyson only
+      once, to fetch the credential, after which control is local, so owners
+      of stickerless machines should fetch and store it while the account
+      API still answers.
 
   variants:
     - model: "F3H"

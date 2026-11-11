@@ -547,7 +547,7 @@
           "delay_ms": {
             "type": "integer",
             "minimum": 0,
-            "description": "Delay in milliseconds to wait after this step."
+            "description": "Delay in milliseconds to wait after this step before the next one, when the device needs it (the Quin app leaves 100 ms between its two connect queries). Applies to `characteristic` and `command` steps alike."
           },
           "command": {
             "type": "string",
@@ -556,11 +556,6 @@
           "expect_response": {
             "type": "boolean",
             "description": "For a `command` step: true when the next step must not start until this command's `response` has been parsed -- the link is not up until it is."
-          },
-          "delay_after_ms": {
-            "type": "integer",
-            "minimum": 0,
-            "description": "Pause after this step before the next one, when the device needs it (the Quin app leaves 100 ms between its two connect queries)."
           }
         },
         "anyOf": [
@@ -588,6 +583,19 @@
                 "characteristic",
                 "command"
               ]
+            }
+          },
+          {
+            "$comment": "A GATT operation needs somewhere to go: a step that writes, reads or subscribes names its characteristic. Without this a description-only step could carry bytes with no target.",
+            "if": {
+              "anyOf": [
+                {"required": ["write"]},
+                {"required": ["read"]},
+                {"required": ["subscribe"]}
+              ]
+            },
+            "then": {
+              "required": ["characteristic"]
             }
           }
         ]

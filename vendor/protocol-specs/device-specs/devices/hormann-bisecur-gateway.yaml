@@ -197,6 +197,64 @@ device:
         Credentials cross the LAN in clear inside the LOGIN frame. Never
         log or store captured frames without stripping the LOGIN payload.
 
+  pairing:
+    required: true
+    confidence: "medium"
+    # No link-layer or button step: the gate is a gateway user account,
+    # checked by the LOGIN command on every session.
+    security_mode: "app_layer"
+    bonding: "none"
+    pin:
+      source: "user_chosen"
+      notes: >
+        A gateway user name and password, set by the owner (Hörmann's guide
+        says to change the password after first login; SEC Consult reports
+        the vendor app later required ten characters with mixed case, a
+        digit and a symbol). The gateway holds at most ten users. Nothing is
+        issued to keep: the client stores the user name and password and
+        logs in again for each session.
+    exclusivity:
+      single_connection: "unknown"
+      single_bond: false
+      recovery: >
+        If LOGIN succeeds but the session is dropped soon after, another
+        client logged in may have pushed this one out: close the BiSecur app
+        on every phone, and send LOGOUT before disconnecting so stale
+        sessions do not pile up.
+      notes: >
+        bisdk's README says only one client seems to stay logged in at a
+        time, and that logging in pushes the app out. halacs instead reports
+        stale sessions that the gateway drains with LOGOUT frames at the
+        next LOGIN. Neither has been checked here; see remaining_unknowns.
+    unpair:
+      supported: true
+      requires_factory_reset: false
+      clears: "One gateway user, or that user's old password."
+      notes: >
+        Revoke a client by removing its gateway user, or by changing that
+        user's password, with the gateway's user-management commands
+        (0x20-0x28 in the pysecur3 and halacs tables). This spec does not
+        transcribe those commands, and the vendor app that used to send
+        them is gone.
+    enter_pairing_mode:
+      required: false
+      notes: >
+        No button or pairing window. Any client that can reach TCP 4000 and
+        knows a user name and password can log in at any time.
+    notes: >
+      Access is a user name and password checked by LOGIN, not a pairing:
+      see commands.login and setup method "Connect and log in". Each login
+      returns a session token, which halacs reports lasts about 30 minutes
+      unless LOGOUT ends it first.
+      There is no cloud step, so the shutdown of Hörmann's app and relay
+      changes nothing for a client that has working credentials. The weak
+      point is creating them: users were made in the now-defunct app, and
+      SEC Consult found in 2020 that the add-user command and the user-id
+      listing needed no login at all. Whether current firmware still allows
+      that is not established. Give each client its own gateway user.
+      Teaching a door's radio code to the gateway is a separate step, done
+      with a hand transmitter. It is not covered here.
+
 protocol_handler: "bisecur_mcp"
 
 protocol_details:

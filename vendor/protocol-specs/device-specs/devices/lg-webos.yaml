@@ -182,7 +182,7 @@ device:
           steps:
             - action: "Settings > All Settings > General > System > Reset to Initial Settings (menu path varies slightly by webOS version)."
               actor: "user"
-              notes: "There is no recessed reset button on the TV; the menu path is the only documented procedure. To revoke one paired client without resetting, remove it from the TV's paired-device list under the LG Connect Apps / device-connection settings."
+              notes: "There is no recessed reset button on the TV; the menu path is the only documented procedure. To revoke paired clients without resetting, use Revoke Pairing beside the LG Connect Apps setting, which LG documents as disconnecting every paired device at once (see device.pairing.unpair)."
     rejoin:
       in_place_supported: true
       requires_factory_reset: false
@@ -204,6 +204,82 @@ device:
         pairing cannot happen silently — the PROMPT pairing type requires a
         human at the screen — but an accepted client-key is bearer
         credentials from then on.
+
+  pairing:
+    required: true
+    confidence: "medium"
+    # The gate is an on-screen Accept prompt that yields a client-key; see the
+    # top-level websocket.pairing block for the wire exchange.
+    security_mode: "app_layer"
+    bonding: "none"
+    pin:
+      source: "device_screen"
+      notes: >
+        The usual flow (pairingType PROMPT, the one every open client sends)
+        has no code at all — the viewer presses Accept on the TV. LG also
+        defines a PIN pairing type in which the TV shows a code to type into
+        the client; no open client in this spec's sources uses it and its
+        length is not established here. Either way, what the client keeps is
+        the 32-hex client-key from the "registered" message, a bearer token it
+        sends in every later register frame.
+    exclusivity:
+      single_connection: false
+      single_bond: false
+      recovery: >
+        A new client is added alongside existing ones; nothing needs clearing.
+        If the prompt never appears, LG Connect Apps (or Mobile App on older
+        firmware) is off. If a client is asked to accept on every connect, it
+        is not persisting or not sending its client-key.
+    enter_pairing_mode:
+      required: true
+      notes: >
+        The prompt itself is triggered by the client's register frame, but it
+        only appears once the user has switched on second-screen control on
+        the TV — a one-time menu step, not a timed window. A declined or
+        ignored prompt answers the register with type "error".
+      procedures:
+        - name: "Turn on LG Connect Apps"
+          verified: false
+          basis: "LG support article on LG Connect Apps; aiowebostv / Home Assistant webOS docs."
+          power_state: "on"
+          glyph: "generic/on-screen-menu.svg"
+          steps:
+            - action: "Settings > Network > LG Connect Apps = On (older webOS: Settings > General > Mobile App; spelling varies by version)."
+              actor: "user"
+            - action: "Send the register frame with pairingType PROMPT and no client-key."
+              actor: "client"
+              expect: "An accept/decline prompt naming the client appears on the TV."
+            - action: "Accept the prompt with the remote."
+              actor: "user"
+              expect: "A type 'registered' message carrying payload.client-key."
+    unpair:
+      supported: true
+      requires_factory_reset: false
+      clears: >
+        Every issued client-key at once; the TV's apps, LG account and settings
+        stay.
+      procedures:
+        - name: "Revoke Pairing under LG Connect Apps"
+          verified: false
+          basis: "LG support article 'How to Use LG Connect Apps'."
+          power_state: "on"
+          glyph: "generic/on-screen-menu.svg"
+          steps:
+            - action: "Settings > Network > LG Connect Apps, then choose Revoke Pairing."
+              actor: "user"
+              expect: "Every previously paired client is prompted again on its next register."
+      notes: >
+        LG documents revocation as all-or-nothing; no per-client revoke is
+        documented. Turning LG Connect Apps off also stops new pairings.
+    notes: >
+      A first register with no client-key makes the TV show an accept prompt;
+      acceptance issues a client-key that the TV remembers until Revoke
+      Pairing or a factory reset, and that works with no LG cloud involved.
+      Wire exchange in websocket.pairing and webos_common.handshake; the user
+      steps are in setup method 'device_ui'. A first pairing from this spec
+      alone is still blocked on the unrecovered manifest signature
+      (remaining_unknowns); re-using a client-key obtained by another client
+      is not.
 
   # No variants block: this project observed no hardware, so there are no
   # per-model sightings to record. Known per-generation behaviour differences

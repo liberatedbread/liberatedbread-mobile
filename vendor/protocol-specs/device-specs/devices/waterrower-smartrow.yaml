@@ -62,7 +62,6 @@ device:
     local_name_prefix: "SmartRow"
     service_uuids:
       - "00001234-0000-1000-8000-00805f9b34fb"
-      - "00001826-0000-1000-8000-00805f9b34fb"
     notes: >
       SmartRow advertisements carry its name and 0x1234 service. ComModule
       advertises standard FTMS 0x1826, which is shared with other fitness
@@ -75,7 +74,6 @@ device:
         ble:
           service_uuids:
             - "00001234-0000-1000-8000-00805f9b34fb"
-            - "00001826-0000-1000-8000-00805f9b34fb"
           local_name:
             match: "prefix"
             value: "SmartRow"
@@ -137,12 +135,35 @@ device:
 
   pairing:
     required: false
-    confidence: "low"
+    confidence: "medium"
     security_mode: "none"
     bonding: "none"
+    exclusivity:
+      single_connection: true
+      recovery: >
+        Close the SmartRow app (and any FTMS app) before connecting. The
+        pulley accepts one connection at a time and stops showing up in
+        scans while something holds it. Pull the handle to wake a pulley
+        that has gone to sleep.
+      notes: >
+        Stated by smartrow-bridge for the SmartRow pulley; the ComModule's
+        limit is not separately documented.
     enter_pairing_mode:
       required: false
-    notes: "The reviewed SmartRow/ComModule paths do not establish a bonding requirement; other firmware or OS combinations remain unverified."
+    notes: >
+      No link-layer pairing and nothing issued: smartrow-bridge (bleak, on
+      a V3.10 pulley) and qdomyos-zwift both connect, subscribe and stream
+      without the host ever pairing. The SmartRow pulley does gate its data
+      stream behind an application-layer exchange — on V3 firmware it
+      answers the init with a KEYLOCK challenge, and records flow only once
+      the client returns the right response — but the response is a fixed,
+      public transform of the challenge, so a client needs nothing it has
+      to obtain and no person needs to touch the pulley. That exchange is
+      per-connection and lives in the command and keylock material below,
+      not here. What the SmartRow app calls "pairing" is remembering a
+      pulley by its ID, which the app can forget — app-side bookkeeping,
+      not a bond. The ComModule is standard FTMS with no
+      application gate at all.
 
   variants:
     - model: "ComModule (S4 bridge)"

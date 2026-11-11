@@ -109,12 +109,18 @@ device:
     static_ip_required: false
   setup:
     required: true
-    confidence: high
+    # Medium, not high: device.testing is untested, and no open implementation
+    # or vendor document covers the Bluetooth-assisted WiFi provisioning leg —
+    # only the vendor app does it. The cloud and local legs below come from
+    # Divoom's published API and community clients that have not been
+    # replayed here.
+    confidence: medium
     notes: 'The Pixoo must be provisioned onto WiFi via the Divoom app (BLE or Bluetooth-assisted).
       Once on WiFi, it registers with Divoom cloud. A replacement controller must
       also authenticate with Divoom cloud (UserLogin) to obtain Token/UserId, then
       call Device/GetListV2 to discover the device and its LocalToken. The LocalToken
-      is required for all local HTTP commands.
+      is required for the vendor app''s port-9000 channel; Divoom''s documented port-80
+      /post API takes none (see device.pairing).
 
       '
     methods:
@@ -189,6 +195,37 @@ device:
         WiFi credentials are only stored on device.
 
         '
+  pairing:
+    required: false
+    confidence: medium
+    security_mode: none
+    bonding: none
+    exclusivity:
+      single_connection: unknown
+      single_bond: false
+      notes: >
+        Whether the display serves several local clients at once is not
+        stated by Divoom's documentation or the community clients checked.
+        The token-free API puts no client list on the device, so a new
+        client never evicts an old one.
+    enter_pairing_mode:
+      required: false
+    notes: >
+      Two local surfaces, gated differently. Divoom's documented third-party
+      API (POST /post on port 80, the one this spec's commands use) takes
+      plain JSON from any LAN host with no token, no button and no account;
+      Divoom's own docs and the community clients (pixoo-homeassistant,
+      SomethingWithComputers/pixoo, r12f/divoom) drive it that way, and
+      Homey users report the same. The vendor app's channel on port 9000
+      (/divoom_api) instead carries a LocalToken that only Divoom's cloud
+      hands out (Device/GetListV2 after UserLogin, setup method
+      cloud_account) and that the cloud rotates; a client that wants that
+      channel must fetch the token while the cloud lives and cache it, and
+      there is no known local way to obtain it. Watch for a DeviceToken
+      field that a 2026-05 documentation update added to the /post API
+      (http_endpoints) — newer firmware may start gating port 80 too. The
+      cloud is also the app's only way to find the display's address; a
+      cloud-free client must be given it or probe the subnet.
   variants:
   - model: pixoo16_wifi
     identification:

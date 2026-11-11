@@ -1,6 +1,6 @@
 # Johnson JLX LDM330 / LDM130 Laser Distance Meter
 
-> **Status**: Spec Available
+> **Status**: Verified and manually confirmed on LDM330; LDM130 remains untested
 > **Protocol**: BLE
 > **Manufacturer**: Johnson Level & Tool (Precaster Enterprises OEM platform)
 > **Manufacturer Status**: Active
@@ -20,10 +20,12 @@ same `f151`/`f154` UUIDs and frame literals.
 
 The protocol was recovered from Measure-Up, then verified against a live
 LDM330 and a vendor-app capture: advertised identity, `f150`/`f151`/`f154`,
-init, keep-alives and measurement frames were all observed. It is minimally
-verified rather than complete: LDM130 has not been tested, the remote `m`
-command works only while the display is awake, and stock BlueZ cannot finish
-enumeration because of the separate `0x2b3a` stall described below.
+init, keep-alives and measurement frames were all observed. A maintainer
+manually confirmed the normal LDM330 measurement flow again on 2026-11-08.
+It is minimally verified rather than complete: LDM130 has not been tested,
+the remote `m` command works only while the display is awake, and stock BlueZ
+cannot finish enumeration because of the separate `0x2b3a` stall described
+below.
 
 ## Hardware
 
@@ -183,7 +185,7 @@ connection. Otherwise, drive the meter from Android or iOS.
 
 | Family | Transport | Notes |
 |--------|-----------|-------|
-| **Precaster Enterprises platform (this spec)** | BLE | Johnson LDM130/LDM330 (Measure-Up app), Precaster iM2, Starrett STR3, Ronix, MeasureMate, MeasureCam/TargetCam builds share one codebase (AppName enum in the APK; Ronix builds use the older `com.wiho` package root). ASCII frames over `f151`/`f154`. |
+| **Precaster Enterprises platform (this spec)** | BLE | Johnson LDM130/LDM330 (Measure-Up app), Precaster iM2, Starrett STR3, Ronix, MeasureMate, MeasureCam/TargetCam builds share one codebase (per the APK's internal list of brand builds; Ronix builds use the older `com.wiho` package root). ASCII frames over `f151`/`f154`. |
 | Mileseey (P7/T7/R2B/M120/DT20-old, Suaoki rebadges) | BLE | Open protocol, transmits unit; supported by ImageMeter. Newer models (DT20-new, D5/D5T/D9 Pro, S50) moved to an encrypted protocol and are listed as unsupported by ImageMeter; D9 Pro rides the Tuya Smart Life app. |
 | Bosch GLM 50 C / 100 C / PLR 30-50 C | Bluetooth Classic SPP | Reverse engineered; see philipptrenz/BOSCH-GLM-rangefinder (pymtprotocol). Remote trigger supported. |
 | Bosch GLM xx-27 C generation | BLE | Newer closed BLE protocol (MeasureOn app); ImageMeter supports with manual protocol selection; partial RE in pklaus/bsch. |
@@ -203,7 +205,8 @@ and which are encrypted/unsupported).
   - `com.winho.ronix_measure_box` 1.0.0, sha256 `dd08598668251bfdbcd46c9625ae0405a4d5d007f3379495dd5bb111521f2858`
   - `com.winho.ronix_target_cam` 1.0.0, sha256 `9f335cdb0970a24fe29a09e6161132825c1f8735b6c5e9d51398d52f89b69e06`
 - [x] jadx / apktool static analysis (output under `workspace/static/jlx-laser-distance-meter/`, gitignored)
-- [ ] Wireshark / nRF Connect — no hardware available; **live verification still needed**
+- [x] Live LDM330 sessions over a raw ATT channel and a vendor-app HCI capture — identity, GATT, keep-alives and measurements verified
+- [x] Maintainer manual confirmation of the normal LDM330 measurement flow — 2026-11-08
 
 ## References
 

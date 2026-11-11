@@ -45,8 +45,9 @@ library, so these lamps will keep working long after the app is gone.
 | Passphrase protection | not_applicable |
 | Confidence | medium (static analysis + public, live-tested RE library) |
 
-Power the lamp and it advertises immediately. Scan for the `0xFFF0` service
-UUID (or one of the name prefixes above), connect, and write command frames to
+Power the lamp and it advertises immediately. Scan for one of the name
+prefixes above (the `0xFFF0` service is shared with unrelated products and is
+not an identity signal), connect, and write command frames to
 characteristic `0xFFF3`. There is no pairing, PIN or account. Subscribe to
 `0xFFF4` if you want state notifications.
 

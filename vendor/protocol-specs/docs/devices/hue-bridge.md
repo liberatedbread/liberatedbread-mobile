@@ -1,6 +1,6 @@
 # Philips Hue Bridge
 
-> **Status**: Discovery, pairing and per-light control executable from the spec; verified against a live BSB002
+> **Status**: Discovery, link-button pairing and basic per-light control verified on a BSB002
 > **Protocol**: WiFi (mDNS/SSDP + CLIP v1 REST over HTTPS/HTTP)
 > **Manufacturer**: Signify / Philips Hue
 > **Manufacturer Status**: Active (protocol closed; local API needs no account)
@@ -25,6 +25,11 @@ proves it with nothing but the standard library):
 2. **Pair** — poll `POST /api` while the user presses the link button.
 3. **Drive** — one `GET …/lights` enumerates every light with its state;
    `PUT …/lights/<id>/state` writes; read back after writing.
+
+A maintainer manually completed link-button pairing and basic per-light on/off
+control on 2026-11-08. This verifies the normal v1 path on the BSB002; it does
+not promote brightness, authenticated CLIP v2, eventstream, sensors, groups,
+scenes or the other bridge generations to hardware-confirmed status.
 
 ## Discovery
 

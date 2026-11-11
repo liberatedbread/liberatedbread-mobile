@@ -52,8 +52,11 @@ Whether a client has to pair or bond before the control surface answers — a
 different question from provisioning, and the one that decides whether a
 "connect and go" implementation works. See
 [Pairing, Bonding and Unpairing](../protocols/pairing.md), and mirror this into
-`device.pairing`. Required on every BLE spec; "nothing pairs" is the common
-answer and worth stating.
+`device.pairing`. Required on every device spec; "nothing pairs" is the common
+BLE answer and worth stating. On Wi-Fi/LAN, describe how a client is authorised
+by the device — link button, on-screen PIN, a key fetched from the vendor
+cloud, an admin login — or say the API is open and the network is the only
+gate.
 
 | Property | Value |
 |----------|-------|

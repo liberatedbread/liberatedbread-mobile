@@ -40,7 +40,9 @@ device:
       capture. The bluetoothd failure itself was observed on BlueZ 5.85 (a
       32.5 s stall, then an empty resolve); no btmon capture of that session
       is in the captures repo, so which request it stalls on is read from
-      bluetoothd's source, not off the air.
+      bluetoothd's source, not off the air. A maintainer manually confirmed
+      the normal LDM330 measurement flow again on 2026-11-08; this adds no
+      LDM130, angle, error-frame, secondary-service or sibling-brand coverage.
   protocol: "ble"
   category: "sensor"
   category_hierarchy: ["measurement", "distance"]
@@ -53,7 +55,7 @@ device:
     (Taichung, Taiwan, est. 1977 — active as of 2026-08): the Measure-Up
     app's only hardcoded URL is a Precaster about page, and Precaster's iM2
     app is the flagship build of the same codebase. The app's internal
-    AppName enum lists the sibling-branded builds: IM2, MeasureCam,
+    list of brand builds names the siblings: IM2, MeasureCam,
     TargetCam, three Starrett STR3 variants, MeasureMate, and three Ronix
     variants (MeasureBox / MeasureCam / TargetCam). Four of those sibling
     builds were also examined: all four carry the same f151/f154 UUIDs and
@@ -245,8 +247,9 @@ device:
           Scan (filter on the name or the advertised f150), connect GATT,
           discover services, find f151/f154, subscribe f154, write init
           frame to f151, answer keep-alive frames, read measurements.
-          Verified live except measurement delivery, which is verified from
-          the vendor-app capture.
+          Measurement delivery is verified both from the vendor-app capture
+          and live sessions, including the maintainer's 2026-11-08 manual
+          confirmation on an LDM330.
         ble:
           pairing_required: false
         steps:

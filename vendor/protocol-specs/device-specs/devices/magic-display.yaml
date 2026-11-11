@@ -78,15 +78,19 @@ device:
     assets: TR1805R03-9_OTA.bin, TR1805R03-10_OTA.bin, TR1806R06-2_OTA.bin,
     TR1806R06-3_OTA.bin.
   identification:
-    service_uuids:
-      - "0000fee9-0000-1000-8000-00805f9b34fb"
+    manufacturer_data:
+      company_id: 21076
+      company_id_hex: "0x5254"
+      description: >
+        Require the full 54 52 00 27 advertisement prefix: company id 21076
+        (0x5254, "TR" in wire order) followed by payload 00 27. FEE9/9600 is
+        the generic Quintic QPP service used by unrelated products and is
+        deliberately absent from both scan-time service matchers.
 
   discovery:
     methods:
       - type: "ble_scan"
         ble:
-          service_uuids:
-            - "0000fee9-0000-1000-8000-00805f9b34fb"
           manufacturer_data:
             company_id: 21076
             match: "prefix"
@@ -108,9 +112,9 @@ device:
     required: false
     confidence: "medium"
     notes: >
-      No provisioning. Identify by service UUID and the manufacturer-data prefix
-      rather than by name, since these units advertise without a stable local
-      name.
+      No provisioning. Require the 54 52 00 27 manufacturer-data prefix
+      rather than a name or generic FEE9 service; these units advertise
+      without a stable local name. Discover FEE9 after connecting for control.
     methods:
       - type: "ble_direct"
         verified: false

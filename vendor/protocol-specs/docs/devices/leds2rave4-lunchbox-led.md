@@ -1,189 +1,136 @@
 # LEDs2RAVE4 / Lunchbox Dream LED
 
-> **Status**: Complete
+> **Status**: Minimally verified (SPOTLED generation)
 > **Protocol**: BLE
-> **Manufacturer**: SPLED (SP107E/SP110E) / Host No.4 Technology (SPOTLED) / Shenzhen I-ledshow (iLEDColor)
-> **Manufacturer Status**: Unsupported
+> **Manufacturer**: SPLED / Host No.4 Technology / Shenzhen I-ledshow
 
 ## Overview
 
-The LED skins and panels sold by [Lunchbox Packs](https://www.lunchboxpacks.com/) — built in
-collaboration with [LEDs 2 RAVE 4](https://leds2rave4.com/) — are not one device. Across three
-product generations the pack has shipped with three different controller boards, and **each
-generation is designed with a different phone app**. If you are looking for "the app that does
-the designs on the LED panel on the Lunchbox backpack", the answer depends on which Dream Skin
-you have.
+The LED skins and panels sold by Lunchbox Packs with LEDs 2 RAVE 4 are not one device.
+Different generations use different apps and incompatible BLE protocols. Identify the
+app and GATT service before choosing a client.
 
-| Generation | Product | Design app | Android package | Controller / protocol |
-|------------|---------|-----------|-----------------|-----------------------|
-| v1 | Dream LED Skin | **LED CHORD** | `com.spled.pzse` | SP107E SPI pixel controller (`0xFFE0`) |
-| v2 | Dream LED Skin 2.0 | **SPOTLED** | `com.led.spotled` | Matrix panel, SPOTLED framed protocol (`0xFF20`) |
-| v3 (early batches) | Dream Skin 3.0 / DreamPanel | **SPOTLED** | `com.led.spotled` | Matrix panel, SPOTLED framed protocol (`0xFF20`) |
-| v3 (recent + future batches) | Dream Skin 3.0 / DreamPanel | **iLEDColor** | `com.led.iledcolor` | New board revision — protocol **not yet captured** |
+| Generation | Design app | Controller / protocol |
+|------------|------------|-----------------------|
+| Dream LED Skin v1 | LED CHORD (`com.spled.pzse`) | SP107E, `0xFFE0` |
+| Dream LED Skin 2.0 | SPOTLED (`com.led.spotled`) | Matrix panel, `0xFF20` |
+| Dream Skin 3.0 early | SPOTLED | Matrix panel, `0xFF20` |
+| Dream Skin 3.0 recent and future | iLEDColor (`com.led.iledcolor`) | Separate A950 protocol |
 
-!!! note "Which app do I need for a DreamPanel v3?"
-    LEDs 2 RAVE 4 changed the controller board partway through the v3 run. Their guidance is to
-    power the panel on and look at the serial number: if the serial number renders **horizontally**,
-    the unit is a new-board revision and uses **iLEDColor**; older units stay on **SPOTLED**.
-    The two apps are not interchangeable.
+For DreamPanel v3, a horizontal serial-number display selects **iLEDColor**; vertical
+selects **SPOTLED**. The tested iLEDColor unit had no FF20 service. Its recovered,
+live-verified protocol is documented in [iLEDColor LED Matrix Panels](iledcolor-led-panel.md).
 
-The v1 skin is a strip/pixel product — LED CHORD sets colours, effects and speed on an SPI
-controller. From v2 onward the product is a genuine addressable **matrix panel** where the app
-is a bitmap/GIF design tool: you draw, import an image or GIF from your camera roll, or pull from
-the app's content library, and the app renders it to the panel's pixel geometry and uploads frames
-over BLE. Dream Skin 3.0 is advertised at 2048 LEDs (double the 2.0 panel).
+The v1 skin is an SPI pixel-strip product. Later products are matrix panels rendered by
+the app. Geometry is per unit and must be queried or read from the advertisement, never
+inferred from a marketing LED count.
 
-!!! warning "Unverified: panel geometry"
-    The 2048-LED figure is a vendor claim. The pixel arrangement (64×32 is the obvious candidate)
-    has **not** been confirmed here. Do not hardcode it — the SPOTLED protocol has a
-    `GetDisplayInfoCommand` that returns the panel's real width/height/colour depth; query it.
-
-## Hardware
+## Hardware and validation
 
 | Property | Value |
 |----------|-------|
-| v1 controller | SP107E ("LED Chord"), SP110E ("LED Hue") SPI pixel controllers |
-| v2/v3 hardware | Addressable RGB matrix panel, geometry reported by the device |
-| Chipset | Unknown |
+| v1 controllers | SP107E / SP110E, source-derived command tables |
+| SPOTLED test unit | 96×16 RGB, advertised frame limit 20, 7280-byte receive buffer |
+| iLEDColor test unit | 32×64, covered by the separate spec |
 | Radio | BLE |
-| Supported LED ICs (v1) | WS2811, SK6812, APA102, and 23 more |
-| Power | External USB power bank (Lunchbox "Powerbox" or any 10,000 mAh+ bank) |
+| Power | External USB power bank |
 
-## Design Apps
+On 2026-11-07 this project completed all three SPOTLED information queries, a static
+RGB upload and a single-frame native scroll-left upload. An eight-frame full-RGB
+upload was rejected with response 254. SP107E, SP110E and other panel geometries were
+not exercised.
 
-### LED CHORD (`com.spled.pzse`) — v1
+## SPOTLED protocol
 
-Generic SP107E/SP110E controller app. Not a design tool: it picks from a fixed catalogue of
-built-in effects and sets colour, brightness and speed. Rated ~3.3 on Play.
+The canonical reference is [SPOTLED LED Panels](spotled-led-panel.md). The Lunchbox
+service map is:
 
-### SPOTLED (`com.led.spotled`) — v2 and early v3
+| UUID | Role | Live properties |
+|------|------|-----------------|
+| `0000ff20-0000-1000-8000-00805f9b34fb` | SPOTLED service | Confirmed |
+| `0000ff21-0000-1000-8000-00805f9b34fb` | Commands and responses | Write without response, notify |
+| `0000ff22-0000-1000-8000-00805f9b34fb` | Bulk data | Write without response |
 
-The actual design app for the matrix panels. Publisher: Wen Lv (Android) / Host No.4 Technology
-(Chengdu) Co., Ltd. (iOS). Supports full-color text with fonts and scroll effects, freehand
-"graffiti" drawing, still image upload, GIF animation upload and music-rhythm display. This is
-the app the Lunchbox Dream LED Skin 2.0 setup guide tells you to install, and it is what most
-Lunchbox owners in the field are using.
+1. Connect and enable FF21 notifications through the GATT client.
+2. Send `04 14 00 00` (GetBufferSize) and await type 21.
+3. Send `04 12 00 00` (GetDisplayInfo) and await type 19.
+4. Optionally send `04 10 00 00` (GetVersion) and await type 17.
 
-Devices are connected from inside the app ("Click to connect device") rather than through system
-Bluetooth pairing.
+Notification values begin `[total_length][response_type]` followed by content. Strip
+that two-byte header before applying the content parser; do not issue an ATT read and
+do not write CCCD bytes to FF21 itself. Display dimensions and revision fields are
+big-endian.
 
-**The SPOTLED BLE protocol is fully reverse engineered** — see below.
+Uploads use a 15-byte data header and typed records on FF22. Write `MTU − 3` chunks and
+react to device-driven ContinueSending offsets instead of assuming a fixed
+`buffer_size ÷ chunk_size` threshold. Start succeeds with response type 2 and finish
+with **type 4**, both status zero. PauseSending type 254 can indicate a bad MTU, but it
+also rejected the eight-frame test payload; it is not a sufficient MTU diagnosis.
 
-### iLEDColor (`com.led.iledcolor`) — recent and future v3 batches
+A 96×16 static frame and a single RGB frame with native scroll-left both completed
+successfully at MTU 512 in ten chunks. The rejected eight-frame transfer means the
+advertised 20-frame field is not a proven upload-size guarantee. AE30 and FF10 were
+also enumerated but not used; their roles remain unknown.
 
-Publisher: Shenzhen I-ledshow Technology Co., Ltd. Same feature space as SPOTLED — patterns, text,
-graffiti, GIF import, music/microphone rhythm — plus a searchable online material library. Rated
-~2.2 on the App Store with recurring complaints about forced account registration, crashes after
-updates and lost saved programs, which is exactly the failure profile this project exists to fix.
+## SP107E / SP110E commands
 
-A prior static pass over this APK (recorded in the device spec) found **no BLE UUIDs in the
-decompiled output**, suggesting the transport is set up dynamically or the app is cloud-mediated.
-This is the highest-value open item on this target: iLEDColor is the app shipping on new hardware
-today and its protocol is undocumented. Live HCI capture is required.
+All commands are four bytes `[d0] [d1] [d2] [cmd]`, written to `0xFFE1`. These tables
+remain source-derived rather than live-verified.
 
-## Protocol Summary
-
-### v2/v3 — SPOTLED framed protocol
-
-These panels are members of the wider SPOTLED family, which spans many unrelated resellers.
-**The full protocol is documented in [SPOTLED LED Panels](spotled-led-panel.md)** — that page is
-canonical; this section is a summary of what applies to a Lunchbox panel.
-
-| UUID | Name | Description |
-|------|------|-------------|
-| `0000ff20-0000-1000-8000-00805f9b34fb` | SPOTLED Service | Primary service |
-| `0000ff21-0000-1000-8000-00805f9b34fb` | Command | Control commands, notifications |
-| `0000ff22-0000-1000-8000-00805f9b34fb` | Data | Bulk payload channel |
-
-The essentials for a Lunchbox panel:
-
-- Bootstrap by enabling notifications, then `GetBufferSize` (`04 14 00 00`) and `GetDisplayInfo`
-  (`04 12 00 00`). Both are required — chunk pacing and rendering depend on them.
-- **Query geometry, never assume it.** `GetDisplayInfo` returns real width, height, colour depth
-  (16 mono / 255 RGB), frame limit and brightness. The 2048-LED figure on the v3 box is marketing.
-- Content is uploaded to `0xFF22` as bitmap frames wrapped in a 15-byte header plus typed records
-  (brightness is record type 14, screen mode 15, animation frames 96).
-- Uploads are gated by the device: write `MTU − 3` byte chunks and resume from the offset carried
-  by each `ContinueSending` notification. A `PauseSending` response means a bad MTU — chunks too
-  large *or* too small.
-
-### v1 — SP107E / SP110E SPI controllers
-
-All commands are 4 bytes: `[data1] [data2] [data3] [cmd_byte]`, written to `0xFFE1`.
-
-#### SP107E Commands
+### SP107E
 
 | Command | Bytes | Description |
 |---------|-------|-------------|
-| Power On | `00 00 00 AA` | Turn on |
-| Power Off | `00 00 00 BB` | Turn off (note: `0xBB`, not `0xAB`) |
-| Set Color | `RR GG BB 0C` | Set static RGB color |
-| Set Brightness | `VV 00 00 0A` | Brightness 0x00-0xFF |
-| Set Effect | `VV 00 00 08` | 0x01-0xB4=dynamic, 0xB5=static |
-| Set Speed | `VV 00 00 09` | Speed 0x01-0xBA |
-| Set Sensitivity | `VV 00 00 13` | Audio input gain 1-165 |
-| Query Status | `00 00 00 02` | Returns 26 bytes (2 packets) |
+| Power on | `00 00 00 aa` | Turn on |
+| Power off | `00 00 00 bb` | Turn off |
+| Set colour | `rr gg bb 0c` | Static RGB; `0x04` is colour order, not static colour |
+| Set brightness | `vv 00 00 0a` | 0–255 |
+| Set effect | `vv 00 00 08` | 1–180 dynamic, 181 static |
+| Set speed | `vv 00 00 09` | 1–186 |
+| Set sensitivity | `vv 00 00 13` | Audio gain |
+| Query status | `00 00 00 02` | 26 bytes in two packets |
 
-#### SP110E Commands
+### SP110E
 
 | Command | Bytes | Description |
 |---------|-------|-------------|
-| Power On | `00 00 00 AA` | Turn on |
-| Power Off | `00 00 00 AB` | Turn off |
-| Set Color | `RR GG BB 1E` | Set static RGB color |
-| Set Brightness | `VV 00 00 2A` | Brightness 0x00-0xFF |
-| Set Effect | `VV 00 00 2C` | 0x01-0x78=dynamic, 0x79=static |
-| Set Speed | `VV 00 00 03` | Speed 0x01-0xBA |
-| Set Chip Type | `VV 00 00 1C` | IC model index |
-| Set Chip Order | `VV 00 00 3C` | RGB sequence 0x00-0x05 |
-| Set Pixel Count | `HI LO 00 2D` | Big-endian, 1-1024 |
-| Query Status | `00 00 00 10` | Returns 12 bytes |
+| Power on | `00 00 00 aa` | Turn on |
+| Power off | `00 00 00 ab` | Turn off |
+| Set colour | `rr gg bb 1e` | Static RGB |
+| Set brightness | `vv 00 00 2a` | 0–255 |
+| Set effect | `vv 00 00 2c` | 1–120 dynamic, 121 static |
+| Set speed | `vv 00 00 03` | **0–255**, not the SP107E 1–186 range |
+| Query status | `00 00 00 10` | 12-byte reply |
 
-### Discovery
+Real SP110E hardware uses FFE0/FFE1. The older assignment of its opcodes to the FF20
+SPOTLED transport was a misattribution.
 
-| Signal | Meaning |
-|--------|---------|
-| Local name `SP107E` | v1 SP107E controller — use the SP107E command set |
-| Local name `SP110E` | v1 SP110E controller — use the SP110E command set |
-| Local name prefix `LBXDRMSKIN_LED_` | Lunchbox Dream Skin matrix panel — SPOTLED protocol on `0xFF20` |
-| Service `0000ff20-…` present | SPOTLED framed protocol |
-| Service `0000ffe0-…` present | SP107E 4-byte command protocol |
+## Discovery, setup and reset
 
-For an unknown Lunchbox panel, probe for the `0xFF20` service first; if it is present, issue
-`GetDisplayInfo` and let the device tell you its geometry rather than guessing from the
-advertised name.
+Known name prefixes are `SP1`, `LBXDRMSKIN_LED_` and `SpotLED_`. FF20 identifies
+SPOTLED when advertised, but some short advertisement samples contain only `0x1812`, so
+do not require FF20 in every sample. Confirm the GATT layout after connecting.
 
-## Open Questions
+No account, network provisioning or Bluetooth bond is required for these generations.
+SPOTLED is deprecated on recent Android; LEDs2RAVE4 publishes a sideload guide and
+suggests PIXELY GLOW. iLEDColor's online account is not needed for local control.
 
-- **iLEDColor protocol is unmapped.** New DreamPanel v3 boards ship with it and the static pass
-  produced no UUIDs. Needs an HCI snoop of connect + upload one small GIF.
-- **DreamPanel v3 pixel geometry** unconfirmed (2048 LEDs claimed; arrangement unknown).
-- Whether the `0xFF20` SPOTLED panel firmware is genuinely an "SP110E" board or an unrelated
-  matrix controller that the SP110E label was mistakenly attached to. The SPOTLED framed
-  transport does not resemble the SP110E 4-byte command set.
+No factory-reset procedure is established. Power-cycling drops a connection but is not
+a factory wipe. Rebinding is a fresh scan and connection, not a network rejoin.
 
-## Tools Used
+## Open questions
 
-- [x] Community open-source implementations (`python-spotled`, UniLED, SP110E-HASS)
-- [x] APK static analysis (jadx)
-- [ ] HCI snoop of iLEDColor (pending — highest priority)
+- Live verification of SP107E/SP110E commands and properties.
+- SPOTLED's actual multi-frame/resource limit and the roles of AE30 and FF10.
+- Other geometries, text/font records, brightness/screen-mode writes and reset behavior.
+- iLEDColor settings beyond its separately documented Connect/TestPass and upload flows.
 
 ## References
 
-- [Lunchbox Packs — Dream LED Skin tutorial (LED CHORD, SP107e)](https://www.lunchboxpacks.com/pages/dream-led-tutorial)
-- [Lunchbox Packs — How to set up your Dream LED Skin 2.0 (SPOTLED)](https://www.lunchboxpacks.com/blogs/resources/how-to-set-up-your-dream-led-skin-2-0)
-- [LEDs 2 RAVE 4 — DreamSkin v3: The DreamPanel](https://leds2rave4.com/products/dreamskin-v3-the-dreampanel)
-- [LEDs 2 RAVE 4 — New batch of V3's now use iLEDColor app](https://leds2rave4.com/blogs/animated-gifs/new-batch-of-v3-s-now-use-iledcolor-app)
-- [SPOTLED LED Panels](spotled-led-panel.md) — canonical SPOTLED protocol reference
-- [`python-spotled` — reverse-engineered SPOTLED BLE library](https://github.com/iwalton3/python-spotled)
-- [Google Play — SPOTLED](https://play.google.com/store/apps/details?id=com.led.spotled)
-- [App Store — iLEDColor](https://apps.apple.com/us/app/iledcolor/id6737223690)
-- [SP110E Protocol Gist](https://gist.github.com/mbullington/37957501a07ad065b67d4e8d39bfe012)
-- [UniLED HA Integration](https://github.com/monty68/uniled)
-- [SP110E-HASS](https://github.com/roslovets/SP110E-HASS)
-
-## Contributors
-
-- @iwalton3 -- `python-spotled`, SPOTLED BLE protocol reverse engineering
-- @mbullington -- SP110E protocol documentation
-- @monty68 -- UniLED Home Assistant integration
+- [Lunchbox Dream LED Skin tutorial](https://www.lunchboxpacks.com/pages/dream-led-tutorial)
+- [Dream LED Skin 2.0 setup](https://www.lunchboxpacks.com/blogs/resources/how-to-set-up-your-dream-led-skin-2-0)
+- [LEDs 2 RAVE 4 DreamPanel](https://leds2rave4.com/products/dreamskin-v3-the-dreampanel)
+- [Controller-generation guidance](https://leds2rave4.com/blogs/animated-gifs/new-batch-of-v3-s-now-use-iledcolor-app)
+- [`python-spotled`](https://github.com/iwalton3/python-spotled)
+- [UniLED](https://github.com/monty68/uniled)
+- [SP110E protocol notes](https://gist.github.com/mbullington/37957501a07ad065b67d4e8d39bfe012)

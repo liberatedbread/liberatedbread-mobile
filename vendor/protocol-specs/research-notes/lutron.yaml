@@ -59,7 +59,7 @@ lip:
   guide: Lutron 040249 revision AH
   transport: comma_separated_ASCII_CRLF normally Telnet_23_or_RS232
   prefixes: {command: "#", query: "?", monitor: "~"}
-  surfaces: [#OUTPUT, #DEVICE, #TIMECLOCK, #MONITORING]
+  surfaces: ["#OUTPUT", "#DEVICE", "#TIMECLOCK", "#MONITORING"]
   timeclock_actions: {mode: 1, sunrise: 2, sunset: 3, day_schedule: 4, execute: 5, enable_disable: 6}
   first_event_index: 1
   minimum_spacing_ms: {control: 100, query: 1500}

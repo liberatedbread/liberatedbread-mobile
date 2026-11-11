@@ -523,8 +523,8 @@ initialization:
       it; act on the first copy only. Then send StreamReq type 12
       (AUTH_SUCCESS). Both phases are required. Without AUTH_SUCCESS the
       glasses ACK data but never engage the app layer. BLE payloads go out
-      as SINGLE_NO_ACK packets (type 9, package type 0) when they fit one
-      DMTU, and as MIX_CTR (type 8) plus data fragments otherwise.
+      as SINGLE_NO_ACK packets (type 9, package type 0) when they fit in
+      DMTU - 4 bytes, and as MIX_CTR (type 8) plus data fragments otherwise.
   - characteristic: "00002021-0000-1000-8000-00805f9b34fb"
     description: >
       Init burst. About 500 ms after AUTH_SUCCESS, send the opening run of
@@ -634,8 +634,8 @@ services:
         notes: >
           The BLE copy of the app channel, in plaintext: the StreamReq
           ability handshake, then relay frames (payload_formats.RelayFrame)
-          with package type 0. The phone sends a frame that fits one DMTU as
-          SINGLE_NO_ACK (type 9) and a longer one as MIX_CTR (type 8). A
+          with package type 0. The phone sends a frame of at most DMTU - 4
+          bytes as SINGLE_NO_ACK (type 9) and a longer one as MIX_CTR (type 8). A
           MIX_CTR packet carries its first DMTU - 4 bytes inline after a
           6-byte header [00 00 08 00 <remaining fragment count, u16 LE>],
           and the rest follows as data fragments 1..n. Nothing on this
@@ -675,8 +675,8 @@ services:
               frame:
                 type: "bytes"
                 min_length: 1
-                max_length: 512
-                description: "A complete relay frame (starts 0x01) or StreamReq (starts 0x02), at most one DMTU (512 bytes at MTU 517)."
+                max_length: 508
+                description: "A complete relay frame (starts 0x01) or StreamReq (starts 0x02), at most DMTU - 4 bytes (508 at MTU 517) so the 4-byte packet header still fits; longer frames use MIX_CTR."
           set_volume:
             description: >
               Set the speaker volume. JSON:
@@ -940,7 +940,7 @@ services:
               post_time_ms:
                 type: "string"
                 unit: "ms"
-                description: "crateTime: Unix epoch milliseconds, sent as a JSON integer."
+                description: "crateTime: Unix epoch milliseconds as a decimal digit string, substituted unquoted so the JSON value is an integer (too wide for uint32)."
           dismiss_notification:
             description: >
               Remove previously shown cards by id:
@@ -971,7 +971,7 @@ services:
               time_ms:
                 type: "string"
                 unit: "ms"
-                description: "Unix epoch milliseconds, sent as a JSON integer."
+                description: "Unix epoch milliseconds as a decimal digit string, substituted unquoted so the JSON value is an integer (too wide for uint32)."
           trackpad_swipe:
             description: >
               A swipe on the phone trackpad:

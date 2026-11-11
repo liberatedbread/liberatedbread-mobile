@@ -155,9 +155,9 @@ device:
       standard Matter commissioning over BLE (the dock carries a Matter QR)
       and the vendor app + cloud account flow. Whether LAN control (TCP
       55443) needs an explicit "LAN control" toggle on the cube — and where
-      that toggle lives given the app gap — is an open question; community
-      drivers connect directly, so on at least some firmware the port is
-      simply open. Verify with hardware before writing a wizard from this.
+      that toggle lives given the app gap — is not settled by hardware here,
+      but a community cube driver lists LAN Control as a prerequisite (see
+      device.pairing). Verify with hardware before writing a wizard from this.
     methods:
       - type: "ble_provisioning"
         name: "Matter commissioning — no Yeelight account"
@@ -252,6 +252,57 @@ device:
         credential transport was not recovered (no cube code in the acquired
         APK). Post-setup LAN control on 55443 is unauthenticated once LAN
         control is on: anything on the LAN can drive the lamp.
+
+  pairing:
+    required: false
+    confidence: "low"
+    security_mode: "none"
+    bonding: "none"
+    exclusivity:
+      single_connection: false
+      single_bond: false
+      recovery: >
+        Assume the Yeelight-wide limit of four concurrent TCP connections on
+        55443 applies (yeelight-wifi.yaml): a matrix driver holding a socket
+        in music mode, the vendor app and a home-automation client already
+        come close. Close idle sockets, or power-cycle the lamp to drop them
+        all.
+      notes: >
+        The four-connection limit is from Yeelight's Inter-Operation
+        Specification for the LAN protocol in general; it has not been
+        checked on the cube.
+    enter_pairing_mode:
+      required: true
+      procedures:
+        - name: "Turn on LAN Control for the lamp in the vendor app"
+          verified: false
+          basis: >
+            danielp370-msft/yeelight-cube, which lists LAN Control as a
+            prerequisite for the cube and checks it with a port probe of
+            55443; max-src/yeelight-cube-lite, whose README sets the same
+            toggle for the sibling Cube Lite in the Yeelight Station app.
+            Which app exposes it for the modular cube is not established
+            here (setup notes).
+          power_state: "on"
+          steps:
+            - action: "In the Yeelight Station app (or the current Yeelight app), open the lamp's device settings and switch on LAN Control."
+              actor: "user"
+              expect: "TCP 55443 accepts a connection and the lamp answers the port-1982 M-SEARCH."
+      notes: >
+        A persistent device setting, not a timed window. Expect to set it
+        again after a factory reset.
+    notes: >
+      On the Yeelight LAN protocol nothing is paired or issued: with LAN
+      Control on, any client that reaches TCP 55443 drives the lamp, and every
+      connection starts clean. The gate is the LAN Control flag, which only a
+      vendor app is known to set; whether the cube also accepts the miIO
+      set_ps route plain Yeelight bulbs do is unknown (its miIO reachability
+      is an open question). The Matter path is a separate, standards-defined
+      pairing — commissioning against the setup code printed on the dock,
+      after which the lamp holds that fabric's operational credentials — and
+      is described in setup method 'Matter commissioning — no Yeelight
+      account'. Low confidence: the LAN Control requirement on this model
+      rests on community driver documentation, not a capture.
 
   # The models this one spec covers. The transport, framing and command set
   # are identical across the system; what differs is the light head on the

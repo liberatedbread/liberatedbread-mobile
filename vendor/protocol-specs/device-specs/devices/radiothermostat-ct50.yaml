@@ -156,6 +156,31 @@ device:
         network can read and set the thermostat. Provisioning passes the Wi-Fi
         passphrase over the module's setup network.
 
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "none"
+    bonding: "none"
+    exclusivity:
+      single_connection: true
+      recovery: >
+        Serialise requests and keep each one short. The module's web server
+        is single-threaded and serves one connection at a time, so a second
+        poller makes this client's requests hang or fail. That might be
+        another integration, a forgotten script, or a phone app on a
+        schedule. Stop the other client, then retry.
+    enter_pairing_mode:
+      required: false
+    notes: >
+      Nothing pairs and nothing is issued. The REST API on port 80 answers
+      any host on the LAN without a credential, per the vendor's USNAP API
+      document, mhrivnak/radiotherm and the openHAB binding. The
+      my.radiothermostat.com cloud was never in the local path, so its
+      2023-05-15 shutdown changed nothing here. POST /cloud {"enabled":0}
+      only stops the unit calling home. Network isolation is the only access
+      control, and the one-connection limit is the failure a client will
+      actually hit.
+
 http_endpoints:
   - method: "GET"
     path: "/tstat"

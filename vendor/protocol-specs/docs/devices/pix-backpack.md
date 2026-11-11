@@ -1,6 +1,6 @@
 # Pix Backpack / Pix Mini
 
-> **Status**: In Progress
+> **Status**: Spec Available (untested)
 > **Protocol**: BLE
 > **Manufacturer**: Pix Inc.
 > **Manufacturer Status**: Shutdown (vendor defunct, app delisted from Google Play)

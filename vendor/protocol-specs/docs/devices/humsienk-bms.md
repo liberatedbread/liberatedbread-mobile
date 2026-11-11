@@ -79,14 +79,14 @@ zero are normal readings on these packs.
 |----------|-------|
 | Setup required | No |
 | Method | `ble_direct` |
-| Setup AP / advertised name | `HS<serial>` (prefix `HS`) |
+| Setup AP / advertised name | `HS<serial>` (matched as `^HS[0-9A-F]{16}$`) |
 | Passphrase protection | not_applicable |
 | Confidence | high (working open implementation; not replayed here) |
 
 There is nothing to provision. The pack has no Bluetooth button and
 advertises whenever it is on. A client:
 
-1. Scans for a local name starting `HS`.
+1. Scans for a local name matching `^HS[0-9A-F]{16}$`.
 2. Connects without pairing and discovers services. It requires service
    `00000001-0000-1000-8000-00805f9b34fb` with write characteristic
    `00000002-0000-1000-8000-00805f9b34fb` and notify characteristic
@@ -99,8 +99,10 @@ advertises whenever it is on. A client:
    (`0x20`), one request at a time.
 
 **`HS` is a weak prefix.** Two letters match plenty of unrelated devices,
-and the service UUID `00000001-…` is a 16-bit custom UUID that at least
-one unrelated product also uses. Treat the name as a candidate and confirm
+so the spec matches the one published name shape, `HS` plus 16 upper-case
+hex digits, rather than the bare prefix the open bridge uses; a pack named
+any other way is missed until a second example widens it. The service UUID `00000001-…` is a 16-bit custom UUID that at least
+one unrelated product also uses. Treat even a matching name as a candidate and confirm
 with the GATT table plus a valid handshake echo. The spec does not use the
 service UUID as a scan matcher. Whether it is advertised at all is not
 established, and a scan filter on it would match any device advertising

@@ -149,6 +149,26 @@ device:
       wifi_passphrase_protection: "not_applicable"
       stored_on_device: []
       issued_to_client: []
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "none"
+    bonding: "none"
+    enter_pairing_mode:
+      required: false
+    notes: >
+      Nothing gates the documented surface. RomRaider sends ECU_INIT and then
+      READ_ADDRESS and WRITE_ADDRESS (DTC clear, the 0x000060 ECU reset) with
+      no security-access step on either transport: an SSM session is open to
+      whoever is on the connector with the key on, and nothing about the
+      client is stored. A negative response 0x22 ("address not allowed") is a
+      per-address refusal, not an authentication failure. The gated operation
+      is reflashing, which this spec leaves out: Subaru ECUs require a
+      seed/key security exchange before accepting a flash session, and this
+      spec records the green test-mode connectors (plus the white pair on
+      2002–2005 cars) as the physical flash-write enable — see obd.test_mode.
+      Adapter
+      Bluetooth pairing, if any, is the adapter's (obd2-bluetooth-adapter.yaml).
 
 obd:
   role: "vehicle"

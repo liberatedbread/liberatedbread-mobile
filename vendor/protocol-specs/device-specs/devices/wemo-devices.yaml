@@ -794,6 +794,29 @@ device:
         (WSP080 firmware-signature verification flaw enabling DoS via crafted
         firmware) and CVE-2018-6692 (Insight RCE via libUPnPHndlr.so).
 
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "none"
+    bonding: "none"
+    enter_pairing_mode:
+      required: false
+    notes: >
+      The local SOAP control surface has no client authorisation. Any LAN
+      client that finds a device by SSDP can call its basicevent and other
+      services straight away. No token, PIN or button press is involved,
+      and nothing is stored, so there is nothing to revoke
+      (setup.credentials says the same). pywemo and Home Assistant drive the
+      devices this way, and it is unaffected by Belkin's January 2026 cloud
+      shutdown. The smartsetup PairAndRegister action is not client
+      pairing. It bundled Wi-Fi provisioning with Belkin cloud registration,
+      and that half is dead. Two other gates sit outside this surface. The
+      HomeKit-capable models (WLS0403, WDS060, WSP080 and others) pair with
+      a HomeKit controller using their HomeKit setup code. The Thread models
+      (WLS0503, WSC010, WSP100) do not speak this protocol at all. Linking
+      bulbs to a Wemo Link bridge is a separate Zigbee join, opened with the
+      bridge service's OpenNetwork action.
+
   variants:
     - model: "F7C063"
       name: "Wemo Mini Smart Plug"

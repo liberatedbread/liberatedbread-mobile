@@ -82,9 +82,12 @@ may differ in response shape.
 
 ## BLE — the gap
 
-The app talks to the scooter directly over BLE when in range, and this is the path that
-would still work with the cloud gone. It is not publicly documented: no service or
-characteristic UUIDs, no framing, no pairing flow.
+The app talks to the scooter directly over BLE when in range. NIU publishes nothing about
+it, but the spec now records the service and characteristic UUIDs, the frame layout and
+the pairing story from static analysis of the vendor app (not hardware-tested): before the
+link answers, the client runs a two-frame challenge handshake under a per-vehicle AES key,
+and that key is fetched from NIU's cloud (`/v5/smart_key/ble_info`). So BLE is a real
+control channel, but not yet a cloud-free one.
 
 Prior work exists on adjacent scooters — Ninebot/Segway's BLE protocol has been reverse
 engineered independently — but nothing transfers without a capture. This is the highest

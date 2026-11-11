@@ -82,6 +82,28 @@ device:
       notes: >
         No WiFi, no account and no passphrase: physical access to the harness
         is the only credential.
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "none"
+    bonding: "none"
+    exclusivity:
+      single_connection: true
+      recovery: >
+        To transmit, take the stock display off the harness first — the
+        display_control packet is the display's job, and two senders on the
+        orange line clash. Listening needs no such step: a receive-only tap on
+        the brown line coexists with the display.
+    enter_pairing_mode:
+      required: false
+    notes: >
+      Nothing gates the documented surface. The motor streams its status
+      packet unprompted and acts on any well-formed display_control packet;
+      there is no handshake, key, or display identity check in the stock
+      protocol as hurzhurz/tsdz2 and the open-source-firmware forks describe
+      it, and nothing is stored about the sender. Physical access to the
+      6-pin connector is the authorisation. The only exclusivity is
+      electrical: one display-side transmitter at a time.
 
 helpful_urls:
   - title: "hurzhurz/tsdz2 serial communication documentation"

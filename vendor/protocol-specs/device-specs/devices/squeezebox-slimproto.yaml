@@ -189,6 +189,44 @@ device:
         HTTP Basic auth / a CLI `login` command when the server is configured
         for it; by default it is open on the LAN.
 
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "none"
+    bonding: "none"
+    pin:
+      source: "user_chosen"
+      notes: >
+        Only when the server owner has turned on password protection in the
+        Lyrion server's security settings: the JSON-RPC route then needs HTTP
+        Basic auth and the 9090 CLI a `login <user> <password>` line first.
+        The username and password are whatever the owner chose; nothing is
+        issued to a client. Off by default.
+    exclusivity:
+      single_connection: false
+      single_bond: false
+      recovery: >
+        Nothing is paired. A player belongs to whichever server it is connected
+        to over SlimProto; if it is missing from a server's player list, point
+        it at that server from its own settings (or let UDP 3483 discovery find
+        it) rather than looking for a pairing step. A 401 from /jsonrpc.js
+        means the server is password-protected — ask the owner for its
+        credentials.
+    enter_pairing_mode:
+      required: false
+      notes: >
+        No button, code or approval on the player or the server. Players
+        accept any server they are pointed at (SlimProto has no
+        authentication), and the server's control API answers any LAN client
+        unless the owner has restricted it.
+    notes: >
+      Control goes to the Lyrion server, not the player, and by default
+      neither end authorises anyone: SlimProto (3483) is unauthenticated, and
+      the CLI/JSON-RPC surface is open on the LAN unless the owner has enabled
+      the server's optional password (see pin) or IP restrictions. The
+      long-gone mysqueezebox.com account never gated local control, so a
+      local Lyrion server needs no cloud at all.
+
 # The player<->server wire protocol. This is the half that keeps the hardware
 # alive; the JSON-RPC control surface below is how an app drives it. Bespoke
 # SlimProto material lives under `protocol_details`, the schema's namespace for

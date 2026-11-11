@@ -149,7 +149,7 @@ simultaneous hub/oven monitoring. The iQ Cooker accepts a Sense probe except
 | 7 | GetLocalTimeZone | Get timezone |
 | 8 | GetLanguage | Get language |
 
-Note: in the app's `SystemCommandAPIEnum` command 1 is spelled `FactoryVersion`, but the CQ60 registry maps that enum member to the key `factory-reset` — command 1 is the factory-reset command; the enum name is a vendor typo.
+Note: in the app's system-command enum, command 1 is spelled `FactoryVersion`, but the CQ60 registry maps that enum member to the key `factory-reset` — command 1 is the factory-reset command; the enum name is a vendor typo.
 
 ### Family C: Wi-Fi Provisioning (`8A71`)
 

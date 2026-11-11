@@ -1,8 +1,13 @@
 # Johnson JLX LDM330 / LDM130 (Winho platform) — Research Notes
 
-Desk research + APK static analysis only. **No hardware was in hand; nothing
-here is verified over the air.** All protocol facts are derived from the
-decompiled companion app.
+Initial recovery used desk research and APK static analysis. Subsequent live
+LDM330 sessions and a vendor-app HCI capture verified the advertised identity,
+GATT service, initialization, keep-alives and measurement decoding; a
+maintainer manually confirmed the normal measurement flow again on
+2026-11-08. See `device-specs/devices/jlx-laser-distance-meter.yaml` for the
+current protocol contract, including the BlueZ incompatibility and raw-ATT
+workaround. The static-analysis record below is retained for provenance, with
+its superseded hardware conclusions corrected in the final sections.
 
 ## APK Provenance
 
@@ -117,11 +122,18 @@ on-device-only or multiplexed via the unknown byte-0 prefix. Needs a capture.
 - **Known (from decompiled code)**: both characteristic UUIDs; CCCD usage;
   the three control strings; init/link/measure byte sequences; checksum =
   8-bit sum; measurement frame layout and unit table; value always meters;
-  unfiltered scanning; no pairing/bonding.
-- **Hypothesis**: service UUID 0xF150; error1..6 as device error frames;
-  byte-0 prefix as a measurement-type discriminator; sibling brands
-  (Starrett/Ronix/MeasureMate) speaking this protocol.
-- **Verified against hardware**: nothing.
+  unfiltered scanning by the vendor app; no pairing/bonding.
+- **Verified on LDM330 hardware**: advertised name `Laser Distance Meter`
+  and service `0000f150-0000-1000-8000-00805f9b34fb`; the containing f150
+  service and f151/f154 pair; init and keep-alive exchanges; live measurement
+  frames and remote triggering while the display is awake; battery and Device
+  Information reads by attribute handle. A maintainer manually confirmed the
+  normal measurement flow again on 2026-11-08. Stock BlueZ enumeration stalls,
+  so Linux verification used a raw ATT channel; see the spec for the narrowly
+  identified 0x2b3a behavior.
+- **Still hypothesis or unknown**: error1..6 as device error frames; byte-0
+  prefix semantics; angle exposure; LDM130 behavior; sibling-brand hardware
+  equivalence (shared app constants alone do not establish it).
 
 ## Cross-brand survey (similar Bluetooth LDMs)
 
@@ -149,17 +161,19 @@ or are encrypted), plus GitHub/forum projects.
   Stanley TLM99s(i)/TLM165si, Sndway SW-GQ series (angle), UNI-T LMxxB,
   Würth WDM, DeWalt DW03050, Hilti PD-I — mostly BLE, mostly open.
 
-## Blocked without hardware
+## Remaining hardware questions
 
-1. Advertised local name + advertised service UUIDs (app scans unfiltered).
-2. Actual containing service UUID for f151/f154.
-3. Byte-0 prefix semantics (length vs area vs volume vs angle frames).
-4. Whether the angle sensor reading is exposed at all.
-5. Error frame formats (`error1`..`error6` guess).
-6. Whether sibling brands' builds share the exact UUIDs (fetch and diff
-   `StarrettSTR3*` / `Ronix*` APKs as follow-up).
+1. Byte-0 prefix semantics (length vs area vs volume vs angle frames).
+2. Whether the angle sensor reading is exposed at all.
+3. Error frame formats (`error1`..`error6` guess).
+4. LDM130 behavior and whether sibling-brand hardware matches the shared app
+   protocol; matching app constants do not prove a live sibling implementation.
+5. The role of the secondary fff3/fff4/fff5 service, for which no payload or
+   response evidence exists.
 
-Next experiments with hardware: nRF Connect scan (name, services) → connect,
-subscribe f154, write init → press measure on the meter and capture frames
-in each unit mode → trigger an out-of-range error → check LDM330 angle
-readout frames.
+The advertised name, containing service, initialization, keep-alive and normal
+measurement paths are no longer blocked: they were exercised on an LDM330.
+Useful follow-ups are an out-of-range error capture, an angle-reading capture,
+an LDM130 session and a documented sibling-brand session. Linux clients must
+use the raw-ATT workaround described in the device spec; stock BlueZ service
+enumeration is known to fail.

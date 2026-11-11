@@ -2,7 +2,7 @@
 # Copyright 2026 Pigs Can Fly Labs LLC
 # SPDX-License-Identifier: Apache-2.0
 #
-# Kiox (BUI350) BLE link added by static analysis of the official Bosch
+# On-board-computer BLE link added by static analysis of the official Bosch
 # "eBike Connect" Android app (clean-room; no app artifacts committed).
 # What the app contributed, by area:
 #   BLE wiring        service/characteristic UUIDs (MCSP, BSS, DIS), Meta
@@ -18,6 +18,8 @@
 #   CoAP layer        endpoint map (v1/battery, v1/activity, ...) and the
 #                     v1/disabler_service (drive-unit lock) requests
 #   device record     the BUI350 record carrying encryptedPreSharedKey
+#                     (BUI350 is Bosch's model number for the Nyon (2021);
+#                     the Kiox is BUI330)
 # Everything BLE-side below is app-confirmed, not hardware-tested.
 
 device:
@@ -51,10 +53,16 @@ device:
     NO RADIO ON THE BUS, NO SOCKET: unlike every other vehicle target here,
     there is nothing to scan for at the system level. Reaching the bus needs
     a CAN interface and physical access to the harness. Budget for hardware,
-    not an afternoon with a phone. One caveat on the wording: a Kiox (BUI350)
-    display DOES advertise BLE -- it pairs with the eBike Connect app and
-    with BLE heart-rate straps -- but that link belongs to the display and
-    is not a path onto the bus. That display link is now documented below
+    not an afternoon with a phone. One caveat on the wording: the Gen4
+    on-board computers -- Kiox (BUI330) and Nyon (2021, BUI350) -- DO
+    advertise BLE -- they pair with the eBike Connect app and with BLE
+    heart-rate straps -- but that link belongs to the display and is not a
+    path onto the bus. WHICH DISPLAY: the device record the app analysis
+    traced is the BUI350, which Bosch's own manuals name as the Nyon (2021).
+    The Kiox (BUI330) pairs with the same app, but whether it speaks the
+    same MCSP/BSS stack is not established; the Kiox-specific reset and
+    pairing-mode procedures below come from Kiox manuals and are labelled
+    as such. That display link is now documented below
     (see `services:`) from static analysis of the eBike Connect app: two
     proprietary GATT services (MCSP for CoAP data, BSS for security), a
     fragmented message transport with CRC-16, certificate-based DH key
@@ -73,7 +81,7 @@ device:
     reproduced by us. Nothing here has been observed on our own bus.
     Everything under `services:` is app-confirmed, not hardware-tested: it
     comes from static analysis of the eBike Connect app, and no frame of the
-    Kiox BLE link has been captured or replayed by us.
+    display BLE link has been captured or replayed by us.
 
     METHOD: passive capture first, always. This is a bus with a motor on it.
     Capture a full session (power-on, each assist level, walk mode, an induced
@@ -157,18 +165,81 @@ device:
       wifi_passphrase_protection: "not_applicable"
       notes: >
         No WiFi, no account and no passphrase for the bus: physical access to
-        the harness is the only credential. The Kiox BLE link is the opposite:
+        the harness is the only credential. The display BLE link is the opposite:
         pairing requires a per-device encryptedPreSharedKey provisioned from
         the Bosch backend and stored on the device record (app-confirmed: it
         is a field on the app's shared device model, the app refuses to
         connect without it, and the key material is parsed as a "backend
         pre-shared key"). No backend-issued key, no
         link -- third-party pairing is backend-gated, not hardware-tested.
+  pairing:
+    # Two surfaces, two answers. `required: true` describes the display's BLE
+    # link under `services:`; the CAN bus under `bus:` asks for nothing.
+    required: true
+    confidence: "medium"
+    security_mode: "app_layer"
+    bonding: "unknown"
+    pin:
+      source: "vendor_app"
+      notes: >
+        Nothing is typed. The credential is the per-device pre-shared key the
+        Bosch backend provisions to the eBike Connect app for that display,
+        which feeds the certificate-based key establishment on the BSS
+        service. It reaches the app only through a logged-in eBike Connect
+        account, so a third-party client has no route to it, and if that
+        backend goes, so does the ability to pair a new phone.
+    enter_pairing_mode:
+      required: true
+      procedures:
+        - name: "Kiox: hold the bike-light button while the app is adding the display"
+          glyph: "generic/hold-button.svg"
+          verified: false
+          basis: >
+            Bosch's Kiox Online (BUI330) MY21 manual, which has the eBike
+            Connect app ask for this hold when a Kiox is added and says the
+            display then switches its BLE link into pairing mode.
+          applies_to: ["Kiox BUI330 on-board computer"]
+          hold_seconds: 5
+          power_state: "on"
+          steps:
+            - action: "In the eBike Connect app, add a new eBike device and choose Kiox."
+              actor: "user"
+            - action: "When the app asks, press and hold the bike-light button on the Kiox for at least five seconds."
+              actor: "user"
+              expect: "The Kiox enables BLE and enters pairing mode; the app completes pairing and syncs user data."
+      notes: >
+        No pairing window length is published. The procedure above is the
+        Kiox's (BUI330); the Nyon (BUI350) equivalent is not recorded here.
+        The hold is prompted by the app, so a client that is not already holding a backend-issued key has
+        nothing to do with the window once it is open.
+    unpair:
+      supported: "unknown"
+      notes: >
+        The Kiox settings list connected Bluetooth devices and allow removing
+        one, but that list is documented for heart-rate straps; whether it
+        also drops the phone's app-layer pairing is not established.
+    notes: >
+      The CAN bus is ungated at the client level: a listener on the D-Sub 9
+      breakout receives traffic with no handshake, and the bus has no
+      notion of which tool is attached — physical access to the harness is
+      the authorisation, as `setup.credentials` says. Component pairing
+      (re-pairing a replaced motor, battery or display) is a different gate
+      that decides whether the system will assist, not whether frames are
+      readable, and it runs only through Bosch dealer tooling; the paid Lock
+      function adds another such binding, making the paired on-board
+      computer the key that enables drive-unit assistance. The display BLE
+      link is where client pairing really lives: the app triggers pairing mode,
+      then the app-layer key establishment needs the backend-issued key, and
+      everything after it is ChaCha20-Poly1305 protected. Whether a
+      link-layer bond is also stored was not visible in the app analysis.
+      Gen4 (BES2) pairs through eBike Connect; the eBike Flow app is the
+      smart system's and does not apply here.
 
 services:
-  # Kiox (BUI350) display BLE link, from static analysis of the eBike
-  # Connect app. Everything in this section is
-  # app-confirmed, not hardware-tested; no GATT exchange has been captured
+  # On-board-computer BLE link, from static analysis of the eBike Connect
+  # app; the device record traced is the BUI350 (Nyon 2021). Whether the
+  # Kiox (BUI330) uses the same services is not established. Everything in
+  # this section is app-confirmed, not hardware-tested; no GATT exchange has been captured
   # or replayed by us. This link terminates at the display -- it is not a
   # path onto the CAN bus.
   - uuid: "0000180a-0000-1000-8000-00805f9b34fb"
@@ -186,7 +257,7 @@ services:
   - uuid: "424f5343-4820-4d43-5350-76012e002e00"
     name: "BOSCH MCSP v1"
     notes: >
-      Data channel of the Kiox BLE link; the UUID's first ten bytes spell
+      Data channel of the display BLE link; the UUID's first ten bytes spell
       "BOSCH MCSP" in ASCII, followed by 'v' and the binary version bytes
       01 00 00 (v1.0.0) — not the literal text "v1". Carries
       CoAP requests/responses with protobuf
@@ -255,7 +326,7 @@ services:
   - uuid: "424f5343-4820-4253-5376-76012e002e00"
     name: "BOSCH BSS v1"
     notes: >
-      Security channel of the Kiox BLE link; the UUID's first ten bytes spell
+      Security channel of the display BLE link; the UUID's first ten bytes spell
       "BOSCH BSSv" in ASCII, followed by 'v' and the binary version bytes
       01 00 00 (v1.0.0) — not the literal text "v1". Carries
       the key-establishment
@@ -367,3 +438,9 @@ helpful_urls:
     kind: "manual"
     description: >
       The MY19 edition of the same manual.
+  - title: "Bosch Nyon (BUI350) operating instructions, MY24 (PDF, vendor-hosted)"
+    url: "https://www.bosch-ebike.com/fileadmin/EBC/Service/Downloads/Bedienungsanleitungen/MY2024/BES2/Nyon2_BUI350/Bosch-eBike-Manual-BUI350_Nyon2_MY24_US_oReg_v1.pdf"
+    kind: "manual"
+    description: >
+      Bosch's manual for the Nyon (2021), which it files under model number
+      BUI350 — the number the app's device record carries. The Kiox is BUI330.

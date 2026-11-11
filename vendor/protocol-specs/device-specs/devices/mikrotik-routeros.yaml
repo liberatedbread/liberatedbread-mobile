@@ -167,6 +167,59 @@ device:
         Identify-only: no credential crosses to this app. RouterOS's own admin
         login (WebFig/Winbox/API) is entered by the user at the device's admin
         page, which we only deep-link to.
+  pairing:
+    required: true
+    confidence: "medium"
+    # Applies to RouterOS's management surface (API 8728/8729, WebFig,
+    # Winbox, SSH). MNDP discovery, the only thing this spec drives, needs
+    # nothing at all.
+    security_mode: "app_layer"
+    bonding: "none"
+    pin:
+      source: "printed_label"
+      notes: >
+        Newer MikroTik devices ship with a per-unit factory password,
+        printed on the serial-number sticker, the packaging or the quick-guide
+        sheet, for the user admin. Older devices shipped with the
+        product-wide user admin and an empty password; MikroTik's first-time
+        configuration guide still says to leave the password empty unless the
+        label carries one. Some units ask for a new password at the first
+        login. Custom-branded units may carry different defaults. After
+        setup the credential is whatever account the owner made.
+    exclusivity:
+      single_connection: false
+      single_bond: false
+      recovery: >
+        A forgotten password needs the RouterBOOT reset in
+        setup.factory_reset, or Netinstall, after which the label or empty
+        default applies again. No built-in login lockout is described in the
+        sources used here. RouterOS leaves brute-force protection to firewall
+        rules and to each user's allowed-address list, so a client being
+        refused from the right password should check that list and the
+        allowed addresses on the API service before anything else.
+      notes: >
+        RouterOS takes many simultaneous management sessions across users
+        and services.
+    unpair:
+      supported: true
+      requires_factory_reset: false
+      clears: "One user, or everything that used the old password."
+      notes: >
+        Give each integration its own user in a restricted group (read-only
+        is enough for monitoring) and remove or disable that user to revoke
+        it. Changing a password cuts off everyone who shared it. A service
+        such as the API can also be disabled, or limited to given addresses,
+        independently of the users.
+    enter_pairing_mode:
+      required: false
+    notes: >
+      MNDP discovery, the only thing this spec drives, is unauthenticated: a
+      listener on UDP 5678 hears the beacons with no credential. Managing the
+      device is an admin login against RouterOS's own user database, with no
+      MikroTik cloud involved. The plaintext API on 8728 sends the password
+      in the clear on current RouterOS, so a client should use the TLS API on
+      8729. Sources: MikroTik's "Default password" knowledge-base article and
+      first-time configuration guide.
 
 local_access:
   status: native

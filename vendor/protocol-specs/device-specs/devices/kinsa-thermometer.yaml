@@ -40,19 +40,19 @@ device:
   notes: >
     Kinsa's app-connected clinical thermometers. The current Kinsa Android app
     drives five thermometer families, which it tells apart ONLY by the service
-    UUID in the advertisement. It labels them with codenames, used throughout
-    this spec because the mapping to retail names is the app's, not a
-    hardware-verified fact:
+    UUID in the advertisement. This spec names them by form factor and
+    generation (the mapping to retail names is the app's, not a
+    hardware-verified fact):
 
-      LegacyEar  service 2893b28b-c868-423a-9dc2-e9c2fcb4ebb5  ear, 1st generation
-      Herschel   service 00000000-0068-746c-6165-4861736e694b  ear, 2nd generation
-      Santorio   service 00000000-0069-746c-6165-4861736e694b  forehead (non-contact)
-      Kelvin     service 00000000-006a-746c-6165-4861736e694b  stick, 1st generation
-      Galileo    service 00000000-006b-746c-6165-4861736e694b  stick, 2nd generation
+      Ear-1      service 2893b28b-c868-423a-9dc2-e9c2fcb4ebb5  ear, 1st generation
+      Ear-2      service 00000000-0068-746c-6165-4861736e694b  ear, 2nd generation
+      Forehead   service 00000000-0069-746c-6165-4861736e694b  forehead (non-contact)
+      Stick-1    service 00000000-006a-746c-6165-4861736e694b  stick, 1st generation
+      Stick-2    service 00000000-006b-746c-6165-4861736e694b  stick, 2nd generation
 
-    Retail names, as far as the app shows them: it draws LegacyEar and
-    Herschel with its "Smart Ear" artwork, Kelvin and Galileo with its
-    "QuickCare" artwork ("oral, underarm and rectal readings"), and Santorio
+    Retail names, as far as the app shows them: it draws Ear-1 and
+    Ear-2 with its "Smart Ear" artwork, Stick-1 and Stick-2 with its
+    "QuickCare" artwork ("oral, underarm and rectal readings"), and Forehead
     with its "QuickScan" artwork ("forehead readings"). The QuickScan was
     filed with the FCC as 2AFEONC1 (2021) and its filed instructions call it
     the "CareScan"; the first Smart Ear is 2AFEOE1 (2015). No grant was found
@@ -60,7 +60,7 @@ device:
     the service UUID it advertises, not by the box.
 
     TWO PROTOCOLS.
-    (1) LegacyEar speaks short ASCII commands on its own service: write
+    (1) Ear-1 speaks short ASCII commands on its own service: write
     "RSTS", "RC", "CE" or "EL" to Request (28930000), read replies as
     notifications on Response (28930001), and receive live readings on Events
     (28930002). Readings are 18-character text records: a 5-character
@@ -68,7 +68,7 @@ device:
     hardware switch is set to), and a 12-digit YYMMDDhhmmss timestamp from
     the thermometer's own clock, which the app never sets. Firmware version
     and serial come from Device Information (0x180a). The current app bonds
-    with a LegacyEar before it touches GATT.
+    with an Ear-1 before it touches GATT.
     (2) The four newer families share one binary protocol on a service whose
     UUID ends in the vendor's name spelled in hex (…746c-6165-4861736e694b)
     with a family byte in the second group: write one opcode byte plus
@@ -79,9 +79,9 @@ device:
     with these families.
 
     SCALING DIFFERS BY FAMILY, and getting it wrong reads ten times off. The
-    infrared families (Herschel, Santorio) send temperature as uint16 BE in
+    infrared families (Ear-2, Forehead) send temperature as uint16 BE in
     hundredths of a degree Celsius, with final readings under opcode 0x43
-    and cached ones under 0x41. The stick families (Kelvin, Galileo) send
+    and cached ones under 0x41. The stick families (Stick-1, Stick-2) send
     tenths of a degree Celsius, with final readings under 0x46 and cached
     ones under 0x45. See protocol_details.family_table.
 
@@ -95,13 +95,13 @@ device:
     point of this spec.
 
     CORRECTIONS to earlier notes on this app, established by re-reading it:
-    the 2893b28b service is the FIRST-generation ear (LegacyEar) path and is
+    the 2893b28b service is the FIRST-generation ear (Ear-1) path and is
     ASCII, not binary opcodes; the binary families are the newer ones, not
     the older. Opcode numbers in those notes were off by one in places (the
     cache count is 0x40, the beacon set is 0x37). 383f2407-53f9-… is not a
     GATT UUID at all: it is a client identifier in a bundled customer-support
     SDK's analytics settings. The app bundles signed DFU recovery packages
-    for three families, contrary to "no blobs in the APK". Kelvin and Galileo
+    for three families, contrary to "no blobs in the APK". Stick-1 and Stick-2
     are the STICK thermometers, not the non-contact ones: the app's product
     labels, battery tables, default sites and artwork all say so.
 
@@ -175,7 +175,7 @@ device:
         verified: false
         description: >
           Applies to a thermometer advertising a 00000000-00XX-746c-6165-4861736e694b
-          service (Herschel, Santorio, Kelvin, Galileo). Power it on (one tap
+          service (Ear-2, Forehead, Stick-1, Stick-2). Power it on (one tap
           of the power/start button), connect, open notifications on the
           family's 0000000[2] characteristic and run the vendor's handshake
           from that service's `initialization`. The app never bonds with
@@ -200,7 +200,7 @@ device:
             actor: "client"
             expect: "A 0x05 echo. The vendor app treats it as the end of the handshake."
       - type: "ble_direct"
-        name: "First-generation Smart Ear (LegacyEar): bond, then the ASCII session"
+        name: "First-generation Smart Ear (Ear-1): bond, then the ASCII session"
         role: "variant"
         verified: false
         description: >
@@ -246,7 +246,7 @@ device:
         visible in the FCC internal photos), so a battery pull is unlikely to
         clear it. On the binary families, the vendor's own clear is the
         advanced clear_cache opcode, which the app never sends. The
-        LegacyEar cache is cleared by the CE command after every successful
+        Ear-1 cache is cleared by the CE command after every successful
         sync.
       procedures:
         - name: "Battery removal"
@@ -275,7 +275,7 @@ device:
     credentials:
       wifi_passphrase_protection: "not_applicable"
       stored_on_device:
-        - "BLE bond with the paired phone (LegacyEar; the app never bonds with the binary families)"
+        - "BLE bond with the paired phone (Ear-1; the app never bonds with the binary families)"
         - "Cached temperature readings (health data), unencrypted and readable by any client that completes the connection"
         - "Clock value last written with set_clock (binary families)"
       issued_to_client: []
@@ -320,31 +320,31 @@ device:
         opcode is sent. For the Smart Ear, drop the bond in the phone's OS
         Bluetooth settings.
     notes: >
-      One block cannot hold both answers, so the split is here. LegacyEar
+      One block cannot hold both answers, so the split is here. Ear-1
       (first-generation Smart Ear): the current app always bonds before GATT
       setup. The older connection code still in the app bonds, and paces
       GATT operations 1000 ms apart, only when the Smart Ear's software
       revision (0x2a28) is below 2.8 or unknown. On 2.8 and later it skips
       both, which suggests later firmware answers without a bond. The manual
       mentions only a "pair?" prompt and no PIN, so Just Works is the
-      likely mode. Binary families (Herschel, Santorio, Kelvin, Galileo): the
+      likely mode. Binary families (Ear-2, Forehead, Stick-1, Stick-2): the
       app never bonds and never sees a pairing prompt, so their GATT is
       presumably open (not verified).
 
   variants:
-    - model: "LegacyEar"
+    - model: "Ear-1"
       identification:
         service_uuids: ["2893b28b-c868-423a-9dc2-e9c2fcb4ebb5"]
-    - model: "Herschel"
+    - model: "Ear-2"
       identification:
         service_uuids: ["00000000-0068-746c-6165-4861736e694b"]
-    - model: "Santorio"
+    - model: "Forehead"
       identification:
         service_uuids: ["00000000-0069-746c-6165-4861736e694b"]
-    - model: "Kelvin"
+    - model: "Stick-1"
       identification:
         service_uuids: ["00000000-006a-746c-6165-4861736e694b"]
-    - model: "Galileo"
+    - model: "Stick-2"
       identification:
         service_uuids: ["00000000-006b-746c-6165-4861736e694b"]
 
@@ -379,9 +379,9 @@ local_access:
     exchange documented here, and no family carries any application-layer
     authentication.
   covers:
-    - "Live final reading notifications (binary 0x43/0x46; LegacyEar TT events)"
+    - "Live final reading notifications (binary 0x43/0x46; Ear-1 TT events)"
     - "Intermediate readings during a stick measurement (0x42)"
-    - "Reading-cache download (binary 0x41/0x45 loop; LegacyEar RC) and LegacyEar cache clear (CE)"
+    - "Reading-cache download (binary 0x41/0x45 loop; Ear-1 RC) and Ear-1 cache clear (CE)"
     - "Clock set (binary 0x05, UTC)"
     - "Firmware version, serial number, battery voltage and error flags"
     - "Display units (0x7a), advertised name (0x31) and measurement site on the sticks (0xb3/0xb4)"
@@ -393,10 +393,10 @@ local_access:
 
 services:
   # ---------------------------------------------------------------------------
-  # LegacyEar: first-generation Smart Ear. ASCII protocol.
+  # Ear-1: first-generation Smart Ear. ASCII protocol.
   # ---------------------------------------------------------------------------
   - uuid: "2893b28b-c868-423a-9dc2-e9c2fcb4ebb5"
-    name: "Smart Ear command service (LegacyEar)"
+    name: "Smart Ear command service (Ear-1, first generation)"
     notes: >
       Advertised by the first-generation Smart Ear, and the only thing the app
       identifies it by. Three characteristics: Request (write), Response
@@ -427,11 +427,11 @@ services:
           "RSTS". The reply is OKTS plus 12 digits, the thermometer's clock as
           YYMMDDhhmmss. Keep it together with the phone's UTC time at the
           moment the reply arrived: every timestamp this thermometer sends is
-          converted with that pair (payload_formats.SmartEarRecord).
+          converted with that pair (payload_formats.AsciiReadingRecord).
       - description: >
           Then read 00002a28 (software revision) and 00002a25 (serial) from
           Device Information, write "RC" to pull the cache
-          (payload_formats.SmartEarCacheReply), and once at least one record
+          (payload_formats.AsciiCacheReply), and once at least one record
           has been parsed and stored, write "CE" to clear it.
     characteristics:
       - uuid: "28930000-c868-423a-9dc2-e9c2fcb4ebb5"
@@ -454,7 +454,7 @@ services:
               notification starts with a two-digit decimal record count NN,
               followed by record characters. Further notifications continue
               the text until 18 x NN characters have arrived. NN = 00 means
-              the cache is empty. See payload_formats.SmartEarCacheReply.
+              the cache is empty. See payload_formats.AsciiCacheReply.
             value: [0x52, 0x43]
             verification: "reported"
           clear_cache:
@@ -465,6 +465,11 @@ services:
               parse it. Send it only after the records are safely stored.
               They are health data and cannot be recovered.
             value: [0x43, 0x45]
+            advanced: true
+            advanced_reason: >
+              Erases the thermometer's stored temperature readings (health
+              data) with no way back. Send it only after a complete RC
+              download whose records have been parsed and stored.
             verification: "reported"
           ack_live_reading:
             description: >
@@ -492,7 +497,7 @@ services:
           matches TT, 3 digits, '.', 1 digit, C or F, 12 digits). The
           temperature is text in the unit the thermometer's hardware switch
           selects, so no numeric entity binds these fields. Decode with
-          payload_formats.SmartEarRecord (Fahrenheit to Celsius:
+          payload_formats.AsciiReadingRecord (Fahrenheit to Celsius:
           (F - 32) x 5 / 9, as the app does) and acknowledge with
           ack_live_reading.
         format_match:
@@ -519,7 +524,7 @@ services:
             length: 12
             name: "timestamp_text"
             type: "string"
-            notes: "YYMMDDhhmmss on the thermometer's own clock. Convert with the RSTS pair (payload_formats.SmartEarRecord)."
+            notes: "YYMMDDhhmmss on the thermometer's own clock. Convert with the RSTS pair (payload_formats.AsciiReadingRecord)."
 
   - uuid: "0000180a-0000-1000-8000-00805f9b34fb"
     name: "Device Information"
@@ -582,7 +587,7 @@ services:
   # command set, stick families (0x6a, 0x6b) another.
   # ---------------------------------------------------------------------------
   - uuid: "00000000-0068-746c-6165-4861736e694b"
-    name: "Kinsa binary command service, Herschel (second-generation ear, family byte 0x68)"
+    name: "Kinsa binary command service, Ear-2 (second-generation ear, family byte 0x68)"
     notes: >
       Infrared family: temperatures in hundredths of a degree Celsius, final
       readings under 0x43, cached ones under 0x41. The app's default
@@ -590,7 +595,7 @@ services:
       thermometer for its site.
     initialization: &kinsa_ir_init_notes
       - description: >
-          Vendor handshake for the infrared families (Herschel, Santorio), run
+          Vendor handshake for the infrared families (Ear-2, Forehead), run
           on every connection, one write at a time, each waiting for its
           reply: subscribe to 0000000[2]; get_firmware_version (0x02);
           get_serial_number (0x08, only when the serial is not already
@@ -808,15 +813,15 @@ services:
             notes: "The thermometer's second counter at the reading. Meaningful for cached readings; the app ignores it on live ones."
 
   - uuid: "00000000-0069-746c-6165-4861736e694b"
-    name: "Kinsa binary command service, Santorio (forehead / QuickScan, family byte 0x69)"
+    name: "Kinsa binary command service, Forehead (QuickScan, family byte 0x69)"
     notes: >
-      Infrared family, same codec as Herschel: temperatures in hundredths of
+      Infrared family, same codec as Ear-2: temperatures in hundredths of
       a degree Celsius, final readings under 0x43, cached ones under 0x41.
       The app's default site is forehead. The app bundles a signed recovery
       firmware package (version 0.2.12) for this family.
     initialization:
       - description: >
-          Same vendor handshake as the Herschel service: subscribe, then 0x02,
+          Same vendor handshake as the Ear-2 service: subscribe, then 0x02,
           0x08 (if the serial is unknown), 0x06, 0x0a, 0x07; 0x04 if the clock
           was never set; 0x41 until the index is 0; then set_clock (0x05, UTC).
       - characteristic: "00000002-0069-746c-6165-4861736e694b"
@@ -836,7 +841,7 @@ services:
         name: "Command (write)"
         properties: ["write"]
         role: "command"
-        notes: "Same command set as the Herschel service (infrared families)."
+        notes: "Same command set as the Ear-2 service (infrared families)."
         commands: *kinsa_ir_commands
       - uuid: "00000002-0069-746c-6165-4861736e694b"
         name: "Reply / notification"
@@ -850,16 +855,16 @@ services:
         format: *kinsa_ir_live_format
 
   - uuid: "00000000-006a-746c-6165-4861736e694b"
-    name: "Kinsa binary command service, Kelvin (first-generation QuickCare stick, family byte 0x6a)"
+    name: "Kinsa binary command service, Stick-1 (first-generation QuickCare stick, family byte 0x6a)"
     notes: >
       Stick family: temperatures in TENTHS of a degree Celsius, final
       readings under 0x46, cached ones under 0x45, intermediate readings
       under 0x42 while measuring. The app asks the thermometer for its
       configured measurement site (0xb4) on every connection and labels
       readings with it (default oral).
-    initialization: &kinsa_stick_init_notes_kelvin
+    initialization: &kinsa_stick_init_notes_stick1
       - description: >
-          Vendor handshake for the stick families (Kelvin, Galileo), run on
+          Vendor handshake for the stick families (Stick-1, Stick-2), run on
           every connection, one write at a time, each waiting for its reply:
           subscribe to 0000000[2]; get_firmware_version (0x02);
           get_serial_number (0x08, only when the serial is not already
@@ -1069,17 +1074,17 @@ services:
             notes: "The thermometer's second counter at the reading; ignored by the app on live readings."
 
   - uuid: "00000000-006b-746c-6165-4861736e694b"
-    name: "Kinsa binary command service, Galileo (second-generation QuickCare stick, family byte 0x6b)"
+    name: "Kinsa binary command service, Stick-2 (second-generation QuickCare stick, family byte 0x6b)"
     notes: >
-      Stick family, same codec as Kelvin (tenths of a degree, 0x46 final,
-      0x45 cached, 0x42 intermediate, 0xb4 site). Galileo alone also has the
+      Stick family, same codec as Stick-1 (tenths of a degree, 0x46 final,
+      0x45 cached, 0x42 intermediate, 0xb4 site). Stick-2 alone also has the
       raw-data streaming opcodes the app uses for its three-minute "QuickCare
       thermometer study" (0xc3 start or stop, 0xc0 stream, 0xc5 algorithm
       results). They are not documented here. The app bundles a signed
       recovery firmware package (version 1.0.8) for this family.
     initialization:
       - description: >
-          Same vendor handshake as the Kelvin service: subscribe, then 0x02,
+          Same vendor handshake as the Stick-1 service: subscribe, then 0x02,
           0x08 (if the serial is unknown), 0xb4, 0x06, 0x0a, 0x07; 0x04 if the
           clock was never set; 0x45 until the index is 0; then set_clock
           (0x05, UTC).
@@ -1102,7 +1107,7 @@ services:
         name: "Command (write)"
         properties: ["write"]
         role: "command"
-        notes: "Same command set as the Kelvin service (stick families)."
+        notes: "Same command set as the Stick-1 service (stick families)."
         commands: *kinsa_stick_commands
       - uuid: "00000002-006b-746c-6165-4861736e694b"
         name: "Reply / notification"
@@ -1119,7 +1124,7 @@ ble:
   connection_sequence:
     description: >
       Pick the path by the advertised service UUID.
-      LegacyEar (2893b28b): connect -> bond (createBond, Just Works prompt) ->
+      Ear-1 (2893b28b): connect -> bond (createBond, Just Works prompt) ->
       discover -> subscribe 28930001 and 28930002 -> write RSTS, keep the
       OKTS clock and the phone's UTC time -> read 2a28 and 2a25 -> write RC,
       collect NN x 18 characters -> store the records -> write CE. Live
@@ -1133,9 +1138,9 @@ ble:
       for each reply (or write confirmation) before the next.
 
 payload_formats:
-  SmartEarRecord:
+  AsciiReadingRecord:
     description: >
-      One LegacyEar reading: exactly 18 ASCII characters. Used inside the RC
+      One Ear-1 reading: exactly 18 ASCII characters. Used inside the RC
       reply and after the "TT" tag of a live event.
     fields:
       - name: "temperature_text"
@@ -1159,30 +1164,30 @@ payload_formats:
       - "Parse chars 6-17 as UTC YY MM DD hh mm ss with year = 2000 + YY and month 1-12 (the app's older parser fed the 1-12 month to a 0-based calendar field; do not copy that)."
       - "reading_time = phone_utc_at_RSTS_reply - (thermometer_time_from_OKTS - record_time). The thermometer clock is only a reference: never trust its absolute value."
     example: "098.6F260928143000"
-  SmartEarStatusReply:
+  AsciiClockReply:
     description: "Reply to RSTS on Response: the thermometer's current clock."
     parse_rules:
       - "Must match ^OKTS[0-9]{12}$; anything else is ignored by the app."
       - "Chars 4-15 are YYMMDDhhmmss (year = 2000 + YY, month 1-12)."
       - "Record the phone's UTC time when this reply arrives; pair the two for every timestamp conversion in this session."
     example: "OKTS260928150000"
-  SmartEarCacheReply:
+  AsciiCacheReply:
     description: "Reply to RC on Response, possibly split across several notifications."
     parse_rules:
       - "The FIRST notification begins with two decimal digits NN: the number of records. Strip them."
       - "If NN = 00 the cache is empty; stop."
       - "Append the rest of this and every following notification to a buffer until it holds at least 18 x NN characters."
-      - "Split the buffer into 18-character SmartEarRecord values. Discard malformed ones."
+      - "Split the buffer into 18-character AsciiReadingRecord values. Discard malformed ones."
       - "Once the records are stored, write CE to clear the cache. The app does this only when at least one record parsed."
       - "The app gives the whole exchange about 5 s."
     example: "02098.6F260928143000037.2C260928150000"
-  SmartEarLiveEvent:
-    description: "Live reading on Events: \"TT\" plus one SmartEarRecord (20 characters)."
+  AsciiLiveEvent:
+    description: "Live reading on Events: \"TT\" plus one AsciiReadingRecord (20 characters)."
     parse_rules:
       - "Must match ^TT[0-9]{3}\\.[0-9][CFcf][0-9]{12}$."
-      - "Decode chars 2-19 as a SmartEarRecord, then write EL (ack_live_reading)."
+      - "Decode chars 2-19 as a AsciiReadingRecord, then write EL (ack_live_reading)."
     example: "TT098.6F260928143000"
-  KciTemperatureRecord:
+  BinaryReadingRecord:
     description: >
       Binary reading record shared by live (0x43/0x46) and cached (0x41/0x45)
       frames. Offsets here are from the start of the record, NOT the start of
@@ -1220,8 +1225,8 @@ payload_formats:
         type: "bytes"
         description: "Present in 9-, 11- and 12-byte records. In a 12-byte record, bytes 6-11 are a UTC date-time (year - 2000, month 1-12, day, hour, minute, second) that the app parses and then does not use. The meaning of the 9- and 11-byte forms' extra bytes is not established."
     parse_rules:
-      - "Infrared (Herschel 0x68, Santorio 0x69): temperature_c = u16be(record[1..2]) / 100."
-      - "Stick (Kelvin 0x6a, Galileo 0x6b): temperature_c = u16be(record[1..2]) / 10."
+      - "Infrared (Ear-2 0x68, Forehead 0x69): temperature_c = u16be(record[1..2]) / 100."
+      - "Stick (Stick-1 0x6a, Stick-2 0x6b): temperature_c = u16be(record[1..2]) / 10."
       - "Reject a record whose length is not 6, 9, 11 or 12."
     example: "03 0e 74 00 01 2c  (ear, 37.00 C, counter 300 s; infrared scaling)"
   CachedReadingReply:
@@ -1239,7 +1244,7 @@ payload_formats:
       - name: "record"
         offset: 2
         type: "bytes"
-        description: "A KciTemperatureRecord."
+        description: "A BinaryReadingRecord."
     parse_rules:
       - "If the clock was set (get_rtc date non-zero): reading_time = rtc_date + record.rtc_seconds."
       - "Otherwise, with counter_now and phone_time from get_rtc_counter: delta = record.rtc_seconds - counter_now; if delta <= 0, reading_time = phone_time + delta seconds, else the app stamps it with the current time (a counter that restarted, e.g. after a battery change, makes such readings unrecoverable)."
@@ -1329,9 +1334,9 @@ payload_formats:
         unit: "V"
         description: "All payload bytes (2 or more) as one big-endian unsigned integer, in hundredths of a volt."
     parse_rules:
-      - "App thresholds, two AAA cells (Herschel, Santorio): critical at or below 2.65 V, low up to 2.70 V, good above."
-      - "App thresholds, CR2032 (Kelvin, Galileo): critical at or below 2.55 V, low up to 2.60 V, good above."
-      - "The app has no voltage table for LegacyEar, which reports 0x2a19 instead."
+      - "App thresholds, two AAA cells (Ear-2, Forehead): critical at or below 2.65 V, low up to 2.70 V, good above."
+      - "App thresholds, CR2032 (Stick-1, Stick-2): critical at or below 2.55 V, low up to 2.60 V, good above."
+      - "The app has no voltage table for Ear-1, which reports 0x2a19 instead."
     example: "0a 01 2c  (3.00 V)"
   ErrorFlags:
     description: "Opcode 0x07 (reply to get_error_flags, or unsolicited after a failed measurement). Payload byte 0 is a bitmask."
@@ -1380,12 +1385,12 @@ features:
           Updates come from the vendor's GraphQL firmware catalogue: the app
           sends model, serial, current and supported versions, and gets back
           a version and an HTTPS download URL. It also bundles recovery
-          packages for three families (Galileo 1.0.8, Herschel 0.0.19,
-          Santorio 0.2.12). Their init packets are signed commands
+          packages for three families (Stick-2 1.0.8, Ear-2 0.0.19,
+          Forehead 0.2.12). Their init packets are signed commands
           (ECDSA P-256 over SHA-256, 64-byte signature) naming hardware
           version 52, which suggests nRF52 parts. The images stay in the
           app. None is reproduced or described byte by byte here. No
-          package exists for Kelvin or LegacyEar. The 2015 Smart Ear is a
+          package exists for Stick-1 or Ear-1. The 2015 Smart Ear is a
           TI CC2541 design (FCC internal photos) with no known update path.
       enter:
         how: "unknown"
@@ -1405,7 +1410,7 @@ features:
           recorded. 0xfe59 is Nordic's, not Kinsa's: only tie such a device
           to this spec when an update was just started on a Kinsa unit.
       recovery:
-        interrupted: "stays_in_bootloader"
+        interrupted: "unknown"
         notes: >
           Inferred from the app's dedicated firmware-recovery screen, which
           scans for a 0xfe59 bootloader and pushes the bundled package for
@@ -1418,8 +1423,8 @@ entities:
     name: "Temperature"
     device_class: "temperature"
     unit: "C"
-    precision: 2
-    variants: ["Herschel"]
+    precision: 0.01
+    variants: ["Ear-2"]
     state_characteristic: "00000002-0068-746c-6165-4861736e694b"
     state_mapping:
       value: "temperature"
@@ -1428,8 +1433,8 @@ entities:
     name: "Temperature"
     device_class: "temperature"
     unit: "C"
-    precision: 2
-    variants: ["Santorio"]
+    precision: 0.01
+    variants: ["Forehead"]
     state_characteristic: "00000002-0069-746c-6165-4861736e694b"
     state_mapping:
       value: "temperature"
@@ -1438,8 +1443,8 @@ entities:
     name: "Temperature"
     device_class: "temperature"
     unit: "C"
-    precision: 1
-    variants: ["Kelvin"]
+    precision: 0.1
+    variants: ["Stick-1"]
     state_characteristic: "00000002-006a-746c-6165-4861736e694b"
     state_mapping:
       value: "temperature"
@@ -1448,8 +1453,8 @@ entities:
     name: "Temperature"
     device_class: "temperature"
     unit: "C"
-    precision: 1
-    variants: ["Galileo"]
+    precision: 0.1
+    variants: ["Stick-2"]
     state_characteristic: "00000002-006b-746c-6165-4861736e694b"
     state_mapping:
       value: "temperature"
@@ -1458,14 +1463,14 @@ entities:
     name: "Battery"
     device_class: "battery"
     unit: "%"
-    variants: ["LegacyEar"]
+    variants: ["Ear-1"]
     state_characteristic: "00002a19-0000-1000-8000-00805f9b34fb"
     state_mapping:
       value: "battery_level"
     notes: >
       Standard Battery Level, read by the app's older Smart Ear path. The Smart
       Ear's temperature is text (Events), so it has no numeric entity here;
-      decode it with payload_formats.SmartEarLiveEvent.
+      decode it with payload_formats.AsciiLiveEvent.
 
 protocol_details:
   family_table:
@@ -1475,8 +1480,8 @@ protocol_details:
       corroborated by the FCC-filed manuals where one exists. It has not
       been checked against a unit.
     families:
-      - codename: "LegacyEar"
-        app_product_label: "legacy-ear (ear, 1st generation)"
+      - family: "Ear-1"
+        app_product_label: "ear, 1st generation"
         retail: "Kinsa Smart Ear (FCC ID 2AFEOE1, 2015, model A-10240 (TS36B))"
         service: "2893b28b-c868-423a-9dc2-e9c2fcb4ebb5"
         protocol: "ASCII (RSTS / RC / CE / EL)"
@@ -1486,9 +1491,9 @@ protocol_details:
         bonding: "yes (current app always; older code below software 2.8)"
         firmware_update: "none known"
         hardware: "TI CC2541 BLE part on a daughterboard, SONiX SN8P2949 thermometer MCU, 24C16-class serial EEPROM (FCC internal photos)"
-      - codename: "Herschel"
+      - family: "Ear-2"
         family_byte: 0x68
-        app_product_label: "herschel (ear, 2nd generation)"
+        app_product_label: "ear, 2nd generation"
         retail: "Smart Ear artwork in the app; no FCC grant found under the Kinsa grantee code"
         service: "00000000-0068-746c-6165-4861736e694b"
         temperature: "u16 BE x 0.01 C"
@@ -1497,9 +1502,9 @@ protocol_details:
         default_site: "ear (not asked)"
         battery: "AAA 1.5 V table (critical <= 2.65 V, low <= 2.70 V)"
         recovery_package: "0.0.19"
-      - codename: "Santorio"
+      - family: "Forehead"
         family_byte: 0x69
-        app_product_label: "santorio (forehead, 1st generation)"
+        app_product_label: "forehead, 1st generation"
         retail: "Kinsa QuickScan / CareScan non-contact forehead thermometer (FCC ID 2AFEONC1, 2021, model KNC-001, Bluetooth 5.0 LE; two AAA per the filed instructions)"
         service: "00000000-0069-746c-6165-4861736e694b"
         temperature: "u16 BE x 0.01 C"
@@ -1508,9 +1513,9 @@ protocol_details:
         default_site: "forehead (not asked)"
         battery: "AAA 1.5 V table (critical <= 2.65 V, low <= 2.70 V)"
         recovery_package: "0.2.12"
-      - codename: "Kelvin"
+      - family: "Stick-1"
         family_byte: 0x6a
-        app_product_label: "kelvin (stick, 1st generation)"
+        app_product_label: "stick, 1st generation"
         retail: "Kinsa QuickCare (QuickCare artwork; oral, underarm and rectal placements). No FCC grant found."
         service: "00000000-006a-746c-6165-4861736e694b"
         temperature: "u16 BE x 0.1 C"
@@ -1519,9 +1524,9 @@ protocol_details:
         default_site: "oral; the app asks 0xb4 each connection"
         battery: "CR2032 table (critical <= 2.55 V, low <= 2.60 V)"
         recovery_package: "none"
-      - codename: "Galileo"
+      - family: "Stick-2"
         family_byte: 0x6b
-        app_product_label: "galileo (stick, 2nd generation)"
+        app_product_label: "stick, 2nd generation"
         retail: "Kinsa QuickCare, later generation (QuickCare artwork; the app's QuickCare study streams from it)"
         service: "00000000-006b-746c-6165-4861736e694b"
         temperature: "u16 BE x 0.1 C"
@@ -1547,7 +1552,7 @@ protocol_details:
       meaning. "Documented" means a command or payload format in this spec.
       Everything else is listed so nobody mistakes a gap for an unknown. The
       app sends only the handshake set, the cache loop, 0x05, 0x31, 0x7a,
-      0xb3, 0x0c and the Galileo study opcodes.
+      0xb3, 0x0c and the Stick-2 study opcodes.
     opcodes:
       "0x01": "reset (not documented; not sent by the app)"
       "0x02": "firmware version (documented)"
@@ -1603,14 +1608,14 @@ protocol_details:
       "0xb3": "set temperature source / measurement site (documented, sticks)"
       "0xb4": "get temperature source / measurement site (documented, sticks)"
       "0xb5": "get status (not documented)"
-      "0xc0": "Galileo raw data stream (not documented)"
-      "0xc3": "Galileo start (01) or stop (00) streaming (not documented)"
-      "0xc5": "Galileo algorithm results (not documented)"
+      "0xc0": "Stick-2 raw data stream (not documented)"
+      "0xc3": "Stick-2 start (01) or stop (00) streaming (not documented)"
+      "0xc5": "Stick-2 algorithm results (not documented)"
     verification: "reported"
   sig_profiles:
     description: >
       No family implements the SIG Health Thermometer service
-      (0000180d9-free: 00001809-0000-1000-8000-00805f9b34fb) as far as the app
+      (00001809-0000-1000-8000-00805f9b34fb) as far as the app
       shows: the app never references it, and its scanner classifies devices
       by the vendor service UUIDs alone. The only SIG services it touches are
       Device Information and Battery (first-generation Smart Ear) and 0xfe59
@@ -1725,14 +1730,14 @@ evidence:
       record or only read it.
 
 remaining_unknowns:
-  - "Which retail product each family byte is. The app's artwork and labels say Smart Ear (LegacyEar, Herschel), QuickScan/CareScan (Santorio) and QuickCare (Kelvin, Galileo); no unit has been checked."
+  - "Which retail product each family byte is. The app's artwork and labels say Smart Ear (Ear-1, Ear-2), QuickScan/CareScan (Forehead) and QuickCare (Stick-1, Stick-2); no unit has been checked."
   - "Advertised local names and whether the service UUID is in the advertisement or the scan response, per family."
   - "Whether the binary families' GATT needs encryption or a bond (the app never bonds; not tested)."
   - "Whether the first-generation Smart Ear on software 2.8 or later answers without a bond, and whether its pairing is Just Works."
   - "The meaning of the 9- and 11-byte record forms, and whether the 12-byte form's date-time is authoritative."
   - "Whether get_next_cached_reading (0x41/0x45) pops the record, and whether the index byte counts down."
   - "The payload and effect of 0x44 clear_cache (the app never sends it)."
-  - "What the thermometer does with an unacknowledged LegacyEar live reading (no EL), and the replies to CE and EL."
+  - "What the thermometer does with an unacknowledged Ear-1 live reading (no EL), and the replies to CE and EL."
   - "What 0x42 intermediate frames look like on the infrared families, if they send them at all."
   - "The role of the 3893b28b-c868-423a-9dc2-e9c2fcb4ebb5 service and its characteristic 38930001 on the Smart Ear."
   - "How the thermometer enters its DFU bootloader, the bootloader's name and address offset, and what an interrupted update really leaves behind."
@@ -1744,7 +1749,7 @@ helpful_urls:
     url: "https://fccid.co/api/files/s1/2afeoe1_usersmanual_2760044_3c434d9492.pdf"
     kind: "manual"
     description: >
-      The first-generation Kinsa Smart Ear (FCC ID 2AFEOE1, the LegacyEar
+      The first-generation Kinsa Smart Ear (FCC ID 2AFEOE1, the Ear-1
       family here): battery and °C/°F switch, the Bluetooth pairing button
       held 3 s to add a phone, display icons and error codes. Mostly images.
   - title: "Kinsa CareScan Smart Thermometer instructions for use (PDF, FCC exhibit)"
@@ -1752,7 +1757,7 @@ helpful_urls:
     kind: "manual"
     description: >
       The CareScan / QuickScan non-contact forehead thermometer (FCC ID
-      2AFEONC1, the Santorio family here): setup, moving to another phone
+      2AFEONC1, the Forehead family here): setup, moving to another phone
       with Forget Thermometer, the unit toggle, APP/ERR/HI/LO display codes.
   - title: "FCC ID 2AFEOE1 (Kinsa Smart Ear) grant and exhibits"
     url: "https://fccid.co/fcc/2AFEOE1"

@@ -266,7 +266,7 @@ device:
         troubleshooting:
           - symptom: "The burner ignores every command."
             causes:
-              - "The client sent a 00001547 command before learning the firmware version. Read 00001537 first (client rule 1)."
+              - "The client sent a 00001547 command before learning the firmware version. The vendor app never does (client rule 1); whether the burner itself requires it is not established. Read 00001537 first."
               - "The burner's firmware was never updated. The vendor says a new burner will not even power on until it is, and the update source is gone (setup.notes)."
           - symptom: "A setpoint is written but nothing heats."
             causes:
@@ -1217,8 +1217,9 @@ services:
         notes: >-
           Exactly 2 bytes. Advertisements carry the same number as two bytes,
           major then minor, and the app forms (major << 8) | minor. So this
-          u16 is presumably major in its high byte (hypothesis). The burner
-          must have one before it accepts 00001547 commands (client rule 1).
+          u16 is presumably major in its high byte (hypothesis). The app
+          will not send a 00001547 command until it has this value (client
+          rule 1); whether the burner itself cares is not established.
         format:
           - name: "firmware_version"
             offset: 0

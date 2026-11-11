@@ -23,8 +23,8 @@ device:
   transport: "tcp"
   notes: >
     The Lightify Gateway is OSRAM's Wi-Fi-to-Zigbee bridge for its Lightify smart
-    bulbs, strips and plugs. OSRAM shut the Lightify cloud on 2026-08-31 (2021 in
-    the original announcement window), ending internet control, Alexa/Google
+    bulbs, strips and plugs. OSRAM (by then LEDVANCE) shut the Lightify cloud on
+    2021-08-31, ending internet control, Alexa/Google
     integrations and — by several community reports — the ability to add devices
     or edit groups/scenes/timers through the app. OSRAM stated local Wi-Fi app
     control continues if the app is > 2.1.0 and the gateway Wi-Fi firmware is
@@ -94,7 +94,7 @@ device:
     required: true
     confidence: "low"
     notes: >
-      Original onboarding used the Lightify app + cloud. After the 2026-08-31
+      Original onboarding used the Lightify app + cloud. After the 2021-08-31
       shutdown, adding new devices reportedly no longer works while already-
       paired local control survives; the gateway must carry final firmware
       (Wi-Fi firmware > 1.8.3.0). Provisioning wire steps are not documented
@@ -165,6 +165,40 @@ device:
       notes: >
         Local TCP 4000 control is unauthenticated on the LAN. Onboarding was
         cloud-mediated and is not documented here.
+
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "none"
+    bonding: "none"
+    exclusivity:
+      single_connection: false
+      single_bond: false
+      recovery: >
+        Several clients may connect at once — noctarius' protocol notes
+        recommend opening extra connections for parallelism, since each one
+        carries only one request at a time. A connection that stops
+        answering mid-exchange is usually waiting on an earlier request:
+        close it and open a new one rather than pipelining.
+    enter_pairing_mode:
+      required: false
+    notes: >
+      Between a client and the gateway nothing pairs: TCP 4000 takes the
+      binary protocol from any LAN host with no handshake or credential, and
+      nothing is stored about the client (noctarius/lightify-binary-protocol,
+      python-lightify). The gateway's own pairing is the other direction —
+      it is the Zigbee coordinator, and bulbs, plugs and strips are joined to
+      its network. That join was driven from the Lightify app through the
+      cloud; no local command for it (permit-join, search, remove) appears in
+      the reverse-engineered command set, so with the cloud gone a gateway
+      can be expected to control only what it already holds. The durable
+      route for a new or reset bulb is to join it to another Zigbee
+      coordinator (setup method's local_alternative), which treats it as an
+      ordinary Zigbee join after the bulb's own reset procedure. Removing a
+      device from the gateway was likewise an app function; locally, the
+      bulb-side reset is what takes it off the gateway's network (the gateway
+      may keep listing it), and resetting the gateway itself is not
+      recommended (setup.factory_reset).
 
 # The Lightify gateway binary protocol. Bespoke framing/command material lives
 # under `protocol_details` because the schema's top level is closed; that block

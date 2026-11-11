@@ -167,6 +167,98 @@ device:
         Identify-only: no credential crosses to this app. The Matter setup
         passcode is entered by the user in their Matter controller during
         commissioning, never here.
+  pairing:
+    required: true
+    confidence: medium
+    # app_layer rather than network_join: on Wi-Fi/Ethernet the IP link asks
+    # nothing, and the gate is Matter's own PASE-then-certificate scheme. A
+    # Thread node is also handed the Thread network credentials during the
+    # same commissioning, but that is a step inside it, not the gate.
+    security_mode: app_layer
+    bonding: none
+    pin:
+      source: printed_label
+      length: 11
+      notes: >
+        The setup passcode (a 27-bit value, eight decimal digits) is printed
+        on the device or its packaging, as a QR code (an "MT:" payload that
+        also carries the discriminator and vendor/product IDs) and as an
+        11-digit manual pairing code (21 digits in the long form). Per-unit,
+        so no value appears here. It only opens a PASE session; what the
+        commissioner then installs on the node is an operational certificate
+        for its fabric, and every later session is CASE, authenticated by
+        that certificate. To add a second ecosystem, the existing admin
+        generates a fresh, temporary passcode — shown as a code in that
+        controller's app — rather than reusing the printed one.
+    exclusivity:
+      single_connection: false
+      single_bond: false
+      recovery: >
+        Multi-admin is the norm: a certified node holds at least five fabrics,
+        so a second controller is added alongside the first by asking the
+        first to share the device (it opens a commissioning window with a new
+        code). If the node is out of fabric slots, remove an unused one from
+        its controller. A second-hand node still carrying the previous
+        owner's fabric, with no admin to remove it, needs the factory reset.
+    unpair:
+      supported: true
+      requires_factory_reset: false
+      clears: "One fabric — that controller's certificate, ACL entries and node ID — leaving the others working."
+      notes: >
+        Removing the device in one ecosystem's app removes that fabric (the
+        Operational Credentials cluster's RemoveFabric) and nothing else. When
+        the last fabric goes, the node is typically commissionable again.
+    enter_pairing_mode:
+      required: true
+      window_seconds: 180
+      indicator: "The node advertises _matterc._udp (TXT CM=1 for the printed passcode, CM=2 for an admin-opened window)."
+      procedures:
+        - name: "Factory-new or uncommissioned node: power it up"
+          verified: false
+          basis: >
+            Matter core specification, commissioning and Administrator
+            Commissioning cluster sections. What reopens an expired window on
+            a given product (power cycle, button press) is that product's
+            choice and is hinted by the PH/PI TXT keys.
+          power_state: "booting"
+          glyph: "generic/power-cycle.svg"
+          steps:
+            - action: "Power the device on (or power-cycle it if its window has expired)."
+              actor: user
+              expect: "_matterc._udp appears on mDNS (or a BLE commissioning advertisement for Thread and Wi-Fi-not-yet-joined nodes)."
+            - action: "Scan the QR code or type the 11-digit code into the commissioning controller, and run PASE with that passcode."
+              actor: client
+        - name: "Already-commissioned node: share it from the existing controller"
+          verified: false
+          basis: >
+            Matter core specification, Administrator Commissioning cluster
+            (OpenCommissioningWindow with a fresh verifier).
+          power_state: "on"
+          glyph: "generic/on-screen-menu.svg"
+          steps:
+            - action: "In the existing controller's app, choose to share or pair with another app; it shows a new setup code."
+              actor: user
+            - action: "Commission with that code before the window closes."
+              actor: client
+              timeout_seconds: 900
+      notes: >
+        The spec bounds a commissioning window at three to fifteen minutes,
+        so 180 seconds is the guaranteed minimum a client can plan on; most
+        controllers open an admin-shared window for longer, up to 900.
+        Factory-new Wi-Fi and Thread nodes are commissioned over BLE first,
+        and only appear on the IP segment this spec watches once joined.
+    notes: >
+      The gate is commissioning. A controller proves possession of the
+      device's setup passcode (printed on it) in a PASE session, then
+      installs an operational certificate that puts the node on the
+      controller's fabric; from then on that fabric — not the passcode — is
+      the credential, and every session is mutually authenticated CASE.
+      Matter is local by design, so no vendor cloud is in this path and none
+      can be lost. Multiple fabrics coexist, which is how one device serves
+      Apple Home, Google Home and Home Assistant at once. This project does
+      not commission (identify-only), so the block describes what any
+      controller must do; nothing here was driven by this project beyond
+      discovery.
 
 local_access:
   status: native

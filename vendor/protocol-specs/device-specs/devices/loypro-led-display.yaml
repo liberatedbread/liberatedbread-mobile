@@ -1,11 +1,12 @@
-# LOY / LOYPRO LED displays (com.yskj.loypro) — Device Specification
+# LOY / LOYPRO helmet LED displays (com.yskj.loypro) — Device Specification
 # Copyright 2026 Pigs Can Fly Labs LLC
 # SPDX-License-Identifier: Apache-2.0
 
 device:
-  name: "LOY / LOYPRO LED Display"
+  name: "LOY / LOYPRO Helmet LED Display"
   manufacturer: "LOY / YSKJ OEM family"
   manufacturer_status: "active"
+  aliases: ["LOYPRO display", "motorcycle helmet LED display", "helmet LED matrix"]
   openness:
     status: "undocumented"
     reverse_engineered: true
@@ -15,32 +16,40 @@ device:
       accept only YS and TL. That prefix, not the widely shared 0xFFF0
       service, is the scan-time discriminator for this candidate.
   testing:
-    status: untested
-    detail: capture-verified
+    status: verified
+    detail: minimally-verified
     notes: >
-      One 2026-11-07 advertisement from LOY5265115155 carried the LOY name
-      and 0xFFF0, with no service-data or manufacturer record. It was not
-      found again in two later windows, so GATT enumeration did not
-      complete. No characteristic read, subscription, write, pairing,
-      reset or firmware operation was performed. Model, geometry and the
-      exact AA55 dialect remain unverified.
+      On 2026-11-08 this project used the documented 20-byte dev_info_all
+      query on a helmet-worn unit. The checksum-valid 159-byte reply confirmed
+      FFF2 write-without-response and FFF1 notify, little-endian 48x16 panel
+      geometry, fixed brightness 15, power type 1, and remote/car_linkage/
+      brake/HS:2/MTU:512/power capabilities. Only an information query and
+      notification subscription were used; no display, configuration, pairing,
+      reset or firmware write was performed.
   protocol: "ble"
   transport: "ble-gatt"
   category: "display"
   category_hierarchy: ["display", "led_matrix"]
-  integration: "identify_only"
+  integration: "supported"
   notes: >
-    Candidate identification for LOY/LOYPRO LED matrix displays. The app
-    evidence supports the same AA55 binary-TLV family as AUTOBABA, but this
-    spec deliberately does not force that product's YS/TL identity or claim
-    a model, geometry or working command session for a LOY-named unit.
+    Confirmed LOY/LOYPRO helmet display using the AA55 binary-TLV family.
+    The observed physical unit is a helmet-worn motorcycle display. Its exact
+    hardware/reseller model is unknown; the device-information model field is
+    literally `server`, and the advertised digits have no proven model or
+    resolution meaning. The 48x16 geometry comes from the live panel TLV, not
+    those digits.
 
-    `identify_only` remains the honest state until a read-only GATT
-    enumeration and a device-information response establish the model,
-    firmware, width, height and exact command dialect. The shared 0xFFF0
-    service is retained in `services` for post-connect use, never as an
+    FFF0 is retained in `services` for post-connect use, never as an
     identification signal: unrelated LED panels, thermometers, battery
-    monitors, OBD adapters and treadmills all advertise it.
+    monitors, OBD adapters and treadmills all advertise it. AUTOBABA is a
+    protocol relative but expects YS/TL, so it must not be selected for this
+    LOY-named helmet. The older Shining Display helmet platform uses FA02 and
+    is a different protocol.
+
+    This unit reports `car_linkage` and `brake`. That proves a firmware
+    capability, not the event source: an integrated accelerometer, wireless
+    accessory, wired vehicle input or another mechanism remain possible. Do
+    not infer wiring or motion-triggered animations from those tokens alone.
   identification:
     local_name_prefixes: ["LOY"]
     notes: >
@@ -57,41 +66,45 @@ device:
             value: "LOY"
         verification: "confirmed"
         notes: >
-          Exact-prefix evidence from the 2026-11-07 advertisement and the
-          LOYPRO app's scan list. Do not add 0xFFF0 here: doing so would
-          reactivate every unrelated FFF0-based spec as a candidate.
+          Exact-prefix evidence from the advertisement and LOYPRO app's scan
+          list. Do not add 0xFFF0 here: doing so would reactivate every
+          unrelated FFF0-based spec as a candidate. Advertising is
+          intermittent, so rediscover freshly and do not persist a stale
+          address.
     identity:
       stable_keys: ["local_name"]
       display: "local_name"
     static_ip_required: false
   setup:
     required: false
-    confidence: "low"
+    confidence: "high"
     notes: >
-      No account or provisioning is established for the BLE display path.
-      Start read-only: enumerate GATT, subscribe to FFF1 and use a
-      source-derived information query only after the user has selected
-      this LOYPRO candidate. Do not send another protocol's initialization.
+      No account or provisioning is required for the confirmed BLE display
+      path. The information query and notification subscription were run
+      successfully without pairing. Start read-only: enumerate GATT, subscribe
+      to FFF1 and use the information query after selecting this LOYPRO
+      candidate. Do not send another protocol's initialization.
     methods:
       - type: "ble_direct"
-        name: "Read-only LOYPRO identification"
+        name: "LOYPRO information query and identification"
         role: "primary"
-        verified: false
+        verified: true
         description: >
           Match the LOY prefix, enumerate services and characteristics,
-          then corroborate the AA55 family with a device-information reply.
-          Full GATT properties are not yet known for the observed unit.
+          subscribe to FFF1, then issue the source-derived AA55 information
+          query on FFF2 with response=False. The observed unit completed this
+          flow and returned a checksum-valid response.
         ble:
           advertised_name: "LOY<serial>"
           pairing_required: false
         steps:
           - action: "Scan for a fresh LOY-prefixed advertisement and connect without persisting a stale address."
             actor: "client"
-          - action: "Enumerate GATT and confirm FFF2 is write-without-response and FFF1 is notify, if that is the layout offered."
+          - action: "Enumerate GATT and confirm FFF2 is write-without-response and FFF1 is notify."
             actor: "client"
           - action: "Subscribe to FFF1 and request device/panel information using protocol_details.read_only_identification."
             actor: "client"
-            expect: "An AA55 reply identifying model, firmware, width and height; stop if the dialect differs."
+            expect: "A checksum-valid AA55 reply identifying firmware, capabilities and little-endian width/height; stop if the dialect differs."
     factory_reset:
       applicable: "unknown"
       confidence: "low"
@@ -102,52 +115,78 @@ device:
       in_place_supported: true
       requires_factory_reset: false
       notes: >
-        Rediscover by the exact advertised name and, once confirmed, the
-        expected characteristic layout. A previous address may be stale.
+        Rediscover by the exact advertised name and confirmed characteristic
+        layout. A previous address may be stale, and advertising may pause
+        after disconnect or with power state.
     credentials:
       wifi_passphrase_protection: "not_applicable"
       stored_on_device: []
       issued_to_client: []
-      notes: "No account, Wi-Fi credential or pairing secret is established."
+      notes: >
+        No account, Wi-Fi credential or pairing secret is established. The
+        device reports pwd support, but whether a password is configured is
+        unknown; use the owner's normal flow if one is enabled.
   pairing:
     required: false
-    confidence: "low"
+    confidence: "high"
     security_mode: "none"
     bonding: "none"
     enter_pairing_mode:
       required: false
     notes: >
-      The wider codec has an optional password capability, but no such
-      requirement was observed. If enabled, use the owner's normal app
-      flow rather than guessing or bypassing it.
+      The confirmed query session used no pairing. The wider codec has an
+      optional password capability, but no configured password was observed.
+      If enabled, use the owner's normal app flow rather than guessing or
+      bypassing it.
+
+local_access:
+  status: "native"
+  summary: >
+    The documented dev_info_all query works locally over BLE. Other commands
+    and uploads remain unverified on this unit.
+  covers:
+    - "FFF2 information query with sequence-matched, checksum-valid FFF1 reply"
+    - "Little-endian panel geometry, power and fixed-brightness reads"
+    - "Firmware capability discovery for remote, car_linkage, brake and power"
+  not_covered:
+    - "Display content writes, raw-GIF upload, settings, binding, reset and OTA"
+    - "Accelerometer or motion-trigger evidence, live brake events and vehicle-linkage mappings"
+
+protocol_handler: "popled_json"
+
+initialization:
+  - characteristic: "0000fff1-0000-1000-8000-00805f9b34fb"
+    subscribe: true
+    notes: "Open display replies before the information query or any display command."
 
 services:
   - uuid: "0000fff0-0000-1000-8000-00805f9b34fb"
-    name: "LOY display service (family evidence)"
-    verification: "reported"
+    name: "LOY display service"
+    verification: "confirmed"
     notes: >
-      LOYPRO uses this service for display commands, but 0xFFF0 is shared
-      by many unrelated protocols and must not identify the device by
-      itself. Full characteristic properties for LOY5265115155 are unknown.
+      Complete live discovery on 2026-11-08 confirmed this service and its
+      FFF2/FFF1 children. Only FFF0 appeared in that session; this does not
+      exclude other services in other firmware states. FFF0 is shared by many
+      unrelated protocols and must not identify the device by itself.
     characteristics:
       - uuid: "0000fff1-0000-1000-8000-00805f9b34fb"
         name: "Display notifications"
         properties: ["notify"]
-        verification: "reported"
-        notes: "Expected AA55 acknowledgements and TLV replies; subscribe before an information query."
+        verification: "confirmed"
+        notes: "Notification enabling succeeded and the information reply arrived here. Reassemble AA55 frames by declared length."
       - uuid: "0000fff2-0000-1000-8000-00805f9b34fb"
         name: "Display writes"
         properties: ["write_without_response"]
-        verification: "reported"
-        notes: "Use response=False if the unit confirms this property; no write was attempted."
+        verification: "confirmed"
+        notes: "Use response=False, as in the confirmed information query."
         commands:
           get_device_info:
-            description: "Request device and panel information using the source-derived AA55 information query in protocol_details.read_only_identification."
+            description: "Request device, panel, power and brightness information using the confirmed AA55 dev_info_all query in protocol_details.read_only_identification."
             encoding: "json"
             payload:
               key: "cmd.get"
               value_type: "string"
-            verification: "reported"
+            verification: "confirmed"
 
 protocol_details:
   family_evidence:
@@ -155,61 +194,111 @@ protocol_details:
     accepted_name_prefixes: ["YS", "TL", "LOY"]
     transport_shape: "AA55 framing, sequence, flags/mode, TLV payloads and little-endian additive checksum"
     not_evidence_for: >
-      Exact retail model, matrix geometry, raw-GIF compatibility, optional
-      maintenance services or a successful command session on this unit.
+      Exact retail model, raw-GIF compatibility, optional maintenance services
+      in other firmware states, or a particular vehicle-trigger mechanism.
   read_only_identification:
-    verification: "reported"
+    verification: "confirmed"
     source_derived_query_hex: "aa 55 ff ff 0e 00 01 00 c1 03 0a 00 1b 00 04 00 06 00 ff 03"
     notes: >
-      Twenty-byte AA55 information query with example sequence 1, shared
-      from the reviewed family codec and not transmitted during research.
-      Subscribe to FFF1 first and use FFF2 without response only if that
-      property is confirmed. Device-information TLV 0x0a carries
-      identity/model/version; panel TLV 0x1b carries big-endian width and
-      height. Stop if no valid AA55 reply arrives; do not try another
-      protocol's initialization as a fallback.
+      Twenty-byte AA55 dev_info_all query with example sequence 1, now
+      confirmed on the helmet. Subscribe to FFF1 first and use FFF2 without
+      response. A real client increments its sequence counter. Device-
+      information TLV 0x0a carries identity/model/version/capabilities; panel
+      TLV 0x1b carries a leading panel-data-type byte followed by little-endian
+      width and height. Power TLV 0x04 reports type 1 and brightness TLV 0x06
+      reports fixed value 15. Stop if no valid AA55 reply arrives; do not try
+      another protocol's initialization as a fallback.
+    observed_reply:
+      frame_bytes: 159
+      width: 48
+      height: 16
+      width_height_endian: "little"
+      brightness: 15
+      power_type: 1
+      capabilities: ["pwd", "remote", "car_linkage", "brake", "HS:2", "MTU:512", "power"]
+      note: "The MTU string is a firmware capability, not a negotiated-MTU measurement. Unit-specific identity and CID values are deliberately omitted."
     tlv_length_encoding:
       short: "LL below 0x80: LL bytes"
       extended_8: "81 LL: LL bytes (128-255)"
       extended_16: "82 LL LH: little-endian u16 length (256 and above)"
       example: "13 81 c4 = type 0x13 with a 196-byte value"
+  vehicle_linkage:
+    verification: "reported"
+    capabilities_confirmed: ["car_linkage", "brake"]
+    ordinary_program_ids:
+      turn_left: 67
+      turn_right: 68
+      brake: 69
+      double_flash: 70
+      reverse: 71
+    telecontrol_model: 10942
+    notes: >
+      These are app-assignable display program IDs, not demonstrated motion
+      gestures. The app offers a separate type-2 binding operation, which was
+      not attempted and must not be sent during read-only confirmation.
+      Generic vehicle-accessory instructions do not establish that this helmet
+      requires wiring or contains an accelerometer.
+    next_read_only_queries:
+      vehicle_telecontrol_sequence_6_hex: "aa 55 ff ff 0b 00 06 00 c1 03 34 03 02 2a be f3 04"
+      sensor_type_0_sequence_7_hex: "aa 55 ff ff 09 00 07 00 c1 03 3e 01 00 10 04"
+      note: "Use only after a fresh connection and only after the information response has confirmed the family. Stop if the first reply is invalid. No binding, mapping or display writes."
 
 features:
   - type: "image_upload"
     format: "gif"
+    resolution_source: "device_reported"
+    verification: "hypothesis"
     notes: >
-      No fixed geometry is claimed. Read panel TLV 0x1b before rendering.
-      Raw-GIF support on another YS-family backpack is not proof of
-      compatibility with a LOYPRO unit.
+      Read little-endian panel TLV 0x1b before rendering; the observed unit is
+      48x16. Raw-GIF support on related YS-family backpacks is not proof of
+      compatibility with this LOYPRO helmet. No display-content write was
+      attempted on this unit.
 
 remaining_unknowns:
-  - "Full GATT properties and whether 5833ff, Nordic DFU or other maintenance services exist."
-  - "Actual model, firmware, width, height and whether the name's digits carry any serial/model semantics."
-  - "Whether this unit uses the exact AA55 TLV dialect and initialization sequence expected by LOYPRO."
-  - "Whether intermittent advertising means another central is holding the connection."
+  - "Exact hardware/reseller model and whether the advertised digits have serial/model semantics. Firmware V2.9.1#V18 and 48x16 geometry are confirmed."
+  - "Vehicle-linkage mappings, sensor type/value, actual brake event source, and whether any accelerometer or motion-triggered animation path exists."
+  - "Whether 5833ff, Nordic DFU or other maintenance services exist in other firmware states. The completed live discovery showed only FFF0."
+  - "Raw-GIF compatibility, display writes, settings, password configuration, reset and OTA."
+  - "Whether intermittent advertising is firmware policy, power-state behavior or another central holding the connection."
 
 evidence:
   artifacts:
     - type: "advertisement"
-      artifact: "LOY5265115155, observed 2026-11-07"
+      artifact: "LOY-prefixed display, observed 2026-11-07"
       description: >
         Name and advertised 0xFFF0, RSSI -59 dBm; no manufacturer or
         service-data record retained. Address and raw payloads deliberately
-        omitted. Later scans did not rediscover the name, so GATT discovery
-        did not complete.
+        omitted. Advertising was intermittent in later scans.
+    - type: "live_probe"
+      artifact: "Supplied Flutter/BlueZ GATT session log, 2026-11-07"
+      description: >
+        Confirmed one FFF0 service containing FFF2 and FFF1 and successful
+        FFF1 notification enabling. The log omitted characteristic properties
+        and contained no display-command write or reply. The secondary
+        5833ff service was absent only in that session, not proven absent
+        from the device or other firmware states.
+    - type: "live_probe"
+      artifact: "Sanitized dev_info_all query and response, 2026-11-08"
+      description: >
+        Fresh name-based discovery, complete GATT enumeration and one
+        source-derived information query. Confirmed write-without-response and
+        notify properties, a checksum-valid 159-byte reply, little-endian
+        48x16 geometry, brightness 15 and the capability tokens listed in this
+        spec. No display, configuration, pairing, reset or firmware write was
+        performed.
     - type: "static_analysis"
       artifact: "LOYPRO com.yskj.loypro 2.1.04 and LOY PLAY com.yskj.loy 1.7.15"
       description: >
         Established that LOYPRO accepts LOY while the other app version
-        accepts only YS/TL, and corroborated the FFF0/FFF2/FFF1 map and
-        AA55 family. No vendor classes, methods, source paths or UI text
-        are reproduced.
+        accepts only YS/TL, and corroborated the FFF0/FFF2/FFF1 map, AA55
+        family and vehicle-linkage program paths. No vendor classes, methods,
+        source paths or UI text are reproduced.
     - type: "public_implementation"
       artifact: "ztrawhcs/yskj-led-sign"
       url: "https://github.com/ztrawhcs/yskj-led-sign"
       description: >
         Independent LOY PLAY / YSKJ client with the same service map and
-        AA55 framing. Tested another named device, not LOY5265115155.
+        AA55 framing. Tested another named device, not the observed LOY unit.
 
 helpful_urls:
   - title: "LOY / LOYPRO on Google Play"

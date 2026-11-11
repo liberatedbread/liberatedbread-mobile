@@ -138,8 +138,8 @@ the remote at the same time. A 1st-gen board takes one or the other.
 | `da2b84f1-6279-48de-bdc0-afbea0226079` | "V1" | 1st-gen boards. This is BlueRadios' stock BRSP serial-port service | reported |
 | `ea32b817-d410-42e2-848a-1218201468fc` | scooter | Boosted Rev, checked on top of the V2 match by a helper the examined release never calls | reported |
 
-An older note in this repository mapped these the other way round. The
-BRSP identification settles it: `da2b84f1` is the 1st-gen serial pipe. It
+The BRSP identification is what ties the first-generation boards to this
+service: `da2b84f1` is the 1st-gen serial pipe. It
 still wants a look at real hardware. Never match on `da2b84f1` alone. It is
 a generic module service that unrelated products also carry.
 

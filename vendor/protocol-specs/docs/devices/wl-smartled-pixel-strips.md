@@ -48,7 +48,8 @@ No setup in the usual sense — this is a `ble_direct` device.
 | Passphrase protection | not_applicable |
 | Confidence | high (from app analysis; not yet replayed on hardware) |
 
-Power the strip, scan for service `0xFFF0`, connect. No pairing, no PIN, no account.
+Power the strip, scan for one of its name prefixes (service `0xFFF0` alone is
+shared with unrelated products), connect. No pairing, no PIN, no account.
 The vendor app's only post-connect ritual is one read of `0xFFF3` (a connection
 probe) followed by a clock-sync frame so the on-device timers work — a replacement
 client should do the same.

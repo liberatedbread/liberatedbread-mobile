@@ -898,7 +898,7 @@ protocol_details:
   session:
     - "Open the insecure RFCOMM socket to 32e5fcfc-52ee-41b0-827a-f18929716fef."
     - "Send get_system_info (token 1). Wait up to 5000 ms for type 0x8001; nothing else is sent before it."
-    - "Use the protocol, bootloader and firmware versions and hardware revision it reports; the vendor app offers a firmware update when its bundled image for that revision is newer."
+    - "Use the protocol, bootloader and firmware versions and hardware revision it reports; the vendor app flashes its bundled image for that revision, without asking, whenever the ball's firmware differs from it in either direction (vendor_app_behaviour.firmware_policy)."
     - "Run requests; each has its own timeout (1000 ms by default)."
     - "To finish, send power_off (the vendor app's disconnect) or power_disconnect, or just close the socket."
   opcodes:

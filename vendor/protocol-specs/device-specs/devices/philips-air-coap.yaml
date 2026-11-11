@@ -271,6 +271,39 @@ device:
         Use `<device-id>` placeholders in notes; a DeviceId is a cloud
         identifier.
 
+  pairing:
+    required: false
+    confidence: "medium"
+    # Encrypted but unauthenticated: the key derives from a public constant,
+    # so the envelope proves nothing about who sent it.
+    security_mode: "none"
+    bonding: "none"
+    exclusivity:
+      single_connection: "unknown"
+      recovery: >
+        When a unit that used to answer stops answering, power-cycle the
+        purifier. If that is not enough, restart the client as well, which
+        is the Home Assistant integration's own advice for these unstable
+        CoAP stacks. Whether a second client's sync or observation displaces
+        the first has not been established.
+    enter_pairing_mode:
+      required: false
+      notes: >
+        The 3-second Wi-Fi pairing hold in setup is onboarding for the Philips
+        app. A local client never needs it.
+    notes: >
+      Nothing is asked of a client. POST /sys/dev/sync gives it a counter,
+      and the AES key and IV are derived from that counter plus the fixed
+      string every open-source client publishes (protocol_details.envelope).
+      The SHA-256 trailer is an unkeyed hash. The envelope therefore looks
+      like a session key but authenticates no one: any host on the LAN can
+      read and control the unit, with no account, token or button. The
+      Philips account matters only for onboarding, so the vendor cloud going
+      away would not touch this path. Firmware is what can close it:
+      kongo09/philips-airpurifier-coap warns that newer firmware on some
+      models no longer allows local connections. Sources: py-air-control,
+      aioairctrl and that integration; nothing replayed here.
+
 protocol_handler: "philips_air_coap"
 
 protocol_details:

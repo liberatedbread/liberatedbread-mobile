@@ -260,6 +260,62 @@ device:
         `<security-code>` / `<psk>` placeholders in any notes; never commit
         a real one.
 
+  pairing:
+    required: true
+    confidence: "medium"
+    # DTLS-PSK is the transport, but the enrolment that issues the PSK is an
+    # application request (request_psk), so the gate is app_layer.
+    security_mode: "app_layer"
+    bonding: "none"
+    pin:
+      source: "printed_label"
+      length: 16
+      notes: >
+        The security code on the label under the gateway: 16 characters,
+        case-sensitive (Home Assistant warns that I and l are easy to mix
+        up). It is used once, as the PSK for the bootstrap identity
+        Client_identity, to enrol. What the client keeps is the identity it
+        chose and the PSK the gateway returned for it. Do not store the
+        code.
+    exclusivity:
+      single_connection: false
+      single_bond: false
+      recovery: >
+        Nothing to clear. Every enrolment adds another identity/PSK pair, so
+        a new client does not displace the IKEA app or another controller.
+        If a stored PSK stops working (after a firmware update, or after a
+        long idle spell), enrol again with the label code.
+      notes: >
+        How many identities the gateway keeps, and what happens when it is
+        full, is not documented (remaining_unknowns). Home Assistant users
+        commonly keep the IKEA app paired alongside it.
+    unpair:
+      supported: "unknown"
+      clears: "Every issued identity/PSK, together with the whole Zigbee network, when the factory reset is the route."
+      notes: >
+        No open client lists or deletes issued identities, and no resource
+        for it is known. The only known way to revoke a client is the
+        factory reset, which also drops every bulb and remote. A community
+        write-up says an unused PSK expires after about six weeks idle, but
+        that is not a reliable way to revoke one.
+    enter_pairing_mode:
+      required: false
+      notes: >
+        No button and no window: enrolment works whenever the gateway is
+        powered and on the LAN. The label is the physical proof, so anyone
+        who can read it and reach UDP 5684 can enrol a client.
+    notes: >
+      Holding the security code is the whole authorisation. Over a DTLS
+      session keyed with the code, commands.request_psk (POST /15011/9063)
+      sends a client-chosen identity and gets back that identity's PSK.
+      Every later session uses the identity and PSK, as setup stage "Enrol
+      this client with the security code" lays out. Firmware older than
+      1.2.42 took the code directly as the PSK. No cloud or account is
+      involved, so enrolment keeps working after IKEA's support for the
+      gateway ends. Adding bulbs and remotes to the gateway is a separate
+      Zigbee pairing: commands.set_commissioning_mode opens it for a given
+      number of seconds.
+
 protocol_details:
   tradfri_coap:
     transport: >

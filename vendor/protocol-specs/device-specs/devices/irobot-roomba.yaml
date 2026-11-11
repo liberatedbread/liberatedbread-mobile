@@ -394,7 +394,9 @@ device:
 
   pairing:
     required: true
-    confidence: "high"
+    # medium, not high: dorita980 implements this flow; it has not been
+    # replayed against a robot here.
+    confidence: "medium"
     security_mode: "app_layer"
     bonding: "none"
     pin:

@@ -27,7 +27,7 @@ out almost every first implementation:
   client must read the whole bundle, change one item and write it all back.
 
 The machine-readable spec is
-[`device-specs/devices/acinfinity-uis-controller.yaml`](https://github.com/liberated-bread/liberatedbread-protocol-specs/blob/main/device-specs/devices/acinfinity-uis-controller.yaml).
+[`device-specs/devices/acinfinity-uis-controller.yaml`](https://github.com/liberatedbread/liberatedbread-protocol-specs/blob/main/device-specs/devices/acinfinity-uis-controller.yaml).
 It rests on two independent MIT-licensed projects:
 
 - [Nyx000/acinfinity-ble](https://github.com/Nyx000/acinfinity-ble)

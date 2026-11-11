@@ -194,6 +194,78 @@ device:
         The RTSP token IS the feed secret (no user/pass on the URL). To fetch
         it programmatically the app authenticates to the NVR with a LOCAL UniFi
         OS account (session cookie + CSRF), which the user supplies — no cloud.
+  pairing:
+    required: true
+    confidence: "medium"
+    # Two gates, neither link-layer: the camera's adoption by one Protect
+    # host, and the per-quality RTSP token that host mints for a consumer.
+    security_mode: "app_layer"
+    bonding: "none"
+    pin:
+      source: "vendor_app"
+      notes: >
+        The credential a feed consumer holds is the rtspAlias, an opaque
+        per-quality token that the Protect application on the host creates
+        when RTSP is enabled for that quality. It goes in the URL path, and
+        no user name or password is sent. It is read from the URL the
+        Protect UI shows, or from the host's bootstrap after a local UniFi
+        OS login (camera.stream_discovery). That login needs a local account
+        made at the console's own address: Home Assistant's documentation
+        says Ubiquiti SSO cloud accounts do not work.
+    exclusivity:
+      single_connection: false
+      single_bond: true
+      recovery: >
+        A camera belongs to one Protect host at a time. One adopted elsewhere,
+        or bought second-hand and never removed, will not adopt to a new host
+        until it is removed in the old host's Protect or reset with the
+        button in setup.factory_reset. For the feed itself there is no
+        exclusivity: the host's RTSP server serves many players at once.
+      notes: >
+        single_bond describes adoption, not the feed. Every consumer of an
+        enabled quality shares the same rtspAlias.
+    unpair:
+      supported: true
+      requires_factory_reset: false
+      clears: "The RTSP stream for one quality; or, by removing the camera in Protect, its adoption."
+      notes: >
+        To cut off a feed consumer, turn RTSP off for that quality in the
+        Protect UI and the stream stops being served. Anyone holding the URL
+        has the feed until then, because the token is the whole credential.
+        Whether turning it back on issues a new rtspAlias has not been
+        established here, so do not count on that to revoke a leaked URL.
+        Deleting the local UniFi OS account stops new token fetches but does
+        nothing to a URL already copied. Removing the camera from Protect
+        releases the adoption without touching the button.
+    enter_pairing_mode:
+      required: true
+      procedures:
+        - name: "Enable RTSP for a quality in UniFi Protect"
+          verified: false
+          basis: >
+            The RTSP toggle and the rtspAlias/isRtspEnabled fields as the
+            hjdhjd/unifi-protect and uilibs/uiprotect libraries read them.
+            This project confirmed the host's RTSP server answers on 7447
+            but has not toggled the setting or fetched a token.
+          power_state: "on"
+          steps:
+            - action: "In UniFi Protect, open the camera's settings, then Advanced, and turn on RTSP for High, Medium or Low."
+              actor: "user"
+              expect: "Protect shows an rtsp:// and rtsps:// URL for that quality."
+            - action: "Take the stream id from that URL, or read cameras[].channels[].rtspAlias from the bootstrap."
+              actor: "client"
+      notes: >
+        A software setting on the Protect host, not a hardware step, and
+        it stays on until someone turns it off: there is no window.
+    notes: >
+      Nothing on the camera itself is authorised for a feed consumer. The
+      camera is adopted to one Protect host (UNVR, UDM-Pro, Cloud Key Gen2
+      Plus), which owns it and serves its stream. A feed consumer's gate is
+      the RTSP toggle on that host plus the token it produces. Everything is
+      local and none of it needs the Ubiquiti cloud. Sources: the
+      hjdhjd/unifi-protect and uilibs/uiprotect libraries and Home Assistant's
+      UniFi Protect documentation. The live probe in device.testing shows the
+      stream server answers, not the token flow, hence medium.
 
 local_access:
   status: native

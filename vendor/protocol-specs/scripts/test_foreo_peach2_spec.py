@@ -69,3 +69,62 @@ def test_activation_test_vectors_reproduce() -> None:
     ]
 
     assert [0x01, 0x02, *derived] == expected["full activation write to 0A20"]
+
+
+def test_capture_verified_cooling_profile_layout() -> None:
+    spec = yaml.safe_load(SPEC_PATH.read_text(encoding="utf-8"))
+    commands = spec["services"][0]["characteristics"][0]["commands"]
+
+    assert commands["get_cooling_new"]["value"] == [0x0B, 0xC4, 0x00, 0x07]
+    assert commands["set_cooling"]["template"] == [0x0A, 0xC4, "{profile}"]
+    profile = commands["set_cooling"]["parameters"]["profile"]
+    assert profile["min_length"] == profile["max_length"] == 7
+
+    vectors = spec["protocol_details"]["command_protocol"][
+        "capture_verified_vectors"
+    ]
+    by_command = {entry["command"]: entry for entry in vectors}
+    wire_example = by_command["0a c4 14 0d 21 02 1c 14 14"]
+    assert "seven-byte cooling profile" in wire_example["meaning"]
+    assert len(_parse("0a c4 14 0d 21 02 1c 14 14")) == 9
+
+    assert _parse(by_command["0b 01"]["response"])[0] == 5
+    assert _parse(by_command["0b c4 00 07"]["response_prefix"]) == _parse(
+        "22 1b 21 02 1c 14 14"
+    )
+
+
+def test_exact_scan_names_sensor_roles_and_pro_boundary() -> None:
+    spec = yaml.safe_load(SPEC_PATH.read_text(encoding="utf-8"))
+    device = spec["device"]
+    assert "PEACH2Duo" in device["identification"]["local_names"]
+
+    scan = device["discovery"]["methods"][0]["ble"]
+    assert scan["local_name"]["match"] == "exact"
+    assert "PEACH2Duo" in scan["local_name"]["values"]
+
+    scan_details = spec["protocol_details"]["scan_to_add"]
+    assert scan_details["configured_names"]["peach_2_duo"] == "PEACH2Duo"
+    assert scan_details["timeout_seconds"] == 30
+    assert scan_details["security_access"]["post_success_delay_ms"] == 500
+    assert scan_details["activation_advertisement"]["capture_value"] == "unknown"
+
+    characteristics = {
+        item["uuid"]: item
+        for service in spec["services"]
+        for item in service.get("characteristics", [])
+    }
+    assert characteristics["00000a18-0000-1000-8000-00805f9b34fb"]["name"] == (
+        "Body NTC notifications"
+    )
+    assert characteristics["00000a19-0000-1000-8000-00805f9b34fb"]["name"] == (
+        "Head NTC notifications"
+    )
+    assert characteristics["00000a0d-0000-1000-8000-00805f9b34fb"]["name"] == (
+        "Vibrator setting notifications"
+    )
+
+    enforcement = spec["protocol_details"]["paywall"]["enforcement"]
+    assert "testing == 1" in spec["protocol_details"]["paywall"]["mechanism"]
+    assert "unconditionally" not in enforcement
+    assert "independent firmware entitlement enforcement is unknown" in enforcement

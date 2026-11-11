@@ -136,8 +136,10 @@ helpful_urls:
    pairing, factory reset, rebinding).
 2. Add the device to `docs/devices/index.md` and to `mkdocs.yml`'s nav.
 3. Add a spec under `device-specs/devices/`, then
-   `python scripts/validate_specs.py`. A BLE or Bluetooth Classic spec must carry a
-   `device.pairing` block — "nothing pairs" is the usual answer and saying it
+   `python scripts/validate_specs.py`. Every device spec must carry a
+   `device.pairing` block — on BLE "nothing pairs" is the usual answer, on
+   Wi-Fi/LAN it says how a client gets authorised (link button, on-screen
+   PIN, cloud-fetched key, admin login, or nothing at all), and saying it
    is the point; see
    [docs/protocols/pairing.md](docs/protocols/pairing.md). If the device has
    more than one `setup.methods` entry, each one needs a `name` and a `role`
@@ -258,7 +260,8 @@ press something.
 
 **Answer the standing questions even when the answer is "no".** A missing block
 is indistinguishable from a question nobody asked, so the negative answers are
-the point: a BLE spec's `pairing` block usually says nothing pairs;
+the point: a BLE spec's `pairing` block usually says nothing pairs, and a
+LAN device with an open API says the network is the only gate;
 `factory_reset` may be `applicable: false` or `"unknown"`; `rejoin` answers
 "my router changed, now what?"; `credentials.wifi_passphrase_protection` may be
 `plaintext`. Each of those is a fact somebody would otherwise spend an evening

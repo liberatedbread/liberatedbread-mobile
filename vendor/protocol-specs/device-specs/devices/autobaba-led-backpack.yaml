@@ -7,15 +7,16 @@ device:
   manufacturer: "LOY SPACE / popled.cn"
   manufacturer_status: "active"
   testing:
-    status: untested
-    detail: capture-verified
+    status: verified
+    detail: minimally-verified
     notes: >
-      Live owner-authorized GATT discovery on 2026-11-07 confirmed FFF0,
-      FFF2 write-without-response and FFF1 notify, plus the secondary
-      5833ff01-9b8b-5191-6142-22a4536ef123 service. No characteristic read,
-      subscription, command write, pairing, reset or firmware operation was
-      performed. Display commands, geometry and upload behavior remain
-      untested by this project.
+      On 2026-11-07 this project used the documented FFF2/FFF1 path on one
+      64x64 unit for a device-information query, a reversible brightness
+      7-to-6-to-7 test, a read-only telecontrol query, and static plus
+      eight-frame raw-GIF uploads. All required ACKs were sequence-matched,
+      checksum-valid and status zero. Power, rotation, playback and deletion
+      commands, password behavior, factory reset and the secondary maintenance
+      service were not exercised.
   protocol: "ble"
   category: "display"
   category_hierarchy: ["display", "led_matrix"]
@@ -24,7 +25,8 @@ device:
     popled.cn protocol family (shared with NYAN GEAR). BLE is established;
     whether this particular backpack also has Wi-Fi is unknown. BLE device
     name starts with "YS" or "TL", which identifies only the platform, not
-    the reseller, controller revision or matrix geometry.
+    the reseller, controller revision or matrix geometry. A LOY-prefixed
+    advertisement belongs to loypro-led-display.yaml, not this spec.
 
     Commands use checksummed AA 55 FF FF frames with a little-endian length,
     sequence, flags/mode and binary TLV records. A stream builder can add a
@@ -32,15 +34,22 @@ device:
     blindly prepend it. TLV value lengths are one byte below 0x80, 0x81 plus
     one byte for 128-255, or 0x82 plus a little-endian u16 for 256 and above.
     Thus 81 c4 means a 196-byte value, not a magic constant. Normal app
-    writes start around 180 bytes, with larger MTU-dependent paths;
-    resource data is normally split at 960 bytes with a 997-byte TLV limit
-    and a big-endian u16 resource chunk count. Third-party raw-GIF uploads
-    on another backpack do not establish that this unit accepts them.
+    writes start around 180 bytes, with larger MTU-dependent paths; resource
+    data is normally split at 960 bytes with a 997-byte TLV limit and a
+    big-endian u16 resource chunk count.
+
+    Live validation on one unit established little-endian 64x64 panel
+    dimensions, the 20-byte device-information query, brightness values 6 and
+    7 with status-zero ACKs, a read-only telecontrol reply, and raw-GIF static
+    and eight-frame uploads. The simplified raw-GIF route used 196-byte value
+    chunks inside 243-byte GATT writes at MTU 247. Those observations do not
+    make that route or chunk size universal across other LOY/YS firmware.
 
     Backend API: store-cdn.popled.cn. Sliding-window ACK and app-side JSON
     command shapes are documented below, but the JSON itself never crosses
     the link. Source evidence is LOY SPACE Android 1.2.19 plus public client
-    projects. Every command is reported until captured on this hardware.
+    projects and the 2026-11-07 live sessions. Commands without an explicit
+    confirmed verification marker remain reported.
   identification:
     # FAMILY FALLBACK. Every LOY SPACE / popled.cn panel advertises "YS" (or
     # "TL") plus a serial suffix and the 0xFFF0 service, whichever app it was
@@ -73,19 +82,20 @@ device:
 
   setup:
     required: false
-    confidence: "medium"
+    confidence: "high"
     notes: >
       The vendor app advertises WiFi support for this product family, but the
       documented control path is BLE only and needs no provisioning. If a WiFi
       mode exists on a given unit it has not been captured here.
     methods:
       - type: "ble_direct"
-        verified: false
+        verified: true
         description: >
           No provisioning step: the device advertises as soon as it is powered
           on and accepts a connection from any central. There is no account, no
           network credential exchange and no pairing PIN, so a replacement
-          client only has to scan, connect and write.
+          client only has to scan, connect and write. Verification covers the
+          2026-11-07 information/brightness/telecontrol queries and uploads.
         ble:
           advertised_name: "YS<serial> (or TL<serial>)"
           pairing_required: false
@@ -140,10 +150,15 @@ protocol_handler: "popled_json"
 features:
   - type: "image_upload"
     format: "gif"
+    resolution_source: "device_reported"
+    animation: true
+    verification: "confirmed"
     notes: >
-      No fixed geometry is claimed. Read panel TLV 0x1b for big-endian width
-      and height. Raw-GIF acceptance on another backpack is not proof that
-      this unit accepts the simplified third-party route.
+      Read panel TLV 0x1b: after its leading panel-data-type byte, width and
+      height are little-endian u16 values. The tested unit reported 64x64 and
+      accepted a static GIF and an eight-frame GIF using 196-byte value chunks
+      inside 243-byte GATT writes at MTU 247. This validates the simplified
+      raw-GIF route on that unit only, not every LOY/YS firmware.
 
 services:
   - uuid: "0000fff0-0000-1000-8000-00805f9b34fb"
@@ -163,7 +178,6 @@ services:
         properties: ["write_without_response"]
         framing:
           length_prefix: false
-          max_chunk_size: 180
         notes: >
           Display-command writes. Live GATT discovery confirmed only
           write-without-response on 2026-11-07; use response=False. App-side
@@ -172,6 +186,9 @@ services:
           builder can add an outer u16 record length, but do not blindly
           prepend it to an individual GATT write. The AA55 frame itself
           carries a little-endian additive checksum of every preceding byte.
+          The app initially uses 180-byte writes, while the validated raw-GIF
+          route used 243-byte writes at MTU 247; the maximum is unknown, so no
+          fixed max_chunk_size is declared.
         commands:
           power_toggle:
             description: 'Toggle screen power. JSON: {"cmd":{"power":{"type":0}},"sno":N}'
@@ -180,14 +197,16 @@ services:
               key: "cmd.power.type"
               value_type: "int"
           set_brightness:
-            description: 'Set brightness 0-15. JSON: {"cmd":{"light":{"type":0,"value_fix":N}},"sno":N}'
+            description: 'Set fixed brightness 1-15. JSON: {"cmd":{"light":{"type":0,"value_fix":N}},"sno":N}. Values 6 and 7 were hardware-confirmed; the app maps zero to 15, but zero was not tested.'
             encoding: "json"
+            verification: "confirmed"
             payload:
               key: "cmd.light.value_fix"
               value_type: "int"
           get_device_info:
-            description: 'Query device info. JSON: {"cmd":{"get":"dev_info"},"sno":N}'
+            description: 'Query device, panel, power and brightness information. The source-derived dev_info_all query and little-endian geometry reply were hardware-confirmed. JSON: {"cmd":{"get":"dev_info"},"sno":N}'
             encoding: "json"
+            verification: "confirmed"
             payload:
               key: "cmd.get"
               value_type: "string"
@@ -257,16 +276,28 @@ initialization:
 
 protocol_details:
   panel_discovery:
-    verification: "reported"
+    verification: "confirmed"
     query_name: "get_device_info"
     source_derived_query_hex: "aa 55 ff ff 0e 00 01 00 c1 03 0a 00 1b 00 04 00 06 00 ff 03"
     query_notes: >
-      Source-derived 20-byte query with sequence 1, not sent by this
-      project. Subscribe to FFF1 first and use FFF2 without response. The
-      real client increments its sequence counter; 1 is only the worked
-      example. Device-information TLV 0x0a reports identity/model/version;
-      panel TLV 0x1b reports big-endian width and height. The app's initial
-      64x64 value is a default, not evidence for this backpack.
+      Source-derived 20-byte query with example sequence 1, now validated on
+      the supplied unit. Subscribe to FFF1 first and use FFF2 without
+      response. The real client increments its sequence counter. A complete
+      checksum-valid 151-byte reply arrived with matching sequence. Device-
+      information TLV 0x0a reports identity/model/version and capabilities;
+      panel TLV 0x1b has a leading panel-data-type byte followed by
+      little-endian width and height, which decoded to 64x64. Power TLV 0x04
+      returned type 1 and brightness TLV 0x06 returned fixed value 7.
+    observed_reply:
+      frame_bytes: 151
+      declared_length: 145
+      width: 64
+      height: 64
+      width_height_endian: "little"
+      brightness: 7
+      capabilities: ["pwd", "remote", "FONT:en_US04", "HS"]
+      car_linkage: false
+      note: "The pwd token denotes support, not whether a password is configured. Unit-specific identity and CID values are deliberately omitted."
     tlv_length_encoding:
       short: "LL below 0x80: LL bytes"
       extended_8: "81 LL: LL bytes (128-255)"
@@ -278,6 +309,53 @@ protocol_details:
       resource_chunk_count: "big-endian uint16"
       transport_initial_write_bytes: 180
       note: "Logical resource chunks are not GATT writes; larger MTU-dependent paths exist."
+  brightness_write:
+    verification: "confirmed"
+    tlv: "06 02 00 <level>"
+    app_range: [1, 15]
+    zero_behavior: "The app replaces zero with 15; zero was not tested."
+    tested_values: [6, 7]
+    set_6_example_hex: "aa 55 ff ff 0a 00 02 00 c1 02 06 02 00 06 da 03"
+    restore_7_example_hex: "aa 55 ff ff 0a 00 03 00 c1 02 06 02 00 07 dc 03"
+    ack: "Mode 82 with matching sequence and status 0; a later information reply confirmed the restored value 7."
+  raw_gif_upload:
+    verification: "confirmed"
+    mtu: 247
+    value_chunk_bytes: 196
+    gatt_write_bytes: 243
+    packet_overhead_bytes: 47
+    simplified_packet_layout: "aa55ffff || one-byte length || index || 27-byte sequence || total_chunks || index || c4000013 || 81c4 || 196-byte padded GIF payload || little-endian u16 checksum"
+    length_and_checksum:
+      length: "One byte: 236 data bytes + 1 = 0xed"
+      checksum: "Little-endian u16 sum of magic, length and all 236 data bytes"
+      note: "This simplified raw-GIF packet uses a one-byte length, unlike the richer AA55 query/control frames with a two-byte little-endian length."
+    chunk_prefix:
+      index: "00 <chunk_index> 00"
+      sequence_hex: "c1020901010c01000d01000e0100140301090a11040001000a1207"
+      total_chunks: "One byte, must equal the actual number of packets"
+      index_repeat: "00 <chunk_index> 00"
+      constant_2_hex: "c4000013"
+      payload_length_marker: "81c4 (extended length marker for the 196-byte value)"
+    final_partial_chunk: "Pad with zero bytes to exactly 196 bytes; do not emit a short final chunk or change 81c4"
+    worked_chunk_hex: "aa55ffffed000000c1020901010c01000d01000e0100140301090a11040001000a120703000000c400001381c4474946383961000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000d09"
+    worked_chunk_fields:
+      index: 0
+      total_chunks: 3
+      payload: "ASCII GIF89a followed by 190 zero bytes"
+      length: 0xed
+      checksum_little_endian: 0x0d09
+    ready_example_hex: "aa 55 ff ff 0a 00 09 00 c1 02 08 02 00 00 dd 03"
+    finalize_example_hex: "aa 55 ff ff 0b 00 0f 00 c1 02 36 03 01 00 00 14 04"
+    sequence: "Send READY, then chunks in ascending index order and wait for status 0 after each, then FINALIZE and require status 0."
+    static: "427-byte, one-frame GIF accepted in three chunks."
+    animated: "4558-byte, eight-frame GIF accepted in 24 chunks at 200 ms per frame. A separate three-frame, 4396-byte pride sequence completed 23 chunks and visibly changed frames."
+    ack: "READY, every chunk and FINALIZE returned mode 82, matching sequence and status 0. A device-originated mode-06 notification was also observed and left undecoded."
+  telecontrol:
+    verification: "confirmed"
+    query_tlv_hex: "34 03 02 aa bc"
+    model_ex: 43711
+    ordinary_button_program_ids: [76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92]
+    note: "Seventeen ordinary button mappings were decoded. Four special records remain uninterpreted. remote was present and car_linkage absent, so this is not accelerometer or vehicle-trigger evidence."
 
 entities:
   - platform: "light"
@@ -293,10 +371,12 @@ remaining_unknowns:
     prefixes and the same 0xFFF0 service, and no capture of a NYAN or
     YSP-001 unit's advertisement exists to compare against. Until one does,
     this spec is the family fallback and a YS*/TL* panel resolves here.
-    The dev_info reply (dev_model) after connect is the likely
-    discriminator.
-  - "Exact controller revision, firmware, matrix geometry, official MTU, raw-GIF acceptance, animation behavior and status-code meanings remain unverified. No display command was sent during the 2026-11-07 live session."
+    The dev_info reply (dev_model) after connect is the likely discriminator.
+  - "Exact controller revision, official-app initialization and maximum MTU, complete accepted brightness range, power/rotation/playback/deletion behavior, and status-code meanings beyond success 0."
+  - "The official richer TLV/BMP resource dialect, maximum raw-GIF size, special telecontrol-record meanings, and color-channel/orientation behavior on other firmware. Static and animated raw GIFs are confirmed only on the tested 64x64 unit."
+  - "Whether a password is configured, and the authentication flow when one is. The pwd capability token alone does not answer this."
   - "The 5833ff service is shared with unrelated products and is not an AUTOBABA identifier. SBH OTA and authenticated/ELS roles are described on other hardware, but this backpack's role, commands, accepted images and recovery path are unknown."
+  - "Accelerometer or vehicle-trigger support is unproven: the unit reported remote but not car_linkage, and only remote-button mappings were captured."
 
 helpful_urls:
   - title: "LOY SPACE app (Google Play)"

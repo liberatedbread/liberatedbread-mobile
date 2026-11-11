@@ -65,8 +65,7 @@ device:
       No network provisioning, but the controller expects a six-byte password
       command before it accepts lighting commands. The password is a RANDOM
       6-byte per-device secret the app generates at first pairing
-      (Data.randomPassword(6)) and stores in its private DeviceDB — not a
-      shared default. A wrong password gets a 4D 09 01 reply and the app
+      and stores in its private device database — not a shared default. A wrong password gets a 4D 09 01 reply and the app
       disconnects ("password error"). The vendor limits pairing to one device
       at a time.
     methods:
@@ -283,7 +282,7 @@ services:
         properties: ["read", "notify"]
         notes: >
           Asynchronous 0x4D state packets arrive as notifications here:
-          BleService.enableNotification targets CHARACTERS[1] (=0x1002) and the
+          the app enables notifications on its second characteristic (0x1002) and the
           on-wire capture shows the CCC write 0x1002/0x2902 = [01 00] followed
           by streaming 0x4D… packets.
       - uuid: "00001003-0000-1000-8000-00805f9b34fb"

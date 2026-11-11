@@ -154,6 +154,37 @@ device:
         The socket has no authentication at all: anything on the LAN that
         can reach port 31339 can drive the box while the setting is on.
 
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "none"
+    bonding: "none"
+    exclusivity:
+      single_connection: true
+      single_bond: false
+      recovery: >
+        The box serves one client at a time, and a held-open connection (a
+        phone app, or openHAB with its default keepConActive) locks every
+        other client out — usually seen as a connect that hangs or is refused.
+        Close the other client, or configure it to connect, act and
+        disconnect; there is nothing paired to clear.
+    enter_pairing_mode:
+      required: false
+      notes: >
+        No code, prompt or per-client approval. The one thing a person must do
+        is a standing setting, not a pairing window: Network Remote Control is
+        off from the factory and must be enabled in the box's settings (setup
+        method 'Enable Network Remote Control'); until then nothing listens on
+        31339 and the box does not advertise _tivo-remote._tcp. A full reset
+        turns it back off.
+    notes: >
+      Access control is the Network Remote Control switch plus LAN
+      reachability, nothing more: no account, no token and no TiVo cloud,
+      which is why it keeps working after TiVo stopped selling hardware. The
+      Mind RPC API on 1413 does need account credentials but is out of scope
+      for this spec. The single-client rule is in
+      protocol_details.tivo_network_remote.single_client.
+
 protocol_details:
   tivo_network_remote:
     transport: "TCP 31339, ASCII lines. Send CR (0x0d) after each command; McBrine sends CR alone, openHAB sends CR followed by the platform's line separator (CR LF on Linux) and works."

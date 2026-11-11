@@ -20,7 +20,7 @@ The app multiplexes three treadmill protocol stacks
 
 | Class | Identification | Transport | Frame grammar |
 |-------|----------------|-----------|---------------|
-| FTMS | Advertised service `0x1826` | Standard Fitness Machine Service | Standard FTMS 1.0 |
+| FTMS | Advertised service `0x1826`, after a UREVO family-name match | Standard Fitness Machine Service | Standard FTMS 1.0 |
 | FT proprietary | Service `0xFFF0` (write `0xFFF2`, notify `0xFFF1`) | Private GATT | BluePack A (`02 … 03`, XOR-0x5A checksum) |
 | UR proprietary | Name prefixes `URTM*` / `SYWP*` | GATT endpoints **not in the binary** — enumerate on device | BluePack A (cmd class `0x53`) + BluePack B (`5A A5 …`) |
 
@@ -49,7 +49,7 @@ and `0xFEE0`) and smart scales (`WSEquipment`, factory matcher key
 |----------|-------|
 | Setup required | No |
 | Method | `ble_direct` — scan, connect, command |
-| Setup AP / advertised name | `URTM*` / `SYWP*` (UR), service `0x1826` (FTMS), service `0xFFF0` (FT) |
+| Setup AP / advertised name | Require `URTM*` / `SYWP*`; use `0x1826` / `0xFFF0` only for protocol routing after that family match |
 | Passphrase protection | not_applicable (no pairing/auth found in treadmill classes) |
 | Confidence | medium (static analysis only — no hardware capture yet) |
 

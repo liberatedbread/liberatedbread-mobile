@@ -228,6 +228,82 @@ device:
         (32 hex chars) and the Ed25519 seed whose public key fingerprints
         every command frame. Never record real values in this repository.
 
+  pairing:
+    required: true
+    confidence: "medium"
+    # Not BLE: a cloud-brokered SRP-6a exchange keyed by a PIN the person
+    # types on the oven. Crypto in protocol_details.pairing.
+    security_mode: "app_layer"
+    bonding: "none"
+    pin:
+      source: "vendor_app"
+      length: 8
+      notes: >
+        The June cloud issues the code to the companion, which displays it,
+        and the person types it on the oven's touchscreen. The eighth digit
+        is a Damm check digit and is part of the SRP password. The code
+        expires; homebridge-june-oven advises requesting a new one if pairing
+        fails, but the lifetime is not documented.
+    exclusivity:
+      single_bond: false
+      recovery: >
+        Nothing to clear before adding a companion. The oven keeps a list of
+        connected devices, and a new companion is added alongside the
+        existing ones (tap + on that list).
+    unpair:
+      supported: true
+      requires_factory_reset: false
+      clears: "One companion entry on the oven's connected-devices list."
+      procedures:
+        - name: "Remove the companion from the oven's connected-devices list"
+          verified: false
+          basis: >
+            keithah/homebridge-june-oven README, which says removing an oven
+            from the plugin's config revokes nothing and points to the oven's
+            own connected-devices screen.
+          power_state: "on"
+          glyph: "generic/on-screen-menu.svg"
+          steps:
+            - action: "On the oven's touchscreen, swipe left twice from the home screen, choose Connect, and remove the companion from the connected-devices list."
+              actor: "user"
+      notes: >
+        No API that revokes a companion was found. Deleting the pairing
+        material from a client only forgets it on that side, and the oven
+        still trusts the key.
+    enter_pairing_mode:
+      required: true
+      procedures:
+        - name: "Type the companion's code on the oven's Connect screen"
+          verified: false
+          basis: >
+            keithah/homebridge-june-oven README, whose author paired a gen-3
+            oven this way; Weber's own pairing guide on consumer-care.weber.com.
+            Not run by this project, and impossible since the 2026-09-22
+            shutdown.
+          power_state: "on"
+          glyph: "generic/on-screen-menu.svg"
+          steps:
+            - action: "Request a pairing code from the cloud and display the 8 digits."
+              actor: "client"
+            - action: "On the oven's home screen, swipe left twice and choose Connect. If a list of connected devices appears, tap + to add one."
+              actor: "user"
+            - action: "Type the 8-digit code on the oven."
+              actor: "user"
+            - action: "Run the SRP-6a server side and wait for the second 10026 frame (setup method 'Wi-Fi on the touchscreen, then companion pairing')."
+              actor: "client"
+              expect: "The second 10026 carries oven_info; then resolve oven_id."
+    notes: >
+      The gate is the oven's trust in a companion's Ed25519 key, established
+      once per companion by the PIN-keyed SRP exchange and checked on every
+      command frame. A frame with a wrong signature is silently dropped. The
+      PIN, the SRP relay and the oven_id lookup all run through June's cloud.
+      Weber shut that cloud down on 2026-09-22, so no new companion can be
+      paired at all, by any client. A companion paired before then still
+      holds a key the oven trusts. It is useful only against a replacement
+      endpoint the oven can reach, and whether the oven pins certificates is
+      unmeasured (cloud.notes). Confidence is medium: keithah verified the
+      flow against a real oven, and this project has not.
+
   variants:
     - model: "JCP01"
       notes: >

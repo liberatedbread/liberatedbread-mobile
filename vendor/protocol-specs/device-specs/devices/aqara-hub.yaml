@@ -303,6 +303,40 @@ device:
         setup-AP window as the sensitive moment. The bindKey is bound to the
         account/position and is not a reusable client credential.
 
+  pairing:
+    # Answers for the LAN surface this spec documents (discovery and the
+    # Wi-Fi handoff). Steady-state control is cloud-only here, so there is
+    # no local control session to gate; see notes for the routes outside it.
+    required: false
+    confidence: "low"
+    security_mode: "none"
+    bonding: "none"
+    enter_pairing_mode:
+      required: false
+      notes: >
+        mDNS and the whois probe answer whenever the hub is on the network.
+        The provisioning datagram is accepted only while the hub is in setup
+        mode, and that is setup (the network reset in
+        setup.factory_reset), not client pairing.
+    notes: >
+      Nothing on the documented LAN surface authenticates the client. The
+      whois/iam exchange is plaintext. The provisioning AES key and IV are
+      the same in every copy of the app, so they prove nothing about who is
+      sending. The one secret, the cloud-issued bindKey, binds the hub to an
+      Aqara account during setup. It is not a client credential, and
+      account binding belongs to device.setup. This spec has no local
+      control channel for a client to pair with: control goes through
+      Aqara's cloud (local_access: none_known). Local control paths outside
+      this spec each have their own gate, none verified here. Apple HomeKit,
+      on models that support it, uses a setup code that community reports
+      place on the hub or its box. A Matter controller, on hubs with Matter
+      firmware, uses a pairing code generated in the Aqara app, so the
+      vendor app and cloud are still involved. On older Xiaomi-era hub
+      firmware, a developer-mode LAN protocol used a per-hub key that the
+      vendor app showed once developer options were enabled; the current
+      app has no trace of it. Joining Zigbee sensors to the hub is a
+      separate network join, started from the Aqara app.
+
   variants:
     - model: "M1S Gen 2 (HM1S-G02)"
       notes: >

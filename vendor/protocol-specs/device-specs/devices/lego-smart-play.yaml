@@ -93,8 +93,6 @@ device:
 
   identification:
     local_names: ["Smart Brick"]
-    service_uuids:
-      - "0000fef6-0000-1000-8000-00805f9b34fb"
     manufacturer_data:
       company_id: 919
       company_id_hex: "0x0397"
@@ -103,11 +101,13 @@ device:
         the company id was 00 60 00 00 00 00 in upstream's capture; its
         meaning is not known, so nothing matches on it.
     notes: >
-      Match all three together. 0xFEF6 is a SIG member UUID assigned to
-      Wicentric (the stack's original author), so every product built on the
-      Cordio WDX profile advertises it. Company 0x0397 is on every LEGO BLE
-      product, the Powered Up hubs included. The name "Smart Brick" is the
-      brick's. The advertised address is an LE random address that rotates
+      The exact name "Smart Brick" is the signal; company 0x0397 confirms it
+      but is on every LEGO BLE product, the Powered Up hubs included. The
+      brick also advertises service 0xFEF6, which is deliberately NOT listed
+      here: it is a SIG member UUID assigned to Wicentric (the stack's
+      original author), so every product built on the Cordio WDX profile
+      advertises it, and a client that treats any identification UUID as a
+      strong match would claim them all. It stays under `services`. The advertised address is an LE random address that rotates
       often, so there is no usable MAC prefix on the air: the brick's real
       MAC, under LEGO's OUI 9c:9a:c0, is only readable from register 0x84
       after connecting. A "Smart Brick" advertisement that is not connectable

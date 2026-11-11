@@ -125,8 +125,9 @@ device:
           reply whose first byte equals the derived handshake key as a found
           SP108E — the device name follows from reply byte 1. The keyed reply
           IS the identification: only a device speaking this protocol can
-          answer it. While the device is unprovisioned it instead hosts an
-          open SoftAP with SSID prefix SP108E_ at 192.168.4.1.
+          answer it. While the device is unprovisioned it instead hosts a
+          WPA-protected SoftAP with SSID prefix SP108E_ at 192.168.4.1
+          (default pin 12345678 per the vendor instructions).
     identity:
       stable_keys: ["device_name"]
       display: "device_name"
@@ -145,8 +146,9 @@ device:
     required: true
     confidence: "medium"
     notes: >
-      Out of the box the controller hosts an open SoftAP (SSID prefix SP108E_,
-      device at 192.168.4.1) and is driven directly from it — provisioning onto
+      Out of the box the controller hosts its own SoftAP (SSID prefix SP108E_,
+      device at 192.168.4.1, protected by the product-wide default pin
+      12345678 printed in the vendor instructions) and is driven directly from it — provisioning onto
       the home network is optional for control but is the normal flow. The
       whole flow below is recovered from the app's provisioning path and has
       NOT been replayed against hardware (hence medium, not high).
@@ -162,7 +164,11 @@ device:
           named by the method type; the credential exchange itself is TCP 8189.
         softap:
           ssid_prefix: "SP108E_"
-          open_network: true
+          open_network: false
+          passphrase_source: >
+            Product-wide default pin 12345678, printed in the SP108E operating
+            instructions (FCC ID 2ATV8SP108E). Possibly changeable with
+            CMD_SET_DEVICE_PASSWORD — see device.pairing.notes; unconfirmed.
           gateway_ip: "192.168.4.1"
           port: 8188
           credential_encryption:
@@ -177,7 +183,7 @@ device:
               to recover because the key bytes are random per frame and sent
               alongside the data.
         steps:
-          - action: "Connect the phone/client to the device's SoftAP (SSID prefix SP108E_, open network)."
+          - action: "Connect the phone/client to the device's SoftAP (SSID prefix SP108E_, default pin 12345678)."
             actor: "user"
             expect: "The device answers at 192.168.4.1."
           - action: "Open a TCP connection to 192.168.4.1:8189 and bind a local UDP socket on port 8188 for the token reply."
@@ -263,6 +269,38 @@ device:
         protection; marked plaintext in spirit. No credential is issued back
         to the client: control needs only LAN reachability, and the control
         port has no authentication.
+
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "none"
+    bonding: "none"
+    exclusivity:
+      single_connection: "unknown"
+      single_bond: false
+      recovery: >
+        If the TCP 8189 scan finds nothing or connections hang, close LED Shop
+        on every phone that has it open and power-cycle the controller before
+        assuming it is gone — a cheap module holding the app's keep-alive
+        socket is the likely cause, though not a confirmed one.
+      notes: >
+        The app keeps one keep-alive TCP connection and serialises its own
+        commands with a 200 ms gap; whether the controller accepts a second
+        simultaneous client was not established.
+    enter_pairing_mode:
+      required: false
+    notes: >
+      Nothing pairs. Control on 8189 needs no credential, and the nonce/key
+      exchange on CMD_CHECK_DEVICE and CMD_GET_DEVICE_NAME is computed by the
+      client from bytes it chose itself, so it identifies an SP108E rather
+      than authorising anyone. The optional device password set by
+      CMD_SET_DEVICE_PASSWORD is not sent by any traced control or handshake
+      frame; the likely reading — unconfirmed — is that it is the passphrase
+      of the controller's own access point (factory default 12345678 per
+      setup.factory_reset), which would gate joining the SoftAP rather than
+      control on the home network. Basis: static analysis of the LED Shop app
+      corroborated by blacklizard/LED-Shop-SP108E, which drives the
+      controller with no credential. No cloud exists for this product.
 
 # The wire protocol. Control is raw TCP 8189 (UDP 8189 per blacklizard — see
 # device notes); there is no HTTP surface. The http_endpoints entry below is a

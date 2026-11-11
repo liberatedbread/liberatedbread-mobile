@@ -191,6 +191,70 @@ device:
         from a CloudFront CDN gated by signed cookies; no freely downloadable
         images exist.
 
+  pairing:
+    required: true
+    confidence: "medium"
+    # Medium, not high: the live probe saw the 401 gate on firmware 8.3 but
+    # never presented a token, so the accept path is pyenphase's and Home
+    # Assistant's account of it.
+    security_mode: "app_layer"
+    bonding: "none"
+    pin:
+      source: "vendor_app"
+      notes: >
+        Firmware 7 and later: a JWT that Enphase's cloud token service
+        (entrez) issues for one gateway serial. Two ways to get it — sign in
+        to the token portal by hand and copy the token, or let the client
+        log in to Enlighten with the owner's account and then request a
+        token for the serial (pyenphase's flow; it fails when the account has
+        multi-factor authentication, and a hand-copied token is then the
+        only route). The client presents it as a Bearer header to
+        /auth/check_jwt, which answers 200 with a session cookie that later
+        requests can carry. pyenphase documents owner tokens as lasting about
+        a year and installer tokens about twelve hours; read the token's own
+        exp claim rather than assume either. Home Assistant renews thirty
+        days before expiry. Firmware before 7: HTTP digest auth, user
+        "envoy" with the last six digits of the gateway serial, or user
+        "installer" with a password computed from the serial by a published
+        algorithm (pyenphase carries it) — both derived from a serial the
+        gateway serves unauthenticated at /info, so no per-unit secret
+        appears here.
+    exclusivity:
+      single_bond: false
+      recovery: >
+        Tokens are per client and do not evict one another: the owner can
+        hold one for Home Assistant and another for a script. What does
+        lock clients out is load — Home Assistant warns that polling faster
+        than its 60-second default can drop connections or restart the
+        gateway, so share one poller where possible.
+    unpair:
+      supported: "unknown"
+      requires_factory_reset: false
+      notes: >
+        No source read here documents a local way to revoke one token. A
+        token stops working at its exp; an owner who loses one can only wait
+        it out, as far as is known.
+    enter_pairing_mode:
+      required: false
+      notes: >
+        Nothing is pressed at the gateway. The AP Mode button belongs to the
+        installer's network setup (setup method "Installer AP and the
+        gateway's own web UI"), not to client authorisation; the gate is
+        access to the owner's Enphase account.
+    notes: >
+      On current firmware the gateway's local API is gated by a token only
+      the vendor cloud can mint: /info stays open, and everything useful
+      answers 401 with a login.html redirect until a valid JWT is shown
+      (observed here on D8.3.5427). The token itself is checked by the
+      gateway, so an issued token keeps local reads working with the
+      internet blocked until it expires — community-reported, not
+      replayed here — but renewal needs entrez and an Enlighten account.
+      If Enphase retires that service, a firmware-7+ gateway's local API
+      closes within a year of the last token. No owner-accessible
+      downgrade back to the serial-derived digest scheme (the one the CVEs
+      in setup.credentials describe) is known; firmware arrives OTA only.
+      Store the token and its expiry alongside the gateway's serial.
+
 evidence:
   live_lan_probe:
     date: "2026-08-14"

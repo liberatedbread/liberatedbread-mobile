@@ -70,10 +70,10 @@ device:
     from the app's own per-model UUID tables;
     Wave Gen 2 ASR/ASRACP/combined UUIDs additionally exercised in capture.
     Advertisement serial/flags layout is HIGH — capture-verified (serial
-    2950016244 matches the LE decode; flag bits match the app's WaveScanResultData
-    and legacy DeviceDefines bit tables).
+    2950016244 matches the LE decode; flag bits match the app's scan-result decoder
+    and its legacy device bit tables).
     Combined sensor-data packet format is HIGH on Wave Gen 2 — 20-byte
-    record captured and decoded against the app's CurrentValuesParser.
+    record captured and decoded against the app's current-values parser.
     ASRACP opcode protocol is HIGH — full opcode/format tables extracted
     and the Griffin subset observed live. Note opcode 0x02 is overloaded:
     legacy "delete measurements" vs Griffin "dataset info"; the captured
@@ -266,7 +266,7 @@ device:
         Updated Wave with Gen 2 hardware. Different service UUID and
         ASR/ASRACP characteristic UUIDs. Same sensor suite as Gen 1.
         ASR: b42e538a, ASRACP: b42e50d8, Combined: b42e4dcc.
-        Serial number prefix 2950 (InstrumentTypePrefix.WAVE_2); BLE firmware
+        Serial number prefix 2950 (the app's Wave 2 serial prefix); BLE firmware
         is named "G-BLE-x.y.z" (capture: G-BLE-2.2.3-master+0).
         Capture-verified (airthings_2950_wave_capture.pcapng): b42e4a8e is
         advertised in ADV_IND, the combined characteristic returns the
@@ -599,7 +599,7 @@ services:
         properties: ["read", "notify"]
         notes: >
           Packed 20-byte multi-sensor current readings (format below).
-          Layout from the app's CurrentValuesParser (shared with Wave Plus)
+          Layout from the app's current-values parser (shared with Wave Plus)
           and validated byte-for-byte against the capture: humidity 53.5 %,
           radon 13/11 Bq/m³, 24.16 °C, pressure/CO₂/VOC null (0xFF) on
           Wave 2, which lacks those sensors. 0xFF (uint8) or 0xFFFF
@@ -691,7 +691,7 @@ services:
         notes: >
           Same packed 20-byte layout as the Wave Gen 2 combined
           characteristic (see b42e4dcc) — the app parses both with the
-          same CurrentValuesParser, with pressure/CO₂/VOC populated here.
+          same current-values parser, with pressure/CO₂/VOC populated here.
           APK-derived; the capture only exercised the Wave 2 instance.
           The format block below restates that shared layout so the fields
           are machine-readable on this characteristic too — consumers
@@ -970,8 +970,7 @@ services:
           Standard BLE pressure (SIG: uint32, 0.1 Pa resolution). Available
           on Wave Plus. The scale below yields hPa (= mbar) directly:
           0.1 Pa = 0.001 hPa. This matches the vendor app, which decodes
-          this characteristic as uint32 LE / 1000
-          (DeviceDataTypes.pressureInSIFromCurrentCharacteristic).
+          this characteristic as uint32 LE / 1000.
         format:
           - offset: 0
             length: 4

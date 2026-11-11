@@ -205,21 +205,71 @@ device:
     confidence: "medium"
     security_mode: "app_layer"
     bonding: "none"
-    pin:
-      source: "vendor_app"
+    exclusivity:
+      single_connection: "unknown"
+      single_bond: true
+      recovery: >
+        A lock that is already initialised will not accept a new admin. Get
+        the current admin to delete the lock from their app (which resets it
+        over BLE), or factory-reset it at the hardware, then initialise it
+        again. Close the TTLock app on nearby phones while doing so.
       notes: >
-        A per-lock AES key, retrieved from the lock itself after a successful
-        pairing through the vendor's app and account. It is not one global
-        constant across the product line, and it belongs to whoever owns the
-        lock, so no value appears here.
+        Initialisation only works while the lock is in setting mode, which
+        it advertises as a flag in its advertisement data and leaves for
+        good once an admin is added. Other people get access as eKeys and
+        passcodes the admin issues (through the vendor cloud, in the stock
+        app), not by pairing again.
     enter_pairing_mode:
-      required: false
+      required: true
+      window_seconds: 10
+      indicator: "The keypad lights up."
+      notes: >
+        Two conditions: the lock must be in setting (factory) mode, and it
+        must be awake. A lock sleeps between uses and is discoverable only
+        for roughly 10-15 seconds after it is woken, so a client should be
+        scanning already, or wake the lock a few seconds after starting its
+        scan — a lock woken too early can fall asleep again before the
+        initialisation finishes.
+      procedures:
+        - name: "Touch the keypad to wake a factory-state lock, then initialise"
+          verified: false
+          basis: >
+            kind3r/ttlock-sdk-js (GPL-3.0), whose README documents the wake
+            requirement and the 10-15 second window for its init example.
+          power_state: "on"
+          steps:
+            - action: "If the lock has been added before, factory-reset it first (see setup.factory_reset)."
+              actor: "user"
+            - action: "Touch the keypad to wake the lock."
+              actor: "user"
+              expect: "The keypad lights; the lock advertises with its setting-mode flag set."
+            - action: "Connect within the window and run the initialisation exchange."
+              actor: "client"
+    unpair:
+      supported: false
+      requires_factory_reset: true
+      notes: >
+        Removing the admin is a reset: the stock app's delete sends the
+        lock's reset command over BLE, and ttlock-sdk-js's reset does the
+        same — the lock returns to setting mode with its AES key, admin,
+        passcodes and fingerprints gone. Revoking a non-admin eKey is a
+        cloud-side operation in the vendor's account system rather than
+        anything a local client can do on the lock.
     notes: >
-      Authentication is a custom multi-packet key exchange rather than
-      standard BLE bonding, so nothing here appears in the operating system's
-      Bluetooth settings. The cloud is needed once, for key and passcode
-      issuance; a client holding the per-lock key unlocks over BLE offline
-      afterwards, which is the whole reason this device is documented.
+      Authentication is a custom multi-packet exchange rather than BLE
+      bonding, so nothing appears in the operating system's Bluetooth
+      settings. Initialising a factory-state lock fetches an AES key the
+      lock itself generates and registers the client as admin with
+      credentials the client chooses; every later command is encrypted with
+      that key. No cloud is needed for this: ttlock-sdk-js (the basis of a
+      Home Assistant add-on) initialises, locks and unlocks V3-protocol
+      locks entirely over BLE, though its author reports initialisation
+      sometimes fails and has to be repeated. The vendor cloud matters only in the stock app's world, where it
+      stores the lock data after pairing and issues eKeys and passcodes to
+      other users. Possession of the lock is the authorisation — whoever
+      initialises it first owns it — which is why a reset lock should not
+      be left on a door. The key is per-lock and belongs to its owner, so no
+      value appears here.
 features:
   - type: "firmware_update"
     dfu:

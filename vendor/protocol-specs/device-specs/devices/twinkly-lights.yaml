@@ -165,8 +165,49 @@ device:
       notes: >
         Provisioning passes the home SSID/passphrase to /xled/v1/network/status
         over plain HTTP on the device AP. Control requires the per-session token,
-        but that token is obtainable by any client that can reach port 80 and
-        knows the device MAC (used in the challenge-response derivation).
+        but that token is obtainable by any client that can reach port 80: the
+        client only echoes the device's challenge-response back to /verify.
+        The device MAC is needed only by a client that wants to check that
+        response itself, i.e. to authenticate the device.
+
+  pairing:
+    required: false
+    confidence: "medium"
+    # The gate is an app-layer login, but it is open to any LAN client and
+    # involves no person: a session handshake, not an authorisation.
+    security_mode: "app_layer"
+    bonding: "none"
+    exclusivity:
+      single_connection: false
+      single_bond: true
+      recovery: >
+        Only one token is live at a time: a successful /xled/v1/verify
+        invalidates whatever token came before it. Two clients that both log
+        in — the Twinkly app and a home-automation integration, say — keep
+        knocking each other out, which shows up as intermittent HTTP 401
+        "Invalid Token" rather than a refusal. Treat a 401 as "log in again"
+        rather than as an error, and expect the other client to do the same.
+      notes: >
+        From xled-docs' description of the verify endpoint. Whether every
+        firmware generation behaves this way is not established; the
+        realtime UDP channel carries the token in its header, so a token lost
+        to another client's login also silently ends a realtime stream.
+    enter_pairing_mode:
+      required: false
+    notes: >
+      Nothing is paired, stored or done at the hardware. Each session runs
+      POST /xled/v1/login with a random 32-byte challenge, then POST
+      /xled/v1/verify with the challenge-response the device returned; the
+      8-byte token that comes back goes in X-Auth-Token and expires after
+      about four hours (authentication_token_expires_in, typically 14400).
+      Any client that can reach port 80 can do this, so the token proves
+      nothing about who the client is — the optional MAC-keyed check of the
+      challenge-response lets the client authenticate the device, not the
+      other way round. No cloud and no account take part, so the flow keeps
+      working if Twinkly's servers go away. /xled/v1/logout exists but
+      xled-docs report it as ineffective; a token simply expires or is
+      displaced. Endpoints are in http_endpoints ("Login (get token)",
+      "Verify token").
 
 http_endpoints:
   - method: "GET"
