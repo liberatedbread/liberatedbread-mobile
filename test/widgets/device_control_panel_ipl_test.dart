@@ -148,18 +148,19 @@ void main() {
         .toList();
     expect(find.byType(IplSetupPanel), findsOneWidget, reason: '$visibleText');
     expect(find.byType(TypedCharacteristicWidget), findsOneWidget);
+    // Pro is an advanced write in the spec (the stock app gates it behind a
+    // subscription and no capture has made it), so it stays out of the panel
+    // until advanced controls are on; Basic is a plain, confirmed write.
     expect(
       find.widgetWithText(ElevatedButton, 'Set removal mode pro'),
-      findsOneWidget,
+      findsNothing,
     );
-    await tester.ensureVisible(
-      find.widgetWithText(ElevatedButton, 'Set removal mode pro'),
-    );
-    await tester.tap(
-      find.widgetWithText(ElevatedButton, 'Set removal mode pro'),
-    );
+    final basic = find.widgetWithText(ElevatedButton, 'Set removal mode basic');
+    expect(basic, findsOneWidget);
+    await tester.ensureVisible(basic);
+    await tester.tap(basic);
     await tester.pump();
-    expect(specCodec.encodeCalls.single.commandName, 'set_removal_mode_pro');
+    expect(specCodec.encodeCalls.single.commandName, 'set_removal_mode_basic');
     expect(specCodec.encodeCalls.single.serviceUuid, _actualService);
   });
 
