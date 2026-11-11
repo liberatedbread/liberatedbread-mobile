@@ -12051,6 +12051,32 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  PairingDto dco_decode_box_autoadd_pairing_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return dco_decode_pairing_dto(raw);
+  }
+
+  @protected
+  PairingExclusivityDto dco_decode_box_autoadd_pairing_exclusivity_dto(
+    dynamic raw,
+  ) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return dco_decode_pairing_exclusivity_dto(raw);
+  }
+
+  @protected
+  PairingModeDto dco_decode_box_autoadd_pairing_mode_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return dco_decode_pairing_mode_dto(raw);
+  }
+
+  @protected
+  PairingPinDto dco_decode_box_autoadd_pairing_pin_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return dco_decode_pairing_pin_dto(raw);
+  }
+
+  @protected
   PanelProbeDto dco_decode_box_autoadd_panel_probe_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return dco_decode_panel_probe_dto(raw);
@@ -12178,6 +12204,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   ) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return dco_decode_udp_identity_field_dto(raw);
+  }
+
+  @protected
+  UnpairDto dco_decode_box_autoadd_unpair_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return dco_decode_unpair_dto(raw);
   }
 
   @protected
@@ -12566,13 +12598,15 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   FactoryResetProcedureDto dco_decode_factory_reset_procedure_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 4)
-      throw Exception('unexpected arr length: expect 4 but see ${arr.length}');
+    if (arr.length != 6)
+      throw Exception('unexpected arr length: expect 6 but see ${arr.length}');
     return FactoryResetProcedureDto(
       name: dco_decode_String(arr[0]),
       holdSeconds: dco_decode_opt_box_autoadd_u_32(arr[1]),
-      indicator: dco_decode_opt_String(arr[2]),
-      steps: dco_decode_list_setup_step_dto(arr[3]),
+      pressCount: dco_decode_opt_box_autoadd_u_32(arr[2]),
+      indicator: dco_decode_opt_String(arr[3]),
+      verified: dco_decode_opt_box_autoadd_bool(arr[4]),
+      steps: dco_decode_list_setup_step_dto(arr[5]),
     );
   }
 
@@ -14223,6 +14257,34 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  PairingDto? dco_decode_opt_box_autoadd_pairing_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return raw == null ? null : dco_decode_box_autoadd_pairing_dto(raw);
+  }
+
+  @protected
+  PairingExclusivityDto? dco_decode_opt_box_autoadd_pairing_exclusivity_dto(
+    dynamic raw,
+  ) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return raw == null
+        ? null
+        : dco_decode_box_autoadd_pairing_exclusivity_dto(raw);
+  }
+
+  @protected
+  PairingModeDto? dco_decode_opt_box_autoadd_pairing_mode_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return raw == null ? null : dco_decode_box_autoadd_pairing_mode_dto(raw);
+  }
+
+  @protected
+  PairingPinDto? dco_decode_opt_box_autoadd_pairing_pin_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return raw == null ? null : dco_decode_box_autoadd_pairing_pin_dto(raw);
+  }
+
+  @protected
   PanelProbeDto? dco_decode_opt_box_autoadd_panel_probe_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return raw == null ? null : dco_decode_box_autoadd_panel_probe_dto(raw);
@@ -14369,6 +14431,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  UnpairDto? dco_decode_opt_box_autoadd_unpair_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return raw == null ? null : dco_decode_box_autoadd_unpair_dto(raw);
+  }
+
+  @protected
   WebSocketSurfaceDto? dco_decode_opt_box_autoadd_web_socket_surface_dto(
     dynamic raw,
   ) {
@@ -14394,6 +14462,69 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   Uint8List? dco_decode_opt_list_prim_u_8_strict(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return raw == null ? null : dco_decode_list_prim_u_8_strict(raw);
+  }
+
+  @protected
+  PairingDto dco_decode_pairing_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 9)
+      throw Exception('unexpected arr length: expect 9 but see ${arr.length}');
+    return PairingDto(
+      required_: dco_decode_opt_box_autoadd_bool(arr[0]),
+      confidence: dco_decode_opt_String(arr[1]),
+      securityMode: dco_decode_opt_String(arr[2]),
+      bonding: dco_decode_opt_String(arr[3]),
+      pin: dco_decode_opt_box_autoadd_pairing_pin_dto(arr[4]),
+      exclusivity: dco_decode_opt_box_autoadd_pairing_exclusivity_dto(arr[5]),
+      enterPairingMode: dco_decode_opt_box_autoadd_pairing_mode_dto(arr[6]),
+      unpair: dco_decode_opt_box_autoadd_unpair_dto(arr[7]),
+      notes: dco_decode_opt_String(arr[8]),
+    );
+  }
+
+  @protected
+  PairingExclusivityDto dco_decode_pairing_exclusivity_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 4)
+      throw Exception('unexpected arr length: expect 4 but see ${arr.length}');
+    return PairingExclusivityDto(
+      singleConnection: dco_decode_opt_box_autoadd_bool(arr[0]),
+      singleBond: dco_decode_opt_box_autoadd_bool(arr[1]),
+      recovery: dco_decode_opt_String(arr[2]),
+      notes: dco_decode_opt_String(arr[3]),
+    );
+  }
+
+  @protected
+  PairingModeDto dco_decode_pairing_mode_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 6)
+      throw Exception('unexpected arr length: expect 6 but see ${arr.length}');
+    return PairingModeDto(
+      required_: dco_decode_opt_box_autoadd_bool(arr[0]),
+      windowSeconds: dco_decode_opt_box_autoadd_u_32(arr[1]),
+      advertisedName: dco_decode_opt_String(arr[2]),
+      indicator: dco_decode_opt_String(arr[3]),
+      procedures: dco_decode_list_factory_reset_procedure_dto(arr[4]),
+      notes: dco_decode_opt_String(arr[5]),
+    );
+  }
+
+  @protected
+  PairingPinDto dco_decode_pairing_pin_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 4)
+      throw Exception('unexpected arr length: expect 4 but see ${arr.length}');
+    return PairingPinDto(
+      source: dco_decode_opt_String(arr[0]),
+      value: dco_decode_opt_String(arr[1]),
+      length: dco_decode_opt_box_autoadd_u_32(arr[2]),
+      notes: dco_decode_opt_String(arr[3]),
+    );
   }
 
   @protected
@@ -15000,13 +15131,14 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   SetupInstructionsDto dco_decode_setup_instructions_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 4)
-      throw Exception('unexpected arr length: expect 4 but see ${arr.length}');
+    if (arr.length != 5)
+      throw Exception('unexpected arr length: expect 5 but see ${arr.length}');
     return SetupInstructionsDto(
       notes: dco_decode_opt_String(arr[0]),
       methods: dco_decode_list_setup_method_dto(arr[1]),
       factoryReset: dco_decode_opt_box_autoadd_factory_reset_dto(arr[2]),
       rejoin: dco_decode_opt_box_autoadd_rejoin_dto(arr[3]),
+      pairing: dco_decode_opt_box_autoadd_pairing_dto(arr[4]),
     );
   }
 
@@ -15408,6 +15540,21 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   void dco_decode_unit(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return;
+  }
+
+  @protected
+  UnpairDto dco_decode_unpair_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 5)
+      throw Exception('unexpected arr length: expect 5 but see ${arr.length}');
+    return UnpairDto(
+      supported: dco_decode_opt_box_autoadd_bool(arr[0]),
+      requiresFactoryReset: dco_decode_opt_box_autoadd_bool(arr[1]),
+      clears: dco_decode_opt_String(arr[2]),
+      procedures: dco_decode_list_factory_reset_procedure_dto(arr[3]),
+      notes: dco_decode_opt_String(arr[4]),
+    );
   }
 
   @protected
@@ -16321,6 +16468,36 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  PairingDto sse_decode_box_autoadd_pairing_dto(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return (sse_decode_pairing_dto(deserializer));
+  }
+
+  @protected
+  PairingExclusivityDto sse_decode_box_autoadd_pairing_exclusivity_dto(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return (sse_decode_pairing_exclusivity_dto(deserializer));
+  }
+
+  @protected
+  PairingModeDto sse_decode_box_autoadd_pairing_mode_dto(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return (sse_decode_pairing_mode_dto(deserializer));
+  }
+
+  @protected
+  PairingPinDto sse_decode_box_autoadd_pairing_pin_dto(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return (sse_decode_pairing_pin_dto(deserializer));
+  }
+
+  @protected
   PanelProbeDto sse_decode_box_autoadd_panel_probe_dto(
     SseDeserializer deserializer,
   ) {
@@ -16470,6 +16647,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   ) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     return (sse_decode_udp_identity_field_dto(deserializer));
+  }
+
+  @protected
+  UnpairDto sse_decode_box_autoadd_unpair_dto(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return (sse_decode_unpair_dto(deserializer));
   }
 
   @protected
@@ -16985,12 +17168,16 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     // Codec=Sse (Serialization based), see doc to use other codecs
     var var_name = sse_decode_String(deserializer);
     var var_holdSeconds = sse_decode_opt_box_autoadd_u_32(deserializer);
+    var var_pressCount = sse_decode_opt_box_autoadd_u_32(deserializer);
     var var_indicator = sse_decode_opt_String(deserializer);
+    var var_verified = sse_decode_opt_box_autoadd_bool(deserializer);
     var var_steps = sse_decode_list_setup_step_dto(deserializer);
     return FactoryResetProcedureDto(
       name: var_name,
       holdSeconds: var_holdSeconds,
+      pressCount: var_pressCount,
       indicator: var_indicator,
+      verified: var_verified,
       steps: var_steps,
     );
   }
@@ -19433,6 +19620,58 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  PairingDto? sse_decode_opt_box_autoadd_pairing_dto(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    if (sse_decode_bool(deserializer)) {
+      return (sse_decode_box_autoadd_pairing_dto(deserializer));
+    } else {
+      return null;
+    }
+  }
+
+  @protected
+  PairingExclusivityDto? sse_decode_opt_box_autoadd_pairing_exclusivity_dto(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    if (sse_decode_bool(deserializer)) {
+      return (sse_decode_box_autoadd_pairing_exclusivity_dto(deserializer));
+    } else {
+      return null;
+    }
+  }
+
+  @protected
+  PairingModeDto? sse_decode_opt_box_autoadd_pairing_mode_dto(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    if (sse_decode_bool(deserializer)) {
+      return (sse_decode_box_autoadd_pairing_mode_dto(deserializer));
+    } else {
+      return null;
+    }
+  }
+
+  @protected
+  PairingPinDto? sse_decode_opt_box_autoadd_pairing_pin_dto(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    if (sse_decode_bool(deserializer)) {
+      return (sse_decode_box_autoadd_pairing_pin_dto(deserializer));
+    } else {
+      return null;
+    }
+  }
+
+  @protected
   PanelProbeDto? sse_decode_opt_box_autoadd_panel_probe_dto(
     SseDeserializer deserializer,
   ) {
@@ -19674,6 +19913,19 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  UnpairDto? sse_decode_opt_box_autoadd_unpair_dto(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    if (sse_decode_bool(deserializer)) {
+      return (sse_decode_box_autoadd_unpair_dto(deserializer));
+    } else {
+      return null;
+    }
+  }
+
+  @protected
   WebSocketSurfaceDto? sse_decode_opt_box_autoadd_web_socket_surface_dto(
     SseDeserializer deserializer,
   ) {
@@ -19719,6 +19971,88 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     } else {
       return null;
     }
+  }
+
+  @protected
+  PairingDto sse_decode_pairing_dto(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_required_ = sse_decode_opt_box_autoadd_bool(deserializer);
+    var var_confidence = sse_decode_opt_String(deserializer);
+    var var_securityMode = sse_decode_opt_String(deserializer);
+    var var_bonding = sse_decode_opt_String(deserializer);
+    var var_pin = sse_decode_opt_box_autoadd_pairing_pin_dto(deserializer);
+    var var_exclusivity = sse_decode_opt_box_autoadd_pairing_exclusivity_dto(
+      deserializer,
+    );
+    var var_enterPairingMode = sse_decode_opt_box_autoadd_pairing_mode_dto(
+      deserializer,
+    );
+    var var_unpair = sse_decode_opt_box_autoadd_unpair_dto(deserializer);
+    var var_notes = sse_decode_opt_String(deserializer);
+    return PairingDto(
+      required_: var_required_,
+      confidence: var_confidence,
+      securityMode: var_securityMode,
+      bonding: var_bonding,
+      pin: var_pin,
+      exclusivity: var_exclusivity,
+      enterPairingMode: var_enterPairingMode,
+      unpair: var_unpair,
+      notes: var_notes,
+    );
+  }
+
+  @protected
+  PairingExclusivityDto sse_decode_pairing_exclusivity_dto(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_singleConnection = sse_decode_opt_box_autoadd_bool(deserializer);
+    var var_singleBond = sse_decode_opt_box_autoadd_bool(deserializer);
+    var var_recovery = sse_decode_opt_String(deserializer);
+    var var_notes = sse_decode_opt_String(deserializer);
+    return PairingExclusivityDto(
+      singleConnection: var_singleConnection,
+      singleBond: var_singleBond,
+      recovery: var_recovery,
+      notes: var_notes,
+    );
+  }
+
+  @protected
+  PairingModeDto sse_decode_pairing_mode_dto(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_required_ = sse_decode_opt_box_autoadd_bool(deserializer);
+    var var_windowSeconds = sse_decode_opt_box_autoadd_u_32(deserializer);
+    var var_advertisedName = sse_decode_opt_String(deserializer);
+    var var_indicator = sse_decode_opt_String(deserializer);
+    var var_procedures = sse_decode_list_factory_reset_procedure_dto(
+      deserializer,
+    );
+    var var_notes = sse_decode_opt_String(deserializer);
+    return PairingModeDto(
+      required_: var_required_,
+      windowSeconds: var_windowSeconds,
+      advertisedName: var_advertisedName,
+      indicator: var_indicator,
+      procedures: var_procedures,
+      notes: var_notes,
+    );
+  }
+
+  @protected
+  PairingPinDto sse_decode_pairing_pin_dto(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_source = sse_decode_opt_String(deserializer);
+    var var_value = sse_decode_opt_String(deserializer);
+    var var_length = sse_decode_opt_box_autoadd_u_32(deserializer);
+    var var_notes = sse_decode_opt_String(deserializer);
+    return PairingPinDto(
+      source: var_source,
+      value: var_value,
+      length: var_length,
+      notes: var_notes,
+    );
   }
 
   @protected
@@ -20436,11 +20770,13 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       deserializer,
     );
     var var_rejoin = sse_decode_opt_box_autoadd_rejoin_dto(deserializer);
+    var var_pairing = sse_decode_opt_box_autoadd_pairing_dto(deserializer);
     return SetupInstructionsDto(
       notes: var_notes,
       methods: var_methods,
       factoryReset: var_factoryReset,
       rejoin: var_rejoin,
+      pairing: var_pairing,
     );
   }
 
@@ -20910,6 +21246,27 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   @protected
   void sse_decode_unit(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
+  }
+
+  @protected
+  UnpairDto sse_decode_unpair_dto(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_supported = sse_decode_opt_box_autoadd_bool(deserializer);
+    var var_requiresFactoryReset = sse_decode_opt_box_autoadd_bool(
+      deserializer,
+    );
+    var var_clears = sse_decode_opt_String(deserializer);
+    var var_procedures = sse_decode_list_factory_reset_procedure_dto(
+      deserializer,
+    );
+    var var_notes = sse_decode_opt_String(deserializer);
+    return UnpairDto(
+      supported: var_supported,
+      requiresFactoryReset: var_requiresFactoryReset,
+      clears: var_clears,
+      procedures: var_procedures,
+      notes: var_notes,
+    );
   }
 
   @protected
@@ -21786,6 +22143,42 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_box_autoadd_pairing_dto(
+    PairingDto self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_pairing_dto(self, serializer);
+  }
+
+  @protected
+  void sse_encode_box_autoadd_pairing_exclusivity_dto(
+    PairingExclusivityDto self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_pairing_exclusivity_dto(self, serializer);
+  }
+
+  @protected
+  void sse_encode_box_autoadd_pairing_mode_dto(
+    PairingModeDto self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_pairing_mode_dto(self, serializer);
+  }
+
+  @protected
+  void sse_encode_box_autoadd_pairing_pin_dto(
+    PairingPinDto self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_pairing_pin_dto(self, serializer);
+  }
+
+  @protected
   void sse_encode_box_autoadd_panel_probe_dto(
     PanelProbeDto self,
     SseSerializer serializer,
@@ -21954,6 +22347,15 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   ) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_udp_identity_field_dto(self, serializer);
+  }
+
+  @protected
+  void sse_encode_box_autoadd_unpair_dto(
+    UnpairDto self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_unpair_dto(self, serializer);
   }
 
   @protected
@@ -22303,7 +22705,9 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_String(self.name, serializer);
     sse_encode_opt_box_autoadd_u_32(self.holdSeconds, serializer);
+    sse_encode_opt_box_autoadd_u_32(self.pressCount, serializer);
     sse_encode_opt_String(self.indicator, serializer);
+    sse_encode_opt_box_autoadd_bool(self.verified, serializer);
     sse_encode_list_setup_step_dto(self.steps, serializer);
   }
 
@@ -24387,6 +24791,58 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_opt_box_autoadd_pairing_dto(
+    PairingDto? self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    sse_encode_bool(self != null, serializer);
+    if (self != null) {
+      sse_encode_box_autoadd_pairing_dto(self, serializer);
+    }
+  }
+
+  @protected
+  void sse_encode_opt_box_autoadd_pairing_exclusivity_dto(
+    PairingExclusivityDto? self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    sse_encode_bool(self != null, serializer);
+    if (self != null) {
+      sse_encode_box_autoadd_pairing_exclusivity_dto(self, serializer);
+    }
+  }
+
+  @protected
+  void sse_encode_opt_box_autoadd_pairing_mode_dto(
+    PairingModeDto? self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    sse_encode_bool(self != null, serializer);
+    if (self != null) {
+      sse_encode_box_autoadd_pairing_mode_dto(self, serializer);
+    }
+  }
+
+  @protected
+  void sse_encode_opt_box_autoadd_pairing_pin_dto(
+    PairingPinDto? self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    sse_encode_bool(self != null, serializer);
+    if (self != null) {
+      sse_encode_box_autoadd_pairing_pin_dto(self, serializer);
+    }
+  }
+
+  @protected
   void sse_encode_opt_box_autoadd_panel_probe_dto(
     PanelProbeDto? self,
     SseSerializer serializer,
@@ -24625,6 +25081,19 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_opt_box_autoadd_unpair_dto(
+    UnpairDto? self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    sse_encode_bool(self != null, serializer);
+    if (self != null) {
+      sse_encode_box_autoadd_unpair_dto(self, serializer);
+    }
+  }
+
+  @protected
   void sse_encode_opt_box_autoadd_web_socket_surface_dto(
     WebSocketSurfaceDto? self,
     SseSerializer serializer,
@@ -24674,6 +25143,64 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     if (self != null) {
       sse_encode_list_prim_u_8_strict(self, serializer);
     }
+  }
+
+  @protected
+  void sse_encode_pairing_dto(PairingDto self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_opt_box_autoadd_bool(self.required_, serializer);
+    sse_encode_opt_String(self.confidence, serializer);
+    sse_encode_opt_String(self.securityMode, serializer);
+    sse_encode_opt_String(self.bonding, serializer);
+    sse_encode_opt_box_autoadd_pairing_pin_dto(self.pin, serializer);
+    sse_encode_opt_box_autoadd_pairing_exclusivity_dto(
+      self.exclusivity,
+      serializer,
+    );
+    sse_encode_opt_box_autoadd_pairing_mode_dto(
+      self.enterPairingMode,
+      serializer,
+    );
+    sse_encode_opt_box_autoadd_unpair_dto(self.unpair, serializer);
+    sse_encode_opt_String(self.notes, serializer);
+  }
+
+  @protected
+  void sse_encode_pairing_exclusivity_dto(
+    PairingExclusivityDto self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_opt_box_autoadd_bool(self.singleConnection, serializer);
+    sse_encode_opt_box_autoadd_bool(self.singleBond, serializer);
+    sse_encode_opt_String(self.recovery, serializer);
+    sse_encode_opt_String(self.notes, serializer);
+  }
+
+  @protected
+  void sse_encode_pairing_mode_dto(
+    PairingModeDto self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_opt_box_autoadd_bool(self.required_, serializer);
+    sse_encode_opt_box_autoadd_u_32(self.windowSeconds, serializer);
+    sse_encode_opt_String(self.advertisedName, serializer);
+    sse_encode_opt_String(self.indicator, serializer);
+    sse_encode_list_factory_reset_procedure_dto(self.procedures, serializer);
+    sse_encode_opt_String(self.notes, serializer);
+  }
+
+  @protected
+  void sse_encode_pairing_pin_dto(
+    PairingPinDto self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_opt_String(self.source, serializer);
+    sse_encode_opt_String(self.value, serializer);
+    sse_encode_opt_box_autoadd_u_32(self.length, serializer);
+    sse_encode_opt_String(self.notes, serializer);
   }
 
   @protected
@@ -25208,6 +25735,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_list_setup_method_dto(self.methods, serializer);
     sse_encode_opt_box_autoadd_factory_reset_dto(self.factoryReset, serializer);
     sse_encode_opt_box_autoadd_rejoin_dto(self.rejoin, serializer);
+    sse_encode_opt_box_autoadd_pairing_dto(self.pairing, serializer);
   }
 
   @protected
@@ -25560,6 +26088,16 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   @protected
   void sse_encode_unit(void self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
+  }
+
+  @protected
+  void sse_encode_unpair_dto(UnpairDto self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_opt_box_autoadd_bool(self.supported, serializer);
+    sse_encode_opt_box_autoadd_bool(self.requiresFactoryReset, serializer);
+    sse_encode_opt_String(self.clears, serializer);
+    sse_encode_list_factory_reset_procedure_dto(self.procedures, serializer);
+    sse_encode_opt_String(self.notes, serializer);
   }
 
   @protected

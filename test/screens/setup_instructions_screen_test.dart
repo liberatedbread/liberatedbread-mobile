@@ -383,4 +383,88 @@ void main() {
     expect(printer.jobs.map((j) => j.name), ['Ember Mug setup']);
     expect(String.fromCharCodes(printer.jobs.single.pdf.take(5)), '%PDF-');
   });
+
+  group('device.pairing', () {
+    const pairingOnly = SetupInstructionsDto(
+      methods: [],
+      pairing: PairingDto(
+        required_: false,
+        securityMode: 'just_works',
+        bonding: 'optional',
+        exclusivity: PairingExclusivityDto(
+          singleConnection: true,
+          recovery: 'Close the Ember app and wait before retrying.',
+        ),
+        enterPairingMode: PairingModeDto(
+          required_: true,
+          procedures: [
+            FactoryResetProcedureDto(
+              name: 'Hold the button on the base',
+              verified: false,
+              steps: [SetupStepDto(action: 'Hold the button.', actor: 'user')],
+            ),
+          ],
+        ),
+        notes: 'Reading the DSK starts SMP on its own.',
+      ),
+    );
+
+    testWidgets('a pairing block alone renders its section', (tester) async {
+      await _pump(tester, pairingOnly);
+      expect(find.text('Pairing'), findsOneWidget);
+      expect(find.text('No pairing needed.'), findsOneWidget);
+      expect(
+        find.text('Pairs automatically, with no code to enter.'),
+        findsOneWidget,
+      );
+      expect(find.text('If another phone or app has it'), findsOneWidget);
+      expect(find.textContaining('Close the Ember app'), findsOneWidget);
+      expect(find.text('Pairing mode'), findsOneWidget);
+      expect(find.text('Hold the button on the base'), findsOneWidget);
+      expect(find.text('Not yet confirmed on real hardware'), findsOneWidget);
+      // Implementer prose is tucked away until asked for.
+      expect(find.text('Technical notes'), findsOneWidget);
+      expect(find.textContaining('Reading the DSK'), findsNothing);
+      await tester.tap(find.text('Technical notes'));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('Reading the DSK'), findsOneWidget);
+      // Nothing else the block lacks gets a heading.
+      expect(find.text('Forgetting a paired phone'), findsNothing);
+      expect(find.text('Factory reset'), findsNothing);
+    });
+
+    SetupInstructionsDto withRoute(PairingDto pairing) => SetupInstructionsDto(
+      methods: const [
+        SetupMethodDto(
+          name: 'Pair from the app',
+          steps: [SetupStepDto(action: 'Open the app.')],
+          stages: [],
+          troubleshooting: [
+            TroubleshootingDto(symptom: 'Will not connect', causes: []),
+          ],
+        ),
+      ],
+      pairing: pairing,
+    );
+
+    testWidgets('pairing leads a new device, follows troubleshooting after a '
+        'failure', (tester) async {
+      final instructions = withRoute(pairingOnly.pairing!);
+      double top(String text) => tester.getTopLeft(find.text(text)).dy;
+
+      await _pump(tester, instructions, afterFailedConnect: false);
+      expect(top('Pairing'), lessThan(top('Pair from the app')));
+      expect(top('Pair from the app'), lessThan(top('If it won’t connect')));
+
+      await _pump(tester, instructions);
+      expect(top('If it won’t connect'), lessThan(top('Pairing')));
+      expect(top('Pairing'), lessThan(top('Pair from the app')));
+    });
+
+    testWidgets('an all-unknown block draws no section', (tester) async {
+      await _pump(tester, withRoute(const PairingDto(securityMode: 'unknown')));
+      expect(find.text('Pairing'), findsNothing);
+      expect(find.text('Pair from the app'), findsOneWidget);
+    });
+  });
 }

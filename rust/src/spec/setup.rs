@@ -409,13 +409,23 @@ impl SetupMethod {
     }
 }
 
-/// One named way to factory-reset the device.
+/// One named thing a person does to the hardware — the schema's
+/// `physical_procedure`. Named for its first use, the factory reset; the
+/// pairing block's pairing-mode and unpair procedures share the shape,
+/// because on most devices they are the same button held for different
+/// lengths of time.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FactoryResetProcedure {
     pub name: String,
     pub hold_seconds: Option<u32>,
-    /// The LED/screen/audio signal that confirms the reset took.
+    /// "Press it five times" — counts presses, nothing else.
+    pub press_count: Option<u32>,
+    /// The LED/screen/audio signal that confirms the procedure took.
     pub indicator: Option<String>,
+    /// `Some(false)` when nobody has run it on real hardware yet; the
+    /// catalogue then says why it believes it in a `basis` this digest
+    /// does not carry. `None` when the spec does not say.
+    pub verified: Option<bool>,
     pub steps: Vec<SetupStep>,
 }
 
@@ -444,6 +454,81 @@ impl Rejoin {
     }
 }
 
+/// `device.pairing.pin` — the passkey or PIN, when one is involved.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PairingPin {
+    /// `fixed_default`, `printed_label`, `device_screen`, `vendor_app`,
+    /// `derived`, `user_chosen` or `unknown`.
+    pub source: Option<String>,
+    /// The PIN itself — present only for a product-wide `fixed_default`.
+    pub value: Option<String>,
+    pub length: Option<u32>,
+    pub notes: Option<String>,
+}
+
+/// `device.pairing.exclusivity` — whether a second client is shut out, and
+/// how to get the device back when it is.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PairingExclusivity {
+    /// One live connection at a time. `None` when unstated or `unknown`.
+    pub single_connection: Option<bool>,
+    /// Remembers one bonded client and refuses the rest.
+    pub single_bond: Option<bool>,
+    pub recovery: Option<String>,
+    pub notes: Option<String>,
+}
+
+/// `device.pairing.enter_pairing_mode` — the button press (or nothing) that
+/// makes the device pairable.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PairingMode {
+    /// `None` when unstated or `unknown`.
+    pub required: Option<bool>,
+    /// How long the device stays pairable once the mode opens.
+    pub window_seconds: Option<u32>,
+    /// The name it advertises while pairable, when that differs.
+    pub advertised_name: Option<String>,
+    pub indicator: Option<String>,
+    pub procedures: Vec<FactoryResetProcedure>,
+    pub notes: Option<String>,
+}
+
+/// `device.pairing.unpair` — how a remembered client is forgotten.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Unpair {
+    /// `None` when unstated or `unknown`.
+    pub supported: Option<bool>,
+    pub requires_factory_reset: Option<bool>,
+    /// What an unpair forgets ("every paired client at once").
+    pub clears: Option<String>,
+    pub procedures: Vec<FactoryResetProcedure>,
+    pub notes: Option<String>,
+}
+
+/// The renderable digest of `device.pairing`: whether a client must pair or
+/// bond before the device answers, and what a person does at the hardware
+/// for that to work. Every catalogue spec carries one — on BLE "nothing
+/// pairs" is the usual answer, on Wi-Fi it says how a client is authorised —
+/// so the negative answers are content too.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PairingBlock {
+    /// Whether a client must pair before the control surface answers.
+    /// `None` when unstated or `unknown`.
+    pub required: Option<bool>,
+    /// `high` / `medium` / `low`.
+    pub confidence: Option<String>,
+    /// `none`, `just_works`, `passkey_entry`, `numeric_comparison`,
+    /// `out_of_band`, `legacy_pin`, `network_join`, `app_layer`, `unknown`.
+    pub security_mode: Option<String>,
+    /// `none` / `optional` / `required` / `unknown`.
+    pub bonding: Option<String>,
+    pub pin: Option<PairingPin>,
+    pub exclusivity: Option<PairingExclusivity>,
+    pub enter_pairing_mode: Option<PairingMode>,
+    pub unpair: Option<Unpair>,
+    pub notes: Option<String>,
+}
+
 /// The renderable digest of one spec's `device.setup` block.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SetupInstructions {
@@ -451,10 +536,107 @@ pub struct SetupInstructions {
     pub methods: Vec<SetupMethod>,
     pub factory_reset: Option<FactoryReset>,
     pub rejoin: Option<Rejoin>,
+    /// `device.pairing`, which sits beside `device.setup` rather than in it.
+    pub pairing: Option<PairingBlock>,
 }
 
 fn opt_str(value: Option<&serde_yaml::Value>) -> Option<String> {
     value.and_then(|v| v.as_str()).map(str::to_string)
+}
+
+/// The schema's `boolean | "unknown"`: `unknown` reads as unstated, which is
+/// what it means to a person deciding what to do.
+fn opt_bool(value: Option<&serde_yaml::Value>) -> Option<bool> {
+    value.and_then(|v| v.as_bool())
+}
+
+fn opt_u32(value: Option<&serde_yaml::Value>) -> Option<u32> {
+    value
+        .and_then(|v| v.as_u64())
+        .and_then(|v| u32::try_from(v).ok())
+}
+
+/// A `physical_procedure` list. A procedure with no `name` is dropped: the
+/// schema requires one, and it is the heading a reader picks by.
+fn parse_procedures(value: Option<&serde_yaml::Value>) -> Vec<FactoryResetProcedure> {
+    value
+        .and_then(|p| p.as_sequence())
+        .map(|seq| {
+            seq.iter()
+                .filter_map(|p| {
+                    let name = p.get("name")?.as_str()?.to_string();
+                    Some(FactoryResetProcedure {
+                        name,
+                        hold_seconds: opt_u32(p.get("hold_seconds")),
+                        press_count: opt_u32(p.get("press_count")),
+                        indicator: opt_str(p.get("indicator")),
+                        verified: opt_bool(p.get("verified")),
+                        steps: parse_steps(p.get("steps")),
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Lift `device.pairing` into its renderable digest, or `None` when the spec
+/// has no block (nobody has looked) or one that says nothing at all.
+pub fn parse_pairing(spec: &DeviceSpec) -> Option<PairingBlock> {
+    let p = spec.device.extensions.get("pairing")?;
+    if !p.is_mapping() {
+        return None;
+    }
+    let pin = p.get("pin").map(|pin| PairingPin {
+        source: opt_str(pin.get("source")),
+        value: opt_str(pin.get("value")),
+        length: opt_u32(pin.get("length")),
+        notes: opt_str(pin.get("notes")),
+    });
+    let exclusivity = p.get("exclusivity").map(|e| PairingExclusivity {
+        single_connection: opt_bool(e.get("single_connection")),
+        single_bond: opt_bool(e.get("single_bond")),
+        recovery: opt_str(e.get("recovery")),
+        notes: opt_str(e.get("notes")),
+    });
+    let enter_pairing_mode = p.get("enter_pairing_mode").map(|m| PairingMode {
+        required: opt_bool(m.get("required")),
+        window_seconds: opt_u32(m.get("window_seconds")),
+        advertised_name: opt_str(m.get("advertised_name")),
+        indicator: opt_str(m.get("indicator")),
+        procedures: parse_procedures(m.get("procedures")),
+        notes: opt_str(m.get("notes")),
+    });
+    let unpair = p.get("unpair").map(|u| Unpair {
+        supported: opt_bool(u.get("supported")),
+        requires_factory_reset: opt_bool(u.get("requires_factory_reset")),
+        clears: opt_str(u.get("clears")),
+        procedures: parse_procedures(u.get("procedures")),
+        notes: opt_str(u.get("notes")),
+    });
+    let pairing = PairingBlock {
+        required: opt_bool(p.get("required")),
+        confidence: opt_str(p.get("confidence")),
+        security_mode: opt_str(p.get("security_mode")),
+        bonding: opt_str(p.get("bonding")),
+        pin,
+        exclusivity,
+        enter_pairing_mode,
+        unpair,
+        notes: opt_str(p.get("notes")),
+    };
+    let says_nothing = pairing.required.is_none()
+        && pairing.security_mode.is_none()
+        && pairing.bonding.is_none()
+        && pairing.pin.is_none()
+        && pairing.exclusivity.is_none()
+        && pairing.enter_pairing_mode.is_none()
+        && pairing.unpair.is_none()
+        && pairing.notes.is_none();
+    if says_nothing {
+        None
+    } else {
+        Some(pairing)
+    }
 }
 
 fn parse_steps(value: Option<&serde_yaml::Value>) -> Vec<SetupStep> {
@@ -531,7 +713,16 @@ fn parse_method(method: &serde_yaml::Value) -> SetupMethod {
 /// does — `device.setup` is deliberately not a typed field (see
 /// [`crate::spec::types::DeviceInfo`]).
 pub fn setup_instructions(spec: &DeviceSpec) -> Option<SetupInstructions> {
-    let setup = spec.device.extensions.get("setup")?;
+    let pairing = parse_pairing(spec);
+    // Every catalogue spec now answers the pairing question, many with no
+    // `device.setup` at all (an open LAN API has nothing to provision): the
+    // pairing block alone is worth a page.
+    let empty = serde_yaml::Value::Null;
+    let setup = match spec.device.extensions.get("setup") {
+        Some(setup) => setup,
+        None if pairing.is_some() => &empty,
+        None => return None,
+    };
 
     let mut methods: Vec<SetupMethod> = setup
         .get("methods")
@@ -551,26 +742,7 @@ pub fn setup_instructions(spec: &DeviceSpec) -> Option<SetupInstructions> {
 
     let factory_reset = setup.get("factory_reset").and_then(|fr| {
         let effect = opt_str(fr.get("effect"));
-        let procedures: Vec<FactoryResetProcedure> = fr
-            .get("procedures")
-            .and_then(|p| p.as_sequence())
-            .map(|seq| {
-                seq.iter()
-                    .filter_map(|p| {
-                        let name = p.get("name")?.as_str()?.to_string();
-                        Some(FactoryResetProcedure {
-                            name,
-                            hold_seconds: p
-                                .get("hold_seconds")
-                                .and_then(|h| h.as_u64())
-                                .and_then(|h| u32::try_from(h).ok()),
-                            indicator: opt_str(p.get("indicator")),
-                            steps: parse_steps(p.get("steps")),
-                        })
-                    })
-                    .collect()
-            })
-            .unwrap_or_default();
+        let procedures = parse_procedures(fr.get("procedures"));
         // A reset block that names neither an effect nor a procedure is noise.
         if effect.is_none() && procedures.is_empty() {
             None
@@ -595,7 +767,12 @@ pub fn setup_instructions(spec: &DeviceSpec) -> Option<SetupInstructions> {
     let notes = opt_str(setup.get("notes"));
 
     // Nothing renderable → no affordance at all, rather than an empty screen.
-    if notes.is_none() && methods.is_empty() && factory_reset.is_none() && rejoin.is_none() {
+    if notes.is_none()
+        && methods.is_empty()
+        && factory_reset.is_none()
+        && rejoin.is_none()
+        && pairing.is_none()
+    {
         return None;
     }
 
@@ -604,6 +781,7 @@ pub fn setup_instructions(spec: &DeviceSpec) -> Option<SetupInstructions> {
         methods,
         factory_reset,
         rejoin,
+        pairing,
     })
 }
 
@@ -1144,5 +1322,124 @@ device:
             s.factory_reset.expect("reset present").effect.as_deref(),
             Some("Wipes the pairing.")
         );
+    }
+
+    const PAIRING_ONLY_LAN: &str = r#"
+device:
+  name: "Open LAN Purifier"
+  manufacturer: "Test"
+  manufacturer_status: "active"
+  protocol: "wifi"
+  pairing:
+    required: false
+    confidence: medium
+    security_mode: none
+    bonding: none
+    exclusivity:
+      single_connection: unknown
+      recovery: "Power-cycle the unit."
+    enter_pairing_mode:
+      required: false
+      notes: "Nothing to switch on."
+    notes: "Any host on the LAN can control it."
+"#;
+
+    #[test]
+    fn a_pairing_block_alone_is_worth_instructions() {
+        // Most LAN specs have no `device.setup` at all; the pairing answer
+        // ("the network is the only gate") is still the page's content.
+        let s = setup_instructions(&spec(PAIRING_ONLY_LAN)).expect("pairing alone renders");
+        assert!(s.methods.is_empty() && s.factory_reset.is_none() && s.notes.is_none());
+        let p = s.pairing.expect("pairing parsed");
+        assert_eq!(p.required, Some(false));
+        assert_eq!(p.security_mode.as_deref(), Some("none"));
+        assert_eq!(p.bonding.as_deref(), Some("none"));
+        let e = p.exclusivity.expect("exclusivity parsed");
+        assert_eq!(e.single_connection, None, "`unknown` reads as unstated");
+        assert_eq!(e.recovery.as_deref(), Some("Power-cycle the unit."));
+        let m = p.enter_pairing_mode.expect("pairing mode parsed");
+        assert_eq!(m.required, Some(false));
+        assert!(m.procedures.is_empty());
+        assert_eq!(
+            p.notes.as_deref(),
+            Some("Any host on the LAN can control it.")
+        );
+    }
+
+    #[test]
+    fn pairing_mode_and_unpair_procedures_share_the_reset_shape() {
+        let yaml = r#"
+device:
+  name: "Bonding Lock"
+  manufacturer: "Test"
+  manufacturer_status: "active"
+  protocol: "ble"
+  pairing:
+    required: true
+    confidence: high
+    security_mode: passkey_entry
+    bonding: required
+    pin:
+      source: fixed_default
+      value: "000000"
+      length: 6
+    exclusivity:
+      single_bond: true
+      recovery: "Forget it on the old phone, then unpair at the lock."
+    enter_pairing_mode:
+      required: true
+      window_seconds: 30
+      advertised_name: "LOCK-PAIR"
+      indicator: "Blue LED blinks."
+      procedures:
+        - name: "Press the button five times"
+          press_count: 5
+          verified: false
+          basis: "Vendor manual."
+          steps:
+            - action: "Press the inside button five times."
+              actor: user
+              expect: "Blue LED blinks."
+        - verified: true
+    unpair:
+      supported: false
+      requires_factory_reset: true
+      clears: "Every bond."
+"#;
+        let s = setup_instructions(&spec(yaml)).expect("instructions");
+        let p = s.pairing.expect("pairing");
+        assert_eq!(p.required, Some(true));
+        assert_eq!(p.security_mode.as_deref(), Some("passkey_entry"));
+        let pin = p.pin.expect("pin");
+        assert_eq!(pin.source.as_deref(), Some("fixed_default"));
+        assert_eq!(pin.value.as_deref(), Some("000000"));
+        assert_eq!(pin.length, Some(6));
+        assert_eq!(p.exclusivity.expect("excl").single_bond, Some(true));
+        let m = p.enter_pairing_mode.expect("mode");
+        assert_eq!(m.window_seconds, Some(30));
+        assert_eq!(m.advertised_name.as_deref(), Some("LOCK-PAIR"));
+        // The nameless procedure is dropped, as a nameless reset one is.
+        assert_eq!(m.procedures.len(), 1);
+        let proc0 = &m.procedures[0];
+        assert_eq!(proc0.press_count, Some(5));
+        assert_eq!(proc0.verified, Some(false));
+        assert_eq!(proc0.steps.len(), 1);
+        let u = p.unpair.expect("unpair");
+        assert_eq!(u.supported, Some(false));
+        assert_eq!(u.requires_factory_reset, Some(true));
+        assert_eq!(u.clears.as_deref(), Some("Every bond."));
+    }
+
+    #[test]
+    fn an_empty_or_malformed_pairing_block_is_no_pairing() {
+        for block in ["  pairing: {}\n", "  pairing: \"yes\"\n"] {
+            let yaml = format!(
+                "device:\n  name: \"X\"\n  manufacturer: \"T\"\n  \
+                 manufacturer_status: \"active\"\n  protocol: \"ble\"\n{block}"
+            );
+            let parsed = spec(&yaml);
+            assert!(parse_pairing(&parsed).is_none(), "{block}");
+            assert!(setup_instructions(&parsed).is_none(), "{block}");
+        }
     }
 }

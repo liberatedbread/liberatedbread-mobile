@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 
+import '../../core/pairing_content.dart';
 import '../../core/setup_content.dart';
 import '../spec_codec.dart';
 
@@ -195,12 +196,49 @@ List<PdfSection> setupInstructionsSections(
         ),
   ];
 
+  String procedure(FactoryResetProcedureDto p) => [
+    [p.name.trim(), ?procedureMeta(p)].join(' — '),
+    for (final (i, s) in p.steps.indexed) step(s, i),
+    if (hasSetupText(p.indicator)) 'Confirmed by: ${p.indicator!.trim()}',
+  ].join('\n');
+
+  final pairingFacts = switch (instructions.pairing) {
+    final p? => PairingContent.of(p),
+    null => null,
+  };
+  final PdfSection? pairingSection =
+      pairingFacts != null && pairingFacts.hasContent
+      ? (
+          heading: 'Pairing',
+          paragraphs: [
+            ?pairingFacts.headline,
+            for (final fact in pairingFacts.facts) '- $fact',
+            ?pairingFacts.pinNotes,
+            if (pairingFacts.recovery case final r?)
+              'If another phone or app has it: $r',
+            if (pairingFacts.hasPairingMode) ...[
+              'Pairing mode',
+              for (final fact in pairingFacts.pairingModeFacts) '- $fact',
+              for (final p in pairingFacts.pairingModeProcedures) procedure(p),
+            ],
+            if (pairingFacts.hasUnpair) ...[
+              'Forgetting a paired phone',
+              for (final fact in pairingFacts.unpairFacts) '- $fact',
+              for (final p in pairingFacts.unpairProcedures) procedure(p),
+            ],
+            ...pairingFacts.technicalNotes,
+          ],
+        )
+      : null;
+
   return [
     if (afterFailedConnect) ...[
       ?rejoinSection,
       ?troubleshootingSection,
+      ?pairingSection,
       ...pairing,
     ] else ...[
+      ?pairingSection,
       ...pairing,
       ?troubleshootingSection,
       ?rejoinSection,

@@ -185,6 +185,61 @@ void main() {
     ]);
   });
 
+  test('the pairing block prints as the screen words it', () {
+    const instructions = SetupInstructionsDto(
+      methods: [
+        SetupMethodDto(
+          name: 'Pair',
+          steps: [SetupStepDto(action: 'Open the app')],
+          stages: [],
+          troubleshooting: [],
+        ),
+      ],
+      pairing: PairingDto(
+        required_: true,
+        securityMode: 'legacy_pin',
+        pin: PairingPinDto(source: 'fixed_default', value: '1234'),
+        enterPairingMode: PairingModeDto(
+          required_: true,
+          procedures: [
+            FactoryResetProcedureDto(
+              name: 'Hold the button',
+              holdSeconds: 5,
+              indicator: 'LED blinks',
+              steps: [SetupStepDto(action: 'Hold it')],
+            ),
+          ],
+        ),
+        notes: 'Classic SPP.',
+      ),
+    );
+
+    final fresh = setupInstructionsSections(
+      instructions,
+      afterFailedConnect: false,
+    );
+    expect(fresh.map((s) => s.heading), ['Pairing', 'Pair']);
+    expect(fresh[0].paragraphs, [
+      'Pair it before it will answer.',
+      '- Pairing asks for a PIN.',
+      '- Pairing code: 1234',
+      'Pairing mode',
+      '- Put it in pairing mode first.',
+      'Hold the button — Hold 5 s\n1. Hold it\nConfirmed by: LED blinks',
+      'Classic SPP.',
+    ]);
+    // An all-unknown block prints nothing.
+    expect(
+      setupInstructionsSections(
+        const SetupInstructionsDto(
+          methods: [],
+          pairing: PairingDto(bonding: 'unknown'),
+        ),
+      ),
+      isEmpty,
+    );
+  });
+
   test('a label prints at its physical size', () async {
     final pdf = await labelImagePdf(
       format: PdfPageFormat.a4,

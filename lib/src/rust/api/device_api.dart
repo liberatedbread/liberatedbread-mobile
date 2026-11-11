@@ -11,7 +11,7 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
 // These functions are ignored because they are not marked as `pub`: `agreeing`, `all_company_ids`, `all_service_types`, `all_service_uuids`, `answered_protocol_tokens`, `best_mac_prefix`, `ble_provisioning_profiles_over`, `brightness_to_byte`, `brother_ql_media`, `brother_ql_test_canvas`, `check_stored_layer_edges`, `confidence`, `decode_with_protocol`, `encode_command_with_spec`, `encode_command_writes_with_spec`, `encode_entity_value_with_spec`, `entity_dto`, `find_entity`, `finite`, `format_mac`, `format_number`, `from_lifx`, `from`, `groups_governing`, `handler_surface`, `http_scheme_of`, `image_plan_dto`, `image_upload_dto`, `is_empty`, `is_narrowed`, `is_platform_company_id`, `is_shared_service_type`, `is_sig_assigned_service`, `lifx_network_entities`, `list_network_instances_with_spec`, `mac_prefix_confidence`, `match_axes`, `match_connected_device`, `match_network_axes`, `match_network_over`, `match_scanned_over`, `network_surface_for`, `normalize_mac_prefix`, `normalize_mac`, `rank_matches`, `read_network_entity_roles_with_spec`, `read_network_entity_with_spec`, `read_network_instance_with_spec`, `reading_to_dto`, `regex_for`, `render_network_http_state_request_with_spec`, `render_network_state_request_with_spec`, `resolve_query_source`, `roomba_network_entities`, `scroll_from_str`, `select_entity`, `setup_instructions_with_spec`, `soft_ap_profiles_over`, `stored_plan_to_dto`, `stored_upload_dto`, `strip_hex`, `txt_conditions_hold`, `txt_group_holds`, `value_matches`
 // These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `ConnectedMatch`, `MatchAxes`
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `cmp`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `partial_cmp`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `cmp`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `partial_cmp`
 // These functions are ignored (category: IgnoreBecauseOwnerTyShouldIgnore): `default`
 
 /// Resolve a `device_reported` panel's REAL width/height from its BLE
@@ -2808,17 +2808,26 @@ class FactoryResetDto {
           procedures == other.procedures;
 }
 
-/// One named way to factory-reset the device.
+/// One named thing to do at the hardware — a factory reset, or the
+/// pairing block's pairing-mode and unpair procedures, which share the shape.
 class FactoryResetProcedureDto {
   final String name;
   final int? holdSeconds;
+
+  /// How many presses, when the procedure counts them.
+  final int? pressCount;
   final String? indicator;
+
+  /// `Some(false)` when nobody has run it on real hardware yet.
+  final bool? verified;
   final List<SetupStepDto> steps;
 
   const FactoryResetProcedureDto({
     required this.name,
     this.holdSeconds,
+    this.pressCount,
     this.indicator,
+    this.verified,
     required this.steps,
   });
 
@@ -2826,7 +2835,9 @@ class FactoryResetProcedureDto {
   int get hashCode =>
       name.hashCode ^
       holdSeconds.hashCode ^
+      pressCount.hashCode ^
       indicator.hashCode ^
+      verified.hashCode ^
       steps.hashCode;
 
   @override
@@ -2836,7 +2847,9 @@ class FactoryResetProcedureDto {
           runtimeType == other.runtimeType &&
           name == other.name &&
           holdSeconds == other.holdSeconds &&
+          pressCount == other.pressCount &&
           indicator == other.indicator &&
+          verified == other.verified &&
           steps == other.steps;
 }
 
@@ -4341,6 +4354,160 @@ class NetworkStateProbeDto {
           transport == other.transport;
 }
 
+/// `device.pairing` — whether a client must pair or bond before the device
+/// answers (on Wi-Fi: how a client gets authorised), and what a person does
+/// at the hardware for that. `unknown` tri-states arrive as `None`.
+class PairingDto {
+  final bool? required_;
+  final String? confidence;
+  final String? securityMode;
+  final String? bonding;
+  final PairingPinDto? pin;
+  final PairingExclusivityDto? exclusivity;
+  final PairingModeDto? enterPairingMode;
+  final UnpairDto? unpair;
+  final String? notes;
+
+  const PairingDto({
+    this.required_,
+    this.confidence,
+    this.securityMode,
+    this.bonding,
+    this.pin,
+    this.exclusivity,
+    this.enterPairingMode,
+    this.unpair,
+    this.notes,
+  });
+
+  @override
+  int get hashCode =>
+      required_.hashCode ^
+      confidence.hashCode ^
+      securityMode.hashCode ^
+      bonding.hashCode ^
+      pin.hashCode ^
+      exclusivity.hashCode ^
+      enterPairingMode.hashCode ^
+      unpair.hashCode ^
+      notes.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is PairingDto &&
+          runtimeType == other.runtimeType &&
+          required_ == other.required_ &&
+          confidence == other.confidence &&
+          securityMode == other.securityMode &&
+          bonding == other.bonding &&
+          pin == other.pin &&
+          exclusivity == other.exclusivity &&
+          enterPairingMode == other.enterPairingMode &&
+          unpair == other.unpair &&
+          notes == other.notes;
+}
+
+/// `device.pairing.exclusivity` — whether a second client is shut out.
+class PairingExclusivityDto {
+  final bool? singleConnection;
+  final bool? singleBond;
+  final String? recovery;
+  final String? notes;
+
+  const PairingExclusivityDto({
+    this.singleConnection,
+    this.singleBond,
+    this.recovery,
+    this.notes,
+  });
+
+  @override
+  int get hashCode =>
+      singleConnection.hashCode ^
+      singleBond.hashCode ^
+      recovery.hashCode ^
+      notes.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is PairingExclusivityDto &&
+          runtimeType == other.runtimeType &&
+          singleConnection == other.singleConnection &&
+          singleBond == other.singleBond &&
+          recovery == other.recovery &&
+          notes == other.notes;
+}
+
+/// `device.pairing.enter_pairing_mode` — what makes the device pairable.
+class PairingModeDto {
+  final bool? required_;
+  final int? windowSeconds;
+  final String? advertisedName;
+  final String? indicator;
+  final List<FactoryResetProcedureDto> procedures;
+  final String? notes;
+
+  const PairingModeDto({
+    this.required_,
+    this.windowSeconds,
+    this.advertisedName,
+    this.indicator,
+    required this.procedures,
+    this.notes,
+  });
+
+  @override
+  int get hashCode =>
+      required_.hashCode ^
+      windowSeconds.hashCode ^
+      advertisedName.hashCode ^
+      indicator.hashCode ^
+      procedures.hashCode ^
+      notes.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is PairingModeDto &&
+          runtimeType == other.runtimeType &&
+          required_ == other.required_ &&
+          windowSeconds == other.windowSeconds &&
+          advertisedName == other.advertisedName &&
+          indicator == other.indicator &&
+          procedures == other.procedures &&
+          notes == other.notes;
+}
+
+/// `device.pairing.pin` — the passkey or PIN, when one is involved.
+class PairingPinDto {
+  /// `fixed_default`, `printed_label`, `device_screen`, `vendor_app`,
+  /// `derived`, `user_chosen` or `unknown`.
+  final String? source;
+
+  /// The PIN itself — only for a product-wide `fixed_default`.
+  final String? value;
+  final int? length;
+  final String? notes;
+
+  const PairingPinDto({this.source, this.value, this.length, this.notes});
+
+  @override
+  int get hashCode =>
+      source.hashCode ^ value.hashCode ^ length.hashCode ^ notes.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is PairingPinDto &&
+          runtimeType == other.runtimeType &&
+          source == other.source &&
+          value == other.value &&
+          length == other.length &&
+          notes == other.notes;
+}
+
 /// The one query that makes a `device_reported` panel state its size, for a
 /// handler that has one: write [`Self::bytes`] to the write characteristic
 /// with the notify characteristic subscribed, then hand what arrives to
@@ -5190,18 +5357,21 @@ class ServiceDto {
           characteristics == other.characteristics;
 }
 
-/// One spec's `device.setup` block, rendered-ready.
+/// One spec's `device.setup` block, rendered-ready, with the `device.pairing`
+/// block beside it.
 class SetupInstructionsDto {
   final String? notes;
   final List<SetupMethodDto> methods;
   final FactoryResetDto? factoryReset;
   final RejoinDto? rejoin;
+  final PairingDto? pairing;
 
   const SetupInstructionsDto({
     this.notes,
     required this.methods,
     this.factoryReset,
     this.rejoin,
+    this.pairing,
   });
 
   @override
@@ -5209,7 +5379,8 @@ class SetupInstructionsDto {
       notes.hashCode ^
       methods.hashCode ^
       factoryReset.hashCode ^
-      rejoin.hashCode;
+      rejoin.hashCode ^
+      pairing.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -5219,7 +5390,8 @@ class SetupInstructionsDto {
           notes == other.notes &&
           methods == other.methods &&
           factoryReset == other.factoryReset &&
-          rejoin == other.rejoin;
+          rejoin == other.rejoin &&
+          pairing == other.pairing;
 }
 
 /// One `setup.methods[]` entry as human-readable prose.
@@ -5922,6 +6094,42 @@ class TxtMatchGroupDto {
           runtimeType == other.runtimeType &&
           serviceTypes == other.serviceTypes &&
           conditions == other.conditions;
+}
+
+/// `device.pairing.unpair` — how a remembered client is forgotten.
+class UnpairDto {
+  final bool? supported;
+  final bool? requiresFactoryReset;
+  final String? clears;
+  final List<FactoryResetProcedureDto> procedures;
+  final String? notes;
+
+  const UnpairDto({
+    this.supported,
+    this.requiresFactoryReset,
+    this.clears,
+    required this.procedures,
+    this.notes,
+  });
+
+  @override
+  int get hashCode =>
+      supported.hashCode ^
+      requiresFactoryReset.hashCode ^
+      clears.hashCode ^
+      procedures.hashCode ^
+      notes.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is UnpairDto &&
+          runtimeType == other.runtimeType &&
+          supported == other.supported &&
+          requiresFactoryReset == other.requiresFactoryReset &&
+          clears == other.clears &&
+          procedures == other.procedures &&
+          notes == other.notes;
 }
 
 /// One frame shape, and — for a socket the device hands out at runtime —

@@ -282,6 +282,20 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   NetworkReadingDto dco_decode_box_autoadd_network_reading_dto(dynamic raw);
 
   @protected
+  PairingDto dco_decode_box_autoadd_pairing_dto(dynamic raw);
+
+  @protected
+  PairingExclusivityDto dco_decode_box_autoadd_pairing_exclusivity_dto(
+    dynamic raw,
+  );
+
+  @protected
+  PairingModeDto dco_decode_box_autoadd_pairing_mode_dto(dynamic raw);
+
+  @protected
+  PairingPinDto dco_decode_box_autoadd_pairing_pin_dto(dynamic raw);
+
+  @protected
   PanelProbeDto dco_decode_box_autoadd_panel_probe_dto(dynamic raw);
 
   @protected
@@ -348,6 +362,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   UdpIdentityFieldDto dco_decode_box_autoadd_udp_identity_field_dto(
     dynamic raw,
   );
+
+  @protected
+  UnpairDto dco_decode_box_autoadd_unpair_dto(dynamic raw);
 
   @protected
   WebSocketSurfaceDto dco_decode_box_autoadd_web_socket_surface_dto(
@@ -991,6 +1008,20 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  PairingDto? dco_decode_opt_box_autoadd_pairing_dto(dynamic raw);
+
+  @protected
+  PairingExclusivityDto? dco_decode_opt_box_autoadd_pairing_exclusivity_dto(
+    dynamic raw,
+  );
+
+  @protected
+  PairingModeDto? dco_decode_opt_box_autoadd_pairing_mode_dto(dynamic raw);
+
+  @protected
+  PairingPinDto? dco_decode_opt_box_autoadd_pairing_pin_dto(dynamic raw);
+
+  @protected
   PanelProbeDto? dco_decode_opt_box_autoadd_panel_probe_dto(dynamic raw);
 
   @protected
@@ -1064,6 +1095,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  UnpairDto? dco_decode_opt_box_autoadd_unpair_dto(dynamic raw);
+
+  @protected
   WebSocketSurfaceDto? dco_decode_opt_box_autoadd_web_socket_surface_dto(
     dynamic raw,
   );
@@ -1076,6 +1110,18 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   Uint8List? dco_decode_opt_list_prim_u_8_strict(dynamic raw);
+
+  @protected
+  PairingDto dco_decode_pairing_dto(dynamic raw);
+
+  @protected
+  PairingExclusivityDto dco_decode_pairing_exclusivity_dto(dynamic raw);
+
+  @protected
+  PairingModeDto dco_decode_pairing_mode_dto(dynamic raw);
+
+  @protected
+  PairingPinDto dco_decode_pairing_pin_dto(dynamic raw);
 
   @protected
   PanelProbeDto dco_decode_panel_probe_dto(dynamic raw);
@@ -1296,6 +1342,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void dco_decode_unit(dynamic raw);
+
+  @protected
+  UnpairDto dco_decode_unpair_dto(dynamic raw);
 
   @protected
   BigInt dco_decode_usize(dynamic raw);
@@ -1622,6 +1671,24 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  PairingDto sse_decode_box_autoadd_pairing_dto(SseDeserializer deserializer);
+
+  @protected
+  PairingExclusivityDto sse_decode_box_autoadd_pairing_exclusivity_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  PairingModeDto sse_decode_box_autoadd_pairing_mode_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  PairingPinDto sse_decode_box_autoadd_pairing_pin_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   PanelProbeDto sse_decode_box_autoadd_panel_probe_dto(
     SseDeserializer deserializer,
   );
@@ -1712,6 +1779,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   UdpIdentityFieldDto sse_decode_box_autoadd_udp_identity_field_dto(
     SseDeserializer deserializer,
   );
+
+  @protected
+  UnpairDto sse_decode_box_autoadd_unpair_dto(SseDeserializer deserializer);
 
   @protected
   WebSocketSurfaceDto sse_decode_box_autoadd_web_socket_surface_dto(
@@ -2559,6 +2629,26 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  PairingDto? sse_decode_opt_box_autoadd_pairing_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  PairingExclusivityDto? sse_decode_opt_box_autoadd_pairing_exclusivity_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  PairingModeDto? sse_decode_opt_box_autoadd_pairing_mode_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  PairingPinDto? sse_decode_opt_box_autoadd_pairing_pin_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   PanelProbeDto? sse_decode_opt_box_autoadd_panel_probe_dto(
     SseDeserializer deserializer,
   );
@@ -2648,6 +2738,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  UnpairDto? sse_decode_opt_box_autoadd_unpair_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   WebSocketSurfaceDto? sse_decode_opt_box_autoadd_web_socket_surface_dto(
     SseDeserializer deserializer,
   );
@@ -2660,6 +2755,20 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   Uint8List? sse_decode_opt_list_prim_u_8_strict(SseDeserializer deserializer);
+
+  @protected
+  PairingDto sse_decode_pairing_dto(SseDeserializer deserializer);
+
+  @protected
+  PairingExclusivityDto sse_decode_pairing_exclusivity_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  PairingModeDto sse_decode_pairing_mode_dto(SseDeserializer deserializer);
+
+  @protected
+  PairingPinDto sse_decode_pairing_pin_dto(SseDeserializer deserializer);
 
   @protected
   PanelProbeDto sse_decode_panel_probe_dto(SseDeserializer deserializer);
@@ -2932,6 +3041,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_decode_unit(SseDeserializer deserializer);
+
+  @protected
+  UnpairDto sse_decode_unpair_dto(SseDeserializer deserializer);
 
   @protected
   BigInt sse_decode_usize(SseDeserializer deserializer);
@@ -3341,6 +3453,30 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_box_autoadd_pairing_dto(
+    PairingDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_box_autoadd_pairing_exclusivity_dto(
+    PairingExclusivityDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_box_autoadd_pairing_mode_dto(
+    PairingModeDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_box_autoadd_pairing_pin_dto(
+    PairingPinDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_box_autoadd_panel_probe_dto(
     PanelProbeDto self,
     SseSerializer serializer,
@@ -3448,6 +3584,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_box_autoadd_udp_identity_field_dto(
     UdpIdentityFieldDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_box_autoadd_unpair_dto(
+    UnpairDto self,
     SseSerializer serializer,
   );
 
@@ -4565,6 +4707,30 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_opt_box_autoadd_pairing_dto(
+    PairingDto? self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_opt_box_autoadd_pairing_exclusivity_dto(
+    PairingExclusivityDto? self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_opt_box_autoadd_pairing_mode_dto(
+    PairingModeDto? self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_opt_box_autoadd_pairing_pin_dto(
+    PairingPinDto? self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_opt_box_autoadd_panel_probe_dto(
     PanelProbeDto? self,
     SseSerializer serializer,
@@ -4670,6 +4836,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_opt_box_autoadd_unpair_dto(
+    UnpairDto? self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_opt_box_autoadd_web_socket_surface_dto(
     WebSocketSurfaceDto? self,
     SseSerializer serializer,
@@ -4689,6 +4861,24 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
     Uint8List? self,
     SseSerializer serializer,
   );
+
+  @protected
+  void sse_encode_pairing_dto(PairingDto self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_pairing_exclusivity_dto(
+    PairingExclusivityDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_pairing_mode_dto(
+    PairingModeDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_pairing_pin_dto(PairingPinDto self, SseSerializer serializer);
 
   @protected
   void sse_encode_panel_probe_dto(PanelProbeDto self, SseSerializer serializer);
@@ -5055,6 +5245,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_unit(void self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_unpair_dto(UnpairDto self, SseSerializer serializer);
 
   @protected
   void sse_encode_usize(BigInt self, SseSerializer serializer);

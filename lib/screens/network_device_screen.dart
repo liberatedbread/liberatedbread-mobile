@@ -785,7 +785,7 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
   /// The spec's own setup notes, offered beside a failure: for a device with a
   /// step that happens elsewhere, like a Yeelight's LAN Control toggle in its
   /// vendor app, that note is the actual answer to why this could not connect.
-  /// Draws nothing for a spec with no setup block.
+  /// Draws nothing for a spec with neither a setup nor a pairing block.
   Widget _setupHelpButton() {
     return FutureBuilder<SetupInstructionsDto?>(
       future: _setupHelp ??= ref

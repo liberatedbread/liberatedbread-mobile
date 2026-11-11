@@ -12150,12 +12150,16 @@ impl SseDecode for crate::api::device_api::FactoryResetProcedureDto {
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
         let mut var_name = <String>::sse_decode(deserializer);
         let mut var_holdSeconds = <Option<u32>>::sse_decode(deserializer);
+        let mut var_pressCount = <Option<u32>>::sse_decode(deserializer);
         let mut var_indicator = <Option<String>>::sse_decode(deserializer);
+        let mut var_verified = <Option<bool>>::sse_decode(deserializer);
         let mut var_steps = <Vec<crate::api::device_api::SetupStepDto>>::sse_decode(deserializer);
         return crate::api::device_api::FactoryResetProcedureDto {
             name: var_name,
             hold_seconds: var_holdSeconds,
+            press_count: var_pressCount,
             indicator: var_indicator,
+            verified: var_verified,
             steps: var_steps,
         };
     }
@@ -14717,6 +14721,58 @@ impl SseDecode for Option<crate::api::device_api::NetworkReadingDto> {
     }
 }
 
+impl SseDecode for Option<crate::api::device_api::PairingDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        if (<bool>::sse_decode(deserializer)) {
+            return Some(<crate::api::device_api::PairingDto>::sse_decode(
+                deserializer,
+            ));
+        } else {
+            return None;
+        }
+    }
+}
+
+impl SseDecode for Option<crate::api::device_api::PairingExclusivityDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        if (<bool>::sse_decode(deserializer)) {
+            return Some(<crate::api::device_api::PairingExclusivityDto>::sse_decode(
+                deserializer,
+            ));
+        } else {
+            return None;
+        }
+    }
+}
+
+impl SseDecode for Option<crate::api::device_api::PairingModeDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        if (<bool>::sse_decode(deserializer)) {
+            return Some(<crate::api::device_api::PairingModeDto>::sse_decode(
+                deserializer,
+            ));
+        } else {
+            return None;
+        }
+    }
+}
+
+impl SseDecode for Option<crate::api::device_api::PairingPinDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        if (<bool>::sse_decode(deserializer)) {
+            return Some(<crate::api::device_api::PairingPinDto>::sse_decode(
+                deserializer,
+            ));
+        } else {
+            return None;
+        }
+    }
+}
+
 impl SseDecode for Option<crate::api::device_api::PanelProbeDto> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -14958,6 +15014,19 @@ impl SseDecode for Option<crate::api::spec_handle::UdpIdentityFieldDto> {
     }
 }
 
+impl SseDecode for Option<crate::api::device_api::UnpairDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        if (<bool>::sse_decode(deserializer)) {
+            return Some(<crate::api::device_api::UnpairDto>::sse_decode(
+                deserializer,
+            ));
+        } else {
+            return None;
+        }
+    }
+}
+
 impl SseDecode for Option<crate::api::device_api::WebSocketSurfaceDto> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -15001,6 +15070,87 @@ impl SseDecode for Option<Vec<u8>> {
         } else {
             return None;
         }
+    }
+}
+
+impl SseDecode for crate::api::device_api::PairingDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_required_ = <Option<bool>>::sse_decode(deserializer);
+        let mut var_confidence = <Option<String>>::sse_decode(deserializer);
+        let mut var_securityMode = <Option<String>>::sse_decode(deserializer);
+        let mut var_bonding = <Option<String>>::sse_decode(deserializer);
+        let mut var_pin = <Option<crate::api::device_api::PairingPinDto>>::sse_decode(deserializer);
+        let mut var_exclusivity =
+            <Option<crate::api::device_api::PairingExclusivityDto>>::sse_decode(deserializer);
+        let mut var_enterPairingMode =
+            <Option<crate::api::device_api::PairingModeDto>>::sse_decode(deserializer);
+        let mut var_unpair = <Option<crate::api::device_api::UnpairDto>>::sse_decode(deserializer);
+        let mut var_notes = <Option<String>>::sse_decode(deserializer);
+        return crate::api::device_api::PairingDto {
+            required: var_required_,
+            confidence: var_confidence,
+            security_mode: var_securityMode,
+            bonding: var_bonding,
+            pin: var_pin,
+            exclusivity: var_exclusivity,
+            enter_pairing_mode: var_enterPairingMode,
+            unpair: var_unpair,
+            notes: var_notes,
+        };
+    }
+}
+
+impl SseDecode for crate::api::device_api::PairingExclusivityDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_singleConnection = <Option<bool>>::sse_decode(deserializer);
+        let mut var_singleBond = <Option<bool>>::sse_decode(deserializer);
+        let mut var_recovery = <Option<String>>::sse_decode(deserializer);
+        let mut var_notes = <Option<String>>::sse_decode(deserializer);
+        return crate::api::device_api::PairingExclusivityDto {
+            single_connection: var_singleConnection,
+            single_bond: var_singleBond,
+            recovery: var_recovery,
+            notes: var_notes,
+        };
+    }
+}
+
+impl SseDecode for crate::api::device_api::PairingModeDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_required_ = <Option<bool>>::sse_decode(deserializer);
+        let mut var_windowSeconds = <Option<u32>>::sse_decode(deserializer);
+        let mut var_advertisedName = <Option<String>>::sse_decode(deserializer);
+        let mut var_indicator = <Option<String>>::sse_decode(deserializer);
+        let mut var_procedures =
+            <Vec<crate::api::device_api::FactoryResetProcedureDto>>::sse_decode(deserializer);
+        let mut var_notes = <Option<String>>::sse_decode(deserializer);
+        return crate::api::device_api::PairingModeDto {
+            required: var_required_,
+            window_seconds: var_windowSeconds,
+            advertised_name: var_advertisedName,
+            indicator: var_indicator,
+            procedures: var_procedures,
+            notes: var_notes,
+        };
+    }
+}
+
+impl SseDecode for crate::api::device_api::PairingPinDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_source = <Option<String>>::sse_decode(deserializer);
+        let mut var_value = <Option<String>>::sse_decode(deserializer);
+        let mut var_length = <Option<u32>>::sse_decode(deserializer);
+        let mut var_notes = <Option<String>>::sse_decode(deserializer);
+        return crate::api::device_api::PairingPinDto {
+            source: var_source,
+            value: var_value,
+            length: var_length,
+            notes: var_notes,
+        };
     }
 }
 
@@ -15741,11 +15891,14 @@ impl SseDecode for crate::api::device_api::SetupInstructionsDto {
         let mut var_factoryReset =
             <Option<crate::api::device_api::FactoryResetDto>>::sse_decode(deserializer);
         let mut var_rejoin = <Option<crate::api::device_api::RejoinDto>>::sse_decode(deserializer);
+        let mut var_pairing =
+            <Option<crate::api::device_api::PairingDto>>::sse_decode(deserializer);
         return crate::api::device_api::SetupInstructionsDto {
             notes: var_notes,
             methods: var_methods,
             factory_reset: var_factoryReset,
             rejoin: var_rejoin,
+            pairing: var_pairing,
         };
     }
 }
@@ -16255,6 +16408,25 @@ impl SseDecode for crate::api::spec_handle::UdpProbeDto {
 impl SseDecode for () {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {}
+}
+
+impl SseDecode for crate::api::device_api::UnpairDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_supported = <Option<bool>>::sse_decode(deserializer);
+        let mut var_requiresFactoryReset = <Option<bool>>::sse_decode(deserializer);
+        let mut var_clears = <Option<String>>::sse_decode(deserializer);
+        let mut var_procedures =
+            <Vec<crate::api::device_api::FactoryResetProcedureDto>>::sse_decode(deserializer);
+        let mut var_notes = <Option<String>>::sse_decode(deserializer);
+        return crate::api::device_api::UnpairDto {
+            supported: var_supported,
+            requires_factory_reset: var_requiresFactoryReset,
+            clears: var_clears,
+            procedures: var_procedures,
+            notes: var_notes,
+        };
+    }
 }
 
 impl SseDecode for usize {
@@ -19027,7 +19199,9 @@ impl flutter_rust_bridge::IntoDart for crate::api::device_api::FactoryResetProce
         [
             self.name.into_into_dart().into_dart(),
             self.hold_seconds.into_into_dart().into_dart(),
+            self.press_count.into_into_dart().into_dart(),
             self.indicator.into_into_dart().into_dart(),
+            self.verified.into_into_dart().into_dart(),
             self.steps.into_into_dart().into_dart(),
         ]
         .into_dart()
@@ -20569,6 +20743,105 @@ impl flutter_rust_bridge::IntoIntoDart<crate::api::device_api::NetworkStateProbe
     }
 }
 // Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::device_api::PairingDto {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.required.into_into_dart().into_dart(),
+            self.confidence.into_into_dart().into_dart(),
+            self.security_mode.into_into_dart().into_dart(),
+            self.bonding.into_into_dart().into_dart(),
+            self.pin.into_into_dart().into_dart(),
+            self.exclusivity.into_into_dart().into_dart(),
+            self.enter_pairing_mode.into_into_dart().into_dart(),
+            self.unpair.into_into_dart().into_dart(),
+            self.notes.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::device_api::PairingDto
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::device_api::PairingDto>
+    for crate::api::device_api::PairingDto
+{
+    fn into_into_dart(self) -> crate::api::device_api::PairingDto {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::device_api::PairingExclusivityDto {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.single_connection.into_into_dart().into_dart(),
+            self.single_bond.into_into_dart().into_dart(),
+            self.recovery.into_into_dart().into_dart(),
+            self.notes.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::device_api::PairingExclusivityDto
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::device_api::PairingExclusivityDto>
+    for crate::api::device_api::PairingExclusivityDto
+{
+    fn into_into_dart(self) -> crate::api::device_api::PairingExclusivityDto {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::device_api::PairingModeDto {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.required.into_into_dart().into_dart(),
+            self.window_seconds.into_into_dart().into_dart(),
+            self.advertised_name.into_into_dart().into_dart(),
+            self.indicator.into_into_dart().into_dart(),
+            self.procedures.into_into_dart().into_dart(),
+            self.notes.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::device_api::PairingModeDto
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::device_api::PairingModeDto>
+    for crate::api::device_api::PairingModeDto
+{
+    fn into_into_dart(self) -> crate::api::device_api::PairingModeDto {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::device_api::PairingPinDto {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.source.into_into_dart().into_dart(),
+            self.value.into_into_dart().into_dart(),
+            self.length.into_into_dart().into_dart(),
+            self.notes.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::device_api::PairingPinDto
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::device_api::PairingPinDto>
+    for crate::api::device_api::PairingPinDto
+{
+    fn into_into_dart(self) -> crate::api::device_api::PairingPinDto {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
 impl flutter_rust_bridge::IntoDart for crate::api::device_api::PanelProbeDto {
     fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
         [
@@ -21474,6 +21747,7 @@ impl flutter_rust_bridge::IntoDart for crate::api::device_api::SetupInstructions
             self.methods.into_into_dart().into_dart(),
             self.factory_reset.into_into_dart().into_dart(),
             self.rejoin.into_into_dart().into_dart(),
+            self.pairing.into_into_dart().into_dart(),
         ]
         .into_dart()
     }
@@ -22093,6 +22367,30 @@ impl flutter_rust_bridge::IntoIntoDart<crate::api::spec_handle::UdpProbeDto>
     for crate::api::spec_handle::UdpProbeDto
 {
     fn into_into_dart(self) -> crate::api::spec_handle::UdpProbeDto {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::device_api::UnpairDto {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.supported.into_into_dart().into_dart(),
+            self.requires_factory_reset.into_into_dart().into_dart(),
+            self.clears.into_into_dart().into_dart(),
+            self.procedures.into_into_dart().into_dart(),
+            self.notes.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::device_api::UnpairDto
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::device_api::UnpairDto>
+    for crate::api::device_api::UnpairDto
+{
+    fn into_into_dart(self) -> crate::api::device_api::UnpairDto {
         self
     }
 }
@@ -23130,7 +23428,9 @@ impl SseEncode for crate::api::device_api::FactoryResetProcedureDto {
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
         <String>::sse_encode(self.name, serializer);
         <Option<u32>>::sse_encode(self.hold_seconds, serializer);
+        <Option<u32>>::sse_encode(self.press_count, serializer);
         <Option<String>>::sse_encode(self.indicator, serializer);
+        <Option<bool>>::sse_encode(self.verified, serializer);
         <Vec<crate::api::device_api::SetupStepDto>>::sse_encode(self.steps, serializer);
     }
 }
@@ -24994,6 +25294,46 @@ impl SseEncode for Option<crate::api::device_api::NetworkReadingDto> {
     }
 }
 
+impl SseEncode for Option<crate::api::device_api::PairingDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <bool>::sse_encode(self.is_some(), serializer);
+        if let Some(value) = self {
+            <crate::api::device_api::PairingDto>::sse_encode(value, serializer);
+        }
+    }
+}
+
+impl SseEncode for Option<crate::api::device_api::PairingExclusivityDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <bool>::sse_encode(self.is_some(), serializer);
+        if let Some(value) = self {
+            <crate::api::device_api::PairingExclusivityDto>::sse_encode(value, serializer);
+        }
+    }
+}
+
+impl SseEncode for Option<crate::api::device_api::PairingModeDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <bool>::sse_encode(self.is_some(), serializer);
+        if let Some(value) = self {
+            <crate::api::device_api::PairingModeDto>::sse_encode(value, serializer);
+        }
+    }
+}
+
+impl SseEncode for Option<crate::api::device_api::PairingPinDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <bool>::sse_encode(self.is_some(), serializer);
+        if let Some(value) = self {
+            <crate::api::device_api::PairingPinDto>::sse_encode(value, serializer);
+        }
+    }
+}
+
 impl SseEncode for Option<crate::api::device_api::PanelProbeDto> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
@@ -25184,6 +25524,16 @@ impl SseEncode for Option<crate::api::spec_handle::UdpIdentityFieldDto> {
     }
 }
 
+impl SseEncode for Option<crate::api::device_api::UnpairDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <bool>::sse_encode(self.is_some(), serializer);
+        if let Some(value) = self {
+            <crate::api::device_api::UnpairDto>::sse_encode(value, serializer);
+        }
+    }
+}
+
 impl SseEncode for Option<crate::api::device_api::WebSocketSurfaceDto> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
@@ -25221,6 +25571,62 @@ impl SseEncode for Option<Vec<u8>> {
         if let Some(value) = self {
             <Vec<u8>>::sse_encode(value, serializer);
         }
+    }
+}
+
+impl SseEncode for crate::api::device_api::PairingDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <Option<bool>>::sse_encode(self.required, serializer);
+        <Option<String>>::sse_encode(self.confidence, serializer);
+        <Option<String>>::sse_encode(self.security_mode, serializer);
+        <Option<String>>::sse_encode(self.bonding, serializer);
+        <Option<crate::api::device_api::PairingPinDto>>::sse_encode(self.pin, serializer);
+        <Option<crate::api::device_api::PairingExclusivityDto>>::sse_encode(
+            self.exclusivity,
+            serializer,
+        );
+        <Option<crate::api::device_api::PairingModeDto>>::sse_encode(
+            self.enter_pairing_mode,
+            serializer,
+        );
+        <Option<crate::api::device_api::UnpairDto>>::sse_encode(self.unpair, serializer);
+        <Option<String>>::sse_encode(self.notes, serializer);
+    }
+}
+
+impl SseEncode for crate::api::device_api::PairingExclusivityDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <Option<bool>>::sse_encode(self.single_connection, serializer);
+        <Option<bool>>::sse_encode(self.single_bond, serializer);
+        <Option<String>>::sse_encode(self.recovery, serializer);
+        <Option<String>>::sse_encode(self.notes, serializer);
+    }
+}
+
+impl SseEncode for crate::api::device_api::PairingModeDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <Option<bool>>::sse_encode(self.required, serializer);
+        <Option<u32>>::sse_encode(self.window_seconds, serializer);
+        <Option<String>>::sse_encode(self.advertised_name, serializer);
+        <Option<String>>::sse_encode(self.indicator, serializer);
+        <Vec<crate::api::device_api::FactoryResetProcedureDto>>::sse_encode(
+            self.procedures,
+            serializer,
+        );
+        <Option<String>>::sse_encode(self.notes, serializer);
+    }
+}
+
+impl SseEncode for crate::api::device_api::PairingPinDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <Option<String>>::sse_encode(self.source, serializer);
+        <Option<String>>::sse_encode(self.value, serializer);
+        <Option<u32>>::sse_encode(self.length, serializer);
+        <Option<String>>::sse_encode(self.notes, serializer);
     }
 }
 
@@ -25718,6 +26124,7 @@ impl SseEncode for crate::api::device_api::SetupInstructionsDto {
             serializer,
         );
         <Option<crate::api::device_api::RejoinDto>>::sse_encode(self.rejoin, serializer);
+        <Option<crate::api::device_api::PairingDto>>::sse_encode(self.pairing, serializer);
     }
 }
 
@@ -26072,6 +26479,20 @@ impl SseEncode for crate::api::spec_handle::UdpProbeDto {
 impl SseEncode for () {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {}
+}
+
+impl SseEncode for crate::api::device_api::UnpairDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <Option<bool>>::sse_encode(self.supported, serializer);
+        <Option<bool>>::sse_encode(self.requires_factory_reset, serializer);
+        <Option<String>>::sse_encode(self.clears, serializer);
+        <Vec<crate::api::device_api::FactoryResetProcedureDto>>::sse_encode(
+            self.procedures,
+            serializer,
+        );
+        <Option<String>>::sse_encode(self.notes, serializer);
+    }
 }
 
 impl SseEncode for usize {

@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/log.dart';
+import '../core/pairing_content.dart';
 import '../core/setup_content.dart';
 import '../services/print/os_print_service.dart';
 import '../services/print/pdf_documents.dart';
@@ -25,7 +26,9 @@ import '../services/spec_codec.dart'
 /// pairing mode, why it might refuse to connect, how to factory reset it, and
 /// whether a dropped link comes back on its own.
 ///
-/// Read-only prose from the matched spec's `device.setup` block: it does not
+/// Read-only prose from the matched spec's `device.setup` block, and the
+/// `device.pairing` block beside it (whether a client must pair, the code,
+/// the pairing-mode button, one-phone-at-a-time limits): it does not
 /// touch the device, so it is safe to reach from an error state where there is
 /// no live connection. Sections a spec omits are simply absent — the screen
 /// never renders an empty heading.
@@ -104,6 +107,13 @@ class SetupInstructionsScreen extends ConsumerWidget {
               ],
             ),
           );
+    final pairingFacts = switch (instructions.pairing) {
+      final p? => PairingContent.of(p),
+      null => null,
+    };
+    final pairingSection = pairingFacts != null && pairingFacts.hasContent
+        ? _PairingSection(content: pairingFacts)
+        : null;
     final pairing = <Widget>[
       if (_hasText(instructions.notes))
         _Section(
@@ -151,8 +161,15 @@ class SetupInstructionsScreen extends ConsumerWidget {
             if (afterFailedConnect) ...[
               if (hasRejoin) _RejoinCard(rejoin: rejoin!),
               ?troubleshootingSection,
+              // Above the from-scratch routes: "it only talks to one phone
+              // at a time" and "it remembers the last phone" are the usual
+              // answers to a failed connect.
+              ?pairingSection,
               ...pairing,
             ] else ...[
+              // Whether to pair at all, and the button that opens the
+              // window, come before the routes that assume it is open.
+              ?pairingSection,
               ...pairing,
               ?troubleshootingSection,
               // A new device has no link to drop yet, so the rejoin note is
@@ -558,6 +575,7 @@ class _ResetProcedure extends StatelessWidget {
     final text = Theme.of(context).textTheme;
     final scheme = Theme.of(context).colorScheme;
     final indicator = (procedure.indicator ?? '').trim();
+    final meta = procedureMeta(procedure);
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
       child: Column(
@@ -567,6 +585,14 @@ class _ResetProcedure extends StatelessWidget {
             procedure.name.trim(),
             style: text.bodyMedium?.copyWith(fontWeight: FontWeight.w600),
           ),
+          if (meta != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 2),
+              child: Text(
+                meta,
+                style: text.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
+              ),
+            ),
           for (var i = 0; i < procedure.steps.length; i++)
             Padding(
               padding: const EdgeInsets.only(top: 4, left: 2),
@@ -580,6 +606,112 @@ class _ResetProcedure extends StatelessWidget {
                 style: text.bodySmall?.copyWith(
                   color: scheme.onSurfaceVariant,
                   height: 1.4,
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+/// The spec's `device.pairing` answer: whether to pair at all, how, the code,
+/// the pairing-mode button and the one-phone-at-a-time limits. Worded by
+/// [PairingContent], which the printout shares.
+class _PairingSection extends StatelessWidget {
+  final PairingContent content;
+  const _PairingSection({required this.content});
+
+  @override
+  Widget build(BuildContext context) {
+    final text = Theme.of(context).textTheme;
+    final scheme = Theme.of(context).colorScheme;
+    final body = text.bodyMedium?.copyWith(height: 1.4);
+    final muted = text.bodySmall?.copyWith(
+      color: scheme.onSurfaceVariant,
+      height: 1.4,
+    );
+    Widget subhead(String label) => Padding(
+      padding: const EdgeInsets.only(top: 12, bottom: 6),
+      child: Text(
+        label,
+        style: text.bodyMedium?.copyWith(fontWeight: FontWeight.w600),
+      ),
+    );
+    Widget bullet(String line) => Padding(
+      padding: const EdgeInsets.only(bottom: 4),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('•  ', style: body?.copyWith(color: scheme.onSurfaceVariant)),
+          Expanded(child: Text(line, style: body)),
+        ],
+      ),
+    );
+
+    return _Section(
+      icon: Icons.link,
+      title: 'Pairing',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (content.headline case final headline?)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 6),
+              child: Text(
+                headline,
+                style: body?.copyWith(fontWeight: FontWeight.w700),
+              ),
+            ),
+          for (final fact in content.facts) bullet(fact),
+          if (content.pinNotes case final notes?)
+            Padding(
+              padding: const EdgeInsets.only(left: 16, bottom: 4),
+              child: Text(notes, style: muted),
+            ),
+          if (content.recovery case final recovery?) ...[
+            subhead('If another phone or app has it'),
+            Text(recovery, style: body),
+          ],
+          if (content.hasPairingMode) ...[
+            subhead('Pairing mode'),
+            for (final fact in content.pairingModeFacts) bullet(fact),
+            for (final p in content.pairingModeProcedures)
+              _ResetProcedure(procedure: p),
+          ],
+          if (content.hasUnpair) ...[
+            subhead('Forgetting a paired phone'),
+            for (final fact in content.unpairFacts) bullet(fact),
+            for (final p in content.unpairProcedures)
+              _ResetProcedure(procedure: p),
+          ],
+          if (content.technicalNotes.isNotEmpty)
+            // Its own transparent Material: the card's coloured box would
+            // otherwise hide the tile's ink.
+            Material(
+              type: MaterialType.transparency,
+              child: Theme(
+                // The tile's own dividers would draw lines through the card.
+                data: Theme.of(
+                  context,
+                ).copyWith(dividerColor: Colors.transparent),
+                child: ExpansionTile(
+                  tilePadding: EdgeInsets.zero,
+                  childrenPadding: const EdgeInsets.only(bottom: 4),
+                  expandedCrossAxisAlignment: CrossAxisAlignment.start,
+                  title: Text(
+                    'Technical notes',
+                    style: text.bodyMedium?.copyWith(
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  children: [
+                    for (final note in content.technicalNotes)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 8),
+                        child: Text(note, style: muted),
+                      ),
+                  ],
                 ),
               ),
             ),

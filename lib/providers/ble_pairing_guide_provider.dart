@@ -65,12 +65,16 @@ bool isBluetoothSpec(CatalogueSpec spec) {
 
 /// Whether [instructions] say how to pair: at least one setup route with
 /// content ([setupMethodHasContent], the same test the instructions screen
-/// draws a route's card by). A spec whose setup block is only a factory reset
-/// or a rejoin note has nothing to offer someone about to pair a new device,
-/// and a row that opens onto no pairing steps reads as a broken link.
+/// draws a route's card by), or a `device.pairing` pairing-mode procedure —
+/// the button to hold, which is exactly what this guide is for, and which
+/// many Bluetooth specs carry with no `device.setup` route at all. A spec
+/// whose instructions are only a factory reset, a rejoin note or a "nothing
+/// pairs" answer has nothing to offer someone about to pair a new device, and
+/// a row that opens onto no pairing steps reads as a broken link.
 @visibleForTesting
 bool hasPairingSteps(SetupInstructionsDto instructions) =>
-    instructions.methods.any(setupMethodHasContent);
+    instructions.methods.any(setupMethodHasContent) ||
+    (instructions.pairing?.enterPairingMode?.procedures.isNotEmpty ?? false);
 
 /// Every Bluetooth device the catalogue carries pairing instructions for,
 /// sorted by name — the list behind the Nearby tab's "Pairing a new device".
