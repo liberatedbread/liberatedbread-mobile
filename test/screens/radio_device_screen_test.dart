@@ -883,7 +883,8 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('Write to Base radio?'), findsNothing);
-      expect(find.textContaining('turned off'), findsWidgets);
+      expect(find.textContaining('turned off'), findsOneWidget);
+      expect(find.byType(SnackBar), findsNothing);
       expect(harness.programmer.readCalls, 0);
       expect(harness.programmer.deviceIds, isEmpty);
       expect(harness.programmer.written, isEmpty);
@@ -1051,10 +1052,12 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(harness.backups.saved, hasLength(1));
-      final error = tester
+      final errors = tester
           .widgetList<Text>(find.textContaining('stopped responding'))
-          .first
-          .data!;
+          .toList();
+      expect(errors, hasLength(1), reason: 'the inline error is not repeated');
+      expect(find.byType(SnackBar), findsNothing);
+      final error = errors.single.data!;
       expect(error, contains('may now hold part of the write'));
       expect(error, contains('uv-5r-mini_0.bin'));
       expect(error, contains('"Restore a backup"'));

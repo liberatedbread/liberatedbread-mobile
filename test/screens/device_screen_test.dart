@@ -4,8 +4,10 @@ import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:liberated_bread_mobile/core/theme.dart';
 import 'package:liberated_bread_mobile/models/ble_discovered_service.dart';
 import 'package:liberated_bread_mobile/models/iot_device.dart';
 import 'package:liberated_bread_mobile/providers/ble_provider.dart';
@@ -279,7 +281,12 @@ final _registry = NumberRegistry(
   ),
 );
 
-Widget _wrap(FakeBleService fake, {IoTDevice? device}) => ProviderScope(
+Widget _wrap(
+  FakeBleService fake, {
+  IoTDevice? device,
+  double textScale = 1,
+  ThemeData? theme,
+}) => ProviderScope(
   overrides: [
     bleServiceProvider.overrideWithValue(fake),
     sharedPreferencesProvider.overrideWithValue(_prefs),
@@ -287,7 +294,17 @@ Widget _wrap(FakeBleService fake, {IoTDevice? device}) => ProviderScope(
     // rootBundle, so an assertion here would depend on IEEE's data.
     numberRegistryProvider.overrideWith((ref) async => _registry),
   ],
-  child: MaterialApp(home: DeviceScreen(device: device ?? _device)),
+  child: MaterialApp(
+    theme: theme,
+    home: Builder(
+      builder: (context) => MediaQuery(
+        data: MediaQuery.of(
+          context,
+        ).copyWith(textScaler: TextScaler.linear(textScale)),
+        child: DeviceScreen(device: device ?? _device),
+      ),
+    ),
+  ),
 );
 
 void main() {
@@ -1759,6 +1776,119 @@ void main() {
           find.ancestor(of: find.text(label), matching: find.byType(ListView)),
           findsOneWidget,
           reason: '$label is in the scrolling list',
+        );
+      }
+    });
+
+    testWidgets('connected actions keep whole labels and stack when narrow', (
+      tester,
+    ) async {
+      Future<void> pump(double width, double scale) async {
+        tester.view.physicalSize = Size(width, 800);
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.reset);
+        await tester.pumpWidget(
+          _wrap(
+            FakeBleService(servicesToReturn: const [battery]),
+            textScale: scale,
+          ),
+        );
+        await tester.pumpAndSettle();
+      }
+
+      int lines(String label) => tester
+          .renderObject<RenderParagraph>(find.text(label))
+          .getBoxesForSelection(
+            TextSelection(baseOffset: 0, extentOffset: label.length),
+          )
+          .map((box) => box.top)
+          .toSet()
+          .length;
+
+      await pump(390, 1);
+      expect(
+        tester.getCenter(find.text('Find device')).dy,
+        closeTo(tester.getCenter(find.text('Disconnect')).dy, 0.1),
+      );
+
+      await pump(320, 1.3);
+      expect(
+        tester.getRect(find.text('Disconnect')).top,
+        greaterThan(tester.getRect(find.text('Find device')).top),
+      );
+      for (final label in ['Find device', 'Disconnect']) {
+        expect(lines(label), 1, reason: label);
+      }
+      expect(
+        tester
+            .widget<FilledButton>(
+              find.ancestor(
+                of: find.text('Find device'),
+                matching: find.byType(FilledButton),
+              ),
+            )
+            .onPressed,
+        isNotNull,
+      );
+      expect(
+        tester
+            .widget<OutlinedButton>(
+              find.ancestor(
+                of: find.text('Disconnect'),
+                matching: find.byType(OutlinedButton),
+              ),
+            )
+            .onPressed,
+        isNotNull,
+      );
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('identity labels meet contrast in both themes', (tester) async {
+      double contrast(Color foreground, Color background) {
+        final composited = Color.alphaBlend(foreground, background);
+        final a = composited.computeLuminance();
+        final b = background.computeLuminance();
+        return (a > b ? a + 0.05 : b + 0.05) / (a > b ? b + 0.05 : a + 0.05);
+      }
+
+      final addressed = IoTDevice(
+        id: 'B8:94:D9:11:22:33',
+        name: 'ACME_A',
+        rssi: -40,
+        isConnectable: true,
+        discoveredAt: DateTime(2026),
+      );
+      for (final theme in [
+        LiberatedBreadTheme.light,
+        LiberatedBreadTheme.dark,
+      ]) {
+        await tester.pumpWidget(
+          _wrap(
+            FakeBleService(servicesToReturn: const [battery]),
+            device: addressed,
+            theme: theme,
+          ),
+        );
+        await tester.pumpAndSettle();
+        final foreground = tester
+            .widget<Text>(find.text('Address'))
+            .style!
+            .color!;
+        final decoration = tester
+            .widgetList<Container>(
+              find.ancestor(
+                of: find.text('Address'),
+                matching: find.byType(Container),
+              ),
+            )
+            .map((container) => container.decoration)
+            .whereType<BoxDecoration>()
+            .firstWhere((decoration) => decoration.color != null);
+        expect(
+          contrast(foreground, decoration.color!),
+          greaterThanOrEqualTo(4.5),
+          reason: theme.brightness.toString(),
         );
       }
     });

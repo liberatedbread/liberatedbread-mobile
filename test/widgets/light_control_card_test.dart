@@ -10,6 +10,7 @@ import 'package:liberated_bread_mobile/providers/spec_codec_provider.dart';
 import 'package:liberated_bread_mobile/services/spec_codec.dart';
 import 'package:liberated_bread_mobile/widgets/decoded_value_widget.dart';
 import 'package:liberated_bread_mobile/widgets/light_control_card.dart';
+import 'package:liberated_bread_mobile/widgets/light_swatches.dart';
 
 import '../fakes/fake_ble_service.dart';
 import '../fakes/fake_spec_codec.dart';
@@ -131,20 +132,28 @@ Widget _wrap(
   required FakeBleService ble,
   String? stateServiceUuid,
   DeviceSpecDto? spec,
+  double textScale = 1,
 }) => ProviderScope(
   overrides: [
     bleServiceProvider.overrideWithValue(ble),
     specCodecProvider.overrideWithValue(codec),
   ],
   child: MaterialApp(
-    home: Scaffold(
-      body: SingleChildScrollView(
-        child: LightControlCard(
-          deviceId: 'd',
-          stateServiceUuid: stateServiceUuid,
-          entity: entity,
-          specYaml: 'y',
-          spec: spec,
+    home: Builder(
+      builder: (context) => MediaQuery(
+        data: MediaQuery.of(
+          context,
+        ).copyWith(textScaler: TextScaler.linear(textScale)),
+        child: Scaffold(
+          body: SingleChildScrollView(
+            child: LightControlCard(
+              deviceId: 'd',
+              stateServiceUuid: stateServiceUuid,
+              entity: entity,
+              specYaml: 'y',
+              spec: spec,
+            ),
+          ),
         ),
       ),
     ),
@@ -176,7 +185,7 @@ void main() {
 
     // The third swatch is pure red (after white and warm white).
     final swatches = find.byWidgetPredicate(
-      (w) => w is InkWell && w.borderRadius == BorderRadius.circular(19),
+      (w) => w is InkWell && w.borderRadius == BorderRadius.circular(24),
     );
     await tester.tap(swatches.at(2));
     await tester.pumpAndSettle();
@@ -378,7 +387,7 @@ void main() {
       );
 
       final swatches = find.byWidgetPredicate(
-        (w) => w is InkWell && w.borderRadius == BorderRadius.circular(19),
+        (w) => w is InkWell && w.borderRadius == BorderRadius.circular(24),
       );
       await tester.tap(swatches.at(2));
       await tester.pumpAndSettle();
@@ -396,7 +405,7 @@ void main() {
     },
   );
 
-  testWidgets('power toggle sends and reports the assumed state', (
+  testWidgets('unknown power offers explicit choices before showing a switch', (
     tester,
   ) async {
     final entity = EntityDto(
@@ -417,16 +426,56 @@ void main() {
     await tester.pumpWidget(_wrap(entity, codec: codec, ble: ble));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byType(Switch));
+    expect(find.text('State unknown'), findsOneWidget);
+    expect(find.byType(Switch), findsNothing);
+    expect(find.widgetWithText(OutlinedButton, 'On'), findsOneWidget);
+    expect(find.widgetWithText(OutlinedButton, 'Off'), findsOneWidget);
+
+    await tester.tap(find.widgetWithText(OutlinedButton, 'On'));
+    await tester.pumpAndSettle();
+    expect(codec.encodeCalls.single.commandName, 'power_on');
+    expect(tester.widget<Switch>(find.byType(Switch)).value, isTrue);
+
+    await tester.pumpWidget(
+      KeyedSubtree(
+        key: UniqueKey(),
+        child: _wrap(entity, codec: codec, ble: ble),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(OutlinedButton, 'Off'));
+    await tester.pumpAndSettle();
+    expect(codec.encodeCalls, hasLength(2));
+    expect(codec.encodeCalls.last.commandName, 'power_off');
+    expect(tester.widget<Switch>(find.byType(Switch)).value, isFalse);
+  });
+
+  testWidgets('swatches keep 48 px targets and send the intended colour', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(320, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final codec = FakeSpecCodec(encoded: Uint8List.fromList([1, 2, 3]));
+    await tester.pumpWidget(
+      _wrap(
+        _stripEntity(),
+        codec: codec,
+        ble: FakeBleService(),
+        textScale: 1.3,
+      ),
+    );
     await tester.pumpAndSettle();
 
-    expect(codec.encodeCalls.single.commandName, 'power_on');
-    expect(
-      find.text('On (sent)'),
-      findsNothing,
-      reason: 'without live state the status stays a plain Ready line',
-    );
-    expect(tester.widget<Switch>(find.byType(Switch)).value, isTrue);
+    final swatches = find.byType(SwatchButton);
+    expect(tester.getSize(swatches.first), const Size(48, 48));
+    await tester.tap(swatches.at(2));
+    await tester.pumpAndSettle();
+    expect(codec.encodeCalls.single.commandName, 'set_rgb_color');
+    expect(codec.encodeCalls.single.params['red'], 255.0);
+    expect(codec.encodeCalls.single.params['green'], 0.0);
+    expect(codec.encodeCalls.single.params['blue'], 0.0);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('seeds control positions from decoded device state', (
@@ -561,7 +610,7 @@ void main() {
       await tester.pumpAndSettle();
 
       final swatches = find.byWidgetPredicate(
-        (w) => w is InkWell && w.borderRadius == BorderRadius.circular(19),
+        (w) => w is InkWell && w.borderRadius == BorderRadius.circular(24),
       );
       await tester.tap(swatches.at(2));
       await tester.pumpAndSettle();

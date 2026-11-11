@@ -775,8 +775,8 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
           e,
           context: 'device control',
           fallback:
-              'Could not reach the device. It may have moved ports — '
-              'try scanning again.',
+              'Could not reach the device. It may be offline or have a new '
+              'network address — try scanning again.',
         );
       });
     }

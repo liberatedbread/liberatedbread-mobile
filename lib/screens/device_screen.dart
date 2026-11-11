@@ -1405,11 +1405,13 @@ class _ConnectedHeader extends StatelessWidget {
                             color: scheme.secondary,
                           ),
                         ),
-                        Text(
-                          'Connected  ·  $serviceCount service'
-                          '${serviceCount == 1 ? '' : 's'}',
-                          style: text.bodySmall?.copyWith(
-                            color: scheme.onSurfaceVariant,
+                        Expanded(
+                          child: Text(
+                            'Connected  ·  $serviceCount service'
+                            '${serviceCount == 1 ? '' : 's'}',
+                            style: text.bodySmall?.copyWith(
+                              color: scheme.onSurfaceVariant,
+                            ),
                           ),
                         ),
                       ],
@@ -1424,9 +1426,7 @@ class _ConnectedHeader extends StatelessWidget {
                             child: Text(
                               row.label,
                               style: text.bodySmall?.copyWith(
-                                color: scheme.onSurfaceVariant.withValues(
-                                  alpha: 0.75,
-                                ),
+                                color: scheme.onSurfaceVariant,
                               ),
                             ),
                           ),
@@ -1451,27 +1451,39 @@ class _ConnectedHeader extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 12),
-          Row(
-            children: [
-              Expanded(
-                child: FilledButton.tonalIcon(
-                  onPressed: onFind,
-                  style: FilledButton.styleFrom(minimumSize: const Size(0, 44)),
-                  icon: const Icon(Icons.radar, size: 18),
-                  label: const Text('Find device'),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final stack =
+                  constraints.maxWidth < 300 ||
+                  MediaQuery.textScalerOf(context).scale(14) > 17;
+              final find = FilledButton.tonalIcon(
+                onPressed: onFind,
+                style: FilledButton.styleFrom(
+                  minimumSize: const Size(0, 44),
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
                 ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: OutlinedButton(
-                  onPressed: onDisconnect,
-                  style: OutlinedButton.styleFrom(
-                    minimumSize: const Size(0, 44),
-                  ),
-                  child: const Text('Disconnect'),
-                ),
-              ),
-            ],
+                icon: const Icon(Icons.radar, size: 18),
+                label: const Text('Find device'),
+              );
+              final disconnect = OutlinedButton(
+                onPressed: onDisconnect,
+                style: OutlinedButton.styleFrom(minimumSize: const Size(0, 44)),
+                child: const Text('Disconnect'),
+              );
+              if (stack) {
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [find, const SizedBox(height: 8), disconnect],
+                );
+              }
+              return Row(
+                children: [
+                  Expanded(child: find),
+                  const SizedBox(width: 10),
+                  Expanded(child: disconnect),
+                ],
+              );
+            },
           ),
         ],
       ),

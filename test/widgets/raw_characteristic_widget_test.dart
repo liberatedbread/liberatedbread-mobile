@@ -622,7 +622,7 @@ void main() {
     expect(find.textContaining('Error:'), findsNothing);
   });
 
-  // Screenshot 23: the R/W/N chips shared the UUID's row, which wrapped the
+  // Screenshot 23: the property chips shared the UUID's row, which wrapped the
   // 128-bit UUID mid-string on a phone.
   testWidgets('the UUID has its own line above the property chips', (
     tester,
@@ -646,7 +646,7 @@ void main() {
     );
     await tester.pumpAndSettle();
     final uuid = tester.getRect(find.text(_charUuid));
-    for (final p in ['R', 'W', 'N']) {
+    for (final p in ['Read', 'Write', 'Notify']) {
       final chip = tester.getRect(find.widgetWithText(Chip, p));
       expect(chip.top, greaterThanOrEqualTo(uuid.bottom), reason: p);
     }

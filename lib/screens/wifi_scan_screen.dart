@@ -200,7 +200,9 @@ class _WifiScanScreenState extends ConsumerState<WifiScanScreen> {
       return 'Asking over mDNS and SSDP. This takes a few seconds — some '
           'devices answer slowly on purpose.';
     }
-    if (_found.isNotEmpty) return 'Tap a device to see what it advertises.';
+    if (_found.isNotEmpty) {
+      return 'Tap a device for controls or more information.';
+    }
     if (_hasScanned) {
       return 'Nothing answered. Check you are on the same network as your '
           'devices — a guest network usually blocks this.';

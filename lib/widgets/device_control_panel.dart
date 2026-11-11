@@ -78,7 +78,16 @@ class DeviceControlPanel extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     if (services.isEmpty) {
       return _underHeader(
-        const Center(child: Text('No services found on this device.')),
+        const Center(
+          child: Padding(
+            padding: EdgeInsets.all(24),
+            child: Text(
+              'Connected, but no controllable features were found. Go back '
+              'and reconnect, or open the pairing guide from Nearby.',
+              textAlign: TextAlign.center,
+            ),
+          ),
+        ),
       );
     }
 
@@ -368,6 +377,21 @@ class DeviceControlPanel extends ConsumerWidget {
         _MatchedSpecHeader(
           key: const ValueKey('matched-spec-header'),
           chosen: outcome.chosen!,
+        ),
+      if (outcome?.source == SpecChoiceSource.none)
+        Card(
+          key: const ValueKey('unmatched-device-header'),
+          margin: const EdgeInsets.fromLTRB(8, 8, 8, 12),
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Text(
+              'No typed controls matched this device. Its raw Bluetooth '
+              'services are below; values and writes are hexadecimal bytes.',
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ),
         ),
       if (match != null && healthPlan != null)
         HealthMeasurementPanel(

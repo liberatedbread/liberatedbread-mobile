@@ -69,25 +69,31 @@ class SwatchButton extends StatelessWidget {
   Widget _swatch(ColorScheme scheme, double luminance) {
     return InkWell(
       onTap: enabled ? onTap : null,
-      borderRadius: BorderRadius.circular(19),
-      child: Container(
-        width: 38,
-        height: 38,
-        decoration: BoxDecoration(
-          color: color,
-          shape: BoxShape.circle,
-          border: Border.all(
-            color: selected ? scheme.primary : scheme.outlineVariant,
-            width: selected ? 3 : 1,
+      borderRadius: BorderRadius.circular(24),
+      child: SizedBox(
+        width: 48,
+        height: 48,
+        child: Center(
+          child: Container(
+            width: 38,
+            height: 38,
+            decoration: BoxDecoration(
+              color: color,
+              shape: BoxShape.circle,
+              border: Border.all(
+                color: selected ? scheme.primary : scheme.outlineVariant,
+                width: selected ? 3 : 1,
+              ),
+            ),
+            child: selected
+                ? Icon(
+                    Icons.check,
+                    size: 18,
+                    color: luminance > 0.5 ? Colors.black87 : Colors.white,
+                  )
+                : null,
           ),
         ),
-        child: selected
-            ? Icon(
-                Icons.check,
-                size: 18,
-                color: luminance > 0.5 ? Colors.black87 : Colors.white,
-              )
-            : null,
       ),
     );
   }

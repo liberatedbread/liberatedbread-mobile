@@ -15,6 +15,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:liberated_bread_mobile/core/theme.dart';
 import 'package:liberated_bread_mobile/widgets/device_list_tile.dart';
 
 const _address = '192.168.100.100:49153';
@@ -310,5 +311,85 @@ void main() {
       final badgeRect = tester.getRect(find.text(badge));
       expect(badgeRect.top, greaterThanOrEqualTo(title.bottom));
     });
+  });
+
+  group('SectionHeader', () {
+    testWidgets('a long label wraps beside its count instead of overflowing', (
+      tester,
+    ) async {
+      tester.view.physicalSize = const Size(320, 400);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      const label = 'Recognized, not controlled here';
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Builder(
+            builder: (context) => MediaQuery(
+              data: MediaQuery.of(
+                context,
+              ).copyWith(textScaler: const TextScaler.linear(1.3)),
+              child: const Scaffold(
+                body: Padding(
+                  padding: EdgeInsets.all(20),
+                  child: SectionHeader(label: label, count: 1),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      expect(tester.takeException(), isNull);
+      final badge = tester.getRect(find.text('1'));
+      expect(badge.right, lessThanOrEqualTo(320));
+      expect(tester.getRect(find.text(label)).right, lessThan(badge.left));
+    });
+  });
+
+  testWidgets('secondary text meets contrast on the card in both themes', (
+    tester,
+  ) async {
+    double contrast(Color foreground, Color background) {
+      final composited = Color.alphaBlend(foreground, background);
+      final a = composited.computeLuminance();
+      final b = background.computeLuminance();
+      return (a > b ? a + 0.05 : b + 0.05) / (a > b ? b + 0.05 : a + 0.05);
+    }
+
+    for (final theme in [LiberatedBreadTheme.light, LiberatedBreadTheme.dark]) {
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: theme,
+          home: Scaffold(
+            body: DeviceListTile(
+              title: 'ACME',
+              subtitle: 'Strong signal',
+              detail: '-48 dBm',
+              description: 'Battery Service',
+              rssi: -48,
+              onTap: () {},
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+      final background = tester
+          .widget<Material>(
+            find.descendant(
+              of: find.byType(DeviceListTile),
+              matching: find.byType(Material),
+            ),
+          )
+          .color!;
+      for (final text in ['  ·  -48 dBm', 'Battery Service']) {
+        final foreground = _paragraph(tester, text).text.style!.color!;
+        expect(
+          contrast(foreground, background),
+          greaterThanOrEqualTo(4.5),
+          reason: '$text in ${theme.brightness}',
+        );
+      }
+    }
   });
 }

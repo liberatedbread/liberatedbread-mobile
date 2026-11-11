@@ -642,7 +642,6 @@ class _RadioDeviceScreenState extends ConsumerState<RadioDeviceScreen> {
       radioProgrammerForTransportProvider(_target.transport),
     );
     if (programmer is! RadioWritePreflight) return false;
-    final messenger = ScaffoldMessenger.of(context);
     try {
       await (programmer as RadioWritePreflight).checkCanWrite(profile);
       return false;
@@ -653,7 +652,6 @@ class _RadioDeviceScreenState extends ConsumerState<RadioDeviceScreen> {
         context: 'radio write check',
       );
       if (mounted) setState(() => _error = text);
-      messenger.showSnackBar(SnackBar(content: Text(text)));
       return true;
     }
   }
@@ -940,7 +938,6 @@ class _RadioDeviceScreenState extends ConsumerState<RadioDeviceScreen> {
       radioProgrammerForTransportProvider(_target.transport),
     );
     final savedRadios = ref.read(savedRadiosProvider.notifier);
-    final messenger = ScaffoldMessenger.of(context);
 
     if (!programmer.supports(profile)) {
       setState(() => _error = const RadioUnsupportedException().message);
@@ -987,7 +984,6 @@ class _RadioDeviceScreenState extends ConsumerState<RadioDeviceScreen> {
         _writingOver = null;
         _error = text;
       });
-      messenger.showSnackBar(SnackBar(content: Text(text)));
       return;
     }
     // Outside the session's try: a preferences failure here used to replace

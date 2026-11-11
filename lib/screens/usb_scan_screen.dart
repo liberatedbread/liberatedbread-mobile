@@ -209,6 +209,7 @@ class _UsbScanScreenState extends ConsumerState<UsbScanScreen> {
       // A chip worth warning about says so; otherwise, what the device
       // reports, which is what tells two identical cables apart.
       description: bridge?.caution ?? (details.isEmpty ? null : details),
+      descriptionMaxLines: bridge?.caution == null ? 1 : null,
       onTap: () => _open(port),
     );
   }

@@ -680,7 +680,7 @@ class _NetworkLightCardState extends ConsumerState<NetworkLightCard> {
                         style: text.titleSmall?.copyWith(
                           fontWeight: FontWeight.w700,
                         ),
-                        maxLines: 1,
+                        maxLines: 3,
                         overflow: TextOverflow.ellipsis,
                       ),
                       const SizedBox(height: 2),

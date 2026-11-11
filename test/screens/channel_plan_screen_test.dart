@@ -5,9 +5,11 @@ import 'dart:io';
 
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:liberated_bread_mobile/models/channel_plan.dart';
+import 'package:liberated_bread_mobile/models/radio_channel.dart';
 import 'package:liberated_bread_mobile/models/radio_profile.dart';
 import 'package:liberated_bread_mobile/providers/channel_plan_provider.dart';
 import 'package:liberated_bread_mobile/providers/saved_device_provider.dart';
@@ -44,11 +46,12 @@ Map<String, Object> _seed({
   int channels = 3,
   bool unlock = false,
   String profileId = 'uv-5r-mini',
+  String name = 'Local repeaters',
 }) => {
   'radio_channel_plans_v1': jsonEncode([
     {
       'id': 'p1',
-      'name': 'Local repeaters',
+      'name': name,
       'radioProfileId': profileId,
       'channels': [
         for (var i = 0; i < channels; i++)
@@ -77,6 +80,8 @@ Future<_Harness> _pump(
   WidgetTester tester, {
   Map<String, Object> prefs = const {},
   Object? exportError,
+  double textScale = 1,
+  bool behindLauncher = false,
 }) async {
   SharedPreferences.setMockInitialValues(prefs);
   final sharedPrefs = await SharedPreferences.getInstance();
@@ -95,10 +100,32 @@ Future<_Harness> _pump(
   );
   addTearDown(container.dispose);
 
+  const screen = ChannelPlanScreen(planId: 'p1');
   await tester.pumpWidget(
     UncontrolledProviderScope(
       container: container,
-      child: const MaterialApp(home: ChannelPlanScreen(planId: 'p1')),
+      child: MaterialApp(
+        key: UniqueKey(),
+        home: Builder(
+          builder: (context) => MediaQuery(
+            data: MediaQuery.of(
+              context,
+            ).copyWith(textScaler: TextScaler.linear(textScale)),
+            child: behindLauncher
+                ? Scaffold(
+                    body: Center(
+                      child: TextButton(
+                        onPressed: () => Navigator.of(
+                          context,
+                        ).push(MaterialPageRoute<void>(builder: (_) => screen)),
+                        child: const Text('Open plan'),
+                      ),
+                    ),
+                  )
+                : screen,
+          ),
+        ),
+      ),
     ),
   );
   await tester.pumpAndSettle();
@@ -276,12 +303,37 @@ void main() {
 
       await tester.tap(find.byIcon(Icons.delete_outline));
       await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(FilledButton, 'Delete'));
+      await tester.pumpAndSettle();
 
       final plan = harness.container.read(channelPlansProvider).single;
       expect(plan.channels, hasLength(2));
       expect(plan.channels.first.name, 'CH1');
       // ...and the mode closes itself once the work is done.
       expect(find.text('Local repeaters'), findsOneWidget);
+    });
+
+    testWidgets('cancelling deletion preserves the channels and selection', (
+      tester,
+    ) async {
+      final harness = await _pump(tester, prefs: _seed());
+      await tester.tap(find.byIcon(Icons.checklist));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byType(Checkbox).first);
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byIcon(Icons.delete_outline));
+      await tester.pumpAndSettle();
+      expect(find.text('Delete 1 selected channel?'), findsOneWidget);
+      await tester.tap(find.text('Cancel'));
+      await tester.pumpAndSettle();
+
+      expect(
+        harness.container.read(channelPlansProvider).single.channels,
+        hasLength(3),
+      );
+      expect(find.text('1 selected'), findsOneWidget);
+      expect(find.text('CH0'), findsOneWidget);
     });
 
     testWidgets(
@@ -316,6 +368,8 @@ void main() {
 
         await tester.tap(find.byIcon(Icons.delete_outline));
         await tester.pumpAndSettle();
+        await tester.tap(find.widgetWithText(FilledButton, 'Delete'));
+        await tester.pumpAndSettle();
         expect(names(), ['CH0', 'CH2']);
       },
       variant: TargetPlatformVariant.only(TargetPlatform.android),
@@ -334,6 +388,15 @@ void main() {
       tester,
     ) async {
       final harness = await _pump(tester, prefs: _seed());
+      final handles = find.byType(ReorderableDragStartListener);
+      expect(tester.getSize(handles.first), const Size(48, 48));
+      expect(
+        find.byWidgetPredicate(
+          (widget) =>
+              widget is Semantics && widget.properties.label == 'Reorder CH2',
+        ),
+        findsOneWidget,
+      );
       final gesture = await tester.startGesture(
         tester.getCenter(find.byIcon(Icons.drag_handle).at(2)),
       );
@@ -632,6 +695,39 @@ void main() {
       expect(channel.txFreqHz, 146340000);
     });
 
+    testWidgets(
+      'all three power levels fit and Low saves at narrow large text',
+      (tester) async {
+        tester.view.physicalSize = const Size(320, 844);
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.reset);
+        final harness = await _pump(
+          tester,
+          prefs: _seed(channels: 1, profileId: uv32Profile.id),
+          textScale: 1.3,
+        );
+        await tester.tap(find.text('CH0'));
+        await tester.pumpAndSettle();
+
+        expect(tester.takeException(), isNull);
+        expect(tester.getRect(find.text('Low')).right, lessThanOrEqualTo(320));
+        await tester.tap(find.text('Low'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+        await tester.pumpAndSettle();
+
+        expect(
+          harness.container
+              .read(channelPlansProvider)
+              .single
+              .channels
+              .single
+              .power,
+          PowerLevel.low,
+        );
+      },
+    );
+
     // Saved, it failed only at write time, in the codec, after the radio
     // was read and backed up.
     testWidgets('refuses a frequency finer than the radio stores', (
@@ -761,6 +857,52 @@ void main() {
       );
       expect(find.textContaining('Nearby'), findsOneWidget);
       expect(find.textContaining('USB tab'), findsOneWidget);
+    });
+  });
+
+  group('a compact app bar', () {
+    testWidgets('keeps the plan name and both secondary actions reachable', (
+      tester,
+    ) async {
+      for (final (width, scale) in [(390.0, 1.0), (320.0, 1.3)]) {
+        tester.view.physicalSize = Size(width, 844);
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.reset);
+        final harness = await _pump(
+          tester,
+          prefs: _seed(name: 'Connecticut weekend'),
+          textScale: scale,
+          behindLauncher: true,
+        );
+        await tester.tap(find.text('Open plan'));
+        await tester.pumpAndSettle();
+
+        final title = tester.renderObject<RenderParagraph>(
+          find.text('Connecticut weekend'),
+        );
+        expect(
+          title.didExceedMaxLines,
+          isFalse,
+          reason: '$width pt at ${scale}x',
+        );
+        expect(find.byTooltip('More plan actions'), findsOneWidget);
+        expect(tester.takeException(), isNull);
+
+        await tester.tap(find.byTooltip('More plan actions'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Export as CHIRP CSV'));
+        await tester.pumpAndSettle();
+        expect(harness.exporter.exported, hasLength(1));
+
+        await tester.tap(find.byTooltip('More plan actions'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Program radio'));
+        await tester.pumpAndSettle();
+        expect(
+          find.textContaining('No Baofeng UV-5R Mini saved yet'),
+          findsOneWidget,
+        );
+      }
     });
   });
 }
