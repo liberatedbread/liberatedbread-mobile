@@ -114,7 +114,10 @@ heading.
   blood-pressure readings a device hands over are saved per device in the
   app's own storage and shown again on the next connection, with a "Clear
   saved" control on the panel. Nothing is sent anywhere and they are never
-  part of a device report. Live oximeter samples are not kept.
+  part of a device report. A live oximeter draws its SpO₂ and pulse for the
+  session in progress, and each run of ten samples or more is kept as a
+  session (when, and the least, most and average of each), listed under
+  "Earlier sessions"; the per-second samples themselves are not kept.
 
 - **Yeelight lights over the LAN (`yeelight_lan`).** The cube lamp's spec now
   drives power, brightness, colour and colour temperature over JSON lines on

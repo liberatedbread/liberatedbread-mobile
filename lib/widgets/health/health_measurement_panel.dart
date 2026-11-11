@@ -211,13 +211,18 @@ class _HealthMeasurementPanelState extends ConsumerState<HealthMeasurementPanel>
   ) {
     final sample = state.liveSample;
     if (sample == null) {
-      return state.phase == HealthSessionPhase.error
-          ? const SizedBox.shrink()
-          : const _ProgressMessage(
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (state.phase != HealthSessionPhase.error)
+            const _ProgressMessage(
               message:
                   'Waiting for a fresh sample. Clip on the oximeter and '
                   'keep your hand still.',
-            );
+            ),
+          ..._earlierLiveSessions(context, state),
+        ],
+      );
     }
     final text = Theme.of(context).textTheme;
     final scheme = Theme.of(context).colorScheme;
@@ -262,6 +267,30 @@ class _HealthMeasurementPanelState extends ConsumerState<HealthMeasurementPanel>
             style: text.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
           ),
         ],
+        if (state.liveTrend.length >= 2) ...[
+          const SizedBox(height: 14),
+          MeasurementTrendChart(
+            title: 'SpO₂ this session',
+            unit: '%',
+            series: [
+              MeasurementTrendSeries(
+                label: 'SpO₂',
+                values: [for (final s in state.liveTrend) s.spo2Percent],
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          MeasurementTrendChart(
+            title: 'Pulse this session',
+            unit: 'bpm',
+            series: [
+              MeasurementTrendSeries(
+                label: 'Pulse',
+                values: [for (final s in state.liveTrend) s.pulseBpm],
+              ),
+            ],
+          ),
+        ],
         const SizedBox(height: 14),
         HealthReferenceGuidance(
           kind: widget.plan.kind,
@@ -271,8 +300,32 @@ class _HealthMeasurementPanelState extends ConsumerState<HealthMeasurementPanel>
               : null,
           launcher: widget.linkLauncher,
         ),
+        ..._earlierLiveSessions(context, state),
       ],
     );
+  }
+
+  /// Live sessions kept from earlier connections: each one's span and its
+  /// least, most and average, newest first.
+  List<Widget> _earlierLiveSessions(
+    BuildContext context,
+    HealthMeasurementState state,
+  ) {
+    final sessions = [...state.sessions]
+      ..sort((a, b) => b.startedAt.compareTo(a.startedAt));
+    if (sessions.isEmpty) return const [];
+    return [
+      const SizedBox(height: 8),
+      ExpansionTile(
+        tilePadding: EdgeInsets.zero,
+        childrenPadding: EdgeInsets.zero,
+        title: Text('Earlier sessions (${sessions.length})'),
+        children: [
+          for (final session in sessions) _SessionCard(session: session),
+        ],
+      ),
+      _savedFooter(context),
+    ];
   }
 
   Widget _pulseHistory(

@@ -159,4 +159,90 @@ void main() {
       again.dispose();
     });
   });
+
+  test('a live run is kept as a session of its least, most and average', () {
+    fakeAsync((async) {
+      var clockNow = DateTime(2026, 11, 10, 9);
+      var spo2 = 96.0;
+      final notify = StreamController<List<int>>.broadcast();
+      addTearDown(notify.close);
+      HealthMeasurementSession open() => HealthMeasurementSession(
+        ble: FakeBleService(notifyStream: notify.stream),
+        codec: FakeHealthMeasurementCodec(
+          sampleFor: (_) => HealthSampleDto(
+            pulseOximeter: PulseOxSampleDto(spo2Percent: spo2, pulseBpm: 70),
+          ),
+        ),
+        plan: const HealthMeasurementPlan(
+          kind: HealthMeasurementKind.pulseOximeter,
+          mode: HealthMeasurementMode.livePoll,
+          serviceUuid: 'health-service',
+          commandUuid: 'command',
+          responseUuid: 'health-response',
+          handledCharacteristicUuids: {'health-response'},
+        ),
+        deviceId: 'oximeter',
+        specYaml: 'spec',
+        now: () => clockNow,
+        store: store,
+      );
+
+      final session = open()..start();
+      async.flushMicrotasks();
+      for (var i = 0; i < 12; i++) {
+        spo2 = i.isEven ? 96 : 98;
+        notify.add([i]);
+        async.elapse(Duration.zero);
+        clockNow = clockNow.add(const Duration(seconds: 1));
+      }
+      expect(session.state.liveTrend, hasLength(12));
+      // Nothing earlier to show yet: the run in progress is not "earlier".
+      expect(session.state.sessions, isEmpty);
+      session.dispose();
+      async.flushMicrotasks();
+
+      final kept = store.load('oximeter').sessions.single;
+      expect(kept.startedAt, '2026-11-10T09:00:00');
+      expect(kept.endedAt, '2026-11-10T09:00:11');
+      expect((kept.spo2Min, kept.spo2Avg, kept.spo2Max), (96, 97, 98));
+      expect(kept.pulseAvgBpm, 70);
+
+      // The next connection offers it as an earlier session.
+      final again = open();
+      expect(again.state.sessions, [kept]);
+      again.dispose();
+    });
+  });
+
+  test('a few seconds of settling is not kept as a session', () {
+    fakeAsync((async) {
+      final notify = StreamController<List<int>>.broadcast();
+      addTearDown(notify.close);
+      final session = HealthMeasurementSession(
+        ble: FakeBleService(notifyStream: notify.stream),
+        codec: FakeHealthMeasurementCodec(
+          sample: const HealthSampleDto(
+            pulseOximeter: PulseOxSampleDto(spo2Percent: 97, pulseBpm: 70),
+          ),
+        ),
+        plan: const HealthMeasurementPlan(
+          kind: HealthMeasurementKind.pulseOximeter,
+          mode: HealthMeasurementMode.livePoll,
+          serviceUuid: 'health-service',
+          commandUuid: 'command',
+          responseUuid: 'health-response',
+          handledCharacteristicUuids: {'health-response'},
+        ),
+        deviceId: 'oximeter',
+        specYaml: 'spec',
+        store: store,
+      )..start();
+      async.flushMicrotasks();
+      notify.add([1]);
+      async.elapse(Duration.zero);
+      session.dispose();
+      async.flushMicrotasks();
+      expect(store.load('oximeter').isEmpty, isTrue);
+    });
+  });
 }
