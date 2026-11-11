@@ -104,7 +104,7 @@ over BLE; the old network does not need to be up.
 | Property | Value |
 |----------|-------|
 | Pairing required | Unknown — the app always bonds; whether the device *refuses* an unbonded client is unverified |
-| Security mode | Unknown — no passkey/PIN appears anywhere in the app, so nothing user-visible |
+| Security mode | Just Works, by elimination — no display or keypad on the device and no passkey/PIN anywhere in the app |
 | Bonding | `required` — the app bonds explicitly and the device has a BONDING operation state |
 | PIN source | none seen |
 | One central at a time | Unknown |

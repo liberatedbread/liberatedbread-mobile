@@ -87,7 +87,7 @@ To drive the burner:
    the probe, fit a CR2450. Plug the burner in, and centre the pan on it.
 2. Connect to the burner. Read the firmware version from
    `00001537-1212-efde-1523-785feabcd123` (or take it from a type-3
-   advertisement). The burner refuses commands until a client has a version.
+   advertisement). The app sends no command until it has a version.
 3. Enable indications on `00001546-6209-4984-454e-f27d42fb55e3` and
    notifications on `00001545-6209-4984-454e-f27d42fb55e3`. Read `00001545`,
    `00001542` and `00001543`.
@@ -298,8 +298,9 @@ The full event and status-code tables are in the spec.
 
 ## Troubleshooting
 
-- **The burner ignores every command.** The client has not learned the
-  firmware version. Read `00001537` first. If the burner never took the app's
+- **The burner ignores every command.** The vendor app never sends a
+  command before it has the firmware version, and whether the burner itself
+  requires that is not established. Read `00001537` first. If the burner never took the app's
   first firmware update, it may not run at all, and the image source is gone.
 - **A setpoint is written but nothing heats.** Nobody finished the two-touch
   confirmation, the burner was not in mode 4 when control was requested, or

@@ -94,13 +94,17 @@ device:
 
   setup:
     required: true
-    confidence: "high"
+    confidence: "medium"
     notes: >
       Registration is an in-app ECDH pairing that mints the per-device
       device_secret (for SESAME 5-class hardware the secret can also come from
       the printed QR). After that, local control needs only the device_secret and
-      a ±3 s time sync. Confidence high: officially documented and independently
-      implemented.
+      a ±3 s time sync. Confidence medium, not high: the flow is from CANDY
+      HOUSE's SesameOS3 documentation and this project has not replayed it
+      (device.testing is untested). libsesame3bt-core is a working open
+      implementation of the Login and Lock/Unlock legs, but it takes the
+      device_secret as given and does not implement Registration, so the
+      ECDH step that mints the secret rests on the vendor documentation alone.
     methods:
       - type: "ble_provisioning"
         verified: false
@@ -151,7 +155,9 @@ device:
 
   pairing:
     required: true
-    confidence: "high"
+    # Medium, not high: vendor documentation plus an independent
+    # implementation, but this project has not driven a lock.
+    confidence: "medium"
     security_mode: "app_layer"
     bonding: "none"
     pin:
@@ -161,22 +167,44 @@ device:
         the unit, which makes possession of the lock sufficient. Otherwise it
         is minted by the registration exchange. Per-unit either way, so no
         value appears here.
-    unpair:
-      supported: "unknown"
-      requires_factory_reset: false
+    exclusivity:
+      single_connection: "unknown"
+      single_bond: true
+      recovery: >
+        A registered lock ignores a new registration. To add a client, give
+        it the existing device secret (from the client that registered, or
+        the printed QR on SESAME 5); to start over, reset the lock, which
+        invalidates every client that held the old secret.
       notes: >
-        Registration mints a per-device secret rather than a link-layer bond,
-        so there is no OS-level pairing for a user to forget. What clearing
-        that registration takes has not been established.
+        The advertisement's status byte carries a registered/unregistered
+        bit, so a client can tell before connecting whether registering is
+        possible at all; a registration command sent to a registered lock is
+        answered with an invalid-action result.
+    unpair:
+      supported: false
+      requires_factory_reset: true
+      notes: >
+        Registration mints one device secret rather than a link-layer bond,
+        so there is no OS-level pairing for a user to forget and no
+        per-client record to remove. The documented way back to an
+        unregistered lock is the Reset command (item 104) or the hardware
+        reset button — the factory reset in `setup.factory_reset` — after
+        which the next registration mints a new secret.
     enter_pairing_mode:
       required: false
+      notes: >
+        No button and no window: an unregistered lock accepts the first
+        registration it is sent. That makes a factory-fresh or reset lock
+        claimable by anyone in range until it is registered.
     notes: >
       The registration step is a genuine pairing in every sense except the
       Bluetooth one: an ECDH exchange over SECP256R1 that derives the device
       secret every later session logs in with. Nothing bonds at the link
       layer, so a client looking for an OS pairing prompt will not see one —
       and a client that skips registration and tries to connect-and-go gets
-      nothing.
+      nothing. No cloud takes part: registration, login and lock/unlock are
+      all between the client and the lock, per CANDY HOUSE's published
+      SesameOS3 documentation and the independent libsesame3bt-core.
 services:
   - uuid: "0000fd81-0000-1000-8000-00805f9b34fb"
     name: "SESAME service (0xFD81)"

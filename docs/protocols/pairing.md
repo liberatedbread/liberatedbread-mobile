@@ -42,7 +42,7 @@ That is four lines to say "connect and go", and it is worth writing because
 silence says something different to every reader. An implementer who assumes
 the worst goes looking for a pairing flow that does not exist; one who assumes
 the best ships something that breaks on the first device that does bond. The
-block is required on every BLE spec for exactly this reason — `required:
+block is required on every device spec for exactly this reason — `required:
 unknown` is an honest third answer, and it is still an answer.
 
 ## The two fields people conflate
@@ -127,6 +127,41 @@ matters to a user: unpairing moves a device to a new phone, and a reset also
 costs them its name, schedules and history. Where the device offers no route
 short of the reset, say so — `supported: false`, `requires_factory_reset:
 true` — rather than leaving the reader to find out.
+
+## Off BLE: Wi-Fi, LAN and wired buses
+
+A device reached over HTTP or a diagnostic connector has no link-layer bond,
+but it has the same question one layer up: **what must a client obtain before
+the local control surface answers it, and what does a person have to do at the
+hardware for that?** That question is just as often the one an implementer is
+stuck on. The TV that silently drops a connection is waiting for someone to
+press Allow on the screen. The bulb that refuses commands has its LAN toggle
+off in an app that no longer exists. The plug's local key was only ever handed
+out by a cloud. So the block is required off BLE too, and the same vocabulary
+covers it:
+
+| The gate | `required` | `security_mode` | `pin.source` | `enter_pairing_mode` |
+|---|---|---|---|---|
+| None: an open API, and LAN membership is the only gate | `false` | `none` | — | `required: false` |
+| A physical button authorises a client, which is issued a token or certificate | `true` | `app_layer` | `user_chosen` / `derived` | `required: true`, with a procedure |
+| An on-screen Allow prompt or PIN | `true` | `app_layer` | `device_screen` | `false` when the client triggers it, `true` when a menu setting must be flipped first |
+| A per-device key handed out by the vendor app or cloud | `true` | `app_layer` | `vendor_app` / `derived` | usually `false` |
+| A code printed on the label | `true` | `app_layer` | `printed_label` | as the device needs |
+| An admin login the owner set | `true` | `app_layer` | `user_chosen` | `false` |
+| A Zigbee, Z-Wave or Thread join | `true` | `network_join` | — | a procedure |
+| A wired bus or diagnostic connector | usually `false` | `none`, or `app_layer` when a seed-key step gates the documented surface | — | `false` |
+
+`bonding` is `none` for the app-layer rows, because nothing link-layer
+persists. The client's stored credential belongs in `notes` and in
+`setup.credentials.issued_to_client`. A product-wide default password is a
+`fixed_default`, the same as the OBDLink's PIN, and may be written down. A
+password the owner chose may not.
+
+`exclusivity` matters more here than it looks. Plenty of LAN firmware accepts
+one TCP client at a time, so a phone app left open makes a correct client time
+out. `unpair` is how a client's token is revoked without a reset: the TV's
+connected-devices list, an API call, or a new password. The Hue bridge's
+whitelist is the model answer.
 
 ## PINs are protocol facts; PINs are also credentials
 

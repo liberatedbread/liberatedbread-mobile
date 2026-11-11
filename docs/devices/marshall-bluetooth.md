@@ -19,8 +19,10 @@ The simplest route does not require a prior Classic audio pairing:
 
 1. Power the product on. For earbuds, place them in the case with the lid
    open.
-2. Scan for the LE advertisement whose name ends in ` [LE]` (or carries
-   company ID `0x065A`) and connect to that LE address.
+2. Scan for the LE advertisement named after the model with a ` [LE]`
+   suffix, such as `MOTIF II A.N.C. [LE]` (or carrying company ID `0x065A`),
+   and connect to that LE address. The suffix on its own is not
+   Marshall-specific.
 3. Bond with Just Works / NoInputNoOutput. No PIN is needed. On BlueZ,
    register an agent before calling `Pair()`.
 4. Discover service `fa302d24-d775-4343-b9ed-8cc68ace3284`. Resolve each

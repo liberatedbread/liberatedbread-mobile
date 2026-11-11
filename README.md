@@ -37,7 +37,8 @@ not a clinical reading), the gas alarm (its own buzzer is the safety device; a
 report routed through Wi-Fi, a hub and an app is not), motorised doors and
 gates, and anything on wheels.
 
-Specs for such devices carry a `device.safety_advisory` so a client shows the
+Every health spec, and a growing number of the others, carries a
+`device.safety_advisory` so a client shows the
 warning before the controls; `scripts/test_device_specs.py` fails a
 `category: health` spec without one. The block is a reminder of this section,
 not a certification of anything around it. The scope rule is in

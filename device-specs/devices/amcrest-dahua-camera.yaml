@@ -141,6 +141,60 @@ device:
       notes: >
         Local control uses the camera's admin credential over HTTP Digest.
         Onboarding is app/UI-mediated and not documented here.
+  pairing:
+    required: true
+    confidence: "medium"
+    # Not a link-layer concept: the gate is the camera's own account list,
+    # proved with HTTP Digest on every CGI call and every RTSP DESCRIBE.
+    security_mode: "app_layer"
+    bonding: "none"
+    pin:
+      source: "user_chosen"
+      notes: >
+        The admin password the owner sets when the camera is initialised
+        (setup method "device_ui"). Current Dahua and Amcrest firmware ships
+        uninitialised, with no working password, and does not serve the CGI
+        API or RTSP until one is chosen (8 to 32 characters in Dahua's
+        initialisation guides). Units on firmware from before that step
+        shipped with the product-wide admin/admin; a camera still on such
+        firmware and never changed answers to it, which is a reason to
+        update it rather than a credential to rely on.
+    exclusivity:
+      single_connection: false
+      single_bond: false
+      recovery: >
+        Repeated wrong passwords lock the account. Dahua's recorder manuals
+        say to wait 30 minutes or reboot the device; the attempt count and
+        lock time are model-specific and configurable on cameras. A client
+        retrying a stale password in a loop is the usual cause, so stop on
+        the first authentication failure and ask for the password again,
+        then wait out the lock or power-cycle the camera.
+      notes: >
+        Several clients may be logged in at once, on one account or several.
+        The practical ceiling is the camera's concurrent-stream limit, not
+        authorisation.
+    unpair:
+      supported: true
+      requires_factory_reset: false
+      clears: "One account, or every client that knew the old password."
+      notes: >
+        Nothing is issued per client, so nothing per client can be revoked.
+        Give each integration its own user in the camera's account
+        management and delete that user to cut it off; changing a shared
+        password cuts off everyone who used it. A forgotten admin password
+        needs the reset in setup.factory_reset.
+    enter_pairing_mode:
+      required: false
+    notes: >
+      An admin-login device. The CGI API and the RTSP streams both demand
+      HTTP Digest credentials for an account that lives on the camera, and
+      the vendor cloud plays no part: the account list is on the device and
+      keeps working with the internet blocked. There is no button, token
+      exchange or pairing window. Choosing the admin password at
+      initialisation is the only step taken at the hardware, and it happens
+      once, in setup. The initialisation requirement comes from Dahua's own
+      guides; the lockout is handled explicitly by the rroller/dahua Home
+      Assistant client, which avoids retrying a rejected password.
 
 camera:
   enable_required: false

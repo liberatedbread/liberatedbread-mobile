@@ -86,7 +86,9 @@ device:
     notes: >
       A new bulb is joined to Wi-Fi through the WiZ app; once on the network the
       UDP protocol answers with no cloud step and no per-device LAN-enable
-      toggle. The onboarding wire flow is not documented in the sources used.
+      toggle — but the app's "Allow local communication" security setting,
+      on by default, must stay on (device.pairing). The onboarding wire flow
+      is not documented in the sources used.
     methods:
       - type: "softap_http"
         verified: false
@@ -128,6 +130,38 @@ device:
         Onboarding is handled by the WiZ app and not documented here, so the
         passphrase protection during provisioning is unknown. Post-setup UDP
         control is unauthenticated on the LAN.
+
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "none"
+    bonding: "none"
+    exclusivity:
+      single_connection: false
+      single_bond: false
+      recovery: >
+        Nothing to clear: UDP 38899 is connectionless and any number of
+        clients may talk to the light. If a light that answers the WiZ app
+        ignores local clients, check that "Allow local communication" is
+        still on in the app (see enter_pairing_mode).
+    enter_pairing_mode:
+      required: false
+      notes: >
+        Nothing to do on a light in its default state. The WiZ app carries an
+        "Allow local communication" switch under its security settings that
+        is on by default; Home Assistant's wiz integration documents it as
+        required for local control, so a user who switched it off has to
+        turn it back on in the app. Whether the switch is enforced in the
+        light's firmware (and so survives the app and cloud going away) is
+        not established by the sources used here.
+    notes: >
+      No credential and no handshake: setPilot/getPilot on UDP 38899 are
+      accepted from any LAN host, and the registration message that
+      subscribes a client to syncPilot pushes on 38900 is open as well — it is
+      a subscription, not an authorisation. Basis: pywizlight (Home
+      Assistant's wiz library) and OpenWiz, which drive the lights with no
+      key, plus Home Assistant's documentation of the local-communication
+      setting. Onboarding is setup method 'softap_http'.
 
 # The wire protocol. Bespoke UDP/JSON material lives under `protocol_details`,
 # the schema's namespace for single-spec protocol blocks (the schema's top

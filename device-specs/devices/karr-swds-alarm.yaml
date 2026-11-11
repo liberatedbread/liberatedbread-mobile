@@ -81,14 +81,42 @@ device:
       issued_to_client: []
       notes: "No credential crosses to this app; it never connects."
   pairing:
-    required: "unknown"
+    required: true
     confidence: "low"
+    security_mode: "app_layer"
+    bonding: "unknown"
+    pin:
+      source: "fixed_default"
+      notes: >
+        Not a PIN: a Bluetooth authentication key that, before the
+        2026-07-20 firmware update, was the same on every KARR-SWDS unit and
+        sat in plain text inside the vendor app. It is product-wide, which
+        is exactly the vulnerability, and it is deliberately not reproduced
+        here — the researchers withheld it, and writing down a working key
+        for 2.2 million cars is not documentation. Whether the patched
+        firmware moves to per-unit keys is not public.
+    enter_pairing_mode:
+      required: "unknown"
+      notes: >
+        No source describes how an owner's phone is enrolled. The
+        researchers' recommendation — that a physical action inside the car,
+        such as a button press, be required when a new phone connects — is
+        offered as a fix for systems of this class, which suggests none was
+        needed, but it is not stated for KARR specifically.
     notes: >
-      This entry never connects — it matches the BLE advertisement and warns,
-      which is the whole of its integration — so the question of whether a
-      connection would demand a bond has never arisen. Unknown here means
-      unasked rather than unanswerable: anyone who does connect to one should
-      record what they find.
+      The gate is application-layer, not link-layer: the UC San Diego team's
+      project page says each of the six aftermarket systems it studied runs
+      its own application-layer BLE security protocol, and KARR's
+      authenticates the app with a key shared by every unit. So a connection
+      does need something before the alarm answers — but on unpatched
+      firmware that something is the same for everyone, and anyone who has
+      read it out of the app can unlock, silence and immobilise any car in
+      about five yards. This integration never connects; it matches the
+      advertisement and warns. Low confidence because the protocol details
+      sit in the USENIX Security 2026 paper ("BLE Theft Auto"), which this
+      project could not retrieve, and the researchers deliberately withheld
+      exploit-level detail; what is here comes from the project page and
+      press coverage of the disclosure.
   discovery:
     # The KARR module advertises continuously over BLE; match is on the
     # advertised local name ("KARR" or "SWDS"), inferred not captured (see

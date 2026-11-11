@@ -217,6 +217,89 @@ device:
         so confidentiality depends on the handshake having been completed with
         the on-screen PIN rather than on the field itself.
 
+  pairing:
+    required: true
+    confidence: "medium"
+    security_mode: "app_layer"
+    # The BLE link itself is not bonded; RTS runs its own Curve25519
+    # exchange above GATT, and the robot remembers a client's keys at that
+    # layer (RtsConnResponse says FirstTimePair or Reconnection).
+    bonding: "none"
+    pin:
+      source: "device_screen"
+      length: 6
+      notes: >
+        Two credentials, issued in two steps. The six-digit PIN appears on
+        the robot's face once a BLE client connects in pairing mode and is
+        mixed into the RTS session keys — it proves physical possession for
+        Wi-Fi provisioning and for the next step. The credential every gRPC
+        call needs is client_token_guid: the client hands the robot a
+        session token from a token service (RtsCloudSessionRequest over BLE,
+        or the UserAuthentication RPC over TLS, which is what the Anki SDK's
+        configure script calls with the robot's pinned certificate) and the
+        robot returns the GUID. On stock firmware that token came from
+        Anki/DDL's account service; wire-pod (and DDL's paid Escape Pod,
+        the design it copies) issues it locally. Store the GUID with the
+        robot's certificate and ESN.
+    exclusivity:
+      single_bond: false
+      recovery: >
+        Several clients can each hold a GUID: the Anki SDK's configure step
+        names every client by its hostname and was routinely run from more
+        than one machine alongside the phone app. If a stored GUID stops
+        working, the usual cause is a Clear User Data on the robot, after
+        which every client has to authenticate again.
+    unpair:
+      supported: "unknown"
+      notes: >
+        No source read here offers a way to revoke one client's GUID. Clear
+        User Data (setup.factory_reset) drops all of them, along with the
+        Wi-Fi networks, owner association and enrolled faces; Firmware
+        Recovery Mode does not, despite looking like the bigger reset.
+    enter_pairing_mode:
+      required: true
+      advertised_name: "Vector-"
+      advertised_name_match: "prefix"
+      indicator: "The face shows the robot's Vector-XXXX name; the PIN follows once a client connects."
+      procedures:
+        - name: "Double-click the backpack button with the robot on its charger"
+          verified: false
+          basis: >
+            The setup method above and DDL's open-sourced vector-bluetooth
+            onboarding flow; the wire-pod installation wiki uses the same
+            entry. Not replayed on a robot here.
+          power_state: "on"
+          press_count: 2
+          steps:
+            - action: "Place Vector on its charger."
+              actor: "user"
+            - action: "Double-click the button on Vector's back."
+              actor: "user"
+              expect: "The face shows the Vector-XXXX name; the robot is advertising for BLE."
+            - action: "Connect over BLE and run the RTS handshake; read the six-digit PIN off the face into the client."
+              actor: "client"
+      notes: >
+        Only BLE onboarding needs pairing mode. A client that already holds a
+        GUID and the certificate connects over the LAN at any time without
+        touching the robot. On a production robot moving to wire-pod there
+        is one more physical step first: hold the backpack button about 15
+        seconds for recovery mode so the Escape-Pod-compatible "ep" firmware
+        can be applied, then Clear User Data (see local_access.summary).
+    notes: >
+      The gate is client_token_guid, sent as a Bearer header over TLS pinned
+      to the robot's self-signed certificate. Getting one needs a token the
+      robot trusts: on stock production firmware that means Anki/DDL's
+      account and token service, so with that cloud failing or unpaid a
+      production robot cannot be newly authorised; robots that already
+      issued a GUID keep answering it on the LAN. The community route out is
+      wire-pod: after the recovery-mode detour to DDL's production-signed
+      "ep" firmware, the robot trusts a local escape-pod server, and wire-pod
+      plays that role — authorising clients, issuing GUIDs and handing SDK
+      users the certificate and GUID — with no vendor account. Unlocked
+      OSKR/dev robots can run WireOS instead. Basis: the Anki vector-python
+      SDK's configure flow, DDL's vector-bluetooth and vector-cloud, and the
+      wire-pod wiki.
+
 # Vendor-specific protocol detail this schema does not model. Namespaced so the
 # top level can stay closed; nothing here is a declared contract.
 protocol_details:

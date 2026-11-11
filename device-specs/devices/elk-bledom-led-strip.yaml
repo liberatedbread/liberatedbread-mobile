@@ -31,7 +31,8 @@ device:
     byte 4 the sub-command. The app distinguishes "data" vs "control"
     messages but they use the same packet format.
 
-    DISCOVERY: service UUID 0xFFF0 is the reliable signal. Advertised names
+    DISCOVERY: match an advertised-name prefix; service 0xFFF0 is shared
+    with unrelated products and is not an identity signal. Advertised names
     vary widely: "ELK-BLEDOM", "MELK", "LEDBLE", "ELK-BULB", "ELK-LAMPL".
     No pairing required — any central in range can connect and write.
 
@@ -44,8 +45,8 @@ device:
     the same protocol; its Android app is a rebrand of the common "LED lamp"
     OEM app. Its name matcher accepts additional advertised names:
     prefixes DCS-O, ELZ-O, CS-FanLED, MHRS-QA and "LED LIGHT STRIP",
-    substring matches "OB", "OE" and "E2P", plus WCT-family names via
-    DeviceName constants (ELK-BTCWCT*/ELK-BLEDWCT* and brand+suffix
+    substring matches "OB", "OE" and "E2P", plus WCT-family names built from
+    name constants (ELK-BTCWCT*/ELK-BLEDWCT* and brand+suffix
     compositions such as "OPT7" + "-BLED"/"-BLEDWCT").
 
     SECOND CONTROL PATH — connectionless broadcast: besides the GATT
@@ -67,7 +68,7 @@ device:
     streaming) are documented but less tested.
 
   identification:
-    local_name_prefixes: ["ELK", "MELK", "LEDBLE", "JACKYLED"]
+    local_name_prefixes: ["ELK", "MELK", "LEDBLE", "JACKYLED", "OPT7"]
     notes: >
       Match a documented name prefix, then confirm the characteristic
       layout. The shared FFF0 service is not an identity signal.
@@ -77,7 +78,7 @@ device:
         ble:
           local_name:
             match: "prefix"
-            values: ["ELK", "MELK", "LEDBLE", "JACKYLED"]
+            values: ["ELK", "MELK", "LEDBLE", "JACKYLED", "OPT7"]
         notes: >
           Match one of the documented name prefixes, then confirm the
           FFF3/FFF4 or alternate characteristic layout after connecting.
@@ -98,7 +99,7 @@ device:
       - type: "ble_direct"
         verified: false
         description: >
-          Scan for 0xFFF0 service UUID, connect, and write 9-byte packets
+          Scan for a documented name prefix, connect, and write 9-byte packets
           to characteristic 0xFFF3. Classic devices need no initialization
           sequence; newer MELK-*/MODELX firmware disconnects unless a login
           handshake (7e 07 83, then 7e 04 04, about 1 s apart) is written

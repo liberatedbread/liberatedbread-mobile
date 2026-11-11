@@ -1256,7 +1256,7 @@ features:
         print_width_dots: 454
         right_margin_dots: 61
         media_type_code: 0
-        notes: "Not centred: 45 unused dots on one side of the head and 61 on the other (reference pin table)."
+        notes: "Like every PT-P910BT tape, offset by 16 dots: 45 unused dots on one side of the head and 61 on the other (reference pin table)."
   - type: "raster_print"
   - type: "firmware_update"
     dfu:
@@ -1423,10 +1423,12 @@ protocol_details:
       is pixel column n, left to right; within a line, bit 7 of the first
       byte is the column's top pixel, and so on down. In other words the
       image is transposed (the clients describe it as rotate 90 degrees and
-      mirror). Content narrower than the head is centred: Brother's pin
-      tables give equal unused margins on both sides for every tape up to
-      24 mm on the 128-dot models, and 45/61 unused dots for 36 mm on the
-      PT-P910BT. Which physical edge of the tape Brother's "pin 0" is, is
+      mirror). On the 128-dot models, content narrower than the head is
+      centred: Brother's pin tables give equal unused margins on both sides
+      for every tape up to 24 mm. On the 560-dot PT-P910BT no tape is
+      centred: the unused margin opposite right_margin_dots is always 16
+      dots smaller (560 - print_width_dots - right_margin_dots, e.g.
+      197/213 at 12 mm and 45/61 at 36 mm). Which physical edge of the tape Brother's "pin 0" is, is
       not stated; the transposed layout is the one known to print upright.
     verification: "reported"
   print_information_valid_flags:

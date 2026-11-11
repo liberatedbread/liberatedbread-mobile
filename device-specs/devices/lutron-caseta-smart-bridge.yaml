@@ -30,7 +30,8 @@ device:
   integration: "identify_only"
   notes: >
     Lutron Caseta Smart Bridge 2 advertises multiple local services. LEAP on
-    port 8081 is the modern local TLS JSON/WebSocket control protocol. LAP on
+    port 8081 is the modern local control protocol: newline-delimited JSON
+    over a direct mutual-TLS socket. LAP on
     port 8083 is deprecated. The _lutron._tcp status service exposes stable
     bridge identity including MACADDR, firmware CODEVER, system type, and
     device class. HomeKit HAP is separately advertised on port 4548.

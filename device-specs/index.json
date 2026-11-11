@@ -196,8 +196,7 @@
     "manufacturer_status": "active",
     "category_hierarchy": [
       "measurement",
-      "health",
-      "body_composition"
+      "other"
     ],
     "openness": "undocumented",
     "testing_status": "untested",
@@ -1239,8 +1238,8 @@
       "led_matrix"
     ],
     "protocol_handler": "popled_json",
-    "testing_status": "untested",
-    "testing_detail": "capture-verified",
+    "testing_status": "verified",
+    "testing_detail": "minimally-verified",
     "helpful_urls": [
       {
         "title": "LOY SPACE app (Google Play)",
@@ -1927,6 +1926,7 @@
     "manufacturer": "BIO-key International, Inc. (locks built on a shared OEM platform; the companion app is published by a third-party developer)",
     "manufacturer_status": "abandoned",
     "testing_status": "untested",
+    "testing_detail": "capture-verified",
     "helpful_urls": [
       {
         "title": "TouchLock BT companion app on Google Play",
@@ -2567,6 +2567,12 @@
         "url": "https://www.manualslib.com/manual/1980078/Bosch-Kiox-Bui330.html",
         "kind": "manual",
         "description": "The MY19 edition of the same manual.\n"
+      },
+      {
+        "title": "Bosch Nyon (BUI350) operating instructions, MY24 (PDF, vendor-hosted)",
+        "url": "https://www.bosch-ebike.com/fileadmin/EBC/Service/Downloads/Bedienungsanleitungen/MY2024/BES2/Nyon2_BUI350/Bosch-eBike-Manual-BUI350_Nyon2_MY24_US_oReg_v1.pdf",
+        "kind": "manual",
+        "description": "Bosch's manual for the Nyon (2021), which it files under model number BUI350 — the number the app's device record carries. The Kiox is BUI330.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -3964,8 +3970,7 @@
     "manufacturer_status": "active",
     "category_hierarchy": [
       "measurement",
-      "health",
-      "body_composition"
+      "other"
     ],
     "testing_status": "untested",
     "helpful_urls": [
@@ -4343,7 +4348,7 @@
         "title": "stramanu/lumalou: spec/protocol.json",
         "url": "https://github.com/stramanu/lumalou/blob/main/spec/protocol.json",
         "kind": "protocol_writeup",
-        "description": "Machine-readable opcode, response and enum tables (0x68 is misnamed there; see PR #2)."
+        "description": "Machine-readable opcode, response and enum tables (0x68 was misnamed there at 9fa5ecf; see PR #2)."
       },
       {
         "title": "stramanu/lumalou: Python package",
@@ -4439,6 +4444,7 @@
     "manufacturer_status": "active",
     "protocol_handler": "ipl_foreo",
     "testing_status": "untested",
+    "testing_detail": "capture-verified",
     "helpful_urls": [
       {
         "title": "FOREO PEACH 2 full user manual",
@@ -5143,6 +5149,43 @@
     "schema_version": "2020-12"
   },
   {
+    "name": "Furby Connect",
+    "path": "device-specs/devices/hasbro-furby-connect.yaml",
+    "protocol": "ble",
+    "category": "other",
+    "manufacturer": "Hasbro",
+    "manufacturer_status": "abandoned",
+    "aliases": [
+      "Furby Connect",
+      "Furby 2016"
+    ],
+    "companion_apps": [
+      {
+        "name": "Furby Connect World",
+        "role": "historical",
+        "platform": "cross_platform",
+        "notes": "The official Android and iOS app. It drove the toy over BLE and pushed DLC content it downloaded from Hasbro's servers. PyFluff's README calls the toy \"now unsupported\" and its DLC notes say the app has been deprecated; no shutdown date is given by either source.\n"
+      }
+    ],
+    "openness": "undocumented",
+    "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "Jeija/bluefluff (protocol docs and Node.js client)",
+        "url": "https://github.com/Jeija/bluefluff",
+        "kind": "protocol_writeup",
+        "description": "The original Furby Connect reverse engineering (MIT): doc/bluetooth.md for the GATT tree, doc/generalplus.md and doc/nordic.md for the opcode tables, doc/flashdlc.md for the DLC upload.\n"
+      },
+      {
+        "title": "martinwoodward/PyFluff (Python client)",
+        "url": "https://github.com/martinwoodward/PyFluff",
+        "kind": "implementation",
+        "description": "MIT Python port of bluefluff using Bleak, with a CLI, web UI and DLC manager; pyfluff/protocol.py is a compact table of every UUID and opcode it uses.\n"
+      }
+    ],
+    "schema_version": "2020-12"
+  },
+  {
     "name": "Hello Fairy Fairy/Curtain/Tree Lights",
     "path": "device-specs/devices/hello-fairy.yaml",
     "protocol": "ble",
@@ -5329,7 +5372,7 @@
       {
         "title": "pyvidaa — VIDAA_PROTOCOL_ANALYSIS.md",
         "url": "https://github.com/warrenrees/pyvidaa/blob/master/VIDAA_PROTOCOL_ANALYSIS.md",
-        "description": "The primary source for the TLS details, the P12 password, the dynamic credential algorithm (with worked example), the pairing flow, and 2026-08-04 live-wire findings."
+        "description": "The primary source for the TLS details, extracting the client certificate from the app, the dynamic credential algorithm (with worked example), the pairing flow, and 2026-08-04 live-wire findings."
       },
       {
         "title": "Krazy998/mqtt-hisensetv — the original 2019 topic documentation",
@@ -5354,7 +5397,7 @@
       {
         "title": "d3nd3/Hisense-mqtt-keyfiles — RemoteNow-era client certificate pair",
         "url": "https://github.com/d3nd3/Hisense-mqtt-keyfiles",
-        "description": "rcm_certchain_pem.cer / rcm_pem_privkey.pkcs8 extracted from the RemoteNow app; the cert some pre-VIDAA models demand."
+        "description": "A certificate-chain / private-key pair extracted from the RemoteNow app; the cert some pre-VIDAA models demand."
       },
       {
         "title": "Home Assistant community — Hisense TV Control thread",
@@ -5898,7 +5941,8 @@
       "display",
       "led_matrix"
     ],
-    "testing_status": "untested",
+    "testing_status": "verified",
+    "testing_detail": "minimally-verified",
     "helpful_urls": [
       {
         "title": "led_bt_jl_ota on pub.dev",
@@ -7117,13 +7161,13 @@
         "title": "Kinsa Smart Ear Thermometer instructions for use (PDF, FCC exhibit)",
         "url": "https://fccid.co/api/files/s1/2afeoe1_usersmanual_2760044_3c434d9492.pdf",
         "kind": "manual",
-        "description": "The first-generation Kinsa Smart Ear (FCC ID 2AFEOE1, the LegacyEar family here): battery and °C/°F switch, the Bluetooth pairing button held 3 s to add a phone, display icons and error codes. Mostly images.\n"
+        "description": "The first-generation Kinsa Smart Ear (FCC ID 2AFEOE1, the Ear-1 family here): battery and °C/°F switch, the Bluetooth pairing button held 3 s to add a phone, display icons and error codes. Mostly images.\n"
       },
       {
         "title": "Kinsa CareScan Smart Thermometer instructions for use (PDF, FCC exhibit)",
         "url": "https://fccid.co/api/files/s1/2afeonc1_usersmanual_5076918_6077823510.pdf",
         "kind": "manual",
-        "description": "The CareScan / QuickScan non-contact forehead thermometer (FCC ID 2AFEONC1, the Santorio family here): setup, moving to another phone with Forget Thermometer, the unit toggle, APP/ERR/HI/LO display codes.\n"
+        "description": "The CareScan / QuickScan non-contact forehead thermometer (FCC ID 2AFEONC1, the Forehead family here): setup, moving to another phone with Forget Thermometer, the unit toggle, APP/ERR/HI/LO display codes.\n"
       },
       {
         "title": "FCC ID 2AFEOE1 (Kinsa Smart Ear) grant and exhibits",
@@ -7403,7 +7447,8 @@
         "notes": "Vendor-suggested alternative when SPOTLED cannot be installed on recent Android."
       }
     ],
-    "testing_status": "untested",
+    "testing_status": "verified",
+    "testing_detail": "minimally-verified",
     "helpful_urls": [
       {
         "title": "monty68/uniled — UniLED (HACS)",
@@ -7621,6 +7666,20 @@
     "manufacturer_status": "active",
     "protocol_handler": "lippert_myrvlink",
     "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "phurth/ha-onecontrol: Home Assistant integration for OneControl BLE gateways",
+        "url": "https://github.com/phurth/ha-onecontrol",
+        "kind": "implementation",
+        "description": "The open MIT-licensed implementation this spec is drawn from: TEA unlock, step-2 PIN key, MyRvLink COBS framing, device table, status events and the BlueZ pairing agents. The source to re-derive the blocks listed in remaining_unknowns from.\n"
+      },
+      {
+        "title": "Lippert OneControl / Unity X4 OEM manual (CCD-0007005, PDF)",
+        "url": "https://lci-support-doc.s3.amazonaws.com/manuals/electronics/onecontrol/ccd-0007005.pdf",
+        "kind": "manual",
+        "description": "Vendor-hosted OEM manual for the Unity X4 control system (the X4 variant entry cites it); the same document the safety advisory links.\n"
+      }
+    ],
     "schema_version": "2020-12"
   },
   {
@@ -7769,7 +7828,7 @@
     "schema_version": "2020-12"
   },
   {
-    "name": "LOY / LOYPRO LED Display",
+    "name": "LOY / LOYPRO Helmet LED Display",
     "path": "device-specs/devices/loypro-led-display.yaml",
     "protocol": "ble",
     "category": "display",
@@ -7779,9 +7838,15 @@
       "display",
       "led_matrix"
     ],
+    "aliases": [
+      "LOYPRO display",
+      "motorcycle helmet LED display",
+      "helmet LED matrix"
+    ],
+    "protocol_handler": "popled_json",
     "openness": "undocumented",
-    "testing_status": "untested",
-    "testing_detail": "capture-verified",
+    "testing_status": "verified",
+    "testing_detail": "minimally-verified",
     "helpful_urls": [
       {
         "title": "LOY / LOYPRO on Google Play",
@@ -7914,6 +7979,12 @@
         "url": "https://www.manualslib.com/manual/2035005/Zengge-Zj-Mwir-Rgb.html",
         "kind": "manual",
         "description": "Manual for a Zengge controller of the family this spec covers. These ship under many retail names — Magic Home is the app, Zengge is the OEM.\n"
+      },
+      {
+        "title": "Magic Home CC WiFi lighting controller manual (PDF)",
+        "url": "https://manuals.plus/magic-home/ccwifi-wifi-lighting-controller-manual.pdf",
+        "kind": "manual",
+        "description": "Vendor instructions giving the setup AP's default password 88888888 and the hold-reset-ten-seconds recovery for a forgotten one.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -8312,6 +8383,71 @@
         "url": "https://support.segway.com/product_files/20230727035750_Segway%20KickScooter%20ES1%20series%20User%20Manual.pdf",
         "kind": "manual",
         "description": "The ES1-series manual from Segway's support file store.\n"
+      }
+    ],
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "Nissan Leaf (ZE0 / AZE0 / ZE1) battery diagnostics",
+    "path": "device-specs/devices/nissan-leaf-obd2.yaml",
+    "protocol": "obd2",
+    "category": "vehicle",
+    "manufacturer": "Nissan",
+    "manufacturer_status": "active",
+    "aliases": [
+      "Nissan LEAF",
+      "Leaf 24 kWh / 30 kWh (ZE0, AZE0)",
+      "Leaf 40 kWh / 62 kWh e+ (ZE1)"
+    ],
+    "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "dalathegreat/leaf_can_bus_messages (CAN spreadsheet, DBCs, ECU ID table)",
+        "url": "https://github.com/dalathegreat/leaf_can_bus_messages",
+        "kind": "protocol_writeup",
+        "description": "Community CAN database for ZE0, AZE0 and ZE1, with the request/response ID table for every Leaf ECU and the 79b-7bb sheet behind the group layouts."
+      },
+      {
+        "title": "pbutterworth/nissan-leaf-obd-ble (Home Assistant integration)",
+        "url": "https://github.com/pbutterworth/nissan-leaf-obd-ble",
+        "kind": "implementation",
+        "description": "Local BLE ELM327 polling of a Leaf from Home Assistant; source of the ELM session and the polling-cadence and relay-wear notes."
+      },
+      {
+        "title": "pbutterworth/py-nissan-leaf-obd-ble (protocol library)",
+        "url": "https://github.com/pbutterworth/py-nissan-leaf-obd-ble",
+        "kind": "implementation",
+        "description": "The library under the integration: AT init, per-ECU headers and flow control, ISO-TP reassembly and the VCM/meter/LBC decoders."
+      },
+      {
+        "title": "OVMS Nissan Leaf vehicle module",
+        "url": "https://github.com/openvehicles/Open-Vehicle-Monitoring-System-3/tree/master/vehicle/OVMS.V3/components/vehicle_nissanleaf",
+        "kind": "implementation",
+        "description": "Per-generation LBC poll lists and decoders, and the documentation of the ZE1 CAN gateway that isolates the OBD-II port with the ignition off."
+      },
+      {
+        "title": "dalathegreat/Battery-Emulator (Nissan Leaf battery driver)",
+        "url": "https://github.com/dalathegreat/Battery-Emulator",
+        "kind": "implementation",
+        "description": "Native-CAN LBC client whose Nissan Leaf driver decodes groups 0x01, 0x02, 0x04, 0x06, 0x61, 0x62, 0x83 and 0x84 frame by frame and keys the group 0x01 layout on reply length."
+      },
+      {
+        "title": "Nissan UK: NissanConnect EV maintenance notice",
+        "url": "https://www.nissan.co.uk/ownership/maintenance-page.html",
+        "kind": "vendor_support",
+        "description": "Nissan's notice that the NissanConnect EV app for the Leaf (built up to May 2019) and e-NV200 stops operating from 30 March 2026."
+      },
+      {
+        "title": "Electrifying.com: Nissan pulling plug on pre-2019 Leaf app",
+        "url": "https://www.electrifying.com/blog/article/nissan-pulling-plug-on-pre-2019-leaf-app",
+        "kind": "other",
+        "description": "Press coverage of the NissanConnect EV shutdown and what owners lose."
+      },
+      {
+        "title": "Home Assistant community thread: Nissan Leaf via LeLink 2 ELM327 BLE",
+        "url": "https://community.home-assistant.io/t/custom-component-nissan-leaf-via-lelink-2-elm327-ble/561961",
+        "kind": "forum",
+        "description": "Discussion thread for the integration, linked from its README."
       }
     ],
     "schema_version": "2020-12"
@@ -9102,6 +9238,87 @@
     "schema_version": "2020-12"
   },
   {
+    "name": "Piaggio Fast Forward gitamini / gita pro",
+    "path": "device-specs/devices/piaggio-gita-mini.yaml",
+    "protocol": "ble",
+    "category": "robot",
+    "manufacturer": "Piaggio Fast Forward, Inc.",
+    "manufacturer_status": "active",
+    "aliases": [
+      "gitamini",
+      "gita mini",
+      "gita pro",
+      "mygita robot"
+    ],
+    "companion_apps": [
+      {
+        "name": "mygita",
+        "package": "com.piaggiofastforward.mobile",
+        "role": "primary",
+        "platform": "android",
+        "url": "https://play.google.com/store/apps/details?id=com.piaggiofastforward.mobile",
+        "notes": "Analyzed at 1.7.4 (versionCode 5254323), with separate JavaScript/internal version identifiers 1070004 and 12. iOS 1.7.4 was also released."
+      }
+    ],
+    "protocol_handler": "gita_ecdh",
+    "openness": "undocumented",
+    "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "gitamini and gitaplus user manual (PDF)",
+        "url": "https://knowledge.mygita.com/hubfs/mini_plus_UserManual.pdf?hsLang=en",
+        "kind": "manual",
+        "description": "Official shared Mini/Plus manual, document 017-101891 V3. Covers setup, visual pairing, controls and Wi-Fi for gitamini; not evidence of a separate gita pro profile.\n"
+      },
+      {
+        "title": "gitamini quick start (PDF)",
+        "url": "https://knowledge.mygita.com/hubfs/Quickstart-gita-mini.pdf?hsLang=en",
+        "kind": "manual",
+        "description": "Official Mini quick-start, document 017-101499 V1, including the serial barcode and visual Pair/Park procedure for Mini.\n"
+      },
+      {
+        "title": "mygita setup and registration",
+        "url": "https://knowledge.mygita.com/setting-up-getting-started",
+        "kind": "vendor_support",
+        "description": "Official account, barcode and Wi-Fi setup guidance for Mini."
+      },
+      {
+        "title": "General mygita app use",
+        "url": "https://knowledge.mygita.com/general-use-of-the-mygita-app",
+        "kind": "vendor_support",
+        "description": "Official app guidance, including the explicit statement that music streaming is not available with gitamini."
+      },
+      {
+        "title": "Mini sensor overview",
+        "url": "https://piaggiofastforward.com/blog/all-about-gitaminis-sensors",
+        "kind": "vendor_support",
+        "description": "PFF's stereo depth, RGB and radar roles and fields of view for Mini."
+      },
+      {
+        "title": "Mini release notes",
+        "url": "https://knowledge.mygita.com/release-notes",
+        "kind": "vendor_support",
+        "description": "Official release-note index; publicly listed Mini notes through 2.5.1 are not proof of the latest firmware."
+      },
+      {
+        "title": "mygita on Google Play",
+        "url": "https://play.google.com/store/apps/details?id=com.piaggiofastforward.mobile",
+        "description": "The Android app analyzed for this spec (package com.piaggiofastforward.mobile; 1.7.4 in the reviewed bundle)."
+      },
+      {
+        "title": "Public API version metadata",
+        "url": "https://api.mygita.com/info/version",
+        "description": "Unauthenticated API/minimum-app policy metadata, not robot firmware information."
+      },
+      {
+        "title": "PFF open-source notice",
+        "url": "https://piaggiofastforward.com/opensource",
+        "description": "Vendor package notices, not a Mini firmware source tree or downloadable image."
+      }
+    ],
+    "schema_version": "2020-12"
+  },
+  {
     "name": "Pix Backpack / Pix Mini",
     "path": "device-specs/devices/pix-backpack.yaml",
     "protocol": "ble",
@@ -9771,6 +9988,11 @@
       {
         "title": "RoMote — open-source Android ECP remote",
         "url": "https://github.com/wseemann/RoMote"
+      },
+      {
+        "title": "msdrigg/roam — open-source Roku remote with an ECP2 client",
+        "url": "https://github.com/msdrigg/roam",
+        "description": "Swift implementation of the ECP2 WebSocket session, including the client-id challenge response and its shared key (ECPProtocol.swift)."
       },
       {
         "title": "Roku Streaming Stick user manual",
@@ -10547,7 +10769,8 @@
       "display",
       "led_matrix"
     ],
-    "testing_status": "untested",
+    "testing_status": "verified",
+    "testing_detail": "minimally-verified",
     "helpful_urls": [
       {
         "title": "SPOTLED app: getting started",
@@ -12168,7 +12391,7 @@
     "manufacturer_status": "active",
     "category_hierarchy": [
       "measurement",
-      "temperature"
+      "environmental"
     ],
     "testing_status": "untested",
     "helpful_urls": [
@@ -12372,6 +12595,62 @@
         "url": "https://itead.cc/wp-content/uploads/2024/01/W4-User-Manual.pdf",
         "kind": "manual",
         "description": "A later model's manual, including the five-power-cycle reset.\n"
+      }
+    ],
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "Yogasleep Dohm Connect White-Noise Machine",
+    "path": "device-specs/devices/yogasleep-dohm-connect.yaml",
+    "protocol": "ble",
+    "category": "appliance",
+    "manufacturer": "Yogasleep (formerly Marpac)",
+    "manufacturer_status": "active",
+    "aliases": [
+      "Marpac Dohm Connect",
+      "Dohm Connect"
+    ],
+    "companion_apps": [
+      {
+        "name": "Marpac Connect",
+        "package": "com.marpac",
+        "platform": "android",
+        "role": "primary",
+        "notes": "Version 1.0.7.0 (versionCode 10700) is the build upstream analysed. Store reviewers describe the app as neglected. That is unverified and undated, and the vendor still sells the machine.\n"
+      },
+      {
+        "name": "Marpac Connect (Apple platforms)",
+        "platform": "ios",
+        "role": "primary",
+        "notes": "Upstream's 2026-06-02 PacketLogger capture came from the vendor's app on an Apple host. Its exact name and bundle ID are not recorded in the sources.\n"
+      }
+    ],
+    "openness": "undocumented",
+    "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "martinemde/dohm-ble (Home Assistant integration and standalone client, MIT)",
+        "url": "https://github.com/martinemde/dohm-ble",
+        "kind": "implementation",
+        "description": "The open-source project this spec is read from. custom_components/dohm/ protocol.py holds the encoders and decoders.\n"
+      },
+      {
+        "title": "Marpac Dohm BLE protocol (dohm-ble docs/protocol.md)",
+        "url": "https://github.com/martinemde/dohm-ble/blob/main/docs/protocol.md",
+        "kind": "protocol_writeup",
+        "description": "Upstream's protocol reference: grammar, command table, reply taxonomy, schedule and clock encodings."
+      },
+      {
+        "title": "Yogasleep Dohm Connect product page",
+        "url": "https://yogasleep.com/products/dohm-connect",
+        "kind": "vendor_support",
+        "description": "Vendor page for the Dohm Connect (SKU 4000900), the app-controlled model this spec covers."
+      },
+      {
+        "title": "Yogasleep Dohm Connect 4000900 user manual (manuals.plus)",
+        "url": "https://manuals.plus/asin/B07QD182JV",
+        "kind": "manual",
+        "description": "Third-party copy of the Dohm Connect (model 4000900) user manual. The site refuses scripted requests (HTTP 403), so this project has not read it, and no fact in this spec rests on it.\n"
       }
     ],
     "schema_version": "2020-12"

@@ -299,6 +299,86 @@ device:
         device settings > Deregister remote device (per the Home Assistant
         integration docs), then pair again.
 
+  pairing:
+    required: true
+    confidence: "medium"
+    # Two routes to the same gate: a user-chosen pre-shared key, or a PIN
+    # registration that yields an auth cookie. Both are application-layer.
+    security_mode: "app_layer"
+    bonding: "none"
+    pin:
+      source: "device_screen"
+      length: 4
+      notes: >
+        The PIN route: the client's first actRegister (Basic-auth password
+        "0000", a placeholder the protocol uses to ASK for a PIN — not a
+        credential) makes the TV display a 4-digit PIN, and repeating the call
+        with that PIN returns Set-Cookie: auth=<token>
+        (bravia_common.authentication.pin_registration). The PSK route has no
+        PIN at all: the owner types a key of their choosing under IP control >
+        Pre-Shared Key and gives the same string to the client, which sends it
+        as X-Auth-PSK. Home Assistant recommends PSK as the more reliable of
+        the two.
+    exclusivity:
+      single_connection: false
+      single_bond: false
+      recovery: >
+        PIN registrations accumulate per clientid. A TV that no longer shows a
+        PIN for a client still has that clientid registered — deregister it
+        (see unpair) and pair again, or reuse the cookie the client already
+        holds. A cookie that silently stops working is often a strict cookie
+        jar dropping the TV's non-RFC Set-Cookie (bravia_common cookie_notes),
+        not a revocation.
+      notes: >
+        With PSK there is one key per TV shared by every client that knows it;
+        changing it locks all of them out at once.
+    enter_pairing_mode:
+      required: true
+      notes: >
+        IP control is OFF on a factory TV, and until a person enables it every
+        /sony/* request fails. After that one-time step the PIN prompt is
+        client-triggered (actRegister) and needs nothing further on the TV.
+      procedures:
+        - name: "Turn on remote control over IP"
+          verified: false
+          basis: "Home Assistant braviatv integration docs and pybravia; setup method 'First-run setup, then turn on IP control'."
+          power_state: "on"
+          glyph: "generic/on-screen-menu.svg"
+          steps:
+            - action: "Settings > Network & Internet > Remote device settings > Control remotely = On (pre-Android: Settings > Network > Home Network Setup > IP Control)."
+              actor: "user"
+            - action: "Either set IP control > Authentication to include a Pre-Shared Key and enter one, or leave PIN registration available."
+              actor: "user"
+            - action: "PIN route: POST actRegister to /sony/accessControl with Basic password '0000'."
+              actor: "client"
+              expect: "401/403, and a 4-digit PIN appears on the TV."
+            - action: "Type the PIN into the client; it repeats actRegister with the PIN and stores the auth cookie."
+              actor: "user"
+    unpair:
+      supported: true
+      requires_factory_reset: false
+      clears: "One registered remote device (a PIN-paired clientid); the PSK and other clients are untouched."
+      procedures:
+        - name: "Deregister remote device"
+          verified: false
+          basis: "Home Assistant braviatv integration docs (cited in setup.credentials.notes)."
+          power_state: "on"
+          glyph: "generic/on-screen-menu.svg"
+          steps:
+            - action: "Settings > Network (& Internet) > Remote device settings > Deregister remote device; pick the client."
+              actor: "user"
+      notes: >
+        PSK clients are not individually registered; revoke them by changing
+        or clearing the Pre-Shared Key, which affects every PSK client.
+    notes: >
+      Every /sony/* request (IRCC and REST alike) carries either the owner's
+      pre-shared key or a PIN-registration cookie once IP control is on; a
+      few discovery-level methods with authLevel none and DIAL on its own port
+      answer without either. Both credentials are purely local — no Sony
+      account or cloud — so they keep working offline. Wire detail is in
+      bravia_common.authentication; the user steps are setup method 'First-run
+      setup, then turn on IP control'.
+
   variants:
     - model: "Bravia 2013+ (consumer)"
       name: "Sony Bravia consumer TVs, 2013 and newer (Linux, Android TV, Google TV generations)"

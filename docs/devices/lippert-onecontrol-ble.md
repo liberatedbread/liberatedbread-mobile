@@ -15,11 +15,20 @@ is occupied by someone unaware of the test.
 
 ## Overview
 
-The spec covers Unity X270D, X270L, X180T, X1.5 and X4 variants:
-`device-specs/devices/lippert-onecontrol-ble.yaml`. It records advertisement
-flags, pairing variants, GATT initialization, the application-layer unlock
-and PIN-derived step, protocol framing and community evidence. This project
-has not driven a gateway from the document.
+The spec covers the Unity X270D, X270L, X1.5 and X180T gateways (the X4 is
+named but not scoped):
+`device-specs/devices/lippert-onecontrol-ble.yaml`. It records the
+advertisement, the pairing variants, the GATT initialization order, and the
+decoded MyRvLink command templates for lights, relays, HVAC zones and the
+generator. This project has not driven a gateway from the document.
+
+The spec is incomplete. It was first published truncated, and the blocks it
+relied on (the TEA unlock and step-2 key layouts, the COBS/CRC-8 framing,
+the event and device-table layouts, the advertisement TLVs and the X180T
+IDS-CAN tunnel) were never in the repository. Its `remaining_unknowns`
+lists each gap; the facts live in the community integration
+[phurth/ha-onecontrol](https://github.com/phurth/ha-onecontrol) and have to
+be re-derived from there. Awning commands are not declared at all.
 
 ## Setup and pairing
 
@@ -69,13 +78,17 @@ unknown. There is no Wi-Fi network to rejoin.
 Authentication has three separate layers: SMP bonding, an application-layer
 TEA unlock on every connection, and on some gateways a second PIN-derived
 answer. A generic BLE client cannot skip the latter two. The YAML declares
-the initialization order, relevant UUIDs, seed/key layouts, advertisement
-variants and remaining unknowns. Its custom protocol handler is required for
-the RV-specific command surface; no generic entity support is claimed.
+the initialization order, the relevant UUIDs, the seed sizes and byte order,
+the advertisement variants and its remaining unknowns, but not the TEA
+details or the step-2 key layout. Every MyRvLink frame is COBS-encoded with
+a CRC-8, so its custom protocol handler is required for the command surface;
+no generic entity support is claimed.
 
 ## References
 
-The spec links the public `phurth/ha-onecontrol` integration and the issue
-reports that distinguish Push-to-Pair, application-PIN and SMP-PIN variants.
-Those community findings are `reported` here, not hardware verification by
-this project.
+The spec links the public
+[phurth/ha-onecontrol](https://github.com/phurth/ha-onecontrol) integration
+(MIT), which every byte here comes from, and cites the issue reports that
+distinguish Push-to-Pair, application-PIN and SMP-PIN variants. Those
+community findings are `reported` here, not hardware verification by this
+project.

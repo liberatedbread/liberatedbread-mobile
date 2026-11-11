@@ -6,8 +6,9 @@
 
 ## Overview
 
-This family covers the PT-P300BT, PT-P300BTz, PT-P710BT, PT-P715eBT,
-PT-P910BT and PT-N25BT. The established control path is a Classic serial
+This family covers the PT-P300BT, PT-P300BTz, PT-P710BT, PT-P715eBT
+and PT-P910BT. The PT-N25BT appears in the spec only to say it is not
+covered: the vendor app reaches it over BLE. The established control path is a Classic serial
 connection carrying Brother's raster and status commands; it is not BLE GATT.
 The machine-readable spec includes per-model differences, command frames,
 reply layouts, media handling and source links:

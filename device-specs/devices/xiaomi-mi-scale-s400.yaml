@@ -274,8 +274,36 @@ device:
         does a factory reset. A local client sees this as an HMAC failure
         rather than an authorisation error, and the fix is to re-extract
         rather than to retry.
+    exclusivity:
+      single_connection: true
+      single_bond: true
+      recovery: >
+        For the passive path, close Xiaomi Home on nearby phones —
+        mnm-matin/miscale reports the measurement broadcasts can stop while
+        the app is connected to the scale. For the GATT path, nothing else
+        may hold the connection. A scale bound to another Xiaomi account
+        must be removed from that account (or reset) before it can be bound
+        to yours, and either way both secrets change.
+      notes: >
+        The binding is to one Xiaomi account, and both the bindkey and the
+        login token belong to it. Passive listeners never connect, so any
+        number of them can decrypt the same broadcasts with the bindkey.
+        One GATT connection at a time is the usual MiBeacon-device
+        behaviour rather than something a source states for the S400.
     enter_pairing_mode:
       required: false
+    notes: >
+      The gate is key material, not a Bluetooth bond: the scale encrypts
+      every measurement it broadcasts with a per-device bindkey, and its
+      GATT channel only opens to a Mi Home v2 login with the per-device
+      token, and both exist only in the Xiaomi account the scale was bound
+      to through Xiaomi Home. Extraction is a one-time cloud step (e.g.
+      PiotrMachowski/Xiaomi-cloud-tokens-extractor); after it, reading the
+      scale is fully local and keeps working with the cloud gone — until
+      the scale is reset or re-added, which no local client can do without
+      the cloud. Medium confidence: openScale, mnm-matin/miscale and
+      Bluetooth-Devices/xiaomi-ble (used by Home Assistant) implement the
+      passive path; this project has not driven a scale.
 helpful_urls:
   - title: "openScale (MiScaleS400Handler)"
     url: "https://github.com/oliexdev/openScale"

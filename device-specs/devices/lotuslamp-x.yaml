@@ -68,7 +68,8 @@ device:
     Existence noted per clean-room rules — key bytes intentionally not
     reproduced here.
 
-    DISCOVERY: service UUID 0xFFF0 is the reliable signal. Advertised
+    DISCOVERY: service UUID 0xFFF0 is shared with unrelated products and is
+    not an identity signal; match the manufacturer data or a name. Advertised
     name prefixes accepted by the app: ELK-, MELK-, ELBU- plus OEM
     variants HX6-, HCW-, BYC-, SHY-, MHRS-, THUNDEROBOT, "LED LIGHT
     STRIP", "LED Constellation Lights" and more. The app's BLE scanner
@@ -156,7 +157,7 @@ device:
       - type: "ble_direct"
         verified: false
         description: >
-          Scan for the 0xFFF0 service UUID (or an ELK-/MELK-/ELBU- name),
+          Scan for the 0xBE99 manufacturer data or an ELK-/MELK-/ELBU- name,
           connect, and write 9-byte E1 command frames to characteristic
           0xFFF3. Classic (non-ELK-*) firmware needs no initialization
           sequence. Subscribe to 0xFFF4 for state echoes.
@@ -167,7 +168,7 @@ device:
             actor: "user"
             request:
               protocol: "ble_gatt"
-          - action: "Scan for the 0xFFF0 service UUID and connect."
+          - action: "Scan for the 0xBE99 manufacturer data or a documented name prefix and connect."
             actor: "client"
           - action: "Optionally subscribe to 0xFFF4 notifications, then write E1 frames to 0xFFF3."
             actor: "client"

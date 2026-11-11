@@ -74,8 +74,8 @@ and its post-provisioning behaviour has not been captured.
 Transport details (from the com.yj.led app's UDP packet builder, its
 packet date/sequence utilities and its constants class): each datagram chunk
 carries an outer u16-LE
-length prefix; large sends split into 180-byte chunks (`writeFscNum`; 120 on
-the `writeNum` path) at ~5 ms intervals; sequence numbers start at
+length prefix; large sends split into 180-byte chunks (120 on the app's
+other send path) at ~5 ms intervals; sequence numbers start at
 4294901761; the app resends up to 10 times at 8 s intervals until an ACK with
 the expected `sno` arrives; error replies are `{"cmd":"err"}` /
 `{"cmd":"failed"}`.
@@ -84,8 +84,8 @@ the expected `sno` arrives; error replies are `{"cmd":"err"}` /
 
 Same 0xAA55-framed binary TLV as the BLE path — see the
 [AUTOBABA doc](autobaba-led-backpack.md#frame-and-tlv-format). JSON is the
-app-internal command form; `libys_parse_tlv.so` (`parseJson`/`parseBin`)
-serializes it to the wire and decodes replies.
+app-internal command form; the app's bundled native TLV library serializes
+it to the wire and decodes replies.
 
 ### Commands
 

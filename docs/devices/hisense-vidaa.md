@@ -87,10 +87,13 @@ on the TV screen (~60 s timeout):
 Modern firmware demands **mutual TLS**, and the TV has no protocol for
 enrolling a new client certificate. Every working client presents the cert
 baked into the official app (`CN=VidaaAppAndroidV01`, issuer `CN=RemoteCA`),
-extracted from the VIDAA APK's PKCS#12 (`assets/client_mobile_android.p12`
-or `res/3R.p12`; store password `186e990688070325a1c4b0ce275d2388`).
-RemoteNow-era sets that demand certs accept the older
-`rcm_certchain_pem.cer` / `rcm_pem_privkey.pkcs8` pair (circulated in
+held in a password-protected PKCS#12 keystore bundled inside the VIDAA
+Android app. Its location and store password are vendor key material and are
+not reproduced here; pyvidaa's `VIDAA_PROTOCOL_ANALYSIS.md` documents how a
+user extracts the certificate and key from their own copy of the app, and a
+client should ask the user for that PEM pair rather than ship it.
+RemoteNow-era sets that demand certs accept an older certificate-chain /
+private-key pair from the RemoteNow app (circulated in
 d3nd3/Hisense-mqtt-keyfiles). A clean-room client cannot complete pairing
 without redistributing Hisense's key material or having the user extract
 it — this, not the topic vocabulary, is the barrier to a fully open

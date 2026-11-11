@@ -1,27 +1,61 @@
-# LOYPRO matching research — 2026-11-07
+# LOYPRO matching research and live confirmation — 2026-11-07/08
 
 observation:
-  advertised_name: LOY5265115155
+  advertised_name: "LOY<serial>"
   advertised_service: 0000fff0-0000-1000-8000-00805f9b34fb
   service_data: {}
   manufacturer_data: {}
   rssi_dbm: -59
   address_retained: false
-  gatt_discovery_completed: false
+  physical_identity: helmet-worn motorcycle LED display
   writes_pairing_reset_or_firmware: false
+
+supplied_gatt_log:
+  service_discovery_completed: true
+  layout: [FFF0, FFF2, FFF1]
+  fff1_notification_enabling_succeeded: true
+  characteristic_properties_in_log: false
+  command_writes_or_replies: false
+  secondary_5833ff_absence_scope: this session only; not proof of absence
+
+live_information_confirmation:
+  date: 2026-11-08
+  query_hex: "aa 55 ff ff 0e 00 01 00 c1 03 0a 00 1b 00 04 00 06 00 ff 03"
+  response_bytes: 159
+  checksum_valid: true
+  fff2_properties: [write-without-response]
+  fff1_properties: [notify]
+  width: 48
+  height: 16
+  width_height_endian: little
+  brightness: 15
+  power_type: 1
+  capabilities: [pwd, remote, car_linkage, brake, "HS:2", "MTU:512", power]
+  unit_identity_and_cid_retained: false
+  display_configuration_pairing_reset_or_firmware_writes: false
 
 best_match:
   spec: loypro-led-display
   app: com.yskj.loypro
-  reason: LOYPRO explicitly accepts the LOY prefix
-  exact_model_and_geometry: unverified
+  reason: LOYPRO explicitly accepts the LOY prefix and returned a checksum-valid AA55 reply
+  integration: supported
+  testing: minimally-verified
+  exact_model: unknown; literal model field is server
+  geometry_source: live little-endian panel TLV, not advertised digits
 
-matching_fix:
-  root_cause: local_name and service_uuids are alternative match axes
-  shared_service_not_identity: 0000fff0-0000-1000-8000-00805f9b34fb
-  action: remove FFF0 from identification and scan discovery, retain it in services
-  production_candidate: LOY prefix only until read-only corroboration
-  example_fixture_excluded_from_production: true
+vehicle_linkage:
+  capabilities_confirmed: [car_linkage, brake]
+  program_ids:
+    turn_left: 67
+    turn_right: 68
+    brake: 69
+    double_flash: 70
+    reverse: 71
+  telecontrol_model: 10942
+  binding_attempted: false
+  accelerometer_or_wiring_proven: false
+  live_brake_events: false
+  next_queries: read-only vehicle telecontrol and sensor type 0 only
 
 rejected_candidates:
   AUTOBABA: YS/TL name mismatch; protocol relative only
@@ -36,9 +70,9 @@ rejected_candidates:
   UREVO: URTM/SYWP names and BluePack protocol mismatch
   Example_Smart_Bulb: example fixture, not production identification
 
-next_evidence:
-  - complete read-only GATT enumeration
-  - confirm FFF2 write-without-response and FFF1 notify if offered
-  - source-derived AA55 information query only after candidate selection
-  - decode model firmware width height before enabling control
-  - do not probe another protocol or maintenance service
+remaining_unknowns:
+  - exact hardware/reseller model and advertised-digit semantics
+  - vehicle-linkage mappings, sensor type/value and actual brake event source
+  - whether 5833ff, Nordic DFU or other maintenance services exist in other firmware states
+  - raw-GIF compatibility, display writes, settings, password configuration, reset and OTA
+  - whether intermittent advertising is firmware policy, power-state behavior or another central

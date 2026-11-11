@@ -323,7 +323,7 @@ device:
 initialization:
   - characteristic: "0000f1f2-0000-1000-8000-00805f9b34fb"
     subscribe: true
-    delay_after_ms: 50
+    delay_ms: 50
     notes: >
       Every reply arrives here. The vendor library also subscribes to every
       other notifying characteristic it finds (0000f2f2 included); that is
@@ -344,7 +344,7 @@ services:
       replies carry no sequence number, so a client sends, waits for the
       reply with the matching head (or 500 ms), then sends the next. Replies
       can arrive split across notifications or glued together; reassemble
-      with the per-head lengths in protocol_details.reply_lengths.
+      with the per-head lengths in protocol_details.framing.reply_lengths.
     characteristics:
       - uuid: "0000f1f1-0000-1000-8000-00805f9b34fb"
         name: "Request (write)"

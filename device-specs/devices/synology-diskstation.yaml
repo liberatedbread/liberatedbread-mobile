@@ -125,6 +125,53 @@ device:
       notes: >
         Identify-only: no credential crosses to this app. The DSM admin login
         is entered by the user at the DSM page, which we only deep-link to.
+  pairing:
+    required: true
+    confidence: "medium"
+    # Applies to DSM (web UI and its Web API on 5000/5001). The findhostd
+    # reply this spec identifies by needs no credential.
+    security_mode: "app_layer"
+    bonding: "none"
+    pin:
+      source: "user_chosen"
+      notes: >
+        An account the owner creates in DSM's first-run wizard. There is no
+        product-wide default credential on DSM 7: the wizard has the owner
+        create the administrator account with a name of their choosing, and
+        the built-in "admin" account is disabled. Optional two-factor
+        authentication adds a per-account code from an authenticator app.
+    exclusivity:
+      single_connection: false
+      single_bond: false
+      recovery: >
+        Auto Block (Control Panel, Security, Account) blocks a client's IP
+        address after a set number of failed logins within a set time. A
+        client retrying a stale password can lock its own host out. Remove
+        the address from the block list in DSM, or add the client to the
+        allow list. A forgotten administrator password is recovered with
+        the recessed RESET button's mode-1 reset (held about four seconds),
+        which resets the administrator password and network settings but
+        not data or other settings.
+      notes: >
+        DSM serves many concurrent sessions and users.
+    unpair:
+      supported: true
+      requires_factory_reset: false
+      clears: "One user account, its sessions, or its trusted 2FA devices."
+      notes: >
+        Give each integration its own DSM user with only the permissions it
+        needs, and disable or delete it to revoke that client. A Web API
+        session (the sid a login returns) ends on logout. Changing a shared
+        password cuts off everyone who used it.
+    enter_pairing_mode:
+      required: false
+    notes: >
+      The findhostd discovery this spec documents is unauthenticated. DSM
+      itself is an admin-login device, local and independent of Synology's
+      cloud services (QuickConnect and the Synology Account are optional
+      add-ons). Nothing at the hardware is involved except the reset used to
+      recover a lost password. Sources: Synology's DSM help for Auto Block
+      and account security, and the DSM 7 setup flow.
 
 local_access:
   status: native

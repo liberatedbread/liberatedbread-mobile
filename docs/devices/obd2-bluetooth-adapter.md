@@ -63,7 +63,9 @@ market:
 Family C is the same HM-10 serial pass-through pattern documented for the
 [MoTool Slacker](motool-slacker.md) — a single bidirectional characteristic rather than a
 pair. A client that wants to work with arbitrary hardware should probe for all three
-rather than hardcoding one.
+rather than hardcoding one. FFE0 is shared with unrelated serial modules, so it
+selects family C only after an OBD name or family-B advertisement has identified
+the adapter; it is not scan-time identity on its own.
 
 Notes that matter in practice:
 
@@ -73,7 +75,9 @@ Notes that matter in practice:
 - MTU is often 20 bytes; long replies (a `ATI` banner, a multi-line CAN response) always
   span several notifications.
 - No authentication, no encryption, no pairing on most BLE adapters. Anyone in range of a
-  plugged-in dongle has the same access the owner does.
+  plugged-in dongle has the same access the owner does. The exception is the OBDLink CX,
+  which bonds with a fixed passkey of `123456` during the first five minutes after
+  power-on and always encrypts the link.
 
 ### Application layer: the ELM327 command set
 

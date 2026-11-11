@@ -1,0 +1,1061 @@
+# Hasbro Furby Connect (2016) — Device Specification
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Sources (all public; clean-room — derived facts only, in our own words):
+#   - Jeija/bluefluff (MIT, Copyright 2017 Florian Euchner), main at 9e865c4:
+#     doc/bluetooth.md (GATT tree), doc/generalplus.md (GeneralPlus command
+#     and response bytes), doc/nordic.md (Nordic command and response bytes),
+#     doc/actions.md (action addressing), doc/flashdlc.md and
+#     doc/dlcformat.md (DLC upload procedure and the little that is known of
+#     the container), doc/names.md (the name table's construction),
+#     fluffd/fluffaction.js and fluffd/fluffcon.js (the bytes a working
+#     client actually writes, the keep-quiet write, the scan filter).
+#   - martinwoodward/PyFluff (MIT, Copyright Martin Woodward; a Python port
+#     of bluefluff), main at f2df440: pyfluff/protocol.py (UUIDs, opcodes,
+#     the DLC announce layout with a NUL-padded 12-byte name),
+#     pyfluff/furby.py (notify subscriptions, write type, keep-quiet loop),
+#     pyfluff/dlc.py (upload state machine), tests/test_protocol.py (frame
+#     vectors), docs/f2f-connectivity.md (advertising stops in F2F mode).
+# Deliberately NOT reproduced: the content of any Hasbro DLC file, audio or
+# eye image, the per-action catalogue (doc/actionlist.md transcribes the
+# toy's own speech), and the vendor app's internals. Nothing here was run
+# against hardware by this project.
+
+device:
+  name: "Furby Connect"
+  manufacturer: "Hasbro"
+  manufacturer_status: "abandoned"
+  model: "Furby Connect (2016)"
+  testing:
+    status: untested
+    notes: >
+      Not driven against hardware by this project. Every UUID and byte below
+      is read from two open-source clients: bluefluff, whose author captured
+      and probed his own Furby Connect, and PyFluff, a later Python port of
+      it whose README says parts are not yet fully tested. Frame layouts are
+      rebuilt and checked by scripts/test_hasbro_furby_connect_spec.py.
+  protocol: "ble"
+  transport: "ble-gatt"
+  category: "other"
+  type: "interactive-plush-toy"
+  aliases:
+    - "Furby Connect"
+    - "Furby 2016"
+  companion_apps:
+    - name: "Furby Connect World"
+      role: "historical"
+      platform: "cross_platform"
+      notes: >
+        The official Android and iOS app. It drove the toy over BLE and
+        pushed DLC content it downloaded from Hasbro's servers. PyFluff's
+        README calls the toy "now unsupported" and its DLC notes say the app
+        has been deprecated; no shutdown date is given by either source.
+  notes: >
+    An interactive plush toy with two LCD eyes, an RGB-lit antenna that
+    doubles as a joystick, tickle/pet sensors, an accelerometer, a speaker
+    and motors. bluefluff found two processors: a Nordic nRF51-series BLE
+    SoC (inferred from its stock Nordic DFU service) that fronts a
+    GeneralPlus MCU, which runs movement, speech and the eyes.
+
+    One vendor service (dab91435-b5a1-e29c-b041-bcd562613bde) carries
+    everything. Commands for the GeneralPlus MCU go to one characteristic
+    and its replies and sensor reports come back on another; the Nordic SoC
+    has its own command/reply pair; and DLC content is streamed raw to a
+    "file write" characteristic. Every command is opcode-first, at most 20
+    bytes, with no length, checksum or encryption.
+
+    What works without the app: play any of the toy's built-in action
+    sequences by its input/index/subindex/specific address, set the antenna
+    colour, set or bump the five mood meters, switch the eye backlight,
+    set the Furby's name, cycle the LCD debug screens, and receive joystick,
+    tickle and accelerometer reports (as opaque frames — no source decodes
+    them). DLC upload is documented at the structural level only.
+
+    The Furby wanders off and talks to itself unless kept busy: both open
+    clients write one byte every 3 s while connected (protocol_details.keep_quiet).
+
+  openness:
+    status: "undocumented"
+    reverse_engineered: true
+    source_code: "https://github.com/Jeija/bluefluff"
+    license: "MIT"
+    notes: >
+      No vendor publication. bluefluff (MIT) is the original reverse
+      engineering; PyFluff (MIT) restates its docs and reimplements its
+      client. They are not independent: PyFluff's byte layouts come from
+      bluefluff, so agreement between them confirms transcription, not the
+      wire. Where they differ from bluefluff's prose, both clients' code
+      agree with each other (mood meter opcode 0x23, DLC announce layout).
+
+  identification:
+    local_names:
+      - "Furby"
+
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          local_name:
+            match: "exact"
+            value: "Furby"
+        notes: >
+          bluefluff's daemon connects to any advertisement whose local name
+          is exactly "Furby"; PyFluff accepts any name containing "Furby".
+          Neither source records advertised service UUIDs, manufacturer data
+          or a MAC prefix, so the name is the only matcher, and it is not
+          unique (other Furby generations and unrelated hobby devices may use
+          it). Confirm after connecting by finding service
+          dab91435-b5a1-e29c-b041-bcd562613bde. PyFluff reports that a Furby
+          in Furby-to-Furby (F2F) play may stop advertising; touching or
+          shaking it brings advertising back, and a connect by a remembered
+          address can work meanwhile.
+    identity:
+      stable_keys: ["address"]
+      display: "local_name"
+      notes: >
+        Every unit advertises the same name. PyFluff remembers Furbies by
+        BLE address and reconnects by it, which implies a stable (public or
+        static random) address; neither source states the address type. The
+        Device Information serial number (00002a25-0000-1000-8000-00805f9b34fb)
+        is readable after connecting and could serve as a stable key; its
+        format is not recorded.
+    static_ip_required: false
+
+  setup:
+    required: false
+    confidence: "medium"
+    notes: >
+      Nothing to provision: put batteries in, wake the Furby, connect,
+      subscribe and start the keep-quiet write. No account, cloud or pairing
+      is involved. Confidence medium: two published clients do exactly this;
+      not replayed here.
+    methods:
+      - type: "ble_direct"
+        name: "Connect, subscribe and keep quiet"
+        verified: false
+        description: >
+          Scan for local name "Furby", connect, enable notifications on the
+          GeneralPlus and Nordic listen characteristics, then write the
+          keep-quiet byte every 3 s for as long as the connection is held.
+        ble:
+          advertised_name: "Furby"
+          advertised_name_match: "exact"
+          service_uuid: "dab91435-b5a1-e29c-b041-bcd562613bde"
+          write_characteristic: "dab91383-b5a1-e29c-b041-bcd562613bde"
+          read_characteristic: "dab91382-b5a1-e29c-b041-bcd562613bde"
+          pairing_required: false
+        steps:
+          - action: "Wake the Furby (touch or tilt it) and close the Furby Connect World app on any nearby phone."
+            actor: "user"
+          - action: "Scan for an advertisement named Furby and connect."
+            actor: "client"
+          - action: "Enable notifications on dab91382-b5a1-e29c-b041-bcd562613bde (GeneralPlus listen) and dab90756-b5a1-e29c-b041-bcd562613bde (Nordic listen)."
+            actor: "client"
+          - action: "Every 3 s, write the keep_quiet command (00) to dab91383-b5a1-e29c-b041-bcd562613bde."
+            actor: "client"
+            expect: "The Furby stays quiet instead of starting its own chatter; commands such as set_antenna_color then take effect."
+    factory_reset:
+      applicable: "unknown"
+      confidence: low
+      effect: "Not established by either source."
+      description: >
+        Neither open source describes a reset, and no Furby Connect
+        instruction sheet could be fetched for this spec (2026-11). Removing
+        the batteries is the only action known to be harmless. Deleting DLC
+        slots (delete_dlc_slot) clears downloaded content but is not a
+        factory reset.
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        BLE only; no network to rejoin and no bond. Any central can connect
+        once the previous one has let go. bluefluff notes a client that dies
+        without disconnecting can leave the Furby refusing new connections;
+        no source says how that clears (a battery pull is the obvious, but
+        undocumented, thing to try).
+    credentials:
+      wifi_passphrase_protection: not_applicable
+      stored_on_device:
+        - "The Furby's chosen name, as an index 0-128 (set_name)."
+        - "Downloaded DLC content in numbered flash slots."
+      issued_to_client: []
+
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "none"
+    bonding: "none"
+    enter_pairing_mode:
+      required: false
+    notes: >
+      Both clients connect and write with no link-layer pairing and no
+      application handshake. The Furby keeps advertising while it appears
+      asleep (bluefluff), so it can be reached with the sleep mask on. Whether
+      more than one central may connect at once is not recorded; bluefluff's
+      daemon holds several different Furbies, each with one connection.
+
+initialization:
+  - characteristic: "dab91382-b5a1-e29c-b041-bcd562613bde"
+    subscribe: true
+    when: "connect"
+    notes: "GeneralPlus listen: command replies, FurbyMessage events, sensor reports, DLC transfer status."
+  - characteristic: "dab90756-b5a1-e29c-b041-bcd562613bde"
+    subscribe: true
+    when: "connect"
+    notes: "Nordic listen: Nordic replies and the packet acks during a DLC upload."
+  - characteristic: "dab90755-b5a1-e29c-b041-bcd562613bde"
+    subscribe: true
+    when: "connect"
+    notes: "RSSI listen. Both clients subscribe; bluefluff saw no data arrive. Optional."
+
+services:
+  - uuid: "00001800-0000-1000-8000-00805f9b34fb"
+    name: "Generic Access"
+    characteristics:
+      - uuid: "00002a00-0000-1000-8000-00805f9b34fb"
+        name: "Device Name"
+        properties: ["read", "write"]
+        notes: >
+          Listed read/write in bluefluff's GATT dump. No source writes it or
+          says whether a write changes the advertised name. The Furby's own
+          name is not stored here; see set_name.
+      - uuid: "00002a01-0000-1000-8000-00805f9b34fb"
+        name: "Appearance"
+        properties: ["read"]
+      - uuid: "00002a04-0000-1000-8000-00805f9b34fb"
+        name: "Peripheral Preferred Connection Parameters"
+        properties: ["read"]
+
+  - uuid: "00001801-0000-1000-8000-00805f9b34fb"
+    name: "Generic Attribute"
+    characteristics:
+      - uuid: "00002a05-0000-1000-8000-00805f9b34fb"
+        name: "Service Changed"
+        properties: ["indicate"]
+
+  - uuid: "0000180a-0000-1000-8000-00805f9b34fb"
+    name: "Device Information"
+    notes: "Standard strings; PyFluff reads all six and strips trailing NULs. Values are not recorded by either source."
+    characteristics:
+      - uuid: "00002a29-0000-1000-8000-00805f9b34fb"
+        name: "Manufacturer Name"
+        properties: ["read"]
+      - uuid: "00002a24-0000-1000-8000-00805f9b34fb"
+        name: "Model Number"
+        properties: ["read"]
+      - uuid: "00002a25-0000-1000-8000-00805f9b34fb"
+        name: "Serial Number"
+        properties: ["read"]
+      - uuid: "00002a27-0000-1000-8000-00805f9b34fb"
+        name: "Hardware Revision"
+        properties: ["read"]
+      - uuid: "00002a26-0000-1000-8000-00805f9b34fb"
+        name: "Firmware Revision"
+        properties: ["read"]
+      - uuid: "00002a28-0000-1000-8000-00805f9b34fb"
+        name: "Software Revision"
+        properties: ["read"]
+
+  - uuid: "00001530-1212-efde-1523-785feabcd123"
+    name: "Nordic legacy DFU"
+    notes: >
+      The stock nRF5 SDK (11 and earlier) buttonless DFU service, present in
+      normal mode per bluefluff's GATT dump. It is the update path of the
+      Nordic SoC only; nothing says the GeneralPlus MCU can be updated over
+      it. bluefluff's own listing mistypes the control point UUID (a "15"
+      is missing); the canonical stack value is used here. Neither source
+      has written to this service. A GATT explorer lists it read-only.
+    characteristics:
+      - uuid: "00001532-1212-efde-1523-785feabcd123"
+        name: "DFU packet"
+        properties: ["write_without_response"]
+        notes: "Listed as W by bluefluff; the stack defines it as write-without-response."
+      - uuid: "00001531-1212-efde-1523-785feabcd123"
+        name: "DFU control point"
+        properties: ["write", "notify"]
+        commands:
+          enter_dfu_bootloader:
+            description: >
+              The nRF5 SDK legacy buttonless entry: write 01 04 (start DFU,
+              application image) to the control point, and the application
+              resets into the Nordic bootloader. This is the STACK DEFAULT
+              from docs/protocols/firmware-update.md, not something either
+              source has sent to a Furby.
+            value: [0x01, 0x04]
+            verification: "hypothesis"
+            advanced: true
+            advanced_reason: >
+              Reboots the Furby's Nordic BLE chip into its bootloader. Until
+              a valid image arrives or the bootloader gives up, the Furby is
+              not controllable and advertises as a bootloader rather than as
+              Furby. No Furby firmware image is public, so there is nothing
+              to complete the update with; if it does not come back on its
+              own, remove the batteries and reinsert them.
+      - uuid: "00001534-1212-efde-1523-785feabcd123"
+        name: "DFU version"
+        properties: ["read"]
+
+  - uuid: "dab91435-b5a1-e29c-b041-bcd562613bde"
+    name: "Fluff service"
+    notes: >
+      bluefluff's name for the vendor service. The characteristic UUIDs all
+      share its tail and differ only in the first group (dab9xxxx); read
+      them carefully. Every command is one write of 1-20 bytes, opcode
+      first. Both clients write WITHOUT response.
+    characteristics:
+      - uuid: "dab91383-b5a1-e29c-b041-bcd562613bde"
+        name: "GeneralPlus write"
+        properties: ["read", "write", "write_without_response"]
+        role: "command"
+        notes: >
+          Commands for the GeneralPlus MCU. Listed R/W in bluefluff's dump;
+          both clients send write-without-response, so that property is
+          listed from client behaviour. Replies arrive on GeneralPlus listen.
+          Opcodes the sources list but cannot explain are in
+          protocol_details.unexplained_gp_opcodes and are not declared here.
+        commands:
+          keep_quiet:
+            description: >
+              One zero byte. bluefluff and PyFluff write it every 3 s while
+              connected so the Furby stays idle instead of starting its own
+              speech and movement. The vendor app instead sent im_here_poll
+              every 3 s. Stop sending it to let the Furby act on its own.
+            value: [0x00]
+            verification: "reported"
+          im_here_poll:
+            description: "FurbyMessage 20 06. The vendor app's keepalive per bluefluff; the Furby answers with an ImHereSignal (22 + 18 bytes, undecoded)."
+            value: [0x20, 0x06]
+            verification: "reported"
+          trigger_action_by_input:
+            description: >
+              Play a random action from one input (top-level category); the
+              Furby picks index, subindex and specific. See
+              protocol_details.action_addressing.
+            template: [0x10, 0x00, "{input}"]
+            verification: "reported"
+            packet_layout:
+              "0": "opcode 0x10"
+              "1": "0x00 (always zero in every source)"
+              "2": "input"
+            parameters:
+              input:
+                type: "uint8"
+                min: 0
+                max: 255
+                description: "Action input (top-level category)."
+          trigger_action_by_index:
+            description: "Play a random action from one input and index; the Furby picks subindex and specific."
+            template: [0x11, 0x00, "{input}", "{index}"]
+            verification: "reported"
+            parameters:
+              input: {type: "uint8", min: 0, max: 255, description: "Action input."}
+              index: {type: "uint8", min: 0, max: 255, description: "Index within the input."}
+          trigger_action_by_subindex:
+            description: "Play a random action from one input, index and subindex; the Furby picks the specific."
+            template: [0x12, 0x00, "{input}", "{index}", "{subindex}"]
+            verification: "reported"
+            parameters:
+              input: {type: "uint8", min: 0, max: 255, description: "Action input."}
+              index: {type: "uint8", min: 0, max: 255, description: "Index within the input."}
+              subindex: {type: "uint8", min: 0, max: 255, description: "Subindex within the index."}
+          trigger_action:
+            description: >
+              Play exactly one action sequence (speech, eye animation and
+              movement together). The Furby answers 20 0c (SequencePlaying)
+              then 20 0e (SequenceEnded), or 20 0f..20 12 when the input,
+              index, subindex or specific is out of range. Input 75 holds
+              the actions of an activated DLC (bluefluff flashdlc.md).
+            template: [0x13, 0x00, "{input}", "{index}", "{subindex}", "{specific}"]
+            verification: "reported"
+            packet_layout:
+              "0": "opcode 0x13"
+              "1": "0x00"
+              "2": "input"
+              "3": "index"
+              "4": "subindex"
+              "5": "specific"
+            parameters:
+              input: {type: "uint8", min: 0, max: 255, description: "Action input (top-level category)."}
+              index: {type: "uint8", min: 0, max: 255, description: "Index within the input."}
+              subindex: {type: "uint8", min: 0, max: 255, description: "Subindex within the index."}
+              specific: {type: "uint8", min: 0, max: 255, description: "Specific variant within the subindex."}
+          giggle:
+            description: "trigger_action 55/2/14/0: the giggle preset bluefluff's client ships as a button."
+            value: [0x13, 0x00, 0x37, 0x02, 0x0e, 0x00]
+            verification: "reported"
+          set_antenna_color:
+            description: >
+              Set the antenna LED to an RGB colour, one byte per channel in
+              R, G, B order. 00 00 00 turns it off. No reply is documented.
+            template: [0x14, "{red}", "{green}", "{blue}"]
+            verification: "reported"
+            parameters:
+              red: {type: "uint8", min: 0, max: 255, description: "Red brightness."}
+              green: {type: "uint8", min: 0, max: 255, description: "Green brightness."}
+              blue: {type: "uint8", min: 0, max: 255, description: "Blue brightness."}
+          set_name:
+            description: >
+              Set the Furby's name as an index into its fixed table of 129
+              two-syllable names (protocol_details.names). Both clients then
+              send say_name with the same index so the Furby announces it;
+              set_name alone is silent as far as the sources say.
+            template: [0x21, "{name_id}"]
+            verification: "reported"
+            parameters:
+              name_id:
+                type: "uint8"
+                min: 0
+                max: 128
+                description: "Name index 0-128; see protocol_details.names for how index maps to name."
+          say_name:
+            description: "trigger_action with input 33 (0x21), index 0, subindex 0 and specific = name index: the Furby speaks that name."
+            template: [0x13, 0x00, 0x21, 0x00, 0x00, "{name_id}"]
+            verification: "reported"
+            parameters:
+              name_id: {type: "uint8", min: 0, max: 128, description: "Name index 0-128."}
+          set_mood:
+            description: >
+              Set or increase one of the five mood meters (each 0-100 per
+              bluefluff). OPCODE CONFLICT: bluefluff's generalplus.md table
+              says 0x24, but bluefluff's own client and PyFluff (code and
+              tests) both send 0x23, which is declared here. 0x24 is also the
+              FileTransferMode reply opcode.
+            template: [0x23, "{mode}", "{mood_type}", "{value}"]
+            verification: "reported"
+            packet_layout:
+              "0": "opcode 0x23"
+              "1": "mode: 1 set, 0 increase"
+              "2": "mood type"
+              "3": "value (mode 1) or delta (mode 0)"
+            parameters:
+              mode:
+                type: "uint8"
+                min: 0
+                max: 1
+                labels: ["increase", "set"]
+                description: "1 sets the meter to value; 0 adds value to it."
+              mood_type:
+                type: "uint8"
+                min: 0
+                max: 4
+                labels: ["excitedness", "displeasedness", "tiredness", "fullness", "wellness"]
+                description: "Which meter."
+              value:
+                type: "uint8"
+                min: 0
+                max: 100
+                description: "New value or delta. bluefluff gives 0-100 as the meters' range; the clients accept 0-255 and the effect above 100 is unknown."
+          lcd_backlight_on:
+            description: "Turn the LCD eyes' backlight on (cd 01). The Furby answers FurbyMessage 20 17."
+            value: [0xcd, 0x01]
+            verification: "reported"
+          lcd_backlight_off:
+            description: "Turn the LCD eyes' backlight off (cd 00). The Furby answers FurbyMessage 20 18."
+            value: [0xcd, 0x00]
+            verification: "reported"
+          cycle_debug_screen:
+            description: >
+              Show the next of seven LCD debug screens: mood, RTC/BLE, accelerometer,
+              microphone, F2F, DLC slots, notification timings. The DLC
+              slot screen is the progress display for an upload.
+            value: [0xdb]
+            verification: "reported"
+          start_sensor_stream:
+            description: "FurbyMessage 20 0d: start a continuous stream of 0x21 sensor reports (accelerometer and the rest)."
+            value: [0x20, 0x0d]
+            verification: "reported"
+          stop_sensor_stream:
+            description: "FurbyMessage 20 0e: stop the stream started by start_sensor_stream."
+            value: [0x20, 0x0e]
+            verification: "reported"
+          get_language:
+            description: "FurbyMessage 20 0f. Reply 25 + one byte; 00 on bluefluff's English Furby."
+            value: [0x20, 0x0f]
+            verification: "reported"
+          get_gp_firmware_version:
+            description: "Ask the GeneralPlus MCU for its firmware version. Reply fe + one byte (04 on bluefluff's unit)."
+            value: [0xfe]
+            verification: "reported"
+          get_dlc_slot_allocation:
+            description: "Ask for the DLC slot table. Reply opcode 72; its layout is not decoded by either source."
+            value: [0x72]
+            verification: "reported"
+          get_dlc_slot_info:
+            description: "Ask about one DLC slot. Reply opcode 73, undecoded. bluefluff presumes the byte is the slot number."
+            template: [0x73, "{slot}"]
+            verification: "hypothesis"
+            parameters:
+              slot: {type: "uint8", min: 0, max: 255, description: "Slot number (presumed)."}
+          announce_dlc_upload:
+            description: >
+              Open a DLC upload: total file size, target slot and an
+              8.3-style file name. Wait for 24 02 (ReadyToReceive) on
+              GeneralPlus listen, then stream the file to the file-write
+              characteristic. 24 01 means a file of that name already
+              exists. Exactly 20 bytes. See features stored_upload and
+              protocol_details.dlc_upload.
+            template: [0x50, 0x00, "{size}", "{slot}", "{filename}", 0x00, 0x00]
+            fixed_length: 20
+            verification: "reported"
+            packet_layout:
+              "0": "opcode 0x50"
+              "1": "0x00"
+              "2": "file size, 3 bytes big-endian (2-4)"
+              "5": "slot"
+              "6": "file name, 12 bytes ASCII NUL-padded (6-17)"
+              "18": "0x00"
+              "19": "0x00"
+            advanced: true
+            advanced_reason: >
+              Starts writing new content into the Furby's DLC flash. A
+              transfer that is cut off leaves the slot half-written (debug
+              screen shows 1) and its content unusable. Recovery: delete the
+              slot with delete_dlc_slot and upload again; the Furby's
+              built-in actions are not affected. Takes 3-5 minutes.
+            parameters:
+              size:
+                type: "uint24"
+                endianness: "big"
+                min: 1
+                max: 16777215
+                description: "Exact size of the DLC file in bytes."
+              slot:
+                type: "uint8"
+                min: 0
+                max: 255
+                description: >
+                  Target slot. bluefluff always sends 2 and doubts the byte is
+                  really the slot; PyFluff exposes it as the slot, default 2.
+              filename:
+                type: "bytes"
+                min_length: 12
+                max_length: 12
+                description: >
+                  The file's name as ASCII, NUL-padded on the right to
+                  exactly 12 bytes (8.3 names like XXXXXXXX.DLC fill it).
+                  bluefluff thinks the Furby only stores it as a label.
+          load_dlc:
+            description: "Load the DLC in a slot ready for activation. Reply opcode dc (ReportDLC, undecoded)."
+            template: [0x60, "{slot}"]
+            verification: "reported"
+            parameters:
+              slot: {type: "uint8", min: 0, max: 255, description: "DLC slot as numbered on the DLC debug screen."}
+          activate_dlc:
+            description: "Activate the loaded DLC: its actions become reachable (input 75) and the debug screen shows 3 for the slot. Reply opcode dc."
+            value: [0x61]
+            verification: "reported"
+          deactivate_dlc:
+            description: "Make a slot's DLC unreachable without deleting it (debug screen shows 2). Reply opcode dc."
+            template: [0x62, "{slot}"]
+            verification: "reported"
+            parameters:
+              slot: {type: "uint8", min: 0, max: 255, description: "DLC slot."}
+          delete_dlc_slot:
+            description: "Mark a DLC slot deleted (debug screen shows 0). Reply opcode 74, undecoded."
+            template: [0x74, "{slot}"]
+            verification: "reported"
+            advanced: true
+            advanced_reason: >
+              Deletes downloaded content from the Furby. Hasbro's servers no
+              longer serve DLC, so official content deleted here cannot be
+              downloaded again. The Furby's built-in behaviour is unaffected.
+            parameters:
+              slot: {type: "uint8", min: 0, max: 255, description: "DLC slot as numbered on the DLC debug screen."}
+
+      - uuid: "dab91382-b5a1-e29c-b041-bcd562613bde"
+        name: "GeneralPlus listen"
+        properties: ["read", "notify"]
+        role: "notify"
+        notes: >
+          Every reply, event and sensor report from the GeneralPlus MCU,
+          opcode first. Dispatch on byte 0 (payload_formats lists the known
+          ones). The sensor report (0x21) is 8 bytes and carries the antenna
+          joystick, tickle/pet sensors and accelerometer, but NO source
+          decodes its seven payload bytes.
+        format:
+          - offset: 0
+            length: 1
+            name: "gp_response"
+            type: "uint8"
+            values:
+              0x20: "FurbyMessage (one event byte follows)"
+              0x21: "sensor / antenna / movement report (7 bytes follow, undecoded)"
+              0x22: "ImHereSignal (18 bytes follow, undecoded)"
+              0x23: "CurrentMode (undecoded)"
+              0x24: "FileTransferMode (one status byte follows)"
+              0x25: "Language (one byte follows)"
+              0x26: "FurbiesMet (undecoded)"
+              0x54: "GotFileSize (undecoded)"
+              0x55: "GotFileChecksum (undecoded)"
+              0x72: "SlotsInfo (undecoded)"
+              0x73: "GotSlotInfoByIndex (undecoded)"
+              0x74: "GotDeleteSlotByIndex (undecoded)"
+              0xdc: "ReportDLC (undecoded)"
+              0xfe: "GPLFirmwareVersion (one byte follows)"
+          - offset: 1
+            length: 1
+            name: "gp_code"
+            type: "uint8"
+            notes: "Meaning depends on gp_response; see payload_formats.FurbyMessage and payload_formats.FileTransferMode."
+
+      - uuid: "dab90757-b5a1-e29c-b041-bcd562613bde"
+        name: "Nordic write"
+        properties: ["read", "write", "write_without_response"]
+        notes: "Commands for the Nordic SoC, opcode first; replies on Nordic listen. Other opcodes are in protocol_details.unexplained_nordic_opcodes."
+        commands:
+          get_nordic_firmware_version:
+            description: "Reply 01 + four bytes (19 00 00 00 on bluefluff's unit; encoding not stated)."
+            value: [0x01]
+            verification: "reported"
+          get_power_report:
+            description: "Reply 03 + one byte (always 00 for bluefluff; meaning unknown)."
+            value: [0x03]
+            verification: "reported"
+          comm_test:
+            description: >
+              Echo test: send two bytes, the reply is 04 followed by "the
+              inverse" of those bytes. bluefluff does not say whether that
+              is the bitwise complement or the reversed order.
+            template: [0x04, "{a}", "{b}"]
+            verification: "reported"
+            parameters:
+              a: {type: "uint8", min: 0, max: 255, description: "First test byte."}
+              b: {type: "uint8", min: 0, max: 255, description: "Second test byte."}
+          set_packet_ack:
+            description: >
+              09 01 00 enables, 09 00 00 disables, Nordic "GotPacketAck"
+              notifications (09 + one byte) while the file-write
+              characteristic is receiving. Both clients enable it before a DLC
+              upload to see that data is still landing.
+            template: [0x09, "{enabled}", 0x00]
+            verification: "reported"
+            parameters:
+              enabled:
+                type: "uint8"
+                min: 0
+                max: 1
+                labels: ["off", "on"]
+                description: "1 on, 0 off."
+
+      - uuid: "dab90756-b5a1-e29c-b041-bcd562613bde"
+        name: "Nordic listen"
+        properties: ["read", "notify"]
+        notes: "Replies from the Nordic SoC, opcode first. See payload_formats.NordicReply."
+        format:
+          - offset: 0
+            length: 1
+            name: "nordic_response"
+            type: "uint8"
+            values:
+              0x01: "FirmwareVersion (4 bytes follow)"
+              0x03: "ReportPower (1 byte follows)"
+              0x04: "CommTest"
+              0x06: "GotTimeStamp (undecoded)"
+              0x09: "GotPacketAck (1 byte follows, probably packets since last ack)"
+              0x0a: "GotPacketOverload: file-write packets arrived too fast"
+              0x0d: "GotCurrentConnParam (undecoded)"
+              0x0e: "unknown; 0c 00 follows on bluefluff's unit"
+
+      - uuid: "dab90758-b5a1-e29c-b041-bcd562613bde"
+        name: "File write"
+        properties: ["read", "write", "write_without_response"]
+        role: "bulk"
+        notes: >
+          Raw DLC bytes in file order, 20 bytes per write, no header, no
+          sequence number, no checksum. Only valid between a 24 02 reply to
+          announce_dlc_upload and the 24 05 / 24 06 result. Both clients
+          write without response, spaced about 5 ms apart.
+
+      - uuid: "dab90755-b5a1-e29c-b041-bcd562613bde"
+        name: "RSSI listen"
+        properties: ["read", "notify"]
+        notes: "Named for signal strength by bluefluff; subscribing produced no data for him. Content unknown."
+
+      - uuid: "dab91440-b5a1-e29c-b041-bcd562613bde"
+        name: "Unknown 1 (suspected F2F receive)"
+        properties: ["read", "notify"]
+        notes: "Purpose unknown. Both sources guess Furby-to-Furby traffic; neither uses it."
+
+      - uuid: "dab91441-b5a1-e29c-b041-bcd562613bde"
+        name: "Unknown 2 (suspected F2F transmit)"
+        properties: ["read", "write"]
+        notes: "Purpose unknown; do not write."
+
+payload_formats:
+  FurbyMessage:
+    description: "GeneralPlus listen frame 20 xx: one event byte. Also the opcode of several commands (20 06, 20 0d, 20 0e, 20 0f), which use a different code table."
+    values:
+      0x01: "entered naming mode"
+      0x02: "exited naming mode"
+      0x03: "Furby named"
+      0x04: "entered app mode"
+      0x05: "exited app mode"
+      0x06: "response played"
+      0x07: "speech playing"
+      0x08: "slave ack"
+      0x0a: "mask added (not the sleep mask)"
+      0x0b: "mask removed"
+      0x0c: "sequence playing"
+      0x0d: "sequence cancelled"
+      0x0e: "sequence ended"
+      0x0f: "requested input out of range"
+      0x10: "requested index out of range"
+      0x11: "requested subindex out of range"
+      0x12: "requested specific out of range"
+      0x13: "sleep mask added"
+      0x14: "sleep mask removed"
+      0x15: "body cam on"
+      0x16: "body cam off"
+      0x17: "LCD eyes on"
+      0x18: "LCD eyes off"
+      0x19: "group not active"
+      0x1a: "timed group set"
+      0x1b: "custom notification set"
+    parse_rules:
+      - "Byte 0 is 0x20 and byte 1 is the event code; an unknown code is kept as a number, not an error."
+      - "bluefluff marks 02, 03, 05, 0a, 0b as not observed; they come from names, not captures."
+    example: "20 0e"
+  FileTransferMode:
+    description: "GeneralPlus listen frame 24 xx during a DLC upload."
+    values:
+      0x01: "file already exists; end the current transfer"
+      0x02: "ready to receive"
+      0x03: "file transfer timeout"
+      0x04: "ready to append"
+      0x05: "file received OK"
+      0x06: "file received with error"
+    example: "24 02"
+  SensorReport:
+    description: >
+      GeneralPlus listen frame 21 + 7 bytes: antenna joystick, tickle/pet
+      sensors and movement, also streamed continuously after
+      start_sensor_stream. The layout of the 7 bytes is NOT published by
+      either source (bluefluff: "should be easy to decode"; PyFluff passes
+      the raw hex through). Recognise it by byte 0 and keep the rest opaque.
+    parse_rules:
+      - "Byte 0 == 0x21 and length 8 (opcode + 7): a sensor report. Expose the 7 bytes raw until someone maps them."
+  GplFirmwareVersion:
+    description: "GeneralPlus listen frame fe + one version byte."
+    example: "fe 04"
+  Language:
+    description: "GeneralPlus listen frame 25 + one byte; 00 appears to be English."
+    example: "25 00"
+  NordicReply:
+    description: "Nordic listen frames, opcode first."
+    parse_rules:
+      - "01 + 4 bytes: Nordic firmware version (19 00 00 00 observed; encoding not stated)."
+      - "09 + 1 byte: packet ack during a DLC upload; 09 02 and 09 03 were seen, probably packets received since the last ack. Stopping acks mean the Furby dropped the link."
+      - "0a: packet overload; slow the file writes."
+    example: "09 02"
+
+features:
+  - type: "stored_upload"
+    frame_size: 20
+    response_characteristic: "dab91382-b5a1-e29c-b041-bcd562613bde"
+    session_open: ["set_packet_ack", "announce_dlc_upload"]
+    play_command: "trigger_action"
+    notes: >
+      DLC upload: persistent content (eye animations, audio, movement) in a
+      flash slot that plays without a phone. Structure only — see
+      protocol_details.dlc_upload and dlc_container. Send set_packet_ack
+      (enabled 1) on Nordic write, then announce_dlc_upload; wait for 24 02;
+      write the file in 20-byte pieces to dab90758-b5a1-e29c-b041-bcd562613bde;
+      wait for 24 05 (or 24 06 / 24 03 on failure); then load_dlc and
+      activate_dlc. The content plays through trigger_action with input 75.
+      There is no published encoder for the container, so no client can
+      build new content from scratch; the upload path itself is generic.
+  - type: "firmware_update"
+    dfu:
+      mechanisms: ["nordic_legacy_dfu"]
+      transport: "ble"
+      image:
+        signing: "unknown"
+        source: "unknown"
+        notes: >
+          No Furby firmware image is public, and neither source says the
+          vendor app ever updated firmware (bluefluff lists "is there a
+          firmware update functionality?" as open). The legacy Nordic stack
+          is unsigned with a CRC-16 init packet by default; whether Hasbro
+          changed that is unknown. Covers the Nordic SoC only.
+      enter:
+        how: "stack_characteristic"
+        command: "enter_dfu_bootloader"
+        notes: >
+          Stack default (01 04 on 00001531-1212-efde-1523-785feabcd123),
+          not observed on a Furby. Declared advanced so no generic control
+          sends it.
+      dfu_mode:
+        notes: >
+          Not observed. A stock legacy Nordic bootloader advertises
+          "DfuTarg"; whether this one does, and at what address offset, is
+          unknown, so nothing ties such an advertisement to a Furby.
+      services: ["00001530-1212-efde-1523-785feabcd123"]
+      recovery:
+        interrupted: "unknown"
+      verification: "reported"
+      notes: >
+        The service's presence is reported (bluefluff GATT dump); everything
+        about entering and using it is the stack default. Do not write to it
+        without an image and a recovery plan.
+
+entities:
+  - platform: "light"
+    name: "Antenna"
+    icon: "mdi:led-on"
+    features: ["color"]
+    command_characteristic: "dab91383-b5a1-e29c-b041-bcd562613bde"
+    commands:
+      turn_on: {command: "set_antenna_color", values: {red: 255, green: 255, blue: 255}}
+      turn_off: {command: "set_antenna_color", values: {red: 0, green: 0, blue: 0}}
+      set_color: "set_antenna_color"
+    notes: >
+      Write-only: no source reads the antenna colour back, so state is
+      assumed. "On" as white is this spec's choice; the device only knows
+      colours, and 00 00 00 is off. The Furby may change the colour itself
+      during its own actions.
+  - platform: "button"
+    name: "LCD Backlight On"
+    icon: "mdi:eye"
+    commands:
+      press: "lcd_backlight_on"
+  - platform: "button"
+    name: "LCD Backlight Off"
+    icon: "mdi:eye-off"
+    commands:
+      press: "lcd_backlight_off"
+  - platform: "button"
+    name: "Giggle"
+    icon: "mdi:emoticon-happy"
+    commands:
+      press: "giggle"
+  - platform: "button"
+    name: "Next Debug Screen"
+    icon: "mdi:monitor-eye"
+    commands:
+      press: "cycle_debug_screen"
+  - platform: "number"
+    name: "Fullness"
+    icon: "mdi:food-apple"
+    min: 0
+    max: 100
+    step: 1
+    command_characteristic: "dab91383-b5a1-e29c-b041-bcd562613bde"
+    commands:
+      set_value: {command: "set_mood", values: {mode: 1, mood_type: 3}}
+    notes: "Write-only: sets the fullness meter. No read-back is published; the value decays on its own."
+  - platform: "number"
+    name: "Wellness"
+    icon: "mdi:heart-pulse"
+    min: 0
+    max: 100
+    step: 1
+    command_characteristic: "dab91383-b5a1-e29c-b041-bcd562613bde"
+    commands:
+      set_value: {command: "set_mood", values: {mode: 1, mood_type: 4}}
+    notes: "Write-only, as Fullness."
+  - platform: "number"
+    name: "Tiredness"
+    icon: "mdi:sleep"
+    min: 0
+    max: 100
+    step: 1
+    command_characteristic: "dab91383-b5a1-e29c-b041-bcd562613bde"
+    commands:
+      set_value: {command: "set_mood", values: {mode: 1, mood_type: 2}}
+    notes: "Write-only, as Fullness."
+  - platform: "number"
+    name: "Excitedness"
+    icon: "mdi:party-popper"
+    min: 0
+    max: 100
+    step: 1
+    command_characteristic: "dab91383-b5a1-e29c-b041-bcd562613bde"
+    commands:
+      set_value: {command: "set_mood", values: {mode: 1, mood_type: 0}}
+    notes: "Write-only, as Fullness."
+  - platform: "number"
+    name: "Displeasedness"
+    icon: "mdi:emoticon-angry"
+    min: 0
+    max: 100
+    step: 1
+    command_characteristic: "dab91383-b5a1-e29c-b041-bcd562613bde"
+    commands:
+      set_value: {command: "set_mood", values: {mode: 1, mood_type: 1}}
+    notes: "Write-only, as Fullness."
+
+protocol_details:
+  uuid_scheme: >
+    Vendor UUIDs are dab9XXXX-b5a1-e29c-b041-bcd562613bde. Service 1435;
+    GeneralPlus listen 1382, write 1383; Nordic listen 0756, write 0757;
+    RSSI listen 0755; file write 0758; unknown 1440 (notify) and 1441
+    (write). The sources print them without dashes.
+  frame_rules: >
+    One GATT write = one command, 1 to 20 bytes, byte 0 the opcode, no
+    length, checksum or encryption. Replies are notifications on the
+    matching listen characteristic with the same opcode-first shape. No
+    request id: correlate by opcode.
+  keep_quiet:
+    interval_s: 3
+    client_write: "00 on GeneralPlus write (bluefluff, PyFluff)"
+    vendor_app_write: "20 06 on GeneralPlus write, answered by 22 ImHereSignal (bluefluff)"
+    notes: >
+      Without it the Furby behaves as if no app were connected. bluefluff
+      also reports the Furby stays awake as long as a connection is held,
+      and only really shuts off a few minutes after disconnecting and
+      falling asleep.
+  action_addressing: >
+    Every behaviour is an action sequence (speech + eye animation + body
+    movement) addressed by four bytes: input (broad category), index (kind
+    within it), subindex (variant), specific (one particular take). Opcodes
+    0x10-0x13 fix 1-4 of them and let the Furby pick the rest at random.
+    All carry a 0x00 byte after the opcode whose meaning nobody has
+    explained. Input 33 index 0 subindex 0 speaks name number <specific>;
+    input 75 is DLC content. bluefluff's doc/actionlist.md catalogues
+    observed addresses with transcriptions of what the Furby says; that
+    catalogue is the toy's content and is not reproduced here, beyond the
+    two presets its client ships: giggle 55/2/14/0 and 56/3/15/1.
+  names:
+    count: 129
+    first_syllables: ["Ah", "Bee", "Dah", "Day", "Dee", "Doo", "Kee", "Loo", "May", "Noo", "Tay", "Toh", "Way"]
+    second_syllables: ["Bay", "Boh", "Boo", "Dah", "Doh", "Doo", "Kah", "Koh", "Tah", "Toh"]
+    rule: >
+      Enumerate first syllable (outer) by second syllable (inner) in the
+      orders above, joined with a hyphen, and skip "Tay-Tah", which the
+      toy does not have. Index 0 is Ah-Bay, 47 Dee-Koh, 107 Tay-Koh,
+      108 Tay-Toh, 128 Way-Toh. 13 x 10 - 1 = 129.
+    source: "bluefluff doc/names.md; PyFluff pyfluff/protocol.py carries the same table."
+  dlc_upload:
+    steps:
+      - "Optional: cycle_debug_screen to the DLC slot screen (sixth) to watch progress. Each slot shows 0 empty, 1 transfer in progress or failed, 2 downloaded not active, 3 active. bluefluff guesses the slot labels 2M / 1M / .5M are capacities."
+      - "Optional: delete_dlc_slot for slots to be reused (bluefluff deletes all first)."
+      - "set_packet_ack enabled=1 on Nordic write (09 01 00)."
+      - "announce_dlc_upload with size, slot and name. bluefluff always sends slot 2."
+      - "Wait for 24 02 on GeneralPlus listen (PyFluff allows 10 s). 24 01 = name already present."
+      - "Write the file to file write in 20-byte pieces, the last one shorter, ~5 ms apart, without response. Watch for 09 xx acks; 0a means too fast."
+      - "Wait for 24 05 (OK) or 24 06 (error) / 24 03 (timeout). bluefluff: 3-5 minutes; ~4 kB/s at best."
+      - "load_dlc slot, then activate_dlc. The slot reads 3; play its content with trigger_action input 75."
+    notes: "PyFluff's README warns its port of this path is not fully tested."
+  dlc_container: >
+    Structure only; no content of any Hasbro DLC is described. A DLC is one
+    binary file (Hasbro's carried 8.3 names ending .DLC) holding LCD eye
+    animations, audio and the matching movement data. bluefluff did not
+    reverse the container layout; what is published: the images use an
+    undecoded custom palette, and the audio is GeneralPlus A1800 at 16 kbit/s
+    in independent 40-byte blocks of 20 ms each, which GeneralPlus's own
+    batch converter produces from 16 kHz WAV. The Furby does no checksum on
+    a received file (the vendor app checked), so a modified file of the
+    same length loads. No header, index or offset table is documented, so
+    a client can transfer a file but cannot build one.
+  unexplained_gp_opcodes:
+    0x31: "sets 'blue antenna' notifications; reply 20 1b"
+    0x46: "reply 20 0d (sequence cancelled), no visible effect"
+    0x53: "possibly delete file; reply 53"
+    0x54: "possibly get file size; reply 54"
+    0x55: "possibly get checksum; reply 55"
+    0x56: "reply 56"
+    0x57: "reply 57"
+    0x58: "reply 58"
+    0x70: "reply 56"
+    0x71: "reply 57"
+    0xbc: "'body cam' on/off with one byte; replies 20 15 / 20 16; seen only as a reference"
+    0xe0: "group activation: e0 00 00 00 00 makes later actions fail with 20 19, e0 00 00 00 01 undoes it"
+    0xe1: "reply e0"
+    0xe2: "reply 20 1a (timed group set)"
+    0xe3: "reply e0"
+    0xf0: "reply f0"
+    0xf2: "one byte; reply f2 00; possibly F2F"
+    notes: "From bluefluff's generalplus.md. Not declared as commands: their effect is unknown."
+  unexplained_nordic_opcodes:
+    0x06: "reply 06 GotTimeStamp"
+    0x07: "the Furby disconnects"
+    0x08: "reply 08"
+    0x0e: "reply 0e 0c 00"
+  furby_message_commands: >
+    20 xx written to GeneralPlus write uses its own code table (bluefluff):
+    20 01 -> 20 05 then 20 01; 20 02 -> 20 02 then 20 04; 20 05, 20 07 and
+    20 08 disconnect; 20 06 im_here_poll; 20 0a -> 20 0e; 20 0b -> 20 0d;
+    20 0c -> 23 08; 20 0d / 20 0e start/stop sensor stream; 20 0f language;
+    20 10 -> FurbiesMet.
+  mood_opcode_conflict: >
+    bluefluff doc/generalplus.md lists Set Moodmeter as 0x24; bluefluff
+    fluffd/fluffaction.js, PyFluff pyfluff/protocol.py and PyFluff's test
+    all use 0x23. The code is what a working client sent, so 0x23 is
+    declared. Neither is hardware-verified here.
+  test_vectors:
+    note: "Held by scripts/test_hasbro_furby_connect_spec.py. The DLC name and size are invented."
+    antenna_255_128_0: "14 ff 80 00"
+    giggle: "13 00 37 02 0e 00"
+    set_name_42: "21 2a"
+    say_name_42: "13 00 21 00 00 2a"
+    set_fullness_75: "23 01 03 4b"
+    lcd_on: "cd 01"
+    lcd_off: "cd 00"
+    packet_ack_on: "09 01 00"
+    announce_dlc:
+      size: 123456
+      slot: 2
+      filename: "CUSTOM01.DLC"
+      hex: "50 00 01 e2 40 02 43 55 53 54 4f 4d 30 31 2e 44 4c 43 00 00"
+
+evidence:
+  artifacts:
+    - type: "public_research"
+      artifact: "Jeija/bluefluff at 9e865c47326167c2d4e6f47d96321e8e5cfc0e32 (read 2026-11-08): README.md, doc/*.md, fluffd/fluffaction.js, fluffd/fluffcon.js, fluffd/fluffd.js"
+      url: "https://github.com/Jeija/bluefluff"
+      description: >
+        MIT. The original reverse engineering from BLE sniffing, probing and
+        reading the vendor app's native library. Source of the GATT tree,
+        every opcode table, the DLC upload flow and the debug-screen slot
+        states.
+    - type: "public_implementation"
+      artifact: "martinwoodward/PyFluff at f2df440a331f7124596ed4840d9f36dc7da3f978 (read 2026-11-08): pyfluff/protocol.py, furby.py, dlc.py, models.py, tests/test_protocol.py, docs/f2f-connectivity.md, README.md"
+      url: "https://github.com/martinwoodward/PyFluff"
+      description: >
+        MIT. A Bleak-based Python port of bluefluff. Adds the precise DLC
+        announce layout (big-endian size, NUL-padded 12-byte name), unit
+        tests for several frames and the F2F advertising note. Its README
+        says the port was machine-generated and parts are untested.
+  documentation_review: >
+    The two sources were compared doc by doc; PyFluff's docs are
+    bluefluff's with notes added. Conflicts found: the mood meter opcode
+    (doc 0x24 vs code 0x23, resolved to the code) and the DLC announce
+    layout (bluefluff's prose puts the 0x00 after the 3-byte size; both
+    clients' code sends it before the size, which is what is declared).
+    No hardware capture was made.
+  open_questions: >
+    The 0x21 sensor report layout; the meaning of the 0x00 after action
+    opcodes; reply layouts for 0x22, 0x72, 0x73, 0x74, 0xdc; whether the
+    upload slot byte is really the slot; the DLC container layout; DFU entry
+    and images; advertised data beyond the name; a reset procedure.
+
+remaining_unknowns:
+  - "Sensor report (21 + 7 bytes): which bytes carry the joystick direction, tickle/pet sensors and accelerometer axes, and their scaling. No source decodes it; needs captures while moving each input."
+  - "Set-mood opcode: 0x23 (both clients' code) vs 0x24 (bluefluff's table). Needs one write against hardware with the mood debug screen showing."
+  - "Meaning of the 0x00 byte after opcodes 0x10-0x13 and after 0x50."
+  - "announce_dlc_upload: whether byte 5 is really the slot, how the Furby picks a slot otherwise, and the slot capacities (2M/1M/.5M is a guess)."
+  - "The DLC container layout (header, index, how animations, audio and movement are tied to action addresses). Only the audio codec and the absence of an on-device checksum are known."
+  - "Reply layouts of ImHereSignal (22), CurrentMode (23), FurbiesMet (26), SlotsInfo (72), slot info (73), delete (74) and ReportDLC (dc); the Nordic firmware version encoding; whether comm_test inverts bits or order."
+  - "Purpose of characteristics dab91440/dab91441 (suspected Furby-to-Furby) and dab90755 (RSSI)."
+  - "DFU: whether the Nordic legacy bootloader is entered by the stack default, what it advertises, whether images are signed, and whether the GeneralPlus MCU can be updated at all. No Hasbro firmware image is public."
+  - "Advertisement contents beyond the local name (service UUIDs, manufacturer data, address type, MAC prefix)."
+  - "Whether writing Device Name (00002a00-0000-1000-8000-00805f9b34fb) changes the advertised name."
+  - "Factory reset: no procedure in either source and no instruction sheet fetched."
+  - "Firmware differences between units: bluefluff saw GeneralPlus version 04 and Nordic 19 00 00 00 on one Furby; other versions are unrecorded."
+
+helpful_urls:
+  - title: "Jeija/bluefluff (protocol docs and Node.js client)"
+    url: "https://github.com/Jeija/bluefluff"
+    kind: "protocol_writeup"
+    description: >
+      The original Furby Connect reverse engineering (MIT): doc/bluetooth.md
+      for the GATT tree, doc/generalplus.md and doc/nordic.md for the opcode
+      tables, doc/flashdlc.md for the DLC upload.
+  - title: "martinwoodward/PyFluff (Python client)"
+    url: "https://github.com/martinwoodward/PyFluff"
+    kind: "implementation"
+    description: >
+      MIT Python port of bluefluff using Bleak, with a CLI, web UI and DLC
+      manager; pyfluff/protocol.py is a compact table of every UUID and
+      opcode it uses.

@@ -313,8 +313,8 @@ alarms and routines; read those with their own requests.
   clear or extend it (kvdb/gld09-control, observed).
 - **Nap will not start.** kvdb/gld09-control reports a nap only starts with
   the sleep trainer on.
-- **Upstream naming trap.** `spec/protocol.json` on stramanu/lumalou's main
-  branch calls `0x68` `SET_ROUTINE_TASK_STATUS`. It is a request: send it
+- **Upstream naming trap.** `spec/protocol.json` in stramanu/lumalou at
+  `9fa5ecf` calls `0x68` `SET_ROUTINE_TASK_STATUS`. It is a request: send it
   without arguments and read reply `0x94`. PR #2 there corrects it.
 - **Playlist rejected.** Song IDs above 12 are refused. The sound loops are
   played with `0x3F`, not queued in the playlist.

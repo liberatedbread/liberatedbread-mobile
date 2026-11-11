@@ -346,7 +346,7 @@ services:
         properties: ["notify"]
         notes: >
           TLV-encoded like 048af000 Probe Data (same frame layout and
-          per-entry DataTypeEnum); records are split on attribute 48
+          per-entry data-type byte); records are split on attribute 48
           (SessionId) as the delimiter. Session attribute IDs from the app's
           attribute enum: 48 SessionId (str),
           49 CookingCategory (u8), 50 CookingMethod (u8), 51 PresetId (str),
@@ -498,13 +498,13 @@ services:
           `size` payload bytes. Attribute-bearing commands (e.g.
           get_probe_attributes, start_session) return payloads in the same
           TLV encoding as 048af000 Probe Data. responseCode values
-          (CommandAPIResponse enum in the app's shared constants module,
+          (the app's command-response code table in its shared constants module,
           consumed by the command error-mapping path): 0 OK, -1 FAIL,
           -2 ERR_INVALID_COMMAND, -3 ERR_HEAP_ALLOC, -4 ERR_MOUNT_POINT,
           -5 ERR_PARTITION, -6 ERR_DIGEST, -7 ERR_SIZE, -8 ERR_WRITE; the
           enum sits beside the FTP command constants and appears shared
           across the command services. Evidence: the app's header-processing
-          path and its CommandAPIResponse enum. Confidence:
+          path and its command-response code table. Confidence:
           app-derived, not hardware-verified.
 
   - uuid: "9c6f00fc-0420-41c1-bd98-7a015c45dc5a"
@@ -528,8 +528,8 @@ services:
         name: "Battery Status"
         properties: ["read", "notify"]
         notes: >
-          Charge state enum: 0 = discharging, 1 = charging (BatteryStatus
-          enum in the app; an absent value defaults to discharging).
+          Charge state enum: 0 = discharging, 1 = charging (the app's
+          battery-status enum; an absent value defaults to discharging).
           Evidence: the app's Hermes bundle.
         format:
           - offset: 0

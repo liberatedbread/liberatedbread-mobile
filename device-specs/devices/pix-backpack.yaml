@@ -121,10 +121,15 @@ device:
     (partial-frame writes), demo-mode (0110) semantics, game-mode config
     bytes, OTA flags byte, mini variant behaviour.
   identification:
-    local_name_prefix: "pix"
     service_uuids:
       - "00000100-e984-11e7-b78e-ffd6fcc3450f"
       - "00000100-e984-11e7-b78e-ffd6fcc34510"
+    notes: >
+      Identified by the product's own 0100 service UUIDs. The advertised
+      name is "pix <12-hex-MAC>", but no name prefix is declared here:
+      prefixes are matched case-insensitively, and a bare "pix" also claims
+      Pixel phones and earbuds, Divoom Pixoo panels and Canon PIXMA
+      printers. The name's full shape is the regex in discovery.
   discovery:
     methods:
       - type: "ble_scan"
@@ -247,7 +252,6 @@ device:
   variants:
     - model: "Pix Backpack"
       identification:
-        local_name_prefix: "pix"
         service_uuids:
           - "00000100-e984-11e7-b78e-ffd6fcc3450f"
           - "00000100-e984-11e7-b78e-ffd6fcc34510"
@@ -257,7 +261,6 @@ device:
         services at connect time.
     - model: "Pix Mini"
       identification:
-        local_name_prefix: "pix"
         service_uuids:
           - "00000100-9552-4325-8021-a85f8136a5c4"
       notes: >

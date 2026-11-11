@@ -400,7 +400,7 @@ The app supports AdMore Armband turn signal accessories:
 | Property | Value |
 |----------|-------|
 | NUS Service UUID | `6e400001-b5a3-f393-e0a9-e50e24dccaae` |
-| Types | `LEFT`, `RIGHT`, `UNDEFINED` (`ArmbandType` enum) |
+| Types | left, right, undefined (the app's armband-side values) |
 | Provisioning Command | `ARMBAND_SIDE` |
 | Routing (Left) | `SRC_CMD_APP_ARML` → `DST_CMD_APP_ARML` |
 | Routing (Right) | `SRC_CMD_APP_ARMR` → `DST_CMD_APP_ARMR` |

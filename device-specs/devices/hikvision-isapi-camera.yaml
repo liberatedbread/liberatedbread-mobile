@@ -137,6 +137,57 @@ device:
       notes: >
         Local control uses the camera's admin credential over Basic/Digest.
         Activation/onboarding is via SADP/web UI and not documented here.
+  pairing:
+    required: true
+    confidence: "medium"
+    # The gate is the camera's own user list, proved with Basic or Digest
+    # on every ISAPI request and RTSP session. Nothing is issued.
+    security_mode: "app_layer"
+    bonding: "none"
+    pin:
+      source: "user_chosen"
+      notes: >
+        The admin password chosen when the camera is activated (setup method
+        "device_ui"). Since firmware 5.3 (2016) Hikvision cameras ship
+        inactive, with no usable password, and must be activated with a
+        strong one through SADP, the web page or an NVR before ISAPI or RTSP
+        answer. Earlier firmware shipped with the product-wide admin/12345;
+        a camera still on it answers to that, which is a reason to update it.
+    exclusivity:
+      single_connection: false
+      single_bond: false
+      recovery: >
+        The illegal-login lock, on by default on current firmware, blocks the
+        client's IP address for 30 minutes after a run of wrong passwords.
+        The count varies by firmware: a Hikvision bulletin gives five, and
+        older manuals seven for admin and five for other users. Stop on the
+        first 401 rather than retrying, then wait the 30 minutes, connect from
+        another address, or reboot the camera. The lock and its count can be
+        changed in the camera's security settings.
+      notes: >
+        Many clients may be logged in at once. The limit that bites is the
+        number of concurrent streams the camera will serve, not authorisation.
+    unpair:
+      supported: true
+      requires_factory_reset: false
+      clears: "One user account, or every client that knew the old password."
+      notes: >
+        Give each integration its own user (User Management in the web page,
+        or ISAPI's security/users resource) and delete it to revoke that
+        client; changing a shared password cuts off everyone who used it.
+        ONVIF users are a separate list on Hikvision firmware, and ONVIF
+        itself is off by default, so an ONVIF client needs its own account
+        there. A forgotten admin password needs the reset in
+        setup.factory_reset, which returns the camera to the inactive state.
+    enter_pairing_mode:
+      required: false
+    notes: >
+      An admin-login device. ISAPI and RTSP both demand an account on the
+      camera, held on the camera; Hik-Connect is not involved and the login
+      keeps working with the internet blocked. Activation is the only step
+      at the hardware's side and it happens once. Sources: Hikvision's
+      security guides and technical bulletins for activation and the login
+      lock; maciej-or/hikvision_next for Digest auth on ISAPI.
 
 camera:
   enable_required: false

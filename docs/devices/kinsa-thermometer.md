@@ -21,9 +21,10 @@ and owner identifiers out of public captures and logs.
 The spec covers the first-generation Smart Ear, second-generation ear,
 QuickCare sticks and QuickScan/CareScan forehead models:
 `device-specs/devices/kinsa-thermometer.yaml`. Identify the family by its
-advertised service UUID rather than retail packaging. The file maps the
-vendor's internal family labels to retail models, records the uncertainty and
-provides complete command and reply layouts.
+advertised service UUID rather than retail packaging. The file names the five
+families by form factor and generation (Ear-1, Ear-2, Forehead, Stick-1,
+Stick-2), maps them to retail models, records the uncertainty and provides
+complete command and reply layouts.
 
 ## Setup and pairing
 

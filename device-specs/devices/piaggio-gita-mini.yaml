@@ -1,0 +1,967 @@
+# Piaggio Fast Forward gitamini / gita pro — app BLE profile
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Derived from mygita 1.7.4 and the earlier 1.7.2 analysis, public manuals,
+# assigned-number registries and public API metadata. No robot connection,
+# packet capture, firmware write or authenticated cloud request was made.
+
+device:
+  name: "Piaggio Fast Forward gitamini / gita pro"
+  manufacturer: "Piaggio Fast Forward, Inc."
+  manufacturer_status: "active"
+  aliases: ["gitamini", "gita mini", "gita pro", "mygita robot"]
+  openness:
+    status: "undocumented"
+    reverse_engineered: true
+    notes: >
+      PFF does not publish the phone-to-robot protocol. This document is a
+      static reconstruction of the app's advertised identity, GATT channels,
+      registration and encrypted command transport. It is not a claim that a
+      third-party client has completed a robot session.
+  testing:
+    status: untested
+    notes: >
+      No robot or packet capture is available. All protocol facts come from
+      static analysis of mygita 1.7.4, corroborated where relevant by 1.7.2,
+      public manuals and public API metadata. The reviewed Android package
+      requests one native AES module name and registers another, which may be
+      a compatibility defect or an unresolved bridge detail; the intended
+      algorithm is documented, but its runtime behavior needs confirmation.
+  protocol: "ble"
+  category: "robot"
+  type: "cargo-following-robot"
+  companion_apps:
+    - name: "mygita"
+      package: "com.piaggiofastforward.mobile"
+      role: "primary"
+      platform: "android"
+      url: "https://play.google.com/store/apps/details?id=com.piaggiofastforward.mobile"
+      notes: "Analyzed at 1.7.4 (versionCode 5254323), with separate JavaScript/internal version identifiers 1070004 and 12. iOS 1.7.4 was also released."
+  notes: >
+    gitamini is a self-propelled robot that visually follows a leader using
+    stereo depth/RGB cameras and radar. The physical Pair/Park button starts
+    visual pairing and following. The app exposes registration, Wi-Fi,
+    settings, latch, logs and OTA, but no ordinary remote-drive, velocity,
+    steering or start-following command. `activate robot` is not evidence of a
+    follow command and is deliberately not declared as a command.
+
+    Advertisement model 2 is gitamini. Model 3 is named gita pro in the app,
+    but no retail-Pro documentation or distinct protocol profile was found;
+    Pro is therefore a reported variant of this family, not a separately
+    verified product. Unknown model IDs need a new profile rather than the
+    app's original-gita fallback. Mini and every other non-original model
+    select OTA V2. Mini supports 2.4/5 GHz Wi-Fi; only original gita has the
+    app's 5 GHz blacklist. PFF's app help explicitly excludes Mini from the
+    generic Bluetooth-audio streaming feature.
+
+    Initial enrollment requires a serial barcode, single-use QR secret and
+    authenticated cloud/robot verification. Existing registrations have a
+    credible offline-reuse path through a stored session credential, but its
+    revocation and long-term behavior are unverified. Never publish serials,
+    QR secrets, bearer tokens, verification payloads, ECDH secrets, session
+    keys, Wi-Fi credentials or owner identifiers in research captures.
+
+  safety_advisory:
+    severity: "danger"
+    summary: >
+      This is a self-propelled robot. An unexpected command could move it or
+      change its safety-relevant configuration.
+    detail: >
+      Begin with passive advertisements and read-only GATT evidence. Do not
+      send `activate robot`, latch, network, SSH or firmware commands as
+      discovery probes. Following is initiated by the robot's physical button
+      and its own sensors, not by a general-purpose drive API in the reviewed
+      app. Keep people, pets and obstacles clear during any owner-approved
+      test, and never test motor behavior with an unregistered write.
+    acknowledge_required: true
+
+  variants:
+    - model: "gitamini"
+      identification:
+        service_uuids:
+          - "00009999-0000-1000-8000-00805f9b34fb"
+        manufacturer_data:
+          company_id: 2107
+          company_id_hex: "0x083B"
+          description: "Advertisement model 2. The inner TLV parser supplies serial, battery, state and geometry-independent model identity; serial and owner identifiers must be redacted from captures."
+      notes: >
+        Primary target. OTA V2, 2.4/5 GHz Wi-Fi, stereo depth/RGB cameras and
+        radar. PFF explicitly says music streaming is unavailable with Mini.
+    - model: "gita pro"
+      identification:
+        service_uuids:
+          - "00009999-0000-1000-8000-00805f9b34fb"
+        manufacturer_data:
+          company_id: 2107
+          company_id_hex: "0x083B"
+          description: "Advertisement model 3 in the app enum. No separate retail-Pro protocol or profile is established."
+      notes: >
+        Reported variant only. The app names model 3 gita pro and non-original
+        models select OTA V2, but no retail-Pro manual, packet capture or
+        capability-specific command table was found.
+
+  identification:
+    service_uuids:
+      - "00009999-0000-1000-8000-00805f9b34fb"
+    manufacturer_data:
+      company_id: 2107
+      company_id_hex: "0x083B"
+      description: >
+        Piaggio Fast Forward's Bluetooth SIG company identifier. On the wire
+        the company bytes are 3b 08. The inner payload is a TLV sequence with
+        model, serial, battery and state; it is not a human-readable name.
+    notes: >
+      The app normally scans for 16-bit service 0x9999 and company 0x083B,
+      with broader scans plus manufacturer filtering on some Android paths.
+      There is no useful local-name prefix. Validate the inner TLV checksum
+      before assigning a model; a valid capture is still needed to make its
+      suffix layout unambiguous.
+
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          service_uuids:
+            - "00009999-0000-1000-8000-00805f9b34fb"
+          manufacturer_data:
+            company_id: 2107
+            description: "PFF company ID 0x083B; parse the inner TLV model and checksum rather than relying on a local name."
+        notes: >
+          Match advertised 0x9999 and/or the PFF manufacturer record. Android
+          raw AD structures include the company bytes; Core Bluetooth's
+          manufacturer-data value starts with those same bytes and strips
+          them before the shared inner parser. Do not confuse those array
+          offsets. Model 2 selects Mini, model 3 the reported Pro variant.
+    identity:
+      stable_keys: ["address"]
+      display: "local_name"
+    static_ip_required: false
+
+  setup:
+    required: true
+    confidence: "medium"
+    notes: >
+      A new robot must complete vendor registration before ordinary control.
+      Already-registered robots can use the saved-session path without the
+      cloud in principle, but that path has not been exercised. Choose the
+      first method for an existing registration, and the alternative vendor
+      method for first enrollment.
+    methods:
+      - type: "ble_direct"
+        name: "Reuse an existing registered session (offline candidate)"
+        role: "primary"
+        verified: false
+        description: >
+          After normal enrollment, connect and perform the ECDH exchange,
+          then run protocol_details.session_authentication.verify_existing:
+          command 63 proves knowledge of the saved credential with a nonce
+          exchange, and command 9 returns the second nonce to authenticate the
+          session. The app selects existing-key verification when offline or
+          when the credential is no more than seven days old; with connectivity
+          and an older credential it requests a fresh one. This is a candidate
+          for offline control, not proof of unlimited offline use or of
+          initial offline enrollment.
+        ble:
+          advertised_name: "No name filter: use service 0x9999 and manufacturer company 0x083B"
+          pairing_required: true
+          pin_source: "unknown"
+        steps:
+          - action: "Power the robot and scan for service 0x9999 and company 0x083B; select model 2 (Mini) or 3 (reported Pro) after validating the inner TLVs."
+            actor: "client"
+          - action: "Create the OS-level BLE bond and discover the custom GATT service. The physical Pair/Park button is for visual following, not BLE pairing."
+            actor: "client"
+          - action: "Read the robot ECDH public key on ...def6, generate a secp256k1 phone key pair and write its public key on ...def5."
+            actor: "client"
+            expect: "Both public keys are available for the per-connection AES key/IV derivation in protocol_details.ecdh."
+          - action: "Subscribe to Wi-Fi, general and registration/session feedback notifications on ...def3, ...def7 and ...def9 before any authentication or session-key write."
+            actor: "client"
+            expect: "The registration/session feedback channel is open before it can emit a reply."
+          - action: "Run protocol_details.session_authentication.verify_existing: write command 63 with user_id and n1 using the ECDH key/IV, require the type-109 response, decrypt n1.n2 with the saved credential, then write command 9 with n2 using that credential."
+            actor: "client"
+            expect: "The returned n1 matches exactly. Stop on type 110/111, an unexpected reply or the eight-second timeout. Command 9 has no dedicated success reply; require a subsequent version or other read-only response before treating the session as established."
+          - action: "Use operational commands on ...def2 only after the encrypted session is established. Start with read-only version (81), IP (53) or status (90) requests."
+            actor: "client"
+      - type: "cloud_account"
+        name: "Vendor QR registration for first enrollment"
+        role: "alternative"
+        verified: false
+        description: >
+          Enrollment needs a 10-character Code 128 serial and a 20-character
+          QR secret beginning `pff`, followed by authenticated cloud and robot
+          verification. The printed QR is single-use. Possession of the serial
+          or advertisement alone is not an enrollment path.
+        cloud:
+          provider: "Piaggio Fast Forward / mygita"
+          local_alternative: >
+            No offline initial-enrollment path is known. The primary method is
+            only for a robot that already completed this registration and holds
+            a reusable session credential.
+        steps:
+          - action: "Create or sign in to a mygita account, then scan the unit's serial barcode and single-use QR secret."
+            actor: "user"
+          - action: "Match the serial to the nearby advertising robot and perform the ECDH exchange."
+            actor: "client"
+          - action: "Subscribe to registration/session feedback on ...def9 before command 60 or any session-key write."
+            actor: "client"
+            expect: "Registration replies are captured before the eight-second feedback wait begins."
+          - action: "Request robot creation data with command 60, exchange it with authenticated /gitas, then verify the response with command 61."
+            actor: "client"
+          - action: "Post the QR payload and robot verification message to authenticated /registrations, set the returned identity, send command 68, and configure Wi-Fi/notifications."
+            actor: "client"
+            expect: "The robot is registered. Preserve the resulting session credential privately; do not export it into notes."
+    factory_reset:
+      applicable: "unknown"
+      confidence: "low"
+      effect: >
+        No factory-reset procedure is established. Registration revocation,
+        bond deletion, QR reissue and the effect on a stored session
+        credential are separate, unverified questions. Do not experiment with
+        button combinations on a self-propelled robot.
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        Wi-Fi can be reconfigured over the authenticated BLE connection
+        without a factory reset. The old network need not remain available,
+        but registration and the session credential must still be valid.
+      steps:
+        - action: "Establish the registered BLE session and request the AP list with command 50."
+          actor: "client"
+        - action: "Join the replacement network with command 51 and the encrypted `<SSID> password <password>` payload, or use commands 57/58 for remembered/hidden networks."
+          actor: "client"
+        - action: "Confirm with commands 53/55 and the Wi-Fi notifications on ...def3."
+          actor: "client"
+    credentials:
+      wifi_passphrase_protection: "device_encrypted"
+      stored_on_device:
+        - "Wi-Fi credentials, robot registration and the BLE bond, as applicable"
+      issued_to_client:
+        - "A cloud-issued 64-hex-character session credential (16-byte AES key plus 16-byte IV after splitting), stored by robot UUID"
+        - "The account bearer token used for authenticated cloud operations"
+      notes: >
+        Wi-Fi credentials travel inside the ECDH-encrypted command channel.
+        Ordinary operational commands use the fresh per-connection ECDH key,
+        while the cloud-issued credential authenticates the robot session.
+        Android's reviewed sensitive-store configuration uses app-private
+        preferences without hardware-backed Keystore encryption and disables
+        backup. The iOS storage path was not analyzed.
+
+  pairing:
+    required: true
+    confidence: "medium"
+    security_mode: "app_layer"
+    bonding: "required"
+    enter_pairing_mode:
+      required: false
+      notes: >
+        The robot advertises its service and the app creates the OS-level
+        bond. No BLE pairing button or PIN is documented. The physical
+        Pair/Park button starts visual following, not BLE pairing.
+    exclusivity:
+      single_connection: "unknown"
+      single_bond: "unknown"
+      recovery: >
+        Close the vendor app on any other phone, then reconnect and repeat
+        ECDH/session verification. Forget the robot in the phone's Bluetooth
+        settings if the bond is stale; the effect on its registration is not
+        established.
+    unpair:
+      supported: "unknown"
+      notes: >
+        Forget the robot in the phone's OS Bluetooth settings. No robot-side
+        bond-deletion procedure is documented, and it must not be confused
+        with registration revocation or factory reset.
+    notes: >
+      The Android app creates a classic+LE bond before service discovery and
+      then performs application-layer ECDH and session authentication. The
+      actual association model and whether the robot insists on that bond for
+      every GATT operation are not established. ECDH alone does not
+      authenticate the robot.
+
+cloud:
+  required: true
+  vendor_service: "mygita cloud (registration, session credentials and OTA metadata)"
+  hosts:
+    - "https://api.mygita.com"
+  auth:
+    type: "bearer_token"
+    notes: >
+      Authenticated endpoints include /registrations, /gitas, /session-keys,
+      /ota-v2-check and /ota-v2-infos. Public /info/version reports API policy
+      metadata, not robot firmware. No authenticated request was made during
+      research.
+  failure_mode: >
+    First enrollment and fresh session-credential issuance stop if the cloud
+    is unavailable. Existing registrations may continue using the saved
+    credential: the app deliberately selects existing-key verification when
+    offline or within seven days. Revocation, reset and long-term offline
+    behavior need hardware tests, so a cloud shutdown must not be described
+    as harmless for every installation.
+  data_leaves_device:
+    - "Account identity, robot registration/crew records and serial/color/model metadata"
+    - "Robot creation and registration-verification payloads"
+    - "Session-key exchange values and OTA build/device identifiers"
+    - "Robot logs when the owner pushes them"
+  notes: >
+    The robot can also use its own Wi-Fi for OTA and cloud/log/MQTT traffic.
+    The mobile app does not itself speak MQTT; that is a cloud-to-robot
+    channel, not a documented local MQTT control API.
+
+local_access:
+  status: "native"
+  summary: >
+    Ordinary commands are local over BLE after registration and application
+    authentication. Initial enrollment and fresh session-credential issuance
+    need the vendor cloud. Offline reuse of an existing credential is a
+    candidate, not a hardware-verified guarantee.
+  covers:
+    - "Advertisement model/battery/state, GATT version and Wi-Fi/status reads"
+    - "Wi-Fi scan/join/forget/profile operations over the encrypted BLE channel"
+    - "Name, mute, stealth, open-access, latch, volume, logs and smarts commands recovered from the app"
+    - "OTA V2 download/install commands, with the robot retrieving the image over its own Wi-Fi"
+  not_covered:
+    - "Normal remote drive, velocity, steering or start-following: no such command was found"
+    - "Offline first enrollment, remote SSH enable without the support endpoint, or any motor-safety bypass"
+    - "Bluetooth audio streaming on gitamini, explicitly excluded by PFF's app help"
+
+protocol_handler: "gita_ecdh"
+
+initialization:
+  - characteristic: "87654321-1234-5678-1234-56789abcdef6"
+    read: true
+    description: "Read the robot's secp256k1 public key before generating the phone key pair."
+  - characteristic: "87654321-1234-5678-1234-56789abcdef5"
+    description: "Generate a phone secp256k1 key pair and write its public key here. SHA-256 the ECDH secret and derive AES key/IV as in protocol_details.ecdh."
+  - characteristic: "87654321-1234-5678-1234-56789abcdef3"
+    subscribe: true
+    notes: "Subscribe to plaintext Wi-Fi notifications."
+  - characteristic: "87654321-1234-5678-1234-56789abcdef7"
+    subscribe: true
+    notes: "Subscribe to general plaintext notifications: first byte is notification type, remainder is UTF-8/ASCII with trailing newlines trimmed."
+  - characteristic: "87654321-1234-5678-1234-56789abcdef9"
+    subscribe: true
+    notes: "Subscribe to registration/session feedback before any authentication or session-key write; its encrypted fragmented parser differs from the normal plaintext notification parser."
+  - characteristic: "87654321-1234-5678-1234-56789abcdefb"
+    description: "Request or verify the cloud-issued session credential with commands 62/63 before authentication. Command 63 obtains n2 for an existing credential; fresh issuance requires authenticated cloud exchange. Existing verification can work offline."
+  - characteristic: "87654321-1234-5678-1234-56789abcdef1"
+    description: "Only after the session-key exchange supplies n2, authenticate a new or existing session with commands 8/9 on this channel. Do not send operational commands before this succeeds."
+  - characteristic: "87654321-1234-5678-1234-56789abcdef2"
+    description: "Only after ECDH and session authentication, send operational commands using protocol_details.command_framing. Start with read-only commands."
+
+services:
+  - uuid: "87654321-1234-5678-1234-56789abcdef0"
+    name: "PFF robot command service"
+    verification: "reported"
+    notes: >
+      Custom GATT service recovered from the app. All writes are
+      write-without-response, with MTU 185 requested. Characteristic roles and
+      properties are app-derived; no live GATT enumeration exists. The app
+      requests an MTU of 185 and uses 181 ciphertext bytes plus one
+      continuation marker per operational write. General operation timeout is
+      30 seconds, with an 8-second session-feedback wait.
+    characteristics:
+      - uuid: "87654321-1234-5678-1234-56789abcdef1"
+        name: "Authenticated session command write"
+        properties: ["write_without_response"]
+        notes: "Commands 7/8/9 verify nonce, authenticate a new key or authenticate an existing key. Their nonce/credential payload layouts are dynamic and are not declared as fixed commands."
+      - uuid: "87654321-1234-5678-1234-56789abcdef2"
+        name: "Operational encrypted command write"
+        properties: ["write_without_response"]
+        role: "command"
+        notes: >
+          NOTHING HERE IS WRITTEN AS THE PLAINTEXT LISTED BELOW. The values are
+          application plaintext before protocol_details.command_framing and
+          AES-128-CBC/PKCS#7 encryption. `protocol_handler: gita_ecdh` names
+          the consumer implementation required. No-data commands are ten
+          bytes: opcode, 0x7f and eight zeroes. Data commands are opcode,
+          0x7f and the data bytes. Ciphertext is split into 181-byte pieces,
+          each followed by 0 (more) or 1 (final).
+        commands:
+          get_ap_list:
+            description: "Request nearby Wi-Fi access points (50). AP replies are plaintext notifications on ...def3."
+            value: [0x32, 0x7F, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+            verification: "reported"
+          set_wifi_connection:
+            description: "Join Wi-Fi (51) with the ASCII payload `<SSID> password <password>` inside the encrypted command."
+            template: [0x33, 0x7F, "{ssid_and_password}"]
+            verification: "reported"
+            advanced: true
+            advanced_reason: "Changes the robot's network and handles its Wi-Fi passphrase. Use only after registered-session authentication and never log the payload."
+            parameters:
+              ssid_and_password:
+                type: "string"
+                description: "UTF-8/ASCII `<SSID> password <password>`, with one space on each side of the literal word password."
+          disconnect_wifi:
+            description: "Disconnect Wi-Fi (52)."
+            value: [0x34, 0x7F, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+            verification: "reported"
+          get_ip_address:
+            description: "Read the robot's current IP address (53), returned in plaintext notification 101."
+            value: [0x35, 0x7F, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+            verification: "reported"
+          forget_connection:
+            description: "Forget the current Wi-Fi connection (54)."
+            value: [0x36, 0x7F, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+            verification: "reported"
+            advanced: true
+            advanced_reason: "Removes a saved network and can take the robot offline. Confirm before sending."
+          get_wifi_connection:
+            description: "Read current Wi-Fi connection state (55)."
+            value: [0x37, 0x7F, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+            verification: "reported"
+          get_wifi_conn_profiles:
+            description: "List saved Wi-Fi profiles (56)."
+            value: [0x38, 0x7F, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+            verification: "reported"
+          connect_remembered_wifi:
+            description: "Connect to a remembered Wi-Fi network (57)."
+            value: [0x39, 0x7F, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+            verification: "reported"
+          toggle_mute:
+            description: "Toggle mute (72)."
+            value: [0x48, 0x7F, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+            verification: "reported"
+          toggle_stealth:
+            description: "Toggle stealth mode (73)."
+            value: [0x49, 0x7F, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+            verification: "reported"
+          toggle_open_access:
+            description: "Toggle open access (74)."
+            value: [0x4A, 0x7F, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+            verification: "reported"
+            advanced: true
+            advanced_reason: "Changes who may access or control the robot. Confirm the resulting access policy before enabling."
+          lock_latch:
+            description: "Lock the cargo latch (78)."
+            value: [0x4E, 0x7F, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+            verification: "reported"
+          unlock_latch:
+            description: "Unlock the cargo latch (79)."
+            value: [0x4F, 0x7F, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+            verification: "reported"
+            advanced: true
+            advanced_reason: "Physically unlatches the cargo compartment. Confirm the robot is stationary and the area is clear."
+          update_gita:
+            description: "Install downloaded OTA V2 firmware (80); use download_new_software (85) first."
+            value: [0x50, 0x7F, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+            verification: "reported"
+            advanced: true
+            advanced_reason: "Starts firmware installation and can leave the robot unavailable or require rollback. Use only with a known-compatible staged update and recovery path."
+          get_gita_version:
+            description: "Read version/build information (81); version text is also available directly on ...def8."
+            value: [0x51, 0x7F, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+            verification: "reported"
+          download_new_software:
+            description: "Tell the robot to download the authenticated OTA V2 selection over its own Wi-Fi (85)."
+            value: [0x55, 0x7F, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+            verification: "reported"
+            advanced: true
+            advanced_reason: "Starts a firmware download and subsequent update flow. Confirm model/build compatibility and recovery before using it."
+          get_gita_uptime:
+            description: "Read robot uptime (86), returned in notification 120."
+            value: [0x56, 0x7F, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+            verification: "reported"
+          toggle_wifi:
+            description: "Toggle the robot's Wi-Fi radio (88)."
+            value: [0x58, 0x7F, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+            verification: "reported"
+            advanced: true
+            advanced_reason: "Can disconnect the robot from its network, OTA and cloud services. Confirm local BLE control remains available."
+          remove_device:
+            description: "Remove the device (89); exact registration effects are not established."
+            value: [0x59, 0x7F, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+            verification: "reported"
+            advanced: true
+            advanced_reason: "May remove registration or ownership state. Do not use as a reset or identification probe."
+          get_ota_status:
+            description: "Read OTA status (90); status also arrives in notification 122."
+            value: [0x5A, 0x7F, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+            verification: "reported"
+          start_notifying_ota_status:
+            description: "Start OTA-status notifications (91)."
+            value: [0x5B, 0x7F, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+            verification: "reported"
+          stop_notifying_ota_status:
+            description: "Stop OTA-status notifications (92)."
+            value: [0x5C, 0x7F, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+            verification: "reported"
+          toggle_smarts:
+            description: "Toggle PFF smarts (93), including behaviors such as Doors. This is not a general drive command."
+            value: [0x5D, 0x7F, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+            verification: "reported"
+            advanced: true
+            advanced_reason: "Changes autonomous behavior. Enable only with the robot in a safe environment and after reading the vendor's behavior description."
+          disconnect:
+            description: "Disconnect the current client (99), not a factory reset or registration removal."
+            value: [0x63, 0x7F, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+            verification: "reported"
+          enable_ssh:
+            description: "Enable SSH (102) only after the authenticated support endpoint authorizes it. This is not an offline developer-mode command."
+            value: [0x66, 0x7F, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+            verification: "reported"
+            advanced: true
+            advanced_reason: "Enables a remote shell. Requires the vendor support authorization and an owner-controlled network; credentials and exposure are otherwise unknown."
+      - uuid: "87654321-1234-5678-1234-56789abcdef3"
+        name: "Plaintext Wi-Fi notifications"
+        properties: ["notify"]
+        notes: "AP lists, IP and connection state. Notification first byte is type and the remainder is UTF-8/ASCII with trailing newlines trimmed; this is not the operational encrypted command channel."
+      - uuid: "87654321-1234-5678-1234-56789abcdef4"
+        name: "Per-phone identity write"
+        properties: ["write_without_response"]
+        notes: "Applicable registration messages carry a random 10-character phone identity prefix `##<identity>`."
+      - uuid: "87654321-1234-5678-1234-56789abcdef5"
+        name: "Phone ECDH public-key write"
+        properties: ["write_without_response"]
+        notes: "Write the phone secp256k1 public key after reading the robot key on ...def6."
+      - uuid: "87654321-1234-5678-1234-56789abcdef6"
+        name: "Robot ECDH public-key read"
+        properties: ["read"]
+        notes: "Read the robot secp256k1 public key for the per-connection ECDH exchange."
+      - uuid: "87654321-1234-5678-1234-56789abcdef7"
+        name: "General plaintext notifications"
+        properties: ["notify"]
+        notes: "First byte is notification type; the remainder is UTF-8/ASCII with trailing newlines trimmed. Do not apply this parser to registration/session feedback."
+      - uuid: "87654321-1234-5678-1234-56789abcdef8"
+        name: "Version/build string read"
+        properties: ["read"]
+        notes: "Read the version/build string. Slash-separated capability flags cover app minimum, speaker, logs, volume, WPA3, queued notifications and smarts; support varies by model."
+      - uuid: "87654321-1234-5678-1234-56789abcdef9"
+        name: "Registration/session feedback notifications"
+        properties: ["notify"]
+        notes: "Registration/session feedback has its own encrypted and fragmented handling. ASCII delimiters `$$$$$` and `#####` appear in that protocol; do not apply the normal plaintext parser."
+      - uuid: "87654321-1234-5678-1234-56789abcdefa"
+        name: "Registration command write"
+        properties: ["write_without_response"]
+        notes: "Commands 60/61 request robot creation and verification data during authenticated enrollment. Their payload values are dynamic and are not fixed commands."
+      - uuid: "87654321-1234-5678-1234-56789abcdefb"
+        name: "Session-key exchange write"
+        properties: ["write_without_response"]
+        notes: "Commands 62/63 request or verify the cloud-issued session credential. A new key requires authenticated cloud exchange; an existing key can be verified offline."
+
+payload_formats:
+  gita_advertisement:
+    description: >
+      Inner manufacturer payload after the two company-id bytes. Android raw
+      AD parsing and Core Bluetooth's manufacturer value differ in offset;
+      strip the company bytes before applying this TLV grammar. Minimum
+      payload length is 25 bytes. Serial, cloud/user IDs and odometry are
+      privacy-sensitive and are not published as examples.
+    fields:
+      - name: "serial"
+        tag: 0xA1
+        type: "string"
+        description: "UTF-8 serial; private."
+      - name: "object_id"
+        tag: 0xA2
+        type: "bytes"
+        description: "Hex-form cloud object ID; private."
+      - name: "color"
+        tag: 0xA3
+        type: "bytes"
+        description: "Declared color value; not used in the returned scan object."
+      - name: "status"
+        tag: 0xA4
+        type: "bytes"
+        description: "Three bytes: primary state, latch state and setting flags."
+      - name: "battery"
+        tag: 0xA5
+        type: "uint8"
+        unit: "%"
+        description: "Battery percentage; 255 means unknown."
+      - name: "model"
+        tag: 0xA6
+        type: "uint8"
+        description: "2 gitamini, 3 reported gita pro. Other IDs require their own profile."
+      - name: "message_code"
+        tag: 0xA7
+        type: "bytes"
+        description: "Unsigned big-endian integer rendered as text by the app."
+      - name: "user_id"
+        tag: 0xA8
+        type: "bytes"
+        description: "Hex-form connected-user value; private."
+      - name: "checksum"
+        tag: 0xA9
+        type: "bytes"
+        description: "Suffix-length selector followed by the negative byte-sum check. Exact suffix layout needs a valid capture."
+      - name: "odometry"
+        tag: 0xAA
+        type: "bytes"
+        description: "Unsigned big-endian integer rendered as text by the app; units are not established."
+    parse_rules:
+      - "Each inner record is length, type, then length-1 value bytes; advance length+1 bytes total."
+      - "Primary states include ready 0, following 1, parked 2, charging 3, smarts 6, upgrading 99, shutdown 100, OTA failure 111, OTA finished 112 and rollback failure 113."
+      - "Secondary state 0 is unlocked and 1 locked. Setting flags are mute 1, stealth 2, open access 4 and smarts 8."
+      - "For checksum tag C, C[0] selects a suffix length and C[1] is expected to equal the byte-wise negative sum of that suffix except its final byte modulo 256. Do not generate advertisements until a valid capture confirms this layout."
+  gita_version:
+    description: "Version/build text read from ...def8 or requested with command 81."
+    fields:
+      - name: "build_string"
+        type: "string"
+        description: "Version/build text; accepted forms include major.minor.patch and extended build identifiers."
+      - name: "capabilities"
+        type: "string"
+        description: "Slash-separated flags for app minimum, speaker, logs, volume, WPA3, queued notifications and smarts, when present."
+    parse_rules:
+      - "Do not infer feature support from a flag without checking model and submodel; Mini has an explicit no-streaming exclusion."
+
+protocol_details:
+  command_framing:
+    plaintext: >
+      No-data: opcode, magic 0x7f and eight zero bytes (10 total). With data:
+      opcode, magic 0x7f, then the supplied data bytes, currently ASCII for
+      the relevant callers. Wi-Fi join data is `<SSID> password <password>`.
+    encryption: >
+      AES-128-CBC with PKCS#7 padding using the per-connection ECDH-derived
+      key and IV. The native result is decoded from Base64 into raw ciphertext
+      for transport; the Base64 text itself is not sent. No AEAD tag or
+      separate message MAC was found in the reviewed command builder.
+    chunking: >
+      Request MTU 185. Split ciphertext into 181-byte pieces and append one
+      continuation marker to each: 0 for more chunks, 1 for the final chunk.
+      No-data output also appends 1. General operation timeout is 30 seconds;
+      session feedback has an 8-second wait.
+    chunk_layout:
+      requested_mtu: 185
+      ciphertext_bytes_per_chunk: 181
+      continuation_marker:
+        more: 0
+        final: 1
+    notifications: >
+      Normal plaintext notifications start with a type byte and then
+      UTF-8/ASCII with trailing newlines trimmed. Registration/session
+      feedback has a different encrypted/fragmented parser, ASCII delimiters
+      `$$$$$` and `#####`, and a random 10-character phone identity prefix
+      `##<identity>` where applicable. Notification fragment markers 251–255
+      are separate from the operational 0/1 continuation convention.
+    command_ids:
+      "7-9": "Verify nonce / authenticate new key / authenticate existing key"
+      "50-59": "AP list, join/disconnect/forget/connect Wi-Fi, IP and profiles"
+      "60-68": "Registration, session key, alternate auth and registration name"
+      "69-77": "Speaker, mute, stealth, open access, name and audio discovery"
+      "78-79": "Latch lock/unlock"
+      "80-87": "Install, version, speaker re-pair, volume, download, uptime, logs"
+      "88-93": "Wi-Fi toggle, remove device, OTA status and smarts"
+      "99-102": "Disconnect, activate, disable/enable SSH"
+    notification_ids:
+      "100": "Bluetooth audio state"
+      "101": "IP address"
+      "102": "Latch error"
+      "103": "Settings"
+      "104-105": "Wi-Fi active/inactive"
+      "106": "Version"
+      "107": "OTA installation"
+      "108": "Primary status"
+      "109-111": "Session key found/expired/invalid"
+      "112": "Information/status flags"
+      "113": "Volume"
+      "114-119": "Wi-Fi connection/disconnection/profiles/list/deletion/no Internet"
+      "120": "Uptime"
+      "121": "Log upload"
+      "122": "OTA status"
+      "123": "Cold charging"
+      "124": "Pair lock"
+      "125": "Checked out"
+      "126": "Device paired"
+      "140": "SSH toggle result"
+      "141": "Shutdown disabled"
+  ecdh:
+    curve: "secp256k1"
+    verification: "reported"
+    exchange: >
+      Read the robot public key on ...def6, generate a phone key pair and
+      write its public key on ...def5. Compute the ECDH shared secret and
+      hash it with SHA-256. The JavaScript uses 128 random bytes from the
+      native crypto module as key-pair entropy.
+    public_key_encoding: >
+      The phone writes a raw 65-byte uncompressed SEC 1 point on ...def5:
+      0x04, then X and Y as 32-byte unsigned big-endian coordinates. It
+      internally renders the point as 130 lowercase hex characters but
+      hex-decodes them before the GATT write; do not send ASCII hex. On
+      ...def6, accept either that uncompressed form or a raw 33-byte
+      compressed SEC 1 point (0x02/0x03 plus X), and validate the point.
+      The app's parser accepts both forms; no capture establishes which form
+      every robot firmware emits. Reject other prefixes, lengths and invalid
+      points rather than treating the value as a certificate or DER key.
+    shared_secret_encoding: >
+      ECDH yields the shared point's X coordinate. Convert that nonnegative
+      integer to lowercase hexadecimal WITHOUT leading-zero padding or a 0x
+      prefix, then SHA-256 the ASCII bytes of that hex text. The input is
+      normally 64 ASCII bytes but can be shorter when X has leading zero
+      nibbles. Do not hash the fixed-width 32-byte X coordinate, the
+      hex-decoded bytes, a public key, or an X || Y concatenation.
+    derivation: >
+      Represent the SHA-256 digest as 64 hexadecimal characters and split it
+      into two 32-character halves. Hex-decoding the halves yields a 16-byte
+      AES-128 key and a 16-byte IV for this connection. Ordinary operational
+      commands use this key/IV, not the cloud-issued session credential.
+    test_vector:
+      origin: "Synthetic secp256k1 scalars and uncompressed points, not a robot capture"
+      phone_private_scalar_hex: "01"
+      robot_private_scalar_hex: "2d"
+      phone_public_key_hex: "0479be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798483ada7726a3c4655da4fbfc0e1108a8fd17b448a68554199c47d08ffb10d4b8"
+      robot_public_key_hex: "04049370a4b5f43412ea25f514e8ecdad05266115e4a7ecb1387231808f8b45963758f3f41afd6ed428b3081b0512fd62a54c3f3afbb5b6764b653052a12949c9a"
+      shared_x_padded_hex: "049370a4b5f43412ea25f514e8ecdad05266115e4a7ecb1387231808f8b45963"
+      shared_secret_hex_text: "49370a4b5f43412ea25f514e8ecdad05266115e4a7ecb1387231808f8b45963"
+      sha256_hex: "9f5ce7aa4582e2c89de3ef783e3cb8474ae000557a634f8333bbf83f50b7969c"
+      aes_key_hex: "9f5ce7aa4582e2c89de3ef783e3cb847"
+      iv_hex: "4ae000557a634f8333bbf83f50b7969c"
+      notes: >
+        shared_x_padded_hex is explanatory, not the hash input. Hash the 63
+        ASCII bytes of shared_secret_hex_text, demonstrating removal of the
+        leading zero nibble from the padded coordinate. Hex-decode sha256_hex's
+        first and second 32-character halves to obtain the AES key and IV.
+    authentication: >
+      ECDH alone does not authenticate the robot. The subsequent robot/cloud
+      session exchange provides the application-level check.
+    runtime_caveat: >
+      The reviewed Android JavaScript requests one native AES module name and
+      the package registers another. This could be a compatibility defect or
+      an unresolved bridge detail. Confirm a normal app connection before
+      implementing the recovered algorithm; it is not a successful packet
+      exchange claim.
+  session_credential:
+    source: >
+      For a fresh key, send command 62 and post the robot's key part,
+      payload and nonce to authenticated /session-keys. The returned
+      session credential is 64 hexadecimal characters, split into a 16-byte AES key
+      and 16-byte IV, and the cloud supplies a second nonce. Authenticate to
+      the robot with command 8; use command 9 for an existing key.
+    storage_and_reuse: >
+      Save the credential and timestamp by robot UUID. The app chooses
+      existing-key verification when offline or when the key is no more than
+      seven days old; with connectivity and an older key it requests a fresh
+      one. This supports offline reuse after registration, not offline first
+      enrollment or unlimited offline use.
+    alternate_auth: >
+      Commands 64-66 declare another auth family but are not the selected
+      path in the reviewed connection flow.
+  session_authentication:
+    nonce_encoding: >
+      Each nonce is 16 cryptographically random bytes rendered as 32 lowercase
+      hexadecimal ASCII characters. n1 is generated by the phone; n2 is the
+      matching robot/cloud nonce. These are not raw 16-byte fields on the wire.
+    verify_existing:
+      request:
+        opcode: 63
+        plaintext: "[0x3f][0x7f][user_id_utf8][n1_ascii]"
+        encryption: "Per-connection ECDH-derived AES-128 key and IV, CBC with PKCS#7"
+        write_characteristic: "87654321-1234-5678-1234-56789abcdefb"
+        notes: >
+          user_id is the account user identifier supplied to the vendor app,
+          not the robot UUID. Use the normal ciphertext chunking in
+          command_framing and have registration/session feedback subscribed
+          on ...def9 before this write.
+      success_response:
+        type: 109
+        outer_decryption: "Per-connection ECDH-derived AES-128 key and IV"
+        inner_decryption: "The saved cloud-issued credential's AES-128 key and IV"
+        inner_ciphertext: "Base64 text; decode before CBC decryption"
+        inner_plaintext: "[n1_ascii][.][n2_ascii]"
+        timeout_seconds: 8
+        notes: >
+          Reassemble registration/session feedback and strip its identity
+          prefix and ##### terminator before applying the outer command
+          decoder. The first plaintext byte is 0x6d (109). Decrypt the inner
+          value with the saved credential and require n1 to match exactly;
+          that proves the robot knows the saved credential. Type 109 answers
+          command 63, not command 9.
+      authenticate:
+        opcode: 9
+        plaintext: "[0x09][0x7f][n2_ascii]"
+        encryption: "The saved cloud-issued credential's AES-128 key and IV, CBC with PKCS#7"
+        write_characteristic: "87654321-1234-5678-1234-56789abcdef1"
+        notes: >
+          Send only n2, not the saved credential or n1. Use the normal
+          ciphertext chunking. Command 8 has the same layout for a newly
+          issued credential.
+      failure_and_completion:
+        expired_type: 110
+        invalid_type: 111
+        timeout_seconds: 8
+        notes: >
+          Type 110 means the saved credential is expired; use the fresh
+          cloud-issuance flow when online. Type 111 or an unexpected response
+          is invalid; stop rather than guessing another key. The reviewed app
+          parses no dedicated success reply to command 9. Require a subsequent
+          version read on ...def8 or another read-only response before calling
+          the offline session established.
+    request_fresh:
+      request:
+        opcode: 62
+        plaintext: "[0x3e][0x7f][user_id_utf8][n1_ascii]"
+        encryption: "Per-connection ECDH-derived AES-128 key and IV"
+        write_characteristic: "87654321-1234-5678-1234-56789abcdefb"
+      robot_reply:
+        success_type: 62
+        expired_type: 110
+        plaintext: "[key_part][.][n2_ascii][.][payload]"
+        notes: >
+          Decrypt with the ECDH key/IV. Post key_part, payload and n1 to
+          authenticated /session-keys. The response contains the new 64-hex
+          credential and n2. Store the credential privately and authenticate
+          with command 8 as above. No authenticated request was made during
+          research.
+  registration:
+    serial: "Exactly 10 characters, Code 128"
+    qr_secret: "Exactly 20 characters beginning pff; printed as single-use"
+    flow: >
+      Match the serial to a nearby robot and perform ECDH. Send command 60,
+      split the decrypted robot value into its key part and payload part,
+      and POST those to authenticated /gitas. Base64-decode the response and
+      send command 61 to the robot. POST the QR payload and decrypted
+      verification message to authenticated /registrations. Set the returned
+      UUID/name/color, send command 68, then configure Wi-Fi and
+      notifications. The local duplicate-serial check is not QR expiry
+      enforcement; single-use enforcement is server/robot-side.
+    secrets_excluded: "QR secret, bearer tokens, verification payloads, session keys, ECDH secrets, Wi-Fi credentials and owner identifiers"
+  ota_v2:
+    applies_to: "Mini, reported Pro and every other non-original model; original model 1 uses OTA V1"
+    metadata: >
+      Read version/build capabilities, then GET authenticated
+      /ota-v2-check?gitaId=<id>&buildId=<build>. If an update ID is returned,
+      GET /ota-v2-infos/{id} selecting display notes, build ID, minimum
+      supported app version, upload date and total bytes. The reviewed
+      metadata has no phone download URL.
+    commands:
+      download: 85
+      install: 80
+      status: 90
+      start_notifications: 91
+      stop_notifications: 92
+    progress: "Notification 122 is parsed as status/percent; advertisement states include upgrading 99, failure 111, finished 112 and rollback failure 113."
+    image: >
+      The robot retrieves and installs the image over its own Wi-Fi. The
+      reviewed phone path does not download a firmware image. Staged and
+      rollback states do not prove A/B partitioning on every component.
+  native_storage:
+    android: >
+      The sensitive Redux whitelist persists user, token, keys and gitas in
+      app-private preferences, without hardware-backed Keystore encryption
+      in the reviewed configuration; allowBackup=false. App sandbox
+      protection still applies. Do not call this hardware-encrypted storage.
+    ios: "Not analyzed"
+
+features:
+  - type: "firmware_update"
+    dfu:
+      mechanisms: ["vendor_cloud"]
+      transport: "cloud"
+      image:
+        signing: "unknown"
+        source: "vendor_cloud"
+        notes: >
+          The robot fetches its own image after authenticated OTA V2 metadata
+          selection. No public image, image URL, signature format or static
+          recovery analysis was obtained.
+      enter:
+        how: "in_place"
+        command: "update_gita"
+        notes: >
+          Command 85 downloads and command 80 installs. Both are advanced and
+          require an authenticated session and a known-compatible staged
+          update; no generic bootloader-entry command exists here.
+      dfu_mode:
+        notes: >
+          Advertisement primary states include upgrading 99, OTA failure 111,
+          OTA finished 112 and rollback failure 113. No separate bootloader
+          name, address or service identity is established.
+      recovery:
+        interrupted: "unknown"
+        notes: "Staged/rollback states exist, but an A/B layout and recovery behavior on every component are not established."
+      verification: "reported"
+      notes: >
+        Static app evidence only. No update was initiated and no
+        authenticated OTA metadata or robot download was captured.
+
+remaining_unknowns:
+  - "A valid Mini/Pro advertisement and GATT capture: TLV checksum suffix, model IDs, state values, odometry units, characteristic properties and native crypto-module behavior."
+  - "Per-op payload and response layouts beyond the documented no-data and Wi-Fi join forms, including notification reassembly and the 251-255 fragment markers."
+  - "Existing-session offline reads across phone restart and the seven-day boundary, followed by registration revocation/reset behavior."
+  - "First-enrollment and session-cloud failure behavior, QR reissue and whether any account-free recovery exists after a cloud shutdown."
+  - "OTA download URL, image format/signature, model compatibility and rollback/recovery behavior on real hardware."
+  - "Whether gita pro is a retail product with any capability-specific protocol differences; model 3 alone does not answer this."
+  - "Exact compute/camera/radar module identities. RealSense and radar filing 2AY6H-101187 are leads, not confirmed Mini BOM mappings; Jetson TX2 is documented for original gita, not Mini."
+  - "A robot-side bond/registration removal procedure, SSH exposure/credentials and the meaning of activate robot (100)."
+
+helpful_urls:
+  - title: "gitamini and gitaplus user manual (PDF)"
+    url: "https://knowledge.mygita.com/hubfs/mini_plus_UserManual.pdf?hsLang=en"
+    kind: "manual"
+    description: >
+      Official shared Mini/Plus manual, document 017-101891 V3. Covers setup,
+      visual pairing, controls and Wi-Fi for gitamini; not evidence of a
+      separate gita pro profile.
+  - title: "gitamini quick start (PDF)"
+    url: "https://knowledge.mygita.com/hubfs/Quickstart-gita-mini.pdf?hsLang=en"
+    kind: "manual"
+    description: >
+      Official Mini quick-start, document 017-101499 V1, including the serial
+      barcode and visual Pair/Park procedure for Mini.
+  - title: "mygita setup and registration"
+    url: "https://knowledge.mygita.com/setting-up-getting-started"
+    kind: "vendor_support"
+    description: "Official account, barcode and Wi-Fi setup guidance for Mini."
+  - title: "General mygita app use"
+    url: "https://knowledge.mygita.com/general-use-of-the-mygita-app"
+    kind: "vendor_support"
+    description: "Official app guidance, including the explicit statement that music streaming is not available with gitamini."
+  - title: "Mini sensor overview"
+    url: "https://piaggiofastforward.com/blog/all-about-gitaminis-sensors"
+    kind: "vendor_support"
+    description: "PFF's stereo depth, RGB and radar roles and fields of view for Mini."
+  - title: "Mini release notes"
+    url: "https://knowledge.mygita.com/release-notes"
+    kind: "vendor_support"
+    description: "Official release-note index; publicly listed Mini notes through 2.5.1 are not proof of the latest firmware."
+  - title: "mygita on Google Play"
+    url: "https://play.google.com/store/apps/details?id=com.piaggiofastforward.mobile"
+    description: "The Android app analyzed for this spec (package com.piaggiofastforward.mobile; 1.7.4 in the reviewed bundle)."
+  - title: "Public API version metadata"
+    url: "https://api.mygita.com/info/version"
+    description: "Unauthenticated API/minimum-app policy metadata, not robot firmware information."
+  - title: "PFF open-source notice"
+    url: "https://piaggiofastforward.com/opensource"
+    description: "Vendor package notices, not a Mini firmware source tree or downloadable image."
+
+evidence:
+  artifacts:
+    - type: "static_analysis"
+      artifact: "com.piaggiofastforward.mobile 1.7.4 (Android versionCode 5254323), base APK"
+      sha256: "4defe8eebf9350a5f0d53e9eb117733a919cb41f2b74aa234689afc6208376a2"
+      obtained_via: "third-party APK mirror, 2026-11-07"
+      description: >
+        Primary source for model IDs, GATT map, ECDH/AES command transport,
+        registration, Wi-Fi, notification IDs, session credential and OTA V2.
+        The base and ARM64 signer digests match. JADX reported six errors in
+        third-party code; relevant AES, BLE and manifest code was available.
+    - type: "static_analysis"
+      artifact: "com.piaggiofastforward.mobile 1.7.2"
+      obtained_via: "third-party APK mirror, 2026-08-29"
+      description: >
+        Earlier independent extraction of the same GATT/encryption/command
+        model, used as corroboration where the 1.7.4 analysis agrees. The
+        newer 1.7.4 findings supersede it on product/version boundaries.
+    - type: "vendor_documentation"
+      description: >
+        Official Mini/Plus manual, Mini quick start, setup/app help, sensor
+        overview and release-note index. Establishes visual following,
+        registration materials, Wi-Fi and the Mini no-streaming exclusion.
+    - type: "public_research"
+      artifact: "Bluetooth SIG Assigned Numbers and Mini FCC statement card"
+      description: >
+        Bluetooth company ID 0x083B maps to PFF. The Mini statement card
+        confirms a radar sensing unit but names no specific radar FCC ID;
+        2AY6H-101187 remains a candidate only.
+    - type: "public_api"
+      artifact: "https://api.mygita.com/info/version"
+      description: >
+        Unauthenticated metadata reported API 1.16.21 and minimum app 1.4.5.
+        This is app policy information, not a robot firmware version.
+  open_questions: >
+    `remaining_unknowns` lists the hardware captures needed first: passive
+    advertisements, a normal authenticated connection resolving the native
+    crypto-name caveat, offline session reuse, and an owner-approved OTA
+    capture. No robot session, firmware image or Pro-specific retail profile
+    was obtained.

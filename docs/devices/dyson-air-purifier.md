@@ -8,8 +8,10 @@
 ## Overview
 
 Dyson purifier models advertise a local MQTT broker. The device is the broker,
-and topics are scoped by serial number. Credentials are derived from the device
-serial and WiFi password during/after pairing.
+and topics are scoped by serial number. The broker login is the device serial
+plus a hash of the Wi-Fi password printed on the machine's sticker; models
+without a sticker (roughly 2020 onward) get the same credential from the MyDyson
+account instead. No button press or pairing window is involved.
 
 ## Discovery
 

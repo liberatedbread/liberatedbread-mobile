@@ -57,8 +57,8 @@ the network at all.
    4-digit PIN and the response carries `X_ChallengeKey` (16 bytes, base64).
 2. Client encrypts `<X_PinCode>{pin}</X_PinCode>` with AES-128-CBC keys
    derived from the challenge (key = reversed, bitwise-NOTed 4-byte groups of
-   the challenge; HMAC key = a fixed 32-byte mask from the official app's
-   `libtvconnect.so` XORed against the rotated challenge) and sends it to
+   the challenge; HMAC key = a fixed 32-byte mask, published in the
+   panasonic-viera library, XORed against the rotated challenge) and sends it to
    `X_RequestAuth` inside `<X_AuthInfo>`. Error code 600 = wrong PIN.
 3. The `X_AuthResult` reply decrypts to `<X_ApplicationId>` and
    `<X_Keyword>` — store both.

@@ -37,7 +37,7 @@ device:
     status: untested
   protocol: "ble"
   category: "scale"
-  category_hierarchy: ["measurement", "health", "body_composition"]
+  category_hierarchy: ["measurement", "other"]
   type: "coffee-scale"
   notes: >
     Acaia's Bluetooth coffee scales (Pearl, Lunar, Pearl S, Pyxis, plus the

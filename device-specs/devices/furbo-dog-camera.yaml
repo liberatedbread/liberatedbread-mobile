@@ -259,7 +259,7 @@ device:
           and the status codes are payload_formats.Status below. The
           characteristics are matched by UUID across all services, because
           which service holds them is not established. No bonding and no MTU
-          request; indications are enabled by writing 0x0200 to each CCCD.
+          request; indications are enabled by writing 0x0002 (bytes 02 00) to each CCCD.
         ble:
           protocol: "Furbo BLE setup, current generation (ASCII values on per-field characteristics)"
           pairing_required: false
@@ -564,6 +564,8 @@ device:
     confidence: "low"
     security_mode: "none"
     bonding: "none"
+    enter_pairing_mode:
+      required: false
     exclusivity:
       single_connection: "unknown"
       single_bond: false
@@ -996,8 +998,7 @@ protocol_details:
       notes: >-
         Verified by ha-furbo at the P2P layer on the FB0030: the camera
         accepts frames. The talkback AV server uses security mode 3 while the
-        client channel uses mode 1; the triage brief's 'security mode 3' is
-        the talkback channel.
+        client channel uses mode 1.
 
   cloud_credential:
     verification: "reported"
@@ -1082,7 +1083,7 @@ protocol_details:
       token and the ownership proof it is the raw text. The app writes the
       encrypted form whenever the camera exposes the encrypted
       characteristic.
-    notification_setup: "The app enables indications (CCCD 0x0200), not notifications, on every characteristic it subscribes to."
+    notification_setup: "The app enables indications (CCCD 0x0002, bytes 02 00), not notifications, on every characteristic it subscribes to."
     excluded_uuids: >-
       A naive UUID search of the app also finds identifiers of its analytics
       SDK (prefixes a029f440-, 46bad1ed-, 383f2407-, 8d9792b7-). They are not
@@ -1147,7 +1148,7 @@ evidence:
     advertised-name rules and the 12-character device id extraction. Its
     P2P command layer (one implementation per opcode set) confirmed the V3
     opcode numbers ha-furbo publishes, the toss and pan request payloads and
-    the app's 60/50 degree pan step. RESEARCH.md's first pass called the
+    the app's 60/50 degree pan step. An earlier research pass called the
     camera cloud-only; the app in fact carries the ThroughTek TUTK SDK, and
     the local P2P path is ha-furbo's finding. Nothing was replayed.
   open_source_review: >-
@@ -1178,8 +1179,8 @@ evidence:
     microphone codec 135 is. For the schema: a TUTK/IOCTRL transport (a
     command addressed by a 32-bit opcode on a session's AV channel, with a
     payload template and a reply keyed by opcode plus one) would let the V3
-    table become executable `commands` and `entities`; proposed in the
-    return notes of this change rather than in spec-evolution.md.
+    table become executable `commands` and `entities`; not yet proposed
+    in spec-evolution.md.
   artifacts:
     - type: "static_analysis"
       artifact: "Furbo Android app (com.tomofun.furbo) 7.83.1"

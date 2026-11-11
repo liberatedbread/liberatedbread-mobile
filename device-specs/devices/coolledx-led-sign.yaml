@@ -98,7 +98,7 @@ device:
     # commands in this spec would be silently wrong on them. The unmapped
     # generations are listed under `variants` for documentation only and are
     # deliberately NOT discoverable until their command tables are recovered.
-    local_name_prefix: "CoolLEDX"
+    local_names: ["CoolLEDX"]
 
   discovery:
     methods:

@@ -110,27 +110,47 @@ device:
     the app already references both buythermopro.com and temppro.com.
 
   identification:
-    # Moved out of a top-level `advertising:` block: this is matching data, and
-    # `device.identification` is the only place a scanner reads it from. The
-    # spec previously described its own advertisement in a key nothing looks at,
-    # so no scan result could ever be bound to this file.
-    local_name_prefixes:
+    # The vendor app's scan config compares exact names. Broad TP9/TP2/P9
+    # prefixes also admitted unrelated or unsupported products.
+    local_names:
       - "Thermopro"
-      - "TP9"
-      - "TP2"
-      - "P9"
+      - "TP901"
+      - "TP902"
+      - "TP922"
+      - "TP939"
+      - "TP938"
+      - "P900"
+      - "TP903"
+      - "TP904"
+      - "TP25"
+      - "TP910"
+      - "TP920"
+      - "TP930"
+      - "TP923"
+      - "TP924"
+      - "TP960R"
+      - "TP962R"
       - "I61"
+      - "TP970R"
+      - "TP960W"
+      - "I61W"
+      - "TP971R"
+      - "TP972R"
+      - "TP963"
+      - "TP971S"
+      - "TP972S"
+      - "TP973R"
+      - "TP965R"
+      - "TP966R"
+      - "TP940R"
+      - "TP980R"
+      - "P426"
+      - "P925"
       - "SmartBBQ"
-    manufacturer_data:
-      description: >
-        Advertised names from the vendor app's scan config, in the groups it
-        uses them: thermoproNames (Thermopro, TP901, TP902, TP922, TP939,
-        TP938, P900, TP903, TP904, TP25, TP910, TP920, TP930, TP923, TP924),
-        tempSpike (TP960R, TP962R, I61, TP970R, TP960W, I61W, TP971R/972R,
-        TP963, TP971S/972S, TP973R, TP965R, TP966R), tp940 (TP940R), tempWifi
-        (TP980R), infrared (P426, P925), plus the legacy SmartBBQ. "TempPro"
-        and "iBBQ" are NOT advertised names. The prefixes above cover that set
-        without enumerating every model; the app matches on the exact names.
+    notes: >
+      Exact advertised names from the vendor app's thermoproNames, tempSpike,
+      tp940, tempWifi and infrared scan groups, plus legacy SmartBBQ.
+      "TempPro" and "iBBQ" are not advertised names for this spec.
   setup:
     required: false
     confidence: medium

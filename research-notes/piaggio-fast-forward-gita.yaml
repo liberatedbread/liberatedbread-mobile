@@ -1,5 +1,8 @@
 # Piaggio Fast Forward gita / gitamini — structured note, 2026-11-07
 
+authoritative_spec: device-specs/devices/piaggio-gita-mini.yaml
+owner_guide: docs/devices/piaggio-gita-mini.md
+
 device:
   id: piaggio-fast-forward-gita
   name: Piaggio Fast Forward gita, gitamini, gitaplus and licensed Mini
@@ -52,7 +55,12 @@ service:
 cryptography:
   per_connection:
     curve: secp256k1
-    derivation: ECDH_shared_secret_SHA256_split_64_hex_chars_into_two_32_char_halves_hex_decode
+    phone_public_key: raw_65_byte_SEC1_uncompressed_04_X32be_Y32be_not_ASCII_hex
+    robot_public_key: parser_accepts_raw_SEC1_uncompressed_65_or_compressed_33_bytes_firmware_form_uncaptured
+    shared_secret: X_coordinate_as_lowercase_hex_without_leading_zero_padding
+    hash_input: ASCII_bytes_of_shared_secret_hex_not_raw_or_hex_decoded_coordinate
+    derivation: SHA256_split_64_hex_chars_into_two_32_char_halves_hex_decode
+    test_vector: protocol_details.ecdh.test_vector_in_authoritative_spec_synthetic_01_2d_with_63_char_input
     key_bytes: 16
     iv_bytes: 16
     cipher: AES-128-CBC_PKCS7

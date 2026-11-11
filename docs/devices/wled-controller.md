@@ -168,7 +168,10 @@ names its peers, which catches devices whose mDNS the network is dropping.
 
 There isn't one, and that is worth stating plainly. WLED issues no per-client
 credential: anything that can reach port 80 has full control, including the
-settings pages, unless OTA lock is enabled. No pairing, no token, no way to
+settings pages, unless the owner has set a 4-digit settings PIN or the OTA
+lock. Neither gates light control: the PIN guards the settings pages,
+`/json/cfg` and firmware upload, and once entered it unlocks the device for
+every client, not just the one that typed it. No pairing, no token, no way to
 tell one client from another. Network reach *is* the security model. Treat a
 WLED controller as trusting its LAN completely, and put it on a VLAN if that
 matters.

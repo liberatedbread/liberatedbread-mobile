@@ -142,6 +142,66 @@ device:
         The drone hosts an open (or WPA) AP and has no application-layer auth: a
         client on the AP has full control. SAFETY: this commands flight; treat
         all controls as advanced.
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "none"
+    bonding: "none"
+    exclusivity:
+      single_connection: true
+      single_bond: false
+      recovery: >
+        Close FreeFlight on every phone and switch off any SkyController
+        before connecting. An ARSDK3 drone serves one controller at a time:
+        a second TCP 44444 handshake is answered with the "product already
+        connected" status (-3999 in libARDiscovery) instead of a c2d port,
+        and the first controller keeps priority. On an AR.Drone with Pairing
+        switched on, the drone ignores every device but the paired one —
+        turn Pairing off from that phone, or press the Unpair button.
+    unpair:
+      supported: true
+      requires_factory_reset: false
+      clears: "The AR.Drone's paired-device restriction only."
+      procedures:
+        - name: "AR.Drone: press the recessed Unpair button"
+          glyph: "generic/pinhole-reset.svg"
+          verified: false
+          basis: >
+            Parrot's AR.Drone user guide, which describes an Unpair button
+            on the underside, pressed with a pin, that erases the pairing and
+            confirms by flashing the four LEDs red and green; community
+            set-up guides for second-hand drones give the same step.
+          applies_to: ["AR.Drone 1.0"]
+          power_state: "on"
+          indicator: "The four motor LEDs flash red and green."
+          steps:
+            - action: "With the drone powered, press the recessed Unpair button on its underside with a pin."
+              actor: "user"
+              expect: "The LEDs flash red and green; any phone can now connect."
+      notes: >
+        Only the AR.Drone has anything to unpair. On AR.Drone 2.0 the same
+        restriction is the Pairing option in AR.FreeFlight, switched off from
+        the paired phone. ARSDK3 drones store no client at all; a
+        SkyController's knowledge of an Anafi lives on the controller, and its
+        USB pairing re-keys the drone's Wi-Fi rather than registering a
+        client.
+    enter_pairing_mode:
+      required: false
+    notes: >
+      The ARSDK3 discovery handshake authorises nothing. The controller's
+      JSON carries a name, a type and its d2c port — no key, token or
+      challenge — and the drone answers with status 0 and its c2d port, or a
+      busy/not-ready status; whoever completes it first flies the drone. The
+      only real gate is the drone's own access point. AR.Drone and Bebop ship
+      it open (Bebop can be given a WPA2 passphrase the owner chooses in
+      FreeFlight Pro). Anafi ships it WPA2 with a per-unit password on a label
+      on the drone — a credential, so not recorded here — which a hard reset
+      also writes to a text file on the microSD card, and which pairing a
+      SkyController 3 over USB replaces with a new key. The Anafi Ai disables
+      direct Wi-Fi to a phone or computer altogether until it is enabled in
+      FreeFlight 7. The AR.Drone's optional Pairing restricts control to the
+      first device's MAC address, which is a filter, not a credential.
+      Nothing here depends on a Parrot server.
 
 # The two Parrot control generations. Bespoke protocol material lives under
 # `protocol_details` because the schema's top level is closed; that block is

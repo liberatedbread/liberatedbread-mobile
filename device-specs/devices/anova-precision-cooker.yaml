@@ -148,7 +148,7 @@ device:
     which the vendor documents as JSON plus Base64 on per-function
     characteristics. And it excludes the 2022-and-later Precision Cooker 3.0,
     Pro 3.0, Mini and Lite (FCC IDs 2APBOAN300, 2APBOAN425, 2APBOAN525 and
-    2APBOAN625), plus the Precision Oven (see the anova-oven spec). The
+    2APBOAN625), plus the Precision Oven (no spec in this repository). The
     current vendor Android app, a React Native build, still carries the
     0000ffe0-0000-1000-8000-00805f9b34fb/0000ffe1-0000-1000-8000-00805f9b34fb UUID pair. Its other device paths are these: a Wi-Fi
     onboarding exchange that has the user confirm a code shown on the

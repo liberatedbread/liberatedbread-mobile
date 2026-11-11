@@ -459,6 +459,37 @@ device:
         (or copied over USB from an iOS device), so it never crosses a link a
         client of this spec implements.
 
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "none"
+    bonding: "none"
+    exclusivity:
+      single_connection: true
+      single_bond: false
+      recovery: >
+        Applies to port 23 only: the receiver takes ONE telnet connection, and
+        whoever holds it (the Denon app, another integration) starves everyone
+        else. Close the other client, or use the HTTP goform routes, which
+        carry the same command vocabulary and do not compete for the socket.
+        Nothing is paired, so there is nothing to clear.
+      notes: >
+        The HTTP surface on port 80 serves several clients at once; the
+        single-session rule is protocol_details.denon_common.telnet.single_session.
+    enter_pairing_mode:
+      required: false
+      notes: >
+        No prompt, code or approval. The standing setting that matters is
+        Setup > Network > Network Control = Always On: without it the whole LAN
+        surface powers down in standby and no client can wake the receiver
+        (setup notes). It is a reachability setting, not a pairing window.
+    notes: >
+      The local control surface — goform HTTP on 80, ASCII control on 23, UPnP
+      — is unauthenticated: nothing is requested, issued or stored per client,
+      and network reachability is the entire access-control model
+      (setup.credentials.notes). AirPlay and Spotify Connect have their own
+      sender-side flows and are outside this block.
+
   variants:
     - model: "AVR-S720W"
       name: "Denon AVR-S720W (2016, 7.2 ch)"

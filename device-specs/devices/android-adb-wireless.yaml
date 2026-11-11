@@ -129,6 +129,94 @@ device:
         Identify-only: no credential crosses to this app. ADB's own TLS pairing
         (the 6-digit code or QR) is between the phone and whatever debugging
         host the user chooses — not this app.
+  pairing:
+    required: true
+    confidence: medium
+    # Above TLS: a SPAKE2-style shared-secret exchange that ends with the
+    # host's RSA public key in the phone's adb_keys trust store.
+    security_mode: app_layer
+    bonding: none
+    pin:
+      source: device_screen
+      length: 6
+      notes: >
+        The six-digit pairing code, shown on the phone in the "Pair device
+        with pairing code" dialog alongside the IP:port of the pairing
+        server, and typed into the host (`adb pair <ip>:<port>`). QR pairing
+        reverses the direction: the HOST generates the service name and
+        password and shows them as a QR code (WIFI:T:ADB;S:<name>;P:<pw>;;)
+        that the phone scans. Either way the secret is fresh per session. What
+        persists is the host's public key in the phone's trust store
+        (/data/misc/adb/adb_keys), which every later TLS connect checks.
+    exclusivity:
+      single_connection: false
+      single_bond: false
+      recovery: >
+        Nothing to clear: the phone keeps a list of trusted hosts, and pairing
+        another adds to it. If a paired host stops connecting, check that
+        Wireless debugging is still on — the phone turns it off when it leaves
+        the Wi-Fi network it was enabled on — and rediscover the connect port,
+        which changes each time wireless debugging is switched on.
+    unpair:
+      supported: true
+      requires_factory_reset: false
+      clears: "One paired host's key (from the Wireless debugging paired-devices list), or every authorised host at once."
+      notes: >
+        Each paired host is listed on the Wireless debugging screen and can be
+        forgotten individually. "Revoke USB debugging authorizations" in
+        Developer options removes every authorised host key, USB and wireless
+        alike. Turning Wireless debugging off stops the listener without
+        removing any trust.
+    enter_pairing_mode:
+      required: true
+      indicator: "The phone shows the pairing code and the pairing server's IP:port; _adb-tls-pairing._tcp is advertised while the dialog is open."
+      procedures:
+        - name: "Pair device with pairing code"
+          verified: false
+          basis: >
+            AOSP's adb_wifi.md (Pairing, pair and Pair with code sections) and
+            the Android Developers adb documentation.
+          power_state: "on"
+          glyph: "generic/on-screen-menu.svg"
+          steps:
+            - action: "Enable Developer options, then switch on Settings > System > Developer options > Wireless debugging and allow it on this network."
+              actor: user
+            - action: "Tap 'Pair device with pairing code' and keep the dialog open."
+              actor: user
+              expect: "A six-digit code and an IP:port are shown."
+            - action: "Run the SPAKE2 pairing exchange against the advertised _adb-tls-pairing._tcp port with the code the user types in."
+              actor: client
+              expect: "Pairing succeeds; the host then connects to _adb-tls-connect._tcp over TLS."
+        - name: "Pair device with QR code"
+          verified: false
+          basis: "AOSP's adb_wifi.md, Pair with QR code section (the scheme Android Studio uses)."
+          power_state: "on"
+          glyph: "generic/on-screen-menu.svg"
+          steps:
+            - action: "Generate a 'studio-' service name and a password, and show them as an ADB Wi-Fi QR code."
+              actor: client
+            - action: "On the phone, in Wireless debugging, tap 'Pair device with QR code' and scan the host's code."
+              actor: user
+              expect: "The phone starts a pairing server under the requested studio- instance name."
+            - action: "Find that instance over mDNS and pair with the password from the QR code."
+              actor: client
+      notes: >
+        The pairing server exists only while the pairing dialog (or QR
+        scanner) is open, so the window is however long the user leaves it
+        open; no fixed timeout is documented. The pairing-code instance is
+        named adb-<guid> and the QR instance studio-<random>. The legacy
+        `adb tcpip` route is different: it is authorised over USB by the
+        "Allow USB debugging?" RSA-fingerprint prompt and then runs in
+        cleartext with no pairing code.
+    notes: >
+      Wireless debugging (Android 11+) is gated by a real pairing: the user
+      opens a pairing session on the phone, a shared secret (the six-digit
+      code, or the host's QR password) bootstraps trust over TLS, and the
+      phone stores the host's RSA public key. From then on the host
+      authenticates every TLS connection with its private key and needs no
+      code, until the user forgets it. Entirely local — no account or cloud
+      at any step. This project does not pair (identify-only); the block
+      describes what any adb host must do. See `credentials.notes`.
 
 local_access:
   status: native

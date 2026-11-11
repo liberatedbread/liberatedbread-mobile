@@ -38,7 +38,7 @@ ble:
   services:
     - uuid: "e6807e20-b90a-11e5-a837-0800200c9a66"
       name: beddit_sensor_service
-      description: Primary sensor service for BTLE v3 hardware (com.beddit.sensor.le)
+      description: Primary sensor service for BTLE v3 hardware (early read; superseded by device-specs/devices/beddit-sleep-monitor.yaml, which gives e6807d20)
       characteristics:
         - uuid: "e6807d21-b90a-11e5-a837-0800200c9a66"
           name: data_channel_1
@@ -78,10 +78,10 @@ ble:
 
 protocol:
   note: >
-    Session flow (com.beddit.sensor.le): connect -> read DIS strings -> read channel
+    Session flow (the app's low-energy sensor package): connect -> read DIS strings -> read channel
     descriptors -> enable notifications on data chars -> stream frames parsed by
-    com.beddit.sensor (SensorChannelDetails). Frame encoding TBD; channel descriptor
-    format TBD. Hardware identifier HARDWARE_TYPE_IDENTIFIER_BTLE_V3.
+    the app's channel-descriptor classes. Frame encoding TBD; channel descriptor
+    format TBD. The app carries a hardware-type identifier for BLE v3 hardware.
     NB: 612d9e68-a4b8-... in DEX is a Postmark API token, not a BLE UUID.
   expected_measurements:
     - sleep_stages

@@ -30,8 +30,6 @@ device:
   identification:
     # How to identify this device during BLE scanning
     local_name_prefix: "ACME_"
-    service_uuids:
-      - "0000fff0-0000-1000-8000-00805f9b34fb"
 
 services:
   - uuid: "0000fff0-0000-1000-8000-00805f9b34fb"

@@ -130,6 +130,28 @@ device:
         Access control is physical: whoever can reach the connector can talk to
         the vehicle. Some functions are additionally gated by a security-access
         seed/key exchange — see the request definitions.
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "none"
+    bonding: "none"
+    enter_pairing_mode:
+      required: false
+    notes: >
+      Physical access to the connector is the authorisation for the surface
+      this spec exists for: the cluster service-interval reset on 0x701 is a
+      bare two-byte frame with no diagnostic session and no security access in
+      front of it, in both TigerTool and TuneECU, and the cluster reads, the
+      engine ECU's UDS DTC reads and clear, and the ABS K-line requests are
+      recorded with no key step in front of them. What IS gated: on the engine ECU, UDS
+      SecurityAccess level 3/4 (27 03 seed, 27 04 key) precedes the
+      throttle-balance reads, and the K-line engine/ABS stack lists a seed/key
+      of its own whose use is not mapped to a function; the key derivation for either is not documented here, so a
+      client built from this spec cannot pass those gates. The immobiliser
+      stack's access request (02 18 E2 31 02) is a fixed frame rather than a
+      seed/key exchange as recorded. Nothing persists on the bike about which
+      tool connected; adapter Bluetooth pairing is the adapter's business
+      (obd2-bluetooth-adapter.yaml).
 
 obd:
   role: "vehicle"

@@ -156,7 +156,9 @@ device:
 
   pairing:
     required: false
-    confidence: "high"
+    # medium, not high: the no-pairing decode is pinned by an open parser
+    # and its captured fixtures, not by this project driving a unit.
+    confidence: "medium"
     security_mode: "none"
     bonding: "none"
     notes: >

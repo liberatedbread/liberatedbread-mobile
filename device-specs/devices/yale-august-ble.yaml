@@ -221,7 +221,9 @@ device:
       single_bond: false
       recovery: >
         Close the Yale Access app before connecting; it holds the lock while
-        it is in the foreground.
+        it is in the foreground. Do not drive the same lock from HomeKit and
+        from a yalexs-ble client on one host: Home Assistant's docs say the
+        two contend for the lock and both fail.
     enter_pairing_mode:
       required: false
       notes: >
@@ -229,6 +231,33 @@ device:
         by the vendor account rather than by possession of the lock, which is
         the opposite of the Nuki model and worth knowing before someone goes
         looking for a button to hold.
+    unpair:
+      supported: true
+      requires_factory_reset: false
+      clears: "Access through the revoked or rotated key; the lock's settings stay."
+      notes: >
+        Revocation is account-side, and it happens to local clients
+        whether or not anyone intends it. Owners remove users and devices in
+        the vendor app (how and when that reaches the lock's key slots is
+        not documented in the sources used here), and the keys themselves
+        rotate: Home Assistant's
+        documentation warns that a phone that operates the lock often can
+        rotate the key, after which a client holding the old offline key
+        fails the handshake until it re-syncs from the account. Treat an
+        authentication failure as a stale key, not a fault. A factory reset
+        clears every slot (see `setup.factory_reset`).
+    notes: >
+      The gate is an offline key and slot number, not a Bluetooth bond.
+      The lock runs a secure handshake keyed by that offline key; a client
+      gets the key either from the August/Yale cloud with an account that
+      has owner-level access (what the Home Assistant integrations do) or
+      by extracting it from a phone where the vendor app has stored it.
+      Once held, lock and unlock are entirely local, which is what makes
+      this lock survivable if the vendor service is not — with the caveat
+      that the key can rotate underneath a client, and only the account
+      can issue the new one. Medium confidence: Home Assistant's Yale
+      Access Bluetooth integration and yalexs-ble implement this in
+      production; this project has not driven a lock.
 services:
   - uuid: "0000fe24-0000-1000-8000-00805f9b34fb"
     name: "August / Yale lock service (0xFE24)"

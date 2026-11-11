@@ -13,15 +13,16 @@ device:
       Driven live 2026-08-14 against a real BSB002 bridge (bridgeid
       001788FFFEAABBCC, apiversion 1.78.0, swversion 1978074000), discovered
       via _hue._tcp mDNS whose TXT bridgeid matched GET /api/config exactly.
-      Executed as documented: GET /api/config unauthenticated returns the
-      whitelist-free config object on BOTH http:80 and https:443 (same body);
-      POST /api with a devicetype and no button press returned the error
-      envelope byte-identical to this spec's example — [{"error":{"type":101,
-      "address":"","description":"link button not pressed"}}]; GET
-      /clip/v2/resource without (or with a bogus) hue-application-key answers
-      403 with an HTML body, confirming the CLIP v2 key gate. Halted at the
-      physical link button (nobody home to press it): username creation,
-      light control and the eventstream remain unexercised by us.
+      GET /api/config returned the same whitelist-free config object over
+      HTTP/80 and HTTPS/443; pre-button POST /api returned the documented
+      error-101 envelope byte for byte; and unauthenticated or bogus-key
+      /clip/v2/resource requests returned 403. On 2026-11-08 a maintainer
+      manually completed link-button pairing and basic per-light on/off
+      control using the documented v1 flow, superseding the earlier stop at
+      the physical button. `minimally-verified` remains the whole-spec
+      verdict: brightness, authenticated CLIP v2 resources and eventstream,
+      sensors/groups/scenes, and BSB001/BSB003 hardware were not covered by
+      that confirmation.
   protocol: "wifi"
   category: "hub"
   transport: "http"
@@ -163,7 +164,7 @@ device:
       - type: "button_pairing"
         name: "Ethernet, then the link button"
         role: "primary"
-        verified: false
+        verified: true
         description: >
           Two things have to happen and neither is a choice: the bridge
           reaches the LAN over Ethernet — it has no Wi-Fi radio and no
@@ -174,7 +175,7 @@ device:
         stages:
           - type: "wired"
             name: "Get the bridge onto the LAN"
-            verified: false
+            verified: true
             description: >
               Plug the bridge into the router with Ethernet and power it. It takes
               a DHCP lease and starts answering mDNS/SSDP; there is no WiFi
@@ -187,7 +188,7 @@ device:
                 timeout_seconds: 120
           - type: "button_pairing"
             name: "Authorize this client at the link button"
-            verified: false
+            verified: true
             description: >
               The bridge issues an API username (whitelist entry) to any client
               that asks within roughly 30 seconds of the physical link button being
@@ -305,11 +306,11 @@ device:
       window_seconds: 30
       procedures:
         - name: "Press the link button on top of the bridge"
-          verified: false
+          verified: true
           basis: >
-            Philips Hue's published API documentation, which this spec's
-            create_user command follows. The error-101 handshake around it is
-            documented behaviour rather than a bench observation.
+            Philips Hue's published API documentation, the live pre-button
+            error-101 reply on 2026-08-14, and the maintainer's completed
+            link-button pairing and basic light-control check on 2026-11-08.
           power_state: "on"
           press_count: 1
           steps:
@@ -424,7 +425,7 @@ commands:
           Only obtainable at creation time — which is why generateclientkey
           is sent unconditionally — so store it beside the username even
           though nothing in this spec drives Entertainment yet.
-    verification: "reported"
+    verification: "confirmed"
     example_body: '{"devicetype":"opengreeniot#hub","generateclientkey":true}'
     example_notes: >
       Rendered with devicetype "opengreeniot#hub". Arguments render as
@@ -460,7 +461,7 @@ commands:
           Which light, from the enumeration the Hue Light entity's
           state_command returns. The ids are the bridge's own ("1", "2", …),
           stable across reboots but not across a factory reset.
-    verification: "reported"
+    verification: "confirmed"
     example_body: '{"on":true}'
     notes: >
       The reply acknowledges the request rather than reporting resulting
@@ -485,7 +486,7 @@ commands:
         type: "string"
         source: "instance:id"
         description: "As light_turn_on."
-    verification: "reported"
+    verification: "confirmed"
     example_body: '{"on":false}'
 
   light_set_brightness:

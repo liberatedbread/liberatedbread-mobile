@@ -75,7 +75,7 @@ device:
     as an EcO record when it has a local name exactly 8 characters long AND
     manufacturer data under 0x074c. The name is the probe's code, which the
     vendor cloud registers against the owner's pool. See
-    payload_formats.EcoAdvertisementRecord for the byte layout: format
+    payload_formats.ProbeAdvertisementRecord for the byte layout: format
     version, mode, sequence, pH (int16 BE), ORP (int16 BE), temperature
     (uint16 BE), conductivity (uint16 BE), a packed activity/battery byte, and
     an 11-bit time of day in minutes after 00:00 UTC. A record repeats in
@@ -153,7 +153,7 @@ device:
         ble:
           manufacturer_data:
             company_id: 1868
-            description: "Company ID 0x074C, payload = the EcoAdvertisementRecord (14 bytes or more)."
+            description: "Company ID 0x074C, payload = the ProbeAdvertisementRecord (14 bytes or more)."
         notes: >
           Scan actively with duplicates allowed and no service-UUID filter,
           which is what the app does (low-latency scan mode). Keep a result
@@ -370,8 +370,8 @@ device:
         salt-water compatible.
     - model: "EcO Salt"
       notes: >
-        The salt-water probe. The app's probe-type values are ECO, ECO_SALT
-        and PHIN, and its EcO handling applies to any type containing "ECO",
+        The salt-water probe. The app knows three probe types (EcO, EcO
+        Salt and pHin), and its EcO handling applies to both EcO types,
         so both probes run the same parser and commands. The type comes from
         the vendor cloud's record of the probe, not from the advertisement,
         and no on-air difference is known. The salt level itself is entered
@@ -503,11 +503,11 @@ services:
         notes: >
           Read once at activation. The whole value is decoded as ASCII text
           and stored by the vendor cloud as the probe's firmware version; see
-          payload_formats.EcoSoftwareVersion. Its length and format are not
+          payload_formats.ProbeSoftwareVersion. Its length and format are not
           established, so no fixed-width format block is declared.
 
 payload_formats:
-  EcoAdvertisementRecord:
+  ProbeAdvertisementRecord:
     description: >
       The manufacturer-specific advertisement data after the two company-ID
       bytes (on air: ff 4c 07, then these bytes). Offsets count from the first
@@ -622,7 +622,7 @@ payload_formats:
       - "Treat mode 3 (maintenance) records as not measurements, and mode 2 (live) records as a calibration run, as the app does."
     example: "01 01 07 02 e4 02 b2 0a 1e 04 d2 b2 5a a0"
 
-  EcoSoftwareVersion:
+  ProbeSoftwareVersion:
     description: "The value read from f3a00011-f0a2-9b06-0c59-1bc4763b5c00."
     fields:
       - name: "software_version"
@@ -636,27 +636,27 @@ entities:
     name: "pH"
     device_class: "ph"
     notes: >
-      From the advertisement (payload_formats.EcoAdvertisementRecord.ph), no
+      From the advertisement (payload_formats.ProbeAdvertisementRecord.ph), no
       connection needed. Uncalibrated, and the 1/100 scale is a hypothesis.
       Skip mode 2 and mode 3 records.
   - platform: "sensor"
     name: "ORP"
     device_class: "voltage"
     unit: "mV"
-    notes: "From the advertisement (EcoAdvertisementRecord.orp). Uncalibrated. Decode as signed."
+    notes: "From the advertisement (ProbeAdvertisementRecord.orp). Uncalibrated. Decode as signed."
   - platform: "sensor"
     name: "Water Temperature"
     device_class: "temperature"
     unit: "C"
-    notes: "From the advertisement (EcoAdvertisementRecord.temperature). The 0.01 C scale is a hypothesis; check it against a thermometer."
+    notes: "From the advertisement (ProbeAdvertisementRecord.temperature). The 0.01 C scale is a hypothesis; check it against a thermometer."
   - platform: "sensor"
     name: "Conductivity (raw)"
-    notes: "From the advertisement (EcoAdvertisementRecord.conductivity). Raw integer, unit not established."
+    notes: "From the advertisement (ProbeAdvertisementRecord.conductivity). Raw integer, unit not established."
   - platform: "sensor"
     name: "Battery"
     device_class: "battery"
     unit: "%"
-    notes: "From the advertisement (EcoAdvertisementRecord.battery)."
+    notes: "From the advertisement (ProbeAdvertisementRecord.battery)."
   - platform: "button"
     name: "Beep"
     commands:
@@ -725,7 +725,7 @@ protocol_details:
     description: >
       The record carries only minutes after 00:00 UTC from the probe's own
       clock; there is no date and no age. The probe's clock is set by
-      set_time. See the parse rules on payload_formats.EcoAdvertisementRecord
+      set_time. See the parse rules on payload_formats.ProbeAdvertisementRecord
       for how the app rebuilds the timestamp, and when it decides the clock has
       drifted. The app also resynchronises the clock with the first
       measurement it sees each day.

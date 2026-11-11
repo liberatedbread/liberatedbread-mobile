@@ -25,9 +25,11 @@ AP-mode provisioning, and no BLE control surface in any known firmware.
     software from the cloud on first boot; after the shutdown it cannot, and
     the oven is effectively bricked.
 
-    **If you own one, pair it and export the pairing material now.** The
-    Ed25519 seed an oven already trusts keeps working against any endpoint
-    that can reach it — after 2026-09-22 that material cannot be re-minted.
+    **Pairing ended with the cloud.** The PIN and the SRP exchange both ran
+    through June's servers, so since 2026-09-22 no new companion can be
+    paired. Pairing material exported before then (the Ed25519 seed the oven
+    already trusts) still works against any endpoint that can reach the oven.
+    It cannot be minted again. Keep it.
 
 The full wire protocol has nonetheless been recovered (see References), so this
 page documents both the dependency and the protocol — the former so nobody buys

@@ -169,6 +169,32 @@ device:
         on the LAN. The Wi-Fi passphrase is handled by the app, not the control
         API documented here.
 
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "none"
+    bonding: "none"
+    enter_pairing_mode:
+      required: false
+      notes: >
+        Nothing to press on the hub. The one switch some owners need is in
+        the Harmony app, not on the hub. Home Assistant's docs say that,
+        depending on firmware, XMPP may have to be turned on (Menu > Harmony
+        Setup > Add/Edit Devices & Activities > Remote & Hub > Enable XMPP).
+        That switch is for the legacy XMPP API on TCP 5222, which this spec
+        does not declare. The port-8088 WebSocket needs no switch.
+    notes: >
+      Local control has no authorisation step. The remoteId the WebSocket
+      needs comes from commands.get_provision_info, an unauthenticated POST
+      on port 8088 that any LAN client may send. It is a per-hub session
+      parameter, not a secret issued after consent, so there is nothing to
+      store securely and nothing to revoke. Firmware 4.15.206 (December
+      2018) removed the XMPP API that local clients then used, and 4.15.250
+      put it back behind the app switch above. Logitech's
+      cloud is needed to author activities and devices, not to control them.
+      Pairing Bluetooth or IP devices to the hub is part of that authoring.
+      It is done in the Harmony app and is not covered here.
+
 http_endpoints:
   - method: "POST"
     path: "/"

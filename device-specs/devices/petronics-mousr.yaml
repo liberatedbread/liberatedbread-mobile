@@ -123,16 +123,49 @@ device:
       issued_to_client: []
       notes: "No account-bound credential was found for ordinary operation."
   pairing:
-    required: "unknown"
+    required: false
     confidence: "low"
-    security_mode: "unknown"
+    security_mode: "none"
     bonding: "unknown"
+    exclusivity:
+      single_connection: "unknown"
+      single_bond: false
+      recovery: >
+        Close the Mousr app on every other phone or tablet before
+        connecting; the app connects on its own when it finds only one toy,
+        so an open app elsewhere can take it first. If it still does not appear, wake it with
+        the chin pushbutton (it is invisible in power down), and as a last
+        resort hold the pushbutton 15 seconds for device recovery mode, then
+        click once to reboot.
+      notes: >
+        The user guide expects one toy to be driven from several phones in
+        turn (each phone keeps its own name for the toy), which rules out a
+        one-owner binding. Whether a second central can connect while one is
+        already connected is not established.
     enter_pairing_mode:
       required: false
+      indicator: "LED blinks blue every 4 seconds while waiting for a Bluetooth connection (sleep mode)."
+      notes: >
+        No pairing mode, but a power state matters: in power down (after a
+        2-second pushbutton hold, or when charging completes) Bluetooth is
+        off and the toy does not advertise. Click the chin pushbutton to
+        wake it; in sleep mode it advertises without a press. The guide's
+        "pairing" is the app's device list, not an OS Bluetooth step.
     notes: >
-      Static analysis found no application-layer authentication for normal
-      commands. The guide discusses Bluetooth pairing, but whether a bond is
-      required on every firmware/phone combination needs a live check.
+      The user guide (v1.1, 2018) describes connecting as: press the chin
+      pushbutton, open the app, tap the toy in the app's device list. No
+      PIN, no confirmation on the toy and no step in the phone's Bluetooth
+      settings appear, and it notes that a toy driven from several phones is
+      named separately on each — so the name lives app-side and the toy
+      keeps no per-phone record. Static analysis of the app likewise found
+      no application-layer authentication for normal commands. That makes
+      "connect and go" the reading every source supports, but none has been
+      replayed: confidence stays low until someone connects from a host
+      that never ran the app, and `bonding` stays unknown because an OS
+      that pairs on an insufficient-authentication error would hide a
+      demand for one. The device recovery mode (15-second hold) clears the
+      toy's internal memory; it is a reboot, not an unpairing, and there is
+      nothing to unpair.
 
 initialization:
   - characteristic: "6e400003-b5a3-f393-e0a9-e50e24dcca9e"

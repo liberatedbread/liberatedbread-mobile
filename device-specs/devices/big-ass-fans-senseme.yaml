@@ -552,12 +552,11 @@ protocol_details:
       with the FAN;BOOKENDS and LIGHT;BOOKENDS room limits. No room-wide
       command is established. The published clients address one device at a
       time, and aiosenseme finds a room's members by matching GROUP;LIST
-      across discovered devices. NEGATIVE FINDING: RESEARCH.md listed
-      FANCLUSTERMESSAGE, LIGHTCLUSTERMESSAGE, FANSTEPCOMMAND,
-      LIGHTLEVELCONTROLCOMMAND, FANMAXSPEED and SLEEPFANSPEED as SenseME
-      vocabulary. In the vendor app they are field and payload-case names of
-      the 3.x protobuf messages, not ASCII tokens. None of them appears on
-      the legacy wire.
+      across discovered devices. NEGATIVE FINDING: an earlier research
+      list of supposed SenseME tokens (cluster-message, step-command,
+      level-control and max-speed names) turned out to be identifiers from
+      the vendor app's 3.x protobuf layer, not ASCII tokens. None of them
+      appears on the legacy wire.
     vendor_app_only:
       # Messages seen only in the current vendor app's legacy-device handler.
       "DEVICE;SIGNAL;SET;10000": "Identify. The app's locate action sends 10000; the unit is not established (plausibly milliseconds). Declared as `identify`."
@@ -667,7 +666,7 @@ payload_formats:
         scale: 0.01
         description: "value = raw x 0.01. Always Celsius on the wire; clients convert for display."
     parse_rules:
-      - "Parse as a decimal integer and multiply by 0.01. Round writes to the nearest integer after dividing by 0.01. The app's Fahrenheit targets produce values such as 2388 (75 F)."
+      - "Parse as a decimal integer and multiply by 0.01. Round writes to the nearest integer after dividing by 0.01. The app's Fahrenheit targets produce values such as 2388 (75 F is 23.889 C, which the app truncates; rounding gives 2389)."
     example: "2388"
 
 # The protocol is ASCII over a raw TCP socket (and UDP datagrams) on port
@@ -1331,7 +1330,7 @@ entities:
       scale: 0.01
     commands:
       set_value: "cooling_set_ideal_temp"
-    notes: "Hundredths of a degree Celsius on the wire. Apps that show Fahrenheit write values like 2388 (75 F), which is why the step is 0.01."
+    notes: "Hundredths of a degree Celsius on the wire. Apps that show Fahrenheit write values like 2388 (75 F, truncated), which is why the step is 0.01."
 
   - platform: "number"
     name: "Smart Cooling Minimum Speed"
@@ -1523,10 +1522,10 @@ evidence:
     firmware path for legacy devices requests "-GEN3" (3.x) images and
     uploads over plain HTTP to port 31416. Its strings include a
     support-only downgrade to the Haiku app, which factory-resets the
-    device. NEGATIVE FINDING: the *CLUSTERMESSAGE, *COMMAND, FANMAXSPEED
-    and SLEEPFANSPEED names listed in the research notes are protobuf field
-    and payload-case names of the 3.x protocol. They are not SenseME
-    tokens.
+    device. NEGATIVE FINDING: the cluster-message, command and
+    max-speed names an earlier research list took for SenseME tokens are
+    protobuf field and payload-case names of the 3.x protocol. They are
+    not SenseME tokens.
   open_questions: >
     Setup access point SSID, security and address. The reply to NW;JOIN
     and NW;SCAN. A factory reset that is known to work on legacy firmware.

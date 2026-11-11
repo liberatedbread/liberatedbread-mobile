@@ -1631,7 +1631,7 @@ bluetooth_classic:
 initialization:
   - command: "query_firmware"
     expect_response: true
-    delay_after_ms: 100
+    delay_ms: 100
   - command: "query_serial"
     expect_response: true
 

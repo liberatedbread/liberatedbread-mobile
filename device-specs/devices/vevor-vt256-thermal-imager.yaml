@@ -128,7 +128,7 @@ device:
               actor: "client"
               expect: "Imaging parameters return to defaults; the camera may restart."
           notes: >
-            Derived from the app's ActionType table; not exercised against
+            Derived from the app's action-type table; not exercised against
             hardware. There is no network rebind to recover from — the camera
             is always its own AP — so the practical reset need is parameter
             corruption, not credential loss.
@@ -150,6 +150,31 @@ device:
         are all unauthenticated: anyone joined to the camera's AP has full
         control. Treat physical radio range as the entire access control
         model.
+  pairing:
+    required: false
+    confidence: "low"
+    security_mode: "none"
+    bonding: "none"
+    exclusivity:
+      single_connection: "unknown"
+      single_bond: false
+      recovery: >
+        Not established. If a second phone cannot get a command-channel
+        reply, close the W01 app on the first, or take it off the camera's
+        Wi-Fi, before assuming the protocol is wrong. Small access-point
+        cameras of this kind often serve one TCP control client at a time.
+    enter_pairing_mode:
+      required: false
+    notes: >
+      Nothing pairs and nothing is issued. The only gate is joining the
+      camera's own HT-W01-* access point with the passphrase 12345678, which
+      every unit shares (see setup and credentials). After that the TCP 8080
+      command channel, the RTSP stream on 654 and the UDP 8888 thermal stream
+      answer with no login or handshake beyond the heartbeat. The companion
+      app has no account and no cloud, so there is nothing to lose when the
+      vendor goes. Low because the absence of authentication is read from
+      static analysis of the vendor app, with no hardware replay and no open
+      implementation to confirm it.
 
   variants:
     - model: "VT256"

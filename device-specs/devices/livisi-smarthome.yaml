@@ -256,6 +256,61 @@ device:
         documented by any source read. The local password and the token both
         travel in clear HTTP.
 
+  pairing:
+    required: true
+    confidence: "medium"
+    security_mode: "app_layer"
+    bonding: "none"
+    pin:
+      source: "user_chosen"
+      notes: >
+        The Local SmartHome password the owner set in the controller's local
+        web app, for the fixed user "admin". The label value (the SN digits
+        on SHC 1, the PIN on SHC 2) is only the first-login default, and the
+        web app makes the owner replace it. A client stores the password and
+        exchanges it for a short-lived bearer token (commands.get_token) as
+        often as it needs to.
+    exclusivity:
+      single_connection: false
+      single_bond: false
+      recovery: >
+        Nothing to clear. Every client logs in as the same admin user and
+        gets its own token, so a new client does not push the web app or
+        another client out.
+      notes: >
+        Local SmartHome is a single-user system: all clients share the one
+        admin password, and no per-client identity exists. The planbnet
+        library limits itself to one concurrent HTTP connection to an SHC 1
+        and ten to an SHC 2. That is a connection-pool limit, not a login
+        limit.
+    unpair:
+      supported: "unknown"
+      notes: >
+        No per-client credential exists to revoke. The only lever is the
+        shared admin password. Whether the local web app lets the owner
+        change it after setup, and whether that ends tokens already issued,
+        is not covered by the sources used here. Recovering a lost password
+        is just as undocumented (setup.factory_reset).
+    enter_pairing_mode:
+      required: false
+      notes: >
+        Nothing to press for a client. The one physical step is part of the
+        one-time Local SmartHome initialisation: on SHC 1 with controller
+        software 3.1.1056.0 or later, the web app asks for a button press on
+        the controller before the first password is set. That belongs to the
+        setup method "Ethernet, Local SmartHome web app, then token login",
+        not to each client.
+    notes: >
+      The gate is an OAuth2 password grant against the controller itself.
+      The client posts user "admin" and the local password to /auth/token,
+      with the fixed client id and secret, and gets a JWT bearer token that
+      later requests and the event WebSocket carry. When the token expires
+      (errorcode 2007, or the JWT exp claim), the client logs in again with
+      the stored password. The LIVISI cloud was switched off on 2024-03-01,
+      and none of this needs it. Teaching LIVISI radio devices to the
+      controller is a separate 868 MHz pairing that this spec does not
+      document.
+
 auth_schemes:
   client_basic:
     type: "http_basic"

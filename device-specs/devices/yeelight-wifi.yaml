@@ -187,6 +187,57 @@ device:
         protection during provisioning is unknown. Post-setup port-55443 control
         is unauthenticated on the LAN, gated only by the LAN Control toggle.
 
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "none"
+    bonding: "none"
+    exclusivity:
+      single_connection: false
+      single_bond: false
+      recovery: >
+        The light takes up to four TCP connections on 55443 at once, so the
+        Yeelight app, Home Assistant and a script can coexist — but beyond
+        four, counting stale sockets left by a client that never closed them,
+        a new client should expect to be refused. Close idle connections;
+        power-cycling the light drops them all. A client that hits the ~60 commands/minute quota
+        should move to music mode (set_music) rather than open more sockets.
+      notes: >
+        Limits are from Yeelight's Inter-Operation Specification: four
+        concurrent connections, about 60 commands per minute per connection
+        and 144 per minute across all of them. What the light does with a
+        fifth connection attempt is not stated there.
+    enter_pairing_mode:
+      required: true
+      procedures:
+        - name: "Turn on LAN Control for the light in the Yeelight app"
+          verified: false
+          basis: >
+            Yeelight's Inter-Operation Specification and Home Assistant's
+            yeelight integration documentation, which both make the toggle
+            (formerly "Developer mode") a prerequisite for port 55443.
+          power_state: "on"
+          steps:
+            - action: "In the Yeelight app open the light's device settings and switch on LAN Control."
+              actor: "user"
+              expect: "The light answers a get_prop on TCP 55443 and replies to the port-1982 M-SEARCH."
+      notes: >
+        A one-time device setting, not a window: once on it persists across
+        power cycles and nothing has to be repeated per client. It has to be
+        set again after a factory reset or re-provisioning (setup.rejoin).
+        Without the Yeelight app or its cloud the same flag can be set over
+        the light's miIO interface — python-miio sends set_ps with
+        cfg_lan_ctrl = 1 — but that path needs the device's miIO token (see
+        xiaomi-miio.yaml), which is itself normally fetched from Xiaomi's
+        cloud.
+    notes: >
+      Nothing is paired and nothing is issued: with LAN Control on, any host
+      that can reach TCP 55443 has full control, and every connection starts
+      clean. The only gate is the LAN Control flag described under
+      enter_pairing_mode, which is a property of the light rather than of any
+      client. Onboarding itself (Xiaomi SmartConfig) is setup method
+      'smartconfig'. Segment the network if that open port matters.
+
 # The Yeelight LAN protocol. Bespoke material lives under `protocol_details`,
 # the schema's namespace for single-spec protocol blocks (the schema's top
 # level is closed).

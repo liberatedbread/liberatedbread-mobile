@@ -188,6 +188,67 @@ device:
         reachability is part of the security model whether the owner wants it
         or not.
 
+  pairing:
+    required: true
+    confidence: "medium"
+    # The gate is an on-screen Allow/Deny dialog keyed on the client NAME;
+    # approval yields a token on the TLS port. See websocket.pairing.
+    security_mode: "app_layer"
+    bonding: "none"
+    exclusivity:
+      single_connection: false
+      single_bond: false
+      recovery: >
+        Approvals are per client name and accumulate; a new client never
+        evicts an old one. If the TV prompts on every connection, set Access
+        Notification to "First Time Only" (Settings > General > External
+        Device Manager > Device Connection Manager). If it never prompts and
+        the socket closes with ms.channel.unauthorized, the name was
+        previously denied — remove it from the Device List there and connect
+        again. Keep the client name constant: renaming makes the client a
+        stranger.
+      notes: >
+        The TV also refuses WebSocket connections from a different subnet or
+        VLAN (samsungtvws, Home Assistant), which presents as a timeout rather
+        than as a refusal.
+    enter_pairing_mode:
+      required: false
+      notes: >
+        Nothing to arm on the TV: the client's first WebSocket connection with
+        a new name raises the Allow/Deny dialog, and the viewer answers it with
+        the remote. There is no PIN on Tizen (2016+). The 2014-2015 H/J-series
+        encrypted generation instead shows an on-screen PIN (not specified in
+        this file; see samsung_legacy_common.applies_to), and pre-2016 Orsay
+        sets use the same Allow/Deny model as Tizen without a token.
+    unpair:
+      supported: true
+      requires_factory_reset: false
+      clears: "One approved client name (and its token); other clients and all TV settings remain."
+      procedures:
+        - name: "Remove the client from the Device Connection Manager list"
+          verified: false
+          basis: "samsungtvws and Home Assistant samsungtv documentation (samsung_remote_common.pairing.tv_settings)."
+          power_state: "on"
+          glyph: "generic/on-screen-menu.svg"
+          steps:
+            - action: "Settings > General > External Device Manager > Device Connection Manager > Device List; select the client and delete it (labels vary by Tizen generation)."
+              actor: "user"
+              expect: "The client's next connection raises the Allow/Deny dialog again."
+      notes: >
+        Deleting the entry is also how a client that was accidentally denied
+        gets asked again.
+    notes: >
+      Pairing is a viewer pressing Allow on the TV when a client first opens
+      the samsung.remote.control WebSocket under a new name. On the TLS port
+      8002 the approval comes back as data.token in ms.channel.connect, which
+      the client stores and sends as &token= on every later connection; on
+      8001 clients usually authenticate by name alone. No PIN, no Samsung
+      account and no cloud call is involved, so approvals keep working
+      offline. Wire detail in websocket.pairing and
+      samsung_remote_common.pairing; the user step is in setup method
+      'device_ui'. The REST /api/v2/ surface (app launch, device info) is not
+      gated by pairing at all.
+
 helpful_urls:
   - title: "samsungtvws (xchwarze/samsung-tv-ws-api) — reference Python client for the Tizen WebSocket + REST API"
     url: "https://github.com/xchwarze/samsung-tv-ws-api"

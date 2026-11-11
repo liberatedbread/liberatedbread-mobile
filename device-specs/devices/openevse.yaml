@@ -138,6 +138,46 @@ device:
         open on the LAN. Provisioning passes the Wi-Fi passphrase over the setup
         AP's captive portal.
 
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "none"
+    bonding: "none"
+    pin:
+      source: "user_chosen"
+      notes: >
+        Only when the owner has set one. The gateway's admin password
+        (config keys www_username / www_password, set from the web UI)
+        switches on HTTP Basic auth for the JSON API and the WebSocket;
+        a blank password means no auth at all, even if a username is set.
+        Current firmware falls back to the username "openevseadmin" when a
+        password is set and the username is left blank. Browsers get a
+        session cookie from POST /login instead; machine clients (Home
+        Assistant, scripts) send Basic on every request.
+    unpair:
+      supported: true
+      requires_factory_reset: false
+      clears: "The one shared admin password, and with it every client that held it."
+      notes: >
+        There is one credential, not a list of clients: changing or blanking
+        the password in the web UI is the revocation, and every other client
+        has to be given the new one.
+    enter_pairing_mode:
+      required: false
+    notes: >
+      Out of the box the local API is open: any client on the LAN can read
+      /status and POST /override, which sets mains charging current — the
+      reason to set the optional password above. Nothing is issued and no
+      button is involved; the owner-chosen password is the whole story, and
+      no cloud takes part. Basis: the OpenEVSE ESP32 firmware's web server
+      source, whose auth check is keyed on the password being non-empty and
+      which also throttles repeated wrong Basic credentials. Two surfaces sit
+      outside this gate: MQTT, where the gateway is a client of the owner's
+      own broker and the broker's credentials apply, and the controller's
+      RAPI serial port, where physical access to the board is the only
+      authorisation. While the gateway is in setup-AP-only mode the API is
+      open regardless of the password.
+
 http_endpoints:
   - method: "GET"
     path: "/status"

@@ -200,6 +200,41 @@ device:
         into the oven itself, hence not_applicable rather than a transit
         protection grade.
 
+  pairing:
+    required: true
+    confidence: "low"
+    # No local surface exists (local_access: none_known); the only gate is
+    # the Brava account the oven is linked to.
+    security_mode: "app_layer"
+    bonding: "none"
+    unpair:
+      supported: "unknown"
+      notes: >
+        The backend emits actors_unlinked events, so unlinking exists server
+        side. No app call or oven menu that triggers it was recovered. Erase
+        Data and Settings (setup.factory_reset) clears the account
+        association on the oven itself.
+    enter_pairing_mode:
+      required: false
+      notes: >
+        A client signing in to an account the oven is already linked to needs
+        nothing at the oven. Linking an oven to an account the first time
+        involves an on-oven step that was not recovered (setup method 'Wi-Fi
+        on the touchscreen, then account sign-in').
+    notes: >
+      The oven talks to nothing on the LAN, so there is nothing local to
+      authorise against. A client requests an emailed one-time code (POST
+      /account/otp/) and exchanges it at /auth/mobile for an account token.
+      It presents that token as the REST bearer and as the BRAVA-TOKEN
+      payload on DeviceNet, and can then address whichever oven the backend
+      has linked to that account. A separate gate is the oven's own safety
+      interlock: a remote command only enqueues a cook, and a person at the
+      oven presses start every time. That is a per-cook confirmation, not
+      pairing, and any replacement backend must keep it. Brava ceased normal
+      operations on 2026-03-06, so the account service, and with it every
+      client, can disappear without notice. Confidence is low because
+      everything here is app-derived and nothing has been replayed.
+
 # Vendor-specific protocol detail this schema does not model. Namespaced so the
 # top level can stay closed; nothing here is a declared contract.
 protocol_details:

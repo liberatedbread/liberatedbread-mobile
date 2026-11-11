@@ -76,7 +76,7 @@ a new address by DHCP, and a client finds it again through Bonjour.
 
 | Property | Value |
 |----------|-------|
-| Pairing required | No. Each connection authenticates with the base station password |
+| Pairing required | Yes: the base station password, proved again on every connection. Nothing is issued, and changing the password revokes every client |
 | Security mode | `app_layer` (SRP-6a, or the legacy password key) |
 | Bonding | `none` |
 | PIN source | `user_chosen` |

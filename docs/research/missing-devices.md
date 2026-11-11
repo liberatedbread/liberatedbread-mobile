@@ -18,9 +18,11 @@ about 270 unvalidated write-ups in `research-notes/`, 69 target stubs in
     *Do these next*: #1 Instant Pot, #2 AM43, #3 JuiceBox, #5 Sengled, #7 Yummly,
     #6 BiSecur, #8 LIVISI, #11 AirPort ACP, #12 Philips air purifiers, #15
     Drobo, #16 Kano wand, #17 TiVo, #18 Hot Wheels id, #19 TRÅDFRI gateway, #22
-    Insteon Hub; from the category tables: Orbit B-hyve, the Elgato
-    classic-HTTP family and SolarEdge (as Modbus TCP, not the SetApp web API); from *Graduate these research
-    notes*: QardioArm, Insteon Hub.
+    Insteon Hub, #23 Furby Connect, #24 Nissan Leaf; from the category tables: Orbit B-hyve, the Elgato
+    classic-HTTP family, SolarEdge (as Modbus TCP, not the SetApp web API), Qingping, Eurotronic Comet
+    Blue, Big Ass Fans, RadonEye, Anova, Weber iGrill, Acaia, Furbo (identify-only), Boosted, Lippert
+    OneControl (incomplete) and InMotion; from *Graduate these research
+    notes*: QardioArm, Insteon Hub, Boosted Boards, Joule, Hestan Cue.
 
 This page answers one question: **which locally-controllable devices does the
 catalogue still lack, and which of them should be written up next?** It follows
@@ -111,9 +113,8 @@ and the H5074/H5179 family is in [`govee-h5075-thermo`](../devices/govee-h5075-t
 
 Still missing from the July list, and carried forward below with a *July list*
 tag: AM43 blind motors, Insteon and Echelon (old firmware only) in
-[Do these next](#do-these-next), and in the tables Qingping, BLE standing
-desks, Broadlink RM4, Acaia scales, Fellow Stagg, MEATER, iGrill, Anova,
-Furbo, Spotify Car Thing, Neato, Nest gen 1/2, Owlet, the Tuya BLE Fingerbot,
+[Do these next](#do-these-next), and in the tables BLE standing
+desks, Broadlink RM4, Fellow Stagg, MEATER, Spotify Car Thing, Neato, Nest gen 1/2, Owlet, the Tuya BLE Fingerbot,
 JK-BMS, Daly BMS, Husqvarna Automower, Yamaha YNCA and Votol. Onkyo eISCP and
 Eight Sleep stay link-only, and the Solum shelf labels move to link-only; Snoo
 and Traeger stay parked.

@@ -33,8 +33,10 @@ than restating the bit math.
 ## Install / pair
 
 Wire the bridge to Ground / Control / Obstruction (LiftMaster Sec+ 2.0:
-red/white/common), in parallel with the wall button, then press the opener's
-learn button to pair the emulated panel (it seeds the rolling-code counter).
+red/white/common), in parallel with the wall button. No learn-button press is
+needed for the wired link: the bridge picks its own Sec+ 2.0 client ID and
+syncs the rolling-code counter itself. The learn button enrols radio remotes
+and keypads, not wall controls.
 
 ## Sibling device verified live: MyQ Smart Garage Control MYQ-G0401
 

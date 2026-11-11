@@ -108,6 +108,34 @@ device:
         exchange somewhere in the stack, but that is a HYPOTHESIS: no 0x27
         request construction was located in the shipped app — the service
         reset DIDs above need no diagnostic session and no security access.
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "none"
+    bonding: "none"
+    exclusivity:
+      single_connection: "unknown"
+      recovery: >
+        Use one diagnostic tool at a time. Every tester transmits as 0x6F1, so
+        a second tool on the connector (or a dongle left plugged in with an app
+        reconnecting in the background) answers flow control for the same
+        replies and corrupts multi-frame exchanges. Not an ECU rule — a
+        consequence of the shared tester ID.
+    enter_pairing_mode:
+      required: false
+    notes: >
+      Nothing on the vehicle side gates the documented service surface. The
+      identity reads and the 0xE1xx service-interval reads and writes are
+      issued by the shipped tool without a diagnostic-session change and
+      without UDS SecurityAccess (0x27): the authorisation is physical access
+      to the connector with the ignition on. No session or security preamble
+      was recovered in front of the 31 FA actuator tests either, though that
+      is less firmly established.
+      ECU coding is the open question — it is commonly assumed to sit behind a
+      0x27 seed/key, but no seed/key construction was found in the analysed
+      app, so that gate is unestablished rather than absent, and this spec
+      documents no coding writes that would need it. Any Bluetooth pairing
+      belongs to the adapter (obd2-bluetooth-adapter.yaml), not the bike.
 
 obd:
   role: "vehicle"
@@ -215,8 +243,8 @@ obd:
   # Adresszugriff (HW Bit ILAF)"), a CPU illegal-address-fetch bit misread as a
   # module in an earlier revision of this spec.
   #
-  # The list above is the short version: the app carries ~65 cuX_* control-unit
-  # class strings — ten KOMBI variants (03/17/18/46/50/53/A/B2/HI/LO), ten BMS
+  # The list above is the short version: the app carries ~65 control-unit
+  # definitions — ten KOMBI variants (03/17/18/46/50/53/A/B2/HI/LO), ten BMS
   # variants (MP1/X/O1/E2B/AE1/MS1/N/TVS/Z), four ABS variants (ABS, ABS1K,
   # ABS9M, ABSVI), three DWA and three OBC variants, plus SAF, CCP, MESS, MRR,
   # SRR, FSA, FSM, SME, EDME, SLZ, BSK and others. Coverage is far wider than
@@ -225,8 +253,8 @@ obd:
 
   requests:
     # ---- Service interval reset: UDS WriteDataByIdentifier on the 0xE1xx family ----
-    # The reset is implemented per cluster generation: the shared reset routine
-    # (abstract Cu.d0) is overridden in four concrete control-unit classes, so
+    # The reset is implemented per cluster generation: the app's shared reset
+    # routine is overridden for four separate cluster types, so
     # behaviour may differ between KOMBI generations. The frames below are the
     # variant recovered from the app's instrument-cluster class.
     - name: "set_cluster_clock"

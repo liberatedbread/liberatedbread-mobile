@@ -470,3 +470,16 @@ def test_write_acknowledgement_is_not_mistakable_for_state(endpoints, light_enti
             assert role_path not in element["success"], (
                 "the ack must not resemble a child object"
             )
+
+
+def test_manual_pairing_and_basic_control_confirmations(spec, commands):
+    """The completed v1 flow is confirmed without promoting other surfaces."""
+    for name in ("create_user", "light_turn_on", "light_turn_off"):
+        assert commands[name]["verification"] == "confirmed", name
+    assert commands["light_set_brightness"]["verification"] == "reported"
+
+    method = spec["device"]["setup"]["methods"][0]
+    assert method["verified"] is True
+    assert all(stage["verified"] is True for stage in method["stages"])
+    procedures = spec["device"]["pairing"]["enter_pairing_mode"]["procedures"]
+    assert all(procedure["verified"] is True for procedure in procedures)

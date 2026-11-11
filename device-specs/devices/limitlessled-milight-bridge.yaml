@@ -184,6 +184,26 @@ device:
         unauthenticated — anything on the LAN that can reach port 8899 (or
         5987 on v6) can drive every paired light.
 
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "none"
+    bonding: "none"
+    enter_pairing_mode:
+      required: false
+    notes: >
+      Nothing gates a LAN client. A legacy bridge takes a three-byte command
+      on port 8899 from anyone, with no reply and no session. The v6 (iBox)
+      session init on UDP 5987 is the same fixed byte string for every
+      client, so it is a handshake (limitlessled_protocol.v6), not an
+      authorisation. This project confirmed the discovery exchange and the
+      open TCP 8899 port on a live legacy bridge, but no command was sent,
+      so the no-auth claim rests on the published docs and
+      python-ledcontroller. The module web UI's admin/admin login guards
+      only Wi-Fi setup, not control. Linking bulbs to the bridge is a
+      different pairing: send a zone's ON command within about 3 seconds of
+      powering the bulb (setup notes).
+
 protocol_handler: "limitlessled_legacy_8899"
 
 # Vendor-specific protocol detail this schema does not model. Namespaced so the

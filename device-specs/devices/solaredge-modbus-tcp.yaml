@@ -236,6 +236,47 @@ device:
       issued_to_client: []
       notes: "Modbus TCP has no credentials of any kind."
 
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "none"
+    bonding: "none"
+    exclusivity:
+      single_connection: true
+      single_bond: false
+      recovery: >
+        Find and stop the other poller: a second home-automation system, a
+        datalogger, or two Home Assistant integrations (core and
+        solaredge-modbus-multi) each opening their own socket. If several
+        consumers really need the data, put one Modbus TCP proxy in front of
+        the inverter and point them all at it. A client that dies without
+        closing its socket can hold the slot until the inverter's 2-minute
+        idle timeout frees it, so wait that long before concluding the port
+        is dead.
+      notes: >
+        SolarEdge's note says one connection and session, and one Modbus
+        leader per site (RTU or TCP); Home Assistant's page says "a limited
+        number". Whether a second connection is refused or displaces the
+        first is not established (see remaining_unknowns).
+    enter_pairing_mode:
+      required: false
+      notes: >
+        No pairing mode. The person-at-the-hardware step is switching Modbus
+        TCP on once, because it is off from the factory: SetApp's
+        Commissioning > Site Communication menu, or the LAN Conf menu on
+        display inverters (the two device_ui setup methods). It is a
+        persistent setting that survives address changes, not a window.
+    notes: >
+      Nothing is issued and nothing is checked: once Modbus TCP is enabled,
+      whoever opens the port is answered, writes to the power-control
+      registers included. The only gate is reachability, so keep the port
+      on a trusted segment. The two field failures that look like an
+      authorisation problem are the server still being disabled (connection
+      refused on 1502, or 502 on display inverters) and another client
+      already holding the single session (connect hangs or is dropped). No
+      vendor cloud is involved. Basis: SolarEdge's SunSpec technical note
+      v3.2 and Home Assistant's solaredge_modbus documentation.
+
 protocol_handler: "modbus_tcp_sunspec"
 
 protocol_details:

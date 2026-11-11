@@ -146,8 +146,65 @@ device:
       issued_to_client:
         - "Session token (from cmd=Login, reused as ?token=)"
       notes: >
-        Local control uses the camera's own admin credential (change the default
-        admin/123456). Onboarding is app-mediated and not documented here.
+        Local control uses the camera's own admin credential, set at first
+        setup (only very old units shipped admin/123456; see pairing).
+        Onboarding is app-mediated and not documented here.
+  pairing:
+    required: true
+    confidence: "medium"
+    # The gate is a local account on the camera: cmd=Login on the HTTP API
+    # and message 1 on Baichuan both take the same user name and password.
+    security_mode: "app_layer"
+    bonding: "none"
+    pin:
+      source: "user_chosen"
+      notes: >
+        The password created in the Reolink app or client at first setup;
+        the user name is normally admin. Reolink's own account of its
+        defaults is that the admin password started blank, with 123456 only
+        on a very old C1 Pro and on RLN recorders before firmware 3.0, and
+        that current units hold the camera in a restricted mode until a
+        password is set. Home Assistant's integration accepts only letters,
+        digits and @$*~_-+=!?.,:;'()[] in it, because other characters break
+        the stream URLs.
+    exclusivity:
+      single_connection: false
+      single_bond: false
+      recovery: >
+        Two failures look alike. The camera holds only a few sessions, so a
+        client that logs in repeatedly without cmd=Logout eventually gets a
+        "max session" refusal; log out when done, or reuse the token until
+        its leaseTime runs out (reolink_aio logs out before every fresh
+        login for this reason). And repeated wrong passwords produce "Login
+        has been locked"; stop retrying and wait for the lock to lift. Close
+        other third-party clients and ONVIF consumers if connections drop:
+        Home Assistant's documentation warns the simultaneous-connection limit
+        is low.
+      notes: >
+        A newer unit added in the Reolink app as an "Account device" (bound
+        to a Reolink cloud account, shown with a profile icon) refuses local
+        login entirely. Home Assistant's documented fix is to restore it,
+        delete it from the app and add it again as a Local device, creating a
+        local password on the way.
+    unpair:
+      supported: true
+      requires_factory_reset: false
+      clears: "That client's session token, or every client that knew the old password."
+      notes: >
+        The issued token is a session (cmd=Login returns it with a leaseTime)
+        and cmd=Logout ends it. To revoke a client permanently, give it its own
+        user in the camera's user management and delete that user, or change
+        the password. A forgotten password needs the reset in
+        setup.factory_reset, which keeps recordings but clears configuration.
+    enter_pairing_mode:
+      required: false
+    notes: >
+      An admin-login device. HTTP, RTSP, ONVIF and Baichuan all authenticate
+      against the same local account on the camera, and none of them needs the
+      Reolink cloud once the device is a Local device. The only hardware-side
+      step is the one-time password creation at setup. Sources: Reolink's own
+      default-password and forgotten-password articles, the Home Assistant
+      Reolink integration documentation, and reolink_aio's login handling.
 
 camera:
   enable_required: true

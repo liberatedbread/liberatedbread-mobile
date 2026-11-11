@@ -297,6 +297,56 @@ device:
       notes: >
         Reading syPW, pePW, the WiFi plist or usrd returns secrets in the
         reply; a client must not log property replies verbatim.
+  pairing:
+    required: true
+    confidence: "medium"
+    # No link-layer pairing: every ACP connection proves the base station
+    # password, by SRP-6a or by the legacy header key. Nothing is issued.
+    security_mode: "app_layer"
+    bonding: "none"
+    pin:
+      source: "user_chosen"
+      notes: >
+        The base station password (property syPW) the owner set in Apple's
+        configuration tool. SRP always uses the fixed user name "admin", so
+        the password is the whole secret. Each connection proves it again
+        and gets only a per-connection session key; error -6754 on the
+        AUTHENTICATE reply means the password is wrong. What an
+        unconfigured unit accepts before an owner sets a password is not
+        described by the sources.
+    exclusivity:
+      single_connection: "unknown"
+      single_bond: false
+      recovery: >
+        A lost base station password is recovered with the soft reset in
+        setup.factory_reset. About a second on the reset button lifts the
+        password, access control and RADIUS for five minutes, in which a
+        client must connect and write a new syPW, or the old settings come
+        back. Nothing else is lost.
+      notes: >
+        node-acp sends one request at a time on a connection and warns that
+        a MONITOR session drops the connection if anything else is sent on
+        it. Whether the base station accepts several management connections
+        at once is not stated by either community client.
+    unpair:
+      supported: true
+      requires_factory_reset: false
+      clears: "Every client's access at once: there is one shared password, not a list of clients."
+      notes: >
+        Write a new syPW. There is no per-client credential to revoke, so
+        every client that knew the old password loses access together,
+        including Apple's own tool on other Macs and iPhones.
+    enter_pairing_mode:
+      required: false
+    notes: >
+      An admin-password device, entirely local. The SRP exchange
+      (commands.authenticate_start, then stage 3) and the legacy obfuscated
+      header key are the two ways a connection proves the password; prefer
+      SRP, since the legacy key gives the password away to anyone watching
+      (security_advisory). No Apple service is involved, so the
+      discontinuation of the product line changes nothing here. GET_FEATURES
+      is the one request that needs no password. Source: node-acp's client
+      and its test vectors, cross-checked against airpyrt-tools.
 
 protocol_handler: "apple_acp"
 

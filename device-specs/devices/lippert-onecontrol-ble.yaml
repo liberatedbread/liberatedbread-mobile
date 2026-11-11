@@ -49,9 +49,9 @@ device:
       underneath the coach) and can start a generator, whose exhaust is a
       carbon-monoxide hazard. This spec documents the reads and the low-risk
       writes (lights, pump, water heater, HVAC setpoints) as ordinary
-      commands, marks awning extend/retract and generator start/stop
-      `advanced`, and leaves slide-outs, levelling jacks and every interlock
-      override to the vendor's own panel and app. Only operate a moving load
+      commands, marks generator start/stop `advanced`, and leaves awnings,
+      slide-outs, levelling jacks and every interlock override to the
+      vendor's own panel and app. Only operate a moving load
       with its full travel in sight, and never from a client that cannot
       identify the device it is addressing. This is an unaffiliated,
       untested document; Lippert's own instructions govern.
@@ -74,13 +74,13 @@ device:
     X270D, X270L, X1.5): a COBS-framed, CRC-8-checked byte stream on the data
     service 00000030-0200-a58e-e411-afe28044e62c (write 0x0033, notify
     0x0034), where the gateway abstracts the bus into a device table and
-    typed status events. This is what the commands and entities below
+    typed status events. This is what the commands below
     speak. (2) CAN-BLE gateways, including the Unity X180T: raw IDS-CAN
     frames tunnelled over service 00000000-0200-a58e-e411-afe28044e62c
     (0x0001 write, 0x0002 notify, 0x0004 version, 0x0005 password unlock),
     with the client joining the bus as a host node. That runtime is
-    described in protocol_details.x180t_ids_can_tunnel and carries no
-    structured commands here.
+    not documented in this spec beyond those UUIDs (see
+    remaining_unknowns) and carries no structured commands here.
 
 
     AUTHENTICATION IS LAYERED, and a gateway family uses some combination
@@ -91,28 +91,29 @@ device:
     some gateways a second app-layer step that folds the sticker PIN into a
     16-byte key; (d) on CAN-BLE gateways, a CAN password and per-device
     IDS-CAN sessions. The TEA key-schedule constants are app-embedded and
-    are not published here (protocol_details.tea_unlock says where an owner
-    obtains them).
+    are not published here; neither is the TEA variant, and the community
+    integration phurth/ha-onecontrol is where an implementer finds both
+    (see remaining_unknowns).
 
 
     FRAMING. Every MyRvLink frame, both directions, is [0x00][COBS variant
     of (payload + CRC-8)][0x00]; the command templates below are the
-    DECODED payload, and the RvStatus `format` on 0x0034 describes a
-    decoded frame. No schema framing scheme expresses this, so
+    DECODED payload. No schema framing scheme expresses this, so
     `protocol_handler` is set; a consumer without that handler must not
-    write the bare templates or decode raw notifications. Worked frames are
-    in protocol_details.test_vectors.
+    write the bare templates or decode raw notifications. The COBS variant,
+    the CRC-8 parameters, the event layouts and worked frames are not
+    recorded in this spec (remaining_unknowns).
 
 
     SAFETY POSTURE. Reads (gateway info, device table, online status, tank
     levels, battery voltage, HVAC zones, light and relay states) and
     low-risk writes (switched, dimmable and RGB lights; relays such as the
     water pump and water heater; HVAC mode and setpoints) are ordinary
-    commands. Awning extend/retract and generator start/stop are
-    `advanced`. The H-bridge movement opcode is shared by awnings,
-    slide-outs, bed and TV lifts and vent covers, so a client must
-    positively identify an awning from the device's metadata function name
-    before offering it. Slide-out and levelling-jack control (the leveler
+    commands. Generator start/stop are `advanced`. Awning extend/retract
+    is not offered: the H-bridge movement opcode (ActionMovement, 0x41) is
+    shared by awnings, slide-outs, bed and TV lifts and vent covers, and
+    its full command layout is not recorded here, so a client has nothing
+    safe to send. Slide-out and levelling-jack control (the leveler
     opcodes 0x50-0x5A, automatic extend/retract, home-reset) exists and is
     left to the vendor's equipment; it is named in protocol_details only so
     nobody mistakes its absence for an oversight. The community
@@ -128,8 +129,8 @@ device:
     and a handful of one-instruction getters in the managed assemblies of
     the vendor apps OneControl 6.6.3 and Lippert Connect 6.7.0 (both .NET
     MAUI; the two share one protocol stack). Where the two disagree the
-    vendor metadata wins and the disagreement is written down
-    (protocol_details.community_discrepancies). Pairing behaviour comes from
+    vendor metadata wins (the list of those disagreements is not
+    recorded in this spec; see remaining_unknowns). Pairing behaviour comes from
     the community README and issue tracker plus Lippert's QR-077 app-setup
     sheet. No capture exists; `testing: untested`.
 
@@ -166,8 +167,9 @@ device:
       pairing flow also recognises "MyRV_" (the Wi-Fi gateway, out of scope)
       and "LCI_AquaFi_" (a hotspot product, out of scope). "LCIABS" and
       "LCISWAY" are anti-lock-braking and sway-control modules, not this
-      gateway. Manufacturer-data TLVs (connection info, pairing state,
-      connection count) are in protocol_details.advertisement.
+      gateway. The manufacturer data carries TLV records (connection info,
+      pairing state, connection count); their full layout is not recorded
+      in this spec (remaining_unknowns).
 
   discovery:
     methods:
@@ -182,8 +184,8 @@ device:
           manufacturer_data:
             company_id: 1479
             description: >
-              Lippert's SIG company ID, followed by TLV records (see
-              protocol_details.advertisement). Some gateways send a legacy
+              Lippert's SIG company ID, followed by TLV records (layout
+              not recorded here; see remaining_unknowns). Some gateways send a legacy
               single-byte payload instead. Do not substitute 1177 (0x0499):
               that is Ruuvi's ID.
     identity:
@@ -215,8 +217,8 @@ device:
           accept a Just Works bond only while that control has opened the
           pairing window. Applies to the Unity X270D, X270L and X180T and to
           some Unity X1.5 units. The X270D completes with no PIN; the X270L
-          then asks for the owner-tag PIN at the app layer (the step-2 key
-          in protocol_details.step2_pin_key), so a client should always be
+          then asks for the owner-tag PIN at the app layer (the 16-byte
+          step-2 key; see the top-level initialization), so a client should always be
           ready to take the PIN.
         ble:
           advertised_name: "LCIRemote"
@@ -473,9 +475,9 @@ device:
         CAN-BLE gateway: IDS-CAN frames tunnelled over service 0x0000
         (0x0001-0x0005) after SMP bonding and a TEA key/seed unlock with its
         own family constant; IDS-CAN product id 163. Community support is
-        experimental (issue #8: several readings still unknown). See
-        protocol_details.x180t_ids_can_tunnel. None of the MyRvLink commands
-        or entities below apply.
+        experimental (issue #8: several readings still unknown). The
+        tunnel is not documented in this spec (remaining_unknowns). None of
+        the MyRvLink commands below apply.
     - model: "Unity X4"
       notes: >
         Lippert's OEM manual (CCD-0007005) says the X4 is operated through the
@@ -498,8 +500,9 @@ initialization:
       means the bond is missing.
   - characteristic: "00000013-0200-a58e-e411-afe28044e62c"
     description: >
-      Step 1b. key = TEA-encrypt(seed, family constant) as described in
-      protocol_details.tea_unlock, written as 4 bytes big-endian. The
+      Step 1b. key = TEA-encrypt(seed, family constant), written as 4
+      bytes big-endian. The TEA variant and constants are not recorded in
+      this spec (remaining_unknowns). The
       community writes without response; the vendor app pauses 500 ms after
       the write. The constants cannot be stated here, so a client must
       implement this step itself.
@@ -526,8 +529,9 @@ initialization:
   - characteristic: "00000013-0200-a58e-e411-afe28044e62c"
     description: >
       Step 2, only when a seed arrived on 0x0011: write the 16-byte step-2
-      key (protocol_details.step2_pin_key), which carries the TEA result
-      little-endian and the 6-digit sticker PIN in ASCII. Not needed on
+      key, which carries the TEA result
+      little-endian and the 6-digit sticker PIN in ASCII (the exact byte
+      layout is not recorded in this spec; see remaining_unknowns). Not needed on
       gateways that send no seed (the X270D).
   - characteristic: "00000033-0200-a58e-e411-afe28044e62c"
     description: >
@@ -590,7 +594,8 @@ services:
   - uuid: "00000030-0200-a58e-e411-afe28044e62c"
     name: "MyRvLink data service"
     notes: >
-      COBS-framed command and event stream (protocol_details.myrvlink_framing).
+      COBS-framed command and event stream (framing parameters not recorded
+      here; see remaining_unknowns).
       Notifications are a byte stream: one notification may carry part of a
       frame or several frames, so feed every byte to a decoder that splits on
       0x00 and checks the CRC-8. The vendor app requests MTU 185.
@@ -602,6 +607,17 @@ services:
           Named as the BLE-transport version in the vendor app's metadata;
           role inferred from field order, properties not captured, and
           neither client is shown to depend on it.
+      - uuid: "00000034-0200-a58e-e411-afe28044e62c"
+        name: "MyRvLink event notify"
+        properties: ["notify"]
+        role: "notify"
+        notes: >
+          The gateway's event stream: COBS-framed MyRvLink events (gateway
+          information 0x01, command responses 0x02, typed device status
+          events) as a byte stream; subscribed in the top-level
+          initialization. Properties are from how the clients use it, not
+          from a GATT dump. The event layouts are not recorded in this spec
+          (remaining_unknowns), so no `format` is declared.
       - uuid: "00000033-0200-a58e-e411-afe28044e62c"
         name: "MyRvLink command write"
         properties: ["write", "write_without_response"]
@@ -610,10 +626,11 @@ services:
           ENVELOPE, applied by the client to every command below: the
           template is the decoded MyRvLink command [client command id u16]
           [command type][device table id][...]. On the wire it is
-          [0x00][COBS(command + CRC-8)][0x00] (protocol_details.myrvlink_framing).
+          [0x00][COBS(command + CRC-8)][0x00]; the COBS variant and CRC-8
+          parameters are not recorded in this spec.
           A consumer without the `lippert_myrvlink` handler must not write
           the bare templates. Every reply arrives on 0x0034 as event 0x02
-          echoing the command id; see payload_formats.CommandResponseEvent.
+          echoing the command id (its layout is not recorded in this spec).
 
 
           ADDRESSING: `table_id` is byte 4 of the latest gateway-information
@@ -637,7 +654,7 @@ services:
               GetDevices (0x01). Asks for the device table from start_device_id
               on; the gateway answers with one or more 0x02 events (response
               type 0x01 while more follow, 0x81 when complete) carrying
-              device-table entries (payload_formats.DeviceTableEntry), then
+              device-table entries (layout not recorded here), then
               pushes current status events for those devices. The vendor
               Android app and the community send it every 5 s as a
               keep-alive.
@@ -679,7 +696,7 @@ services:
               response entries carry each device's 16-bit function name (what
               the load is: pump, awning, bedroom slide ...), function
               instance, capability byte, IDS-CAN version, circuit id and
-              software part number (payload_formats.DeviceMetadataEntry). The
+              software part number (entry layout not recorded here). The
               community sends it about 500 ms after the first
               gateway-information event, and retries 10 s later if the
               gateway answers failure code 15 (a command already running).
@@ -1094,7 +1111,75 @@ services:
                 min: 0
                 max: 255
                 description: "Device id of the generator controller."
-          awning_extend:
-            description: >
-              ActionMovement (0x41), direction byte 0x82: forward (extend)
-              with the relay-energized valid bit (0x80) set. An awning mot
+
+remaining_unknowns:
+  - >-
+    This spec was published truncated: the file ended inside an awning
+    command, and the blocks it referred to (the TEA unlock description, the
+    step-2 PIN key layout, the MyRvLink COBS/CRC-8 framing, the event and
+    response layouts, the device-table and metadata entry layouts, the
+    advertisement TLV layout, the X180T IDS-CAN tunnel, worked test
+    vectors and the list of community/vendor discrepancies) were never in
+    the repository. No complete version exists in history. Those facts are
+    in phurth/ha-onecontrol and need to be re-derived from it and written
+    back here.
+  - >-
+    Awning extend/retract: ActionMovement (0x41) with direction byte 0x82
+    (extend, relay-energized valid bit 0x80 set) is all that survived; the
+    rest of the command and the retract and stop forms are not recorded, so
+    no awning command is declared.
+  - >-
+    The MyRvLink framing: which COBS variant the gateway uses and the CRC-8
+    polynomial, initial value and coverage.
+  - >-
+    The layouts of the 0x0034 events (gateway information, command
+    response, device-table and metadata entries, typed status events), so
+    no entity or status format is declared.
+  - >-
+    The TEA variant and per-family constants for the step-1 unlock (the
+    constants are withheld on purpose), and the byte layout of the 16-byte
+    step-2 PIN key.
+  - >-
+    The manufacturer-data TLV layout beyond the facts stated in the pairing
+    sections (pairing-available bit, connection counts, I/O capability).
+  - >-
+    The Unity X180T IDS-CAN tunnel over service 0x0000 (characteristics
+    0x0001-0x0005): frame format, host-node join and the CAN password.
+  - >-
+    No capture of any gateway exists; every fact here is `reported`.
+
+evidence:
+  community_implementation: >
+    Byte layouts, command codes and the authentication order come from the
+    community Home Assistant integration phurth/ha-onecontrol (MIT; commit
+    0354e887, v1.0.47), its README, docs/TECH_SPEC.md and issue tracker
+    (issues #8 and #11 are cited above). It is developed against a Unity
+    X270D with user reports for X270L, X1.5 and X180T.
+  app_static_analysis: >
+    Enum values, byte-index constants and characteristic UUIDs were
+    cross-checked against the managed-assembly metadata of the vendor apps
+    OneControl 6.6.3 and Lippert Connect 6.7.0. No vendor code is
+    reproduced and the TEA constants are withheld.
+  documentation_review: >
+    Lippert's OEM manual CCD-0007005 (Unity X4) and the QR-077 app-setup
+    sheet (pairing through the vendor app).
+  open_questions: >
+    Nothing here has been run against hardware or seen in a capture. See
+    remaining_unknowns, which also records the blocks lost when the spec was
+    first published truncated.
+
+helpful_urls:
+  - title: "phurth/ha-onecontrol: Home Assistant integration for OneControl BLE gateways"
+    url: "https://github.com/phurth/ha-onecontrol"
+    kind: "implementation"
+    description: >
+      The open MIT-licensed implementation this spec is drawn from: TEA
+      unlock, step-2 PIN key, MyRvLink COBS framing, device table, status
+      events and the BlueZ pairing agents. The source to re-derive the
+      blocks listed in remaining_unknowns from.
+  - title: "Lippert OneControl / Unity X4 OEM manual (CCD-0007005, PDF)"
+    url: "https://lci-support-doc.s3.amazonaws.com/manuals/electronics/onecontrol/ccd-0007005.pdf"
+    kind: "manual"
+    description: >
+      Vendor-hosted OEM manual for the Unity X4 control system (the X4
+      variant entry cites it); the same document the safety advisory links.

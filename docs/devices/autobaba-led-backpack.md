@@ -1,75 +1,85 @@
 # AUTOBABA LED Backpack
 
-> **Status**: Spec Available (display commands untested)
+> **Status**: Minimally verified (queries, brightness, static and animated upload)
 > **Protocol**: BLE; Wi-Fi on some related LOY SPACE products
 > **Manufacturer**: LOY SPACE / popled.cn (active)
 
 ## Overview
 
-A programmable full-color LED backpack using the LOY SPACE protocol family,
-also seen in NYAN GEAR and other panels. The detailed spec is
+A programmable full-color LED backpack using the LOY SPACE protocol family, also seen
+in NYAN GEAR and other panels. The detailed spec is
 `device-specs/devices/autobaba-led-backpack.yaml`.
 
-A 2026-11-07 owner-authorized live GATT session confirmed the display service
-and characteristic properties, then disconnected without reading, subscribing,
-writing, pairing or updating anything. This establishes the connection map,
-not display-command compatibility. Matrix geometry, firmware and upload
-behavior remain unknown until a read-only information response is captured.
+On 2026-11-07 this project used the documented protocol on one 64×64 unit. It completed
+a device-information query, a reversible brightness test, a read-only telecontrol query,
+and static plus eight-frame raw-GIF uploads. Every required acknowledgement was
+sequence-matched, checksum-valid and status zero.
 
 ## Hardware and identity
 
-- Advertised names begin `YS` or `TL` and include a device serial. This is a
-  **platform** match, not proof of an AUTOBABA controller revision.
+- Advertised names begin `YS` or `TL` and include a device serial. This is a platform
+  match, not proof of an AUTOBABA controller revision. A `LOY` name belongs to the
+  separate [LOYPRO candidate](loypro-led-display.md).
 - Main display service: `0000fff0-0000-1000-8000-00805f9b34fb`.
-- Display writes: `0000fff2-0000-1000-8000-00805f9b34fb`,
-  **write-without-response only** in live discovery.
+- Display writes: `0000fff2-0000-1000-8000-00805f9b34fb`, write-without-response only.
 - Display notifications: `0000fff1-0000-1000-8000-00805f9b34fb`, notify.
-- A separate `5833ff01-9b8b-5191-6142-22a4536ef123` service has **no
-  established role on this backpack**. It is an SBH OTA candidate, while
-  BanlanX research describes authenticated/ELS control on other firmware.
-  Neither role is established here. Its `5833ff02…` write and `5833ff03…`
-  notify properties were observed, but the analyzed LOY display path does not
-  use them, and no compatible command, image or recovery path is known.
+- The tested information reply reported 64×64 geometry, fixed brightness 7 and remote
+  support. Unit-specific identity and CID values are intentionally not published.
 
-Rediscover by exact advertised name plus FFF0 rather than persisting an old
-MAC. During the live investigation, an address-based connection failed while
-the same name was found at a different random-format address; passing the
-freshly discovered device to the client worked. That does not prove how often
-one unit rotates addresses, but it is enough reason not to cache a stale one.
+Rediscover by exact advertised name plus FFF0 rather than persisting an old address.
+A separate `5833ff01-9b8b-5191-6142-22a4536ef123` service was present but unused. It is
+an SBH OTA candidate only; do not send display, authentication or firmware commands
+there without a compatible capture and recovery path.
 
 ## Setup and pairing
 
-Power the backpack and connect directly. No account or network provisioning
-is established for the BLE display path. Do not infer that this particular
-unit has Wi-Fi merely because the generic app supports it. An optional
-password capability exists in the wider codec; if enabled, use the owner's
-normal app flow rather than guessing or bypassing it.
+Power the backpack and connect directly. No account, network provisioning or Bluetooth
+bond is established for the BLE display path. Do not infer Wi-Fi merely because the
+generic app supports it. The information reply's `pwd` token indicates password support,
+not whether a password is configured; use the owner's normal flow if one is set.
 
 Subscribe to FFF1 before querying or sending a command. Use FFF2 with
-`response=False`. No factory reset is established; power-cycling only drops
-the connection and is not a factory wipe.
+`response=False`. No factory reset is established; power-cycling only drops the
+connection and is not a factory wipe.
 
-## Read-only information query
+## Information query and geometry
 
-The vendor-derived example below asks for device information, panel
-parameters, power state and brightness configuration. Sequence 1 is only a
-worked example; a real client increments its sequence counter.
+This example asks for device information, panel parameters, power state and brightness.
+Sequence 1 is only a worked example; a client increments its sequence counter.
 
 ```text
 aa 55 ff ff 0e 00 01 00 c1 03 0a 00 1b 00 04 00 06 00 ff 03
 ```
 
-**It was not sent during the live test.** A future owner-authorized capture
-should first enable FFF1, then use FFF2 without response and retain the raw
-reply. Panel TLV `0x1b` contains big-endian width and height. The app's
-initial 64×64 state is only a default, not proof of the backpack's geometry.
+The tested unit returned one complete 151-byte, checksum-valid reply. In panel TLV
+`0x1b`, a leading panel-data-type byte is followed by **little-endian** width and
+height. `00 40 00 40` therefore means 64×64. This is deliberately different from
+SPOTLED's big-endian dimensions.
+
+The reply's literal model field and version/capability strings are preserved in the
+research evidence but are not a retail-model identification. The initial 64×64 app
+state was not used as geometry evidence.
+
+## Brightness
+
+Fixed brightness uses TLV `06 02 00 <level>`. The app offers 1–15 and maps zero to 15;
+only 6 and 7 were tested. Sequence 2 selected 6, sequence 3 restored 7, and a later
+information query confirmed the restored value:
+
+```text
+aa 55 ff ff 0a 00 02 00 c1 02 06 02 00 06 da 03
+aa 55 ff ff 0a 00 03 00 c1 02 06 02 00 07 dc 03
+```
+
+Both returned mode `0x82`, matching sequence and status zero. This validates the
+command path and device-reported value; no visual brightness change was independently
+recorded.
 
 ## Frame and TLV format
 
-The inner frame begins `AA 55 FF FF`, followed by little-endian length,
-sequence, flags/mode, TLV records and a little-endian additive checksum. A
-stream builder can add an outer 16-bit record length, but do not blindly
-prepend it to every GATT write.
+The inner frame begins `AA 55 FF FF`, followed by little-endian length, sequence,
+flags/mode, TLV records and a little-endian additive checksum. Do not prepend the
+optional outer stream-record length to an individual GATT write.
 
 | Encoding | Value length |
 |---|---|
@@ -77,33 +87,37 @@ prepend it to every GATT write.
 | `81 LL` | `LL` bytes, for 128–255 |
 | `82 LL LH` | Little-endian 16-bit length, for 256 and above |
 
-Therefore `13 81 c4` means TLV type `0x13` with 196 bytes of value. Logical
-resource chunks are separate from GATT writes: the official builder normally
-uses 960-byte resource chunks, a 997-byte TLV ceiling and a big-endian 16-bit
-chunk count. Initial transport writes are around 180 bytes, with larger
-MTU-dependent paths.
+Thus `13 81 c4` means TLV type `0x13` with 196 bytes of value. The official richer
+resource builder normally uses 960-byte logical chunks, a 997-byte TLV ceiling and a
+big-endian 16-bit chunk count. Those logical chunks are not GATT writes.
 
-The app has power, brightness, rotation, mirroring, playback and resource
-operations. Their presence in the generic codec does not prove that this
-firmware implements them or which ranges it accepts.
+The simplified raw-GIF route is now confirmed on this unit:
 
-## Upload and maintenance boundaries
+- 427-byte static GIF: READY, three 196-byte value chunks, FINALIZE.
+- 4558-byte, eight-frame GIF at 200 ms per frame: READY, 24 chunks, FINALIZE.
+- MTU 247 and 243-byte GATT writes; every required ACK had status zero.
 
-A third-party project reports raw-GIF transfer on another YS-family backpack,
-but has contradictory geometry notes and no retained capture. Its 196-byte
-chunks and 8-bit count are not universal vendor limits. Prefer the official
-TLV/resource framing until a capture establishes the simpler route.
+READY example: `aa 55 ff ff 0a 00 09 00 c1 02 08 02 00 00 dd 03`.
+FINALIZE example: `aa 55 ff ff 0b 00 0f 00 c1 02 36 03 01 00 00 14 04`.
 
-Do not send display, authentication or firmware commands through `5833ff…`.
-That UUID family appears on unrelated devices, with both a public SBH OTA
-profile and authenticated/ELS control described elsewhere. Neither establishes
-the backpack's role, accepted commands or images, or a recovery path.
+The simplified raw-GIF packet is `aa55ffff | one-byte length | 00 <index> 00 | 27-byte sequence | total_chunks | 00 <index> 00 | c4000013 | 81c4 | 196-byte padded GIF data | little-endian u16 checksum`. The first six payload bytes are `GIF89a`; pad every chunk, including the last, with zeros to exactly 196 bytes. Length is `0xed` = 236 data bytes + 1, so a complete packet is 243 bytes (47 bytes of overhead). The spec's `worked_chunk_hex` is a complete index-0 example with checksum `0d09`.
+Do not generalize these example sequence numbers or this chunk size to every firmware.
+A device-originated mode-06 message was also observed and remains undecoded.
+
+## Remote and maintenance boundaries
+
+A read-only telecontrol query (`34 03 02 aa bc`) returned remote model 43711 and 17
+ordinary button mappings to programs 76–92. Four special records are not assigned
+invented meanings. The unit reported `remote` but not `car_linkage`, so this is remote-
+button configuration evidence, not proof of accelerometer or vehicle-triggered
+animations.
+
+Power, rotation, playback, deletion, password, reset, official-app MTU behavior and the
+secondary maintenance protocol remain unverified.
 
 ## References
 
 - [LOY SPACE on Google Play](https://play.google.com/store/apps/details?id=com.yskd.loywf)
 - [Official LOY SPACE download page](https://app.popled.cn/loy/loyspace/index.html)
-- [stared/nyan-led-skills](https://github.com/stared/nyan-led-skills), related
-  hardware only; not AUTOBABA verification
-- [DCloud `phy-ble-ota` profile](https://ext.dcloud.net.cn/plugin?id=27776),
-  evidence for the secondary UUID family's possible role only
+- [`stared/nyan-led-skills`](https://github.com/stared/nyan-led-skills), related hardware and raw-GIF route
+- [DCloud `phy-ble-ota` profile](https://ext.dcloud.net.cn/plugin?id=27776), secondary UUID-family context only

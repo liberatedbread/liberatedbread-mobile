@@ -1,0 +1,792 @@
+# Yogasleep (formerly Marpac) Dohm Connect white-noise machine — Device Specification
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Sources (all public; clean-room — derived facts only, no vendor app code):
+#   - martinemde/dohm-ble (Home Assistant integration and standalone client,
+#     MIT, v0.4.4, main read 2026-11-08): docs/protocol.md (grammar, command
+#     table, reply taxonomy, schedule and clock encodings, correlation
+#     limits), docs/android-app.md (what the upstream author recovered from
+#     the Android app: three schedule slots, day-bit order, name limits,
+#     the unproven t and I letters), docs/pairing.md and docs/debugging.md
+#     (bonding, one controller at a time, top-button pairing, timing),
+#     custom_components/dohm/{protocol.py, client.py, const.py,
+#     manifest.json} (encoders, decoders, timeouts, matchers, model id).
+#   - Yogasleep's Dohm Connect product page (SKU 4000900, ten fan speeds,
+#     still sold 2026-11-08).
+#   - The device ID 00532A used in every example is invented. It is the low
+#     three bytes of the RFC 7042 documentation MAC 00:00:5e:00:53:2a and
+#     identifies no real unit.
+
+device:
+  name: "Yogasleep Dohm Connect White-Noise Machine"
+  manufacturer: "Yogasleep (formerly Marpac)"
+  manufacturer_status: "active"
+  model: "4000900"
+  aliases:
+    - "Marpac Dohm Connect"
+    - "Dohm Connect"
+  testing:
+    status: untested
+    notes: >
+      Not driven against hardware by this project. Every frame is read from
+      martinemde/dohm-ble. Upstream checked power, speed, ID, clock and
+      schedule frames against one PacketLogger capture of the vendor's
+      Apple-platform app, dated 2026-06-02. It also runs power and speed
+      from Home Assistant. The name commands, the slot semantics, the
+      weekday numbering and the zero-padded speed form come from upstream's
+      static reading of the Android app. The t and I commands are
+      inferences that nobody has seen on the wire.
+  protocol: "ble"
+  transport: "ble-gatt"
+  category: "appliance"
+  type: "white-noise-machine"
+  notes: >
+    The Dohm is a fan-based white-noise machine: a real fan motor, ten speed
+    settings, and no audio files. The Connect model adds BLE so a phone can
+    switch it on and off, set the fan speed (which is the volume), name it,
+    set its clock, and store up to three on-device on/off schedules.
+
+    One vendor service carries everything. It has a single characteristic
+    that takes writes with response and sends notifications, and it cannot
+    be read. Commands are short ASCII strings ending in '$', shaped
+    LETTER[,ID[,VALUE...]]$. A lowercase letter is a query and an uppercase
+    letter is a set. Every command except the opening i$ carries the
+    unit's own device ID, which i$ returns. Replies come back as
+    notifications: OK$ for an accepted set, a typed report such as M,1$
+    or S,03$ for a query, Failed NN$ for an out-of-range value, and an echo
+    of the input for a letter the device does not know.
+
+    Replies carry no request ID, so a client sends one command at a time
+    and reads state back after a write. The link needs a BLE bond, and the
+    tested unit kept only one usable controller at a time. A new bond is
+    made after holding the top button for about five seconds.
+
+  companion_apps:
+    - name: "Marpac Connect"
+      package: "com.marpac"
+      platform: "android"
+      role: "primary"
+      notes: >
+        Version 1.0.7.0 (versionCode 10700) is the build upstream analysed.
+        Store reviewers describe the app as neglected. That is unverified
+        and undated, and the vendor still sells the machine.
+    - name: "Marpac Connect (Apple platforms)"
+      platform: "ios"
+      role: "primary"
+      notes: >
+        Upstream's 2026-06-02 PacketLogger capture came from the vendor's
+        app on an Apple host. Its exact name and bundle ID are not recorded
+        in the sources.
+
+  openness:
+    status: "undocumented"
+    reverse_engineered: true
+    source_code: "https://github.com/martinemde/dohm-ble"
+    license: "MIT"
+    notes: >
+      No vendor publication. One open-source project, which combines a
+      capture of the vendor's Apple-platform app, hardware use through Home
+      Assistant, and a static reading of the Android app. It is the only
+      source, so no fact here has an independent second confirmation.
+
+  identification:
+    local_name_prefix: "MARPAC_DOHM"
+    service_uuids: ["00005600-d102-11e1-9b23-00025b005aa5"]
+    notes: >
+      Upstream's capture showed an advertisement with no local name. Home
+      Assistant matches the advertised service UUID first and keeps the
+      name prefix as a fallback for scanners that resolve a name. A
+      resolved name is MARPAC_DOHM followed by a per-unit suffix. Upstream
+      also records an aa114b7e-… UUID that early research took for the
+      characteristic. It is not in the GATT table and is not used here as
+      a matcher.
+
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          service_uuids: ["00005600-d102-11e1-9b23-00025b005aa5"]
+          local_name:
+            match: "prefix"
+            value: "MARPAC_DOHM"
+        notes: >
+          The matcher is the same as the Home Assistant integration's
+          manifest: the service UUID or the name prefix, connectable only.
+          The name may be missing from a scan result, so do not depend on
+          it.
+    identity:
+      stable_keys: ["address"]
+      display: "local_name"
+    static_ip_required: false
+
+  setup:
+    required: false
+    confidence: "medium"
+    notes: >
+      There is nothing to provision: no Wi-Fi, account or cloud. What a new
+      client must do once is bond (top-button hold) and learn the unit's
+      device ID with i$. After that, every connection is connect, subscribe,
+      then send commands.
+    methods:
+      - type: "ble_direct"
+        name: "Bond, subscribe, ask for the device ID"
+        role: "primary"
+        verified: false
+        description: >
+          How upstream's standalone client opens a link to a unit it does
+          not know yet. It makes a bond, enables notifications on the
+          command characteristic, sends i$ and caches the ID from the
+          I,<id>$ reply. The vendor app does the same during first setup and
+          then sets the clock.
+        ble:
+          service_uuid: "00005600-d102-11e1-9b23-00025b005aa5"
+          write_characteristic: "00005601-d102-11e1-9b23-00025b005aa5"
+          read_characteristic: "00005601-d102-11e1-9b23-00025b005aa5"
+          pairing_required: true
+        steps:
+          - action: "Close the Marpac Connect app on every phone and stop any other BLE client. The tested unit accepts one controller at a time."
+            actor: "user"
+          - action: "For a new controller only, hold the Dohm's top button for about five seconds to put it into pairing mode. This can replace the bond of the controller that had it before."
+            actor: "user"
+          - action: "Connect and bond (pair) with the unit. Then discover services: numeric ATT handles vary by unit, so resolve 00005601-d102-11e1-9b23-00025b005aa5 by UUID."
+            actor: "client"
+          - action: "Enable notifications on 00005601-d102-11e1-9b23-00025b005aa5 (write 01 00 to its 00002902-0000-1000-8000-00805f9b34fb descriptor)."
+            actor: "client"
+          - action: "Write get_device_id (the two bytes i$) with response, and wait for its notification. Allow up to 30 s and up to three tries on the same link for this first reply."
+            actor: "client"
+            timeout_seconds: 30
+            expect: "I,<id>$, for example I,00532A$. Store the ID as credential device_id."
+          - action: "Optionally send set_clock with local time and ISO weekday. The vendor app does this on first setup and on every reconnect. Onboard schedules depend on it."
+            actor: "client"
+            expect: "OK$"
+          - action: "Query get_power and get_speed to read the current state."
+            actor: "client"
+            expect: "M,0$ or M,1$, then S,NN$."
+    factory_reset:
+      applicable: "unknown"
+      confidence: low
+      effect: "Unknown. No source describes a factory reset."
+      description: >
+        Upstream documents only the five-second top-button hold, which opens
+        pairing and can replace the stored bond. No source says whether
+        that hold, or anything else, clears the name, the clock or the
+        schedule slots. The README says the onboard clock and settings are
+        lost during a power outage, which may make unplugging the machine
+        the nearest thing to a reset. That claim is untested.
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        A new controller pairs after the top-button hold. On the tested
+        unit, this can invalidate the previous controller's bond, so moving
+        back may need another hold. A controller that already has a working
+        bond reconnects without the button.
+    credentials:
+      wifi_passphrase_protection: not_applicable
+      stored_on_device:
+        - "BLE bond keys (the tested unit kept one usable controller bond at a time)"
+        - "Device name, clock, and three schedule slots"
+      issued_to_client:
+        - "device_id: the unit's command address, read once with i$. It is not a secret."
+      notes: >
+        The device ID is an address that every command carries, not a key.
+        Upstream observed it to be the low three bytes of the unit's BLE
+        address in uppercase hex (00:00:5e:00:53:2a gives 00532A). That
+        relation comes from upstream's hardware, and the Android app does
+        not confirm it. Asking with i$ is the safe route. A host such as
+        macOS that hides the BLE address has to ask anyway.
+
+  pairing:
+    required: true
+    confidence: "medium"
+    security_mode: "unknown"
+    bonding: "required"
+    exclusivity:
+      single_connection: true
+      single_bond: true
+      recovery: >
+        Close the vendor app and any other client. If the bond on this
+        controller has gone stale, hold the top button for about five
+        seconds, clear this controller's stored bond, and pair again. Never
+        clear a bond automatically just because the unit is silent: a slow
+        first reply, a wrong device ID or notifications that are not
+        enabled all look the same.
+    enter_pairing_mode:
+      required: true
+      procedures:
+        - name: "Hold the top button for about five seconds"
+          verified: false
+          basis: >
+            martinemde/dohm-ble README and pairing guide, from the author's
+            use of their own unit. Not replayed by this project.
+          hold_seconds: 5
+          power_state: "on"
+          steps:
+            - action: "Close the phone app, then hold the Dohm's top button for about five seconds."
+              actor: "user"
+            - action: "Pair from the new controller while the unit is in pairing mode."
+              actor: "client"
+      notes: >
+        No indicator for pairing mode and no window length are documented.
+    unpair:
+      supported: "unknown"
+      notes: >
+        No device-side unpair is known. Pairing a new controller after the
+        button hold appears to replace the old bond on the tested unit.
+        Upstream calls that a hardware observation, not a guarantee.
+    notes: >
+      Upstream reports that BLE pairing and encryption are required on the
+      observed hardware. No PIN or passkey is mentioned anywhere, and the
+      security mode is not recorded, so it is listed as unknown. There is no
+      application-layer login. The Android app asks the OS to bond
+      when it reconnects to a saved unit. Upstream's 0.4.2 release found
+      that forcing an explicit pair on every connection broke working
+      setups, so normal reconnects rely on the existing bond.
+
+services:
+  - uuid: "00005600-d102-11e1-9b23-00025b005aa5"
+    name: "Dohm command service"
+    notes: >
+      Vendor service. Upstream attributes it to a TI BLE module and TI's
+      SensorTag UUID family, but the UUID base (...-00025b...) is the
+      CSR/Qualcomm style, so the chipset is unconfirmed. The unit also exposes Device Information
+      (0000180a-0000-1000-8000-00805f9b34fb) and Battery
+      (0000180f-0000-1000-8000-00805f9b34fb, level
+      00002a19-0000-1000-8000-00805f9b34fb, read and notify). The Android
+      app reads firmware revision 00002a26-0000-1000-8000-00805f9b34fb
+      before it enables notifications. No open client uses the standard
+      services.
+    characteristics:
+      - uuid: "00005601-d102-11e1-9b23-00025b005aa5"
+        name: "Command and reply"
+        properties: ["write", "notify"]
+        notes: >
+          Every command is written here with response, and every reply
+          arrives here as a notification. The characteristic cannot be
+          read, so state comes only from queries. The payload is the
+          command's ASCII bytes with no length prefix or checksum, ending
+          in '$' (0x24). Templates below show the bytes. A `string`
+          parameter is spliced in as its ASCII bytes, and the protocol has
+          no escaping, so never send ',' or '$' inside one. Send one
+          command and wait for its reply before the next; see
+          protocol_details.correlation. The longest known command,
+          set_name with a 10-character name, is 20 bytes. That fits the
+          default 23-byte ATT MTU.
+        commands:
+          get_device_id:
+            description: >
+              i$. Asks for the unit's device ID, the address every other
+              command carries. Reply: I,<id>$ (payload_formats.DeviceIdReport).
+              This is the only command that takes no ID.
+            value: [0x69, 0x24]
+            verification: "reported"
+            observed: true
+          get_power:
+            description: "m,<id>$. Asks whether the fan is running. Reply: M,1$ (on) or M,0$ (off) (payload_formats.PowerReport)."
+            template: [0x6d, 0x2c, "{device_id}", 0x24]
+            parameters:
+              device_id: &device_id
+                type: "string"
+                source: "credential:device_id"
+                description: >
+                  The unit's device ID from the I,<id>$ reply to
+                  get_device_id (send i$ once after bonding and store what
+                  comes back). Upstream's units show six uppercase hex
+                  digits, equal to the low three bytes of the BLE address.
+                  Never contains ',' or '$'.
+            verification: "reported"
+            observed: true
+          power_on:
+            description: "M,<id>,1$. Starts the fan. Reply: OK$. Read back with get_power."
+            template: [0x4d, 0x2c, "{device_id}", 0x2c, 0x31, 0x24]
+            parameters:
+              device_id: *device_id
+            verification: "reported"
+            observed: true
+          power_off:
+            description: >
+              M,<id>,0$. Stops the fan. Reply: OK$. The speed setting is
+              kept, so power_on resumes at the same speed. Read back with
+              get_power.
+            template: [0x4d, 0x2c, "{device_id}", 0x2c, 0x30, 0x24]
+            parameters:
+              device_id: *device_id
+            verification: "reported"
+            observed: true
+          get_speed:
+            description: "s,<id>$. Asks for the fan speed. Reply: S,NN$, two zero-padded decimal digits, 01-10 (payload_formats.SpeedReport)."
+            template: [0x73, 0x2c, "{device_id}", 0x24]
+            parameters:
+              device_id: *device_id
+            verification: "reported"
+            observed: true
+          set_speed:
+            description: >
+              S,<id>,<speed>$. Sets the fan speed, which is also the
+              loudness. Reply: OK$. S,<id>,11$ answers Failed 03$. Upstream
+              has not established what S,<id>,0$ does, so to silence the
+              machine send power_off. Read back with get_speed.
+            template: [0x53, 0x2c, "{device_id}", 0x2c, "{speed}", 0x24]
+            parameters:
+              device_id: *device_id
+              speed:
+                type: "string"
+                description: >
+                  Fan speed 1-10 as ASCII decimal digits: '1' ... '10'.
+                  The bare form ('3') is the one captured working. The
+                  Android app sends two zero-padded digits ('03'), and
+                  upstream reads that as accepted too.
+                notes: >
+                  Written as a string because the wire value is one or two
+                  ASCII digits, not a binary byte, so a numeric slider
+                  cannot fill it directly. A client converts 1-10 to its
+                  decimal text.
+            verification: "reported"
+            observed: true
+          get_name:
+            description: "n,<id>$. Asks for the name stored on the unit. Reply: N,<name>$ (payload_formats.NameReport)."
+            template: [0x6e, 0x2c, "{device_id}", 0x24]
+            parameters:
+              device_id: *device_id
+            verification: "reported"
+          set_name:
+            description: "N,<id>,<name>$. Stores a name on the unit. Reply: OK$. Read back with get_name."
+            template: [0x4e, 0x2c, "{device_id}", 0x2c, "{name}", 0x24]
+            parameters:
+              device_id: *device_id
+              name:
+                type: "string"
+                description: >
+                  The new name. The vendor app accepts letters and digits
+                  only, up to 10 characters. That is the app's limit; the
+                  firmware's own limit is not known. Must not contain ','
+                  or '$'.
+            verification: "reported"
+          set_clock:
+            description: >
+              T,<id>,<HHMM>,<D>$. Sets the unit's clock to local wall-clock
+              time. Reply: OK$. No date, seconds, time zone or DST flag is
+              sent. The vendor app sends this on first setup and on every
+              reconnect. Changing the clock can start or stop an onboard
+              schedule.
+            template: [0x54, 0x2c, "{device_id}", 0x2c, "{hhmm}", 0x2c, "{weekday}", 0x24]
+            parameters:
+              device_id: *device_id
+              hhmm:
+                type: "string"
+                description: "Local time as exactly four ASCII digits, 24-hour HHMM ('2133' is 21:33). Seconds are dropped."
+              weekday:
+                type: "uint8"
+                description: "ISO weekday as one ASCII digit: '1' (0x31) Monday through '7' (0x37) Sunday."
+                min: 0x31
+                max: 0x37
+                labels: ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+            verification: "reported"
+            observed: true
+          get_schedule:
+            description: >
+              p,<id>,<slot>$. Reads one schedule slot. Reply:
+              P,<slot>,<start>,<stop>,<days>,<speed>$
+              (payload_formats.ScheduleReport). The vendor app's list
+              screen can send a stray p,<id>,4$. That does not show a
+              fourth slot exists.
+            template: [0x70, 0x2c, "{device_id}", 0x2c, "{slot}", 0x24]
+            parameters:
+              device_id: &slot_device_id
+                type: "string"
+                source: "credential:device_id"
+                description: >
+                  The unit's device ID from the I,<id>$ reply to
+                  get_device_id.
+              slot: &slot
+                type: "uint8"
+                description: "Schedule slot as one ASCII digit: '1' (0x31) to '3' (0x33)."
+                min: 0x31
+                max: 0x33
+                labels: ["Slot 1", "Slot 2", "Slot 3"]
+            verification: "reported"
+            observed: true
+          set_schedule_start:
+            description: >
+              P,<id>,1,<slot>,<HHMM>$. The first of the three writes that
+              update one slot: field selector 1, the start time. The
+              selector comes before the slot. Reply: OK$. The three writes
+              are not a transaction; see scheduling.
+            template: [0x50, 0x2c, "{device_id}", 0x2c, 0x31, 0x2c, "{slot}", 0x2c, "{hhmm}", 0x24]
+            parameters:
+              device_id: *slot_device_id
+              slot: *slot
+              hhmm:
+                type: "string"
+                description: "Start time, local, four ASCII digits HHMM."
+            verification: "reported"
+            observed: true
+          set_schedule_stop:
+            description: "P,<id>,2,<slot>,<HHMM>$. The second write: field selector 2, the stop time. Reply: OK$. A stop at or before the start ends on the next day in the app's model."
+            template: [0x50, 0x2c, "{device_id}", 0x2c, 0x32, 0x2c, "{slot}", 0x2c, "{hhmm}", 0x24]
+            parameters:
+              device_id: *slot_device_id
+              slot: *slot
+              hhmm:
+                type: "string"
+                description: "Stop time, local, four ASCII digits HHMM."
+            verification: "reported"
+            observed: true
+          set_schedule_days_speed:
+            description: >
+              P,<id>,3,<slot>,<days>,<speed>$. The third write: field
+              selector 3, the day mask and the speed the schedule runs at.
+              Reply: OK$. In the app's model, days 00 disables the slot and
+              speed 00 deletes it. Deleting still sends all three writes.
+            template: [0x50, 0x2c, "{device_id}", 0x2c, 0x33, 0x2c, "{slot}", 0x2c, "{days}", 0x2c, "{speed}", 0x24]
+            parameters:
+              device_id: *slot_device_id
+              slot: *slot
+              days:
+                type: "string"
+                description: >
+                  Day bitmask as two uppercase hex digits: Monday 01,
+                  Tuesday 02, Wednesday 04, Thursday 08, Friday 10,
+                  Saturday 20, Sunday 40. Weekdays are 1F and every day is
+                  7F. 00 disables the slot.
+              speed:
+                type: "string"
+                description: "Schedule speed as two zero-padded decimal digits: '01'-'10'. '00' deletes the slot in the app's model; it does not mean silence."
+            verification: "reported"
+            observed: true
+          get_clock_experimental:
+            description: >
+              t,<id>$, UNPROVEN. The Android app defines a 't' letter
+              labelled as getting the time, but never sends it. This frame
+              follows the query grammar by inference only. Nobody has seen
+              a reply, and its fields are unknown. Upstream expects a
+              T,...$ report, but the device may echo the input, reject it,
+              or stay silent.
+            template: [0x74, 0x2c, "{device_id}", 0x24]
+            parameters:
+              device_id: *device_id
+            verification: "hypothesis"
+          set_device_id_experimental:
+            description: >
+              I,<id>,<new id>$, UNPROVEN. The Android app defines an 'I'
+              letter labelled as setting the unit number, but uses it only
+              to recognise ID replies. This frame is upstream's inference.
+              Nobody knows whether the firmware accepts it, which values it
+              takes, or whether the change persists. After any attempt,
+              send get_device_id to learn the ID actually in force.
+            template: [0x49, 0x2c, "{device_id}", 0x2c, "{new_device_id}", 0x24]
+            parameters:
+              device_id: *device_id
+              new_device_id:
+                type: "string"
+                description: "The ID to assign. Format and accepted values unknown; must not contain ',' or '$'."
+            verification: "hypothesis"
+            advanced: true
+            advanced_reason: >
+              Inferred, never observed. If it works, every client that
+              stored the old ID, or derives it from the BLE address as
+              Home Assistant does, stops addressing the unit until it asks
+              i$ again.
+
+initialization:
+  - characteristic: "00005601-d102-11e1-9b23-00025b005aa5"
+    subscribe: true
+    notes: >
+      Every reply arrives as a notification on this characteristic, which is
+      not readable, so notifications must be on before the first write
+      (setup.steps; upstream re-arms the CCCD if the first reply never comes).
+  - characteristic: "00005601-d102-11e1-9b23-00025b005aa5"
+    write: [0x69, 0x24]
+    notes: >
+      get_device_id (ASCII i$). The I,<id>$ reply carries the ID that every
+      later command needs; store it as credential device_id. Allow up to 30 s
+      and three tries on the same link for this first reply.
+
+payload_formats:
+  Ack:
+    description: "Reply to an accepted set command. Carries no request ID or command letter."
+    parse_rules:
+      - "The whole notification is OK$."
+      - "An OK$ cannot be tied to a specific write. After a retry, a timeout or a cancellation, read the state back instead of trusting an OK$."
+    example: "OK$"
+  Failure:
+    description: "Reply to a command whose value is out of range."
+    parse_rules:
+      - "The notification starts with 'Failed', then a space (not a comma), then a code, then '$'."
+      - "The only code seen is 03, for S,<id>,11$. No other codes are documented."
+    example: "Failed 03$"
+  Echo:
+    description: "Reply to a command letter the device does not recognise: the input comes back unchanged."
+    parse_rules:
+      - "A notification that is byte-for-byte the command just written, and is not one of the typed reports, means the device did not understand it."
+    example: "huteno$"
+  DeviceIdReport:
+    description: "Reply to get_device_id."
+    delimiter: ","
+    fields:
+      - name: "letter"
+        index: 0
+        description: "Always I."
+      - name: "device_id"
+        index: 1
+        description: "The unit's ID, up to the trailing '$'. Six uppercase hex digits on upstream's units."
+    parse_rules:
+      - "Strip the trailing '$', split on ','. Field 0 is I and field 1 is the ID."
+    example: "I,00532A$"
+  PowerReport:
+    description: "Reply to get_power. The report omits the device ID."
+    delimiter: ","
+    fields:
+      - name: "letter"
+        index: 0
+        description: "Always M."
+      - name: "on"
+        index: 1
+        description: "1 when the fan is running, 0 when it is off."
+    parse_rules:
+      - "Strip '$', split on ','. Field 1 is '1' (on) or '0' (off). Anything else is malformed."
+    example: "M,1$"
+  SpeedReport:
+    description: "Reply to get_speed. The report omits the device ID."
+    delimiter: ","
+    fields:
+      - name: "letter"
+        index: 0
+        description: "Always S."
+      - name: "speed"
+        index: 1
+        description: "Fan speed as two zero-padded decimal digits, 01-10."
+    parse_rules:
+      - "Strip '$', split on ','. Parse field 1 as decimal: '02' is speed 2, '10' is speed 10."
+    example: "S,02$"
+  NameReport:
+    description: "Reply to get_name."
+    delimiter: ","
+    fields:
+      - name: "letter"
+        index: 0
+        description: "Always N."
+      - name: "name"
+        index: 1
+        description: "The stored name, up to the trailing '$'."
+    parse_rules:
+      - "Strip '$', then take everything after the first ','."
+    example: "N,Bedroom$"
+  ScheduleReport:
+    description: "Reply to get_schedule: one whole slot in a single report."
+    delimiter: ","
+    fields:
+      - name: "letter"
+        index: 0
+        description: "Always P."
+      - name: "slot"
+        index: 1
+        description: "Slot number, 1-3."
+      - name: "start"
+        index: 2
+        description: "Start time, local, HHMM."
+      - name: "stop"
+        index: 3
+        description: "Stop time, local, HHMM. At or before start means the next day in the app's model."
+      - name: "days"
+        index: 4
+        description: "Day mask in hex: bit 0 Monday through bit 6 Sunday. 00 means disabled."
+      - name: "speed"
+        index: 5
+        description: "Speed, decimal 01-10. 00 means the slot is deleted."
+    parse_rules:
+      - "Strip '$' and split on ','. Expect six fields. Match the slot number against the slot you asked for, because replies carry no request ID."
+      - "Worked: P,1,2030,0730,7F,02$ is slot 1, 20:30 to 07:30 the next morning, every day (0x7f), speed 2."
+    example: "P,1,2030,0730,7F,02$"
+
+scheduling:
+  supported: true
+  mechanism: "on_device_rules"
+  confidence: "medium"
+  runs_without_a_client: true
+  device_clock_dependency: >
+    Schedules run on the unit's own clock, which only set_clock sets: local
+    HHMM plus ISO weekday, with no date, time zone or DST. The vendor app
+    resends it on every reconnect. Upstream's README says the clock drifts
+    and that the clock and configuration are lost in a power outage. A
+    client that relies on onboard schedules must resync the clock itself,
+    including after DST changes.
+  summary: >
+    Three slots. Each holds a start time, a stop time, a weekday mask and a
+    speed. A slot is read whole with get_schedule. It is written with three
+    separate commands, in order: set_schedule_start,
+    set_schedule_stop, set_schedule_days_speed. The app's defaults for a new
+    slot are 22:00-06:00, weekdays (1F), speed 5.
+  confidence_notes: >
+    The wire format is in upstream's capture. The meaning of days 00
+    (disabled) and speed 00 (deleted), and the default, come from the
+    Android app's model and have not been tested on hardware.
+  limitations:
+    - "An update is three writes and is not atomic. A failure or a dropped link part-way leaves a mixed slot. Read the slot back after the third write, and roll back yourself if needed."
+    - "What the firmware does with overlapping slots, equal start and stop, or which day an overnight stop belongs to is untested."
+    - "Times have minute resolution and no date, so there are no one-off events."
+
+protocol_details:
+  grammar:
+    form: "LETTER[,ID[,VALUE...]]$"
+    encoding: "ASCII (UTF-8), no length prefix, no checksum, terminated by '$' (0x24); fields separated by ',' (0x2c); no escaping"
+    query: "Lowercase letter: m power, s speed, n name, p schedule slot, i device ID (no ID field)."
+    set: "Uppercase letter with a value: M power, S speed, N name, T clock, P schedule field."
+    reply: "Uppercase short form without the ID (M,1$, S,02$), or OK$, Failed NN$, or an echo of an unknown command."
+    unproven_letters:
+      t: "Declared in the Android app as getting the time; never sent; reply unknown."
+      I: "Declared in the Android app as setting the unit number; used only to recognise I,<id>$ replies; outbound form inferred."
+  correlation: >
+    Replies carry no request ID. A client sends one command, waits for the
+    reply type it expects, and ignores other well-formed reports. For a
+    schedule read, it also checks the slot. Stale reports of the same type
+    and generic OK$ replies cannot be matched to a request after a retry
+    or a cancellation. A timeout does not prove a write failed, so read the
+    state back before retrying a deliberate write.
+  session:
+    write_type: "write"
+    opening_reply_timeout_s: 30
+    opening_attempts: 3
+    reply_timeout_s: 15
+    notes: >
+      These are upstream's values, a known-good envelope rather than
+      protocol constants. On a freshly paired CoreBluetooth link, upstream
+      measured 14.67 s for the first reply and near zero afterwards,
+      whichever command went first. Over BlueZ the unit asks for a slow
+      connection interval, and notifications drain about every 5 s, so
+      15 s covers two cycles. Upstream drops a link only after three silent
+      30 s waits, because dropping it early used to cost the bond.
+  notification_rearm: >
+    Upstream saw the unit stop sending notifications on a long-lived link
+    while writes were still acknowledged. Its client rewrites 01 00 to the
+    characteristic's 00002902-0000-1000-8000-00805f9b34fb descriptor before
+    every command, as the vendor's Apple-platform app did in the capture.
+    The Android app writes it once per connection. Where a backend hides
+    the descriptor (CoreBluetooth), the subscription is all a client has.
+  polling: >
+    The characteristic cannot be read, so state means queries. The capture
+    of the Apple-platform app polled m and s about every 5 s, the Android
+    app polls them every second, and Home Assistant polls every 30 s.
+    Upstream also waits about one second after the last command before
+    reading back. That is a starting assumption, not a measured settling
+    time.
+  firmware: >
+    The Android app reads the firmware revision string and knows two
+    revisions, 1.3 and 1.6, but none of its commands depend on which one is
+    present. No update mechanism is known.
+  examples:
+    # Invented device ID 00532A throughout. Each entry is the parameters a
+    # client supplies and the exact bytes the command's template produces,
+    # transcribed from upstream's command table with the ID substituted.
+    get_device_id: {params: {}, frame: "i$", reply: "I,00532A$"}
+    get_power: {params: {device_id: "00532A"}, frame: "m,00532A$", reply: "M,1$"}
+    power_on: {params: {device_id: "00532A"}, frame: "M,00532A,1$", reply: "OK$"}
+    power_off: {params: {device_id: "00532A"}, frame: "M,00532A,0$", reply: "OK$"}
+    get_speed: {params: {device_id: "00532A"}, frame: "s,00532A$", reply: "S,02$"}
+    set_speed: {params: {device_id: "00532A", speed: "3"}, frame: "S,00532A,3$", reply: "OK$"}
+    set_speed_max: {command: "set_speed", params: {device_id: "00532A", speed: "10"}, frame: "S,00532A,10$", reply: "OK$"}
+    set_speed_out_of_range: {command: "set_speed", params: {device_id: "00532A", speed: "11"}, frame: "S,00532A,11$", reply: "Failed 03$"}
+    set_speed_padded: {command: "set_speed", params: {device_id: "00532A", speed: "03"}, frame: "S,00532A,03$", reply: "OK$"}
+    get_name: {params: {device_id: "00532A"}, frame: "n,00532A$", reply: "N,Bedroom$"}
+    set_name: {params: {device_id: "00532A", name: "Bedroom"}, frame: "N,00532A,Bedroom$", reply: "OK$"}
+    set_clock: {params: {device_id: "00532A", hhmm: "2133", weekday: 0x32}, frame: "T,00532A,2133,2$", reply: "OK$"}
+    get_schedule: {params: {device_id: "00532A", slot: 0x31}, frame: "p,00532A,1$", reply: "P,1,2030,0730,7F,02$"}
+    set_schedule_start: {params: {device_id: "00532A", slot: 0x31, hhmm: "2030"}, frame: "P,00532A,1,1,2030$", reply: "OK$"}
+    set_schedule_stop: {params: {device_id: "00532A", slot: 0x31, hhmm: "0730"}, frame: "P,00532A,2,1,0730$", reply: "OK$"}
+    set_schedule_days_speed: {params: {device_id: "00532A", slot: 0x31, days: "7F", speed: "02"}, frame: "P,00532A,3,1,7F,02$", reply: "OK$"}
+    get_clock_experimental: {params: {device_id: "00532A"}, frame: "t,00532A$"}
+    set_device_id_experimental: {params: {device_id: "00532A", new_device_id: "00532B"}, frame: "I,00532A,00532B$"}
+  schema_gaps:
+    - "A BLE command parameter cannot name a field of another command's reply as its source; `state:` is network-only. The device ID is therefore modelled as `credential:device_id`, and the step that obtains it (get_device_id, reply I,<id>$) is described in prose. `issues_credentials` needs a JSON reply_path, a cookie or user entry, so it cannot point into an ASCII reply."
+    - "A BLE template has no way to say 'this integer goes on the wire as its ASCII decimal text'. Speed and schedule speed are therefore `string` parameters, and no fan or number entity can bind set_speed. Single-digit values (weekday, slot) are modelled as uint8 ASCII codes with labels."
+
+entities:
+  - platform: "switch"
+    name: "Power"
+    state_characteristic: "00005601-d102-11e1-9b23-00025b005aa5"
+    commands:
+      turn_on: "power_on"
+      turn_off: "power_off"
+    notes: >
+      State comes from get_power's reply on the same characteristic: M,1$
+      is on and M,0$ is off (payload_formats.PowerReport). The
+      characteristic cannot be read, so a client polls get_power, and reads
+      it back after each switch since OK$ carries no request ID. Fan speed
+      is not bound as an entity: set_speed takes ASCII decimal text, which
+      no entity role can fill from a number (see protocol_details.schema_gaps).
+
+evidence:
+  artifacts:
+    - type: "public_implementation"
+      url: "https://github.com/martinemde/dohm-ble"
+      artifact: "martinemde/dohm-ble v0.4.4 (main, read 2026-11-08): docs/protocol.md, docs/android-app.md, docs/pairing.md, docs/debugging.md, README.md, custom_components/dohm/{protocol.py, client.py, const.py, manifest.json}"
+      description: >
+        MIT-licensed Home Assistant integration and standalone client, run
+        by its author against their own unit. It is the source of the
+        UUIDs, the grammar, every command frame, the reply taxonomy, the
+        schedule, clock and name encodings, the timing envelope, the
+        matchers, the model ID and the bonding behaviour. Facts only; no
+        code transcribed.
+    - type: "public_research"
+      artifact: "Upstream's PacketLogger capture of the vendor's Apple-platform app (2026-06-02), as summarised in docs/protocol.md"
+      description: >
+        Not published by upstream and not examined here. It is the basis
+        upstream gives for the captured frames: i, m, M, s, S, T, p and P.
+    - type: "static_analysis"
+      artifact: "Marpac Connect for Android 1.0.7.0 (com.marpac, versionCode 10700), analysed by upstream"
+      sha256: "721e0307d6df5abfdcaeff93faf150f5b7035c9c1a92aab1130588a90fa324c6"
+      obtained_via: "Third-party APK mirror, per upstream. Not downloaded or examined by this project."
+      description: >
+        Upstream's source for the three slots, the selector-before-slot
+        order, the day bits, the disable and delete sentinels, the ISO
+        weekday, the zero-padded speed, the 10-character name limit and the
+        unproven t and I letters. Only upstream's derived conclusions are
+        used here.
+    - type: "vendor_documentation"
+      url: "https://yogasleep.com/products/dohm-connect"
+      description: "Product page (read 2026-11-08): SKU 4000900, real fan motor, ten speed settings, app control of power, volume and sleep schedule; on sale."
+  documentation_review: >
+    One open-source project, read 2026-11-08. Its documents separate
+    captured facts from app-derived facts and from inferences, and this
+    spec keeps that separation through `observed` and `verification`.
+  open_questions: >
+    Security mode of the bond; whether the five-second hold resets anything
+    beyond pairing; factory reset; S,<id>,0$ behaviour; Failed codes beyond
+    03; firmware name length limit; t and I support; overlapping and
+    overnight schedule semantics; firmware update path.
+
+remaining_unknowns:
+  - "The t (clock query) and I (set device ID) commands are inferred from letter constants in the Android app and have never been seen on the wire. Their syntax, replies and effects are unknown."
+  - "The BLE security mode (Just Works or otherwise) and whether notifications in particular need encryption. Upstream reports that a bond is required on its hardware but records no passkey."
+  - "Whether the unit really keeps exactly one bond, and whether the top-button hold always replaces it. Upstream calls both observations, not guarantees."
+  - "No factory reset is documented. Whether the button hold, or a power cut, clears the name, clock or schedules is unknown."
+  - "What S,<id>,0$ does; the meaning of Failed codes other than 03; the firmware's own limit and character set for names."
+  - "Whether the device ID is always the low three bytes of the BLE address. Upstream saw it on its hardware, and the Android app neither confirms nor refutes it. Ask with i$ rather than derive it."
+  - "Firmware update: none is known. The app reads the firmware revision and knows revisions 1.3 and 1.6, but no update mechanism, DFU mode or image source is documented, so no firmware_update feature is declared."
+  - "Schedule edge cases: overlapping slots, start equal to stop, which day an overnight stop belongs to, and whether days 00 and speed 00 really disable and delete a slot on the device."
+  - "The aa114b7e-… UUID upstream once took for the characteristic: whether it really appears in the advertisement or was a host-specific identifier."
+  - "Battery Service 0000180f-0000-1000-8000-00805f9b34fb is present on a mains-powered machine. What it reports has not been read by any open client."
+
+helpful_urls:
+  - title: "martinemde/dohm-ble (Home Assistant integration and standalone client, MIT)"
+    url: "https://github.com/martinemde/dohm-ble"
+    kind: "implementation"
+    description: >
+      The open-source project this spec is read from. custom_components/dohm/
+      protocol.py holds the encoders and decoders.
+  - title: "Marpac Dohm BLE protocol (dohm-ble docs/protocol.md)"
+    url: "https://github.com/martinemde/dohm-ble/blob/main/docs/protocol.md"
+    kind: "protocol_writeup"
+    description: "Upstream's protocol reference: grammar, command table, reply taxonomy, schedule and clock encodings."
+  - title: "Yogasleep Dohm Connect product page"
+    url: "https://yogasleep.com/products/dohm-connect"
+    kind: "vendor_support"
+    description: "Vendor page for the Dohm Connect (SKU 4000900), the app-controlled model this spec covers."
+  - title: "Yogasleep Dohm Connect 4000900 user manual (manuals.plus)"
+    url: "https://manuals.plus/asin/B07QD182JV"
+    kind: "manual"
+    description: >
+      Third-party copy of the Dohm Connect (model 4000900) user manual.
+      The site refuses scripted requests (HTTP 403), so this project has
+      not read it, and no fact in this spec rests on it.

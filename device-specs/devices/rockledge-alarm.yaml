@@ -69,14 +69,25 @@ device:
       issued_to_client: []
       notes: "No credential crosses to this app; it never connects."
   pairing:
-    required: "unknown"
+    required: true
     confidence: "low"
+    security_mode: "app_layer"
+    bonding: "unknown"
+    enter_pairing_mode:
+      required: "unknown"
+      notes: "No public source describes how an owner's phone is enrolled."
     notes: >
-      This entry never connects — it matches the BLE advertisement and warns,
-      which is the whole of its integration — so the question of whether a
-      connection would demand a bond has never arisen. Unknown here means
-      unasked rather than unanswerable: anyone who does connect to one should
-      record what they find.
+      The UC San Diego team's project page says each aftermarket system it
+      studied, Rockledge's included, runs its own application-layer BLE
+      security protocol, and lists Rockledge among the three with critical
+      pairing or authentication flaws. The reported flaw is replay: an
+      attacker who records a real exchange between the owner's phone and the
+      car can play it back, which implies an app-layer authentication exists
+      but does not bind each exchange to a fresh challenge. That is the
+      whole of what is public — the researchers withheld exploit detail,
+      Rockledge had not responded to disclosure at publication, and this
+      project could not retrieve the paper — hence low confidence. This
+      integration never connects; it matches the advertisement and warns.
   discovery:
     # Match on the advertised BLE local name; inferred, not captured (see
     # testing.notes). identification.local_name_prefixes carries the same name.

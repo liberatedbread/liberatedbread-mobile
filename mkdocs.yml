@@ -64,6 +64,7 @@ nav:
           - Bluetooth LED Name Badge: devices/bluetooth-led-name-badge.md
           - iDotMatrix: devices/idotmatrix.md
           - LEDs2Rave4 Lunchbox LED: devices/leds2rave4-lunchbox-led.md
+          - iLEDColor LED Matrix Panels: devices/iledcolor-led-panel.md
           - SPOTLED LED Panels: devices/spotled-led-panel.md
           - CoolLEDX / CoolLED1248 Signs: devices/coolledx-led-sign.md
           - Shining Mask: devices/shining-mask.md
@@ -148,12 +149,14 @@ nav:
           - AM43 / A-OK Blind Motor: devices/am43-blind-motor.md
           - Instant Pot Smart Bluetooth: devices/instant-pot-smart-bluetooth.md
           - Hot Wheels id Race Portal: devices/hot-wheels-id-race-portal.md
+          - Hasbro Furby Connect: devices/hasbro-furby-connect.md
           - Kano Coding Wand: devices/kano-coding-wand.md
           - Artiphon Orba 2: devices/artiphon-orba-2.md
           - Petronics Mousr: devices/petronics-mousr.md
           - Bose Sleepbuds II: devices/bose-sleepbuds-ii.md
           - Yummly Smart Thermometer: devices/yummly-smart-thermometer.md
           - Keto-Mojo GK+ Glucose & Ketone Meter: devices/keto-mojo-gk-plus.md
+          - Yogasleep Dohm Connect: devices/yogasleep-dohm-connect.md
           - Orbit B-hyve Bluetooth Hose Timers: devices/orbit-bhyve-ble.md
           - Qingping / ClearGrass Stock BLE Sensors: devices/qingping-stock-ble.md
           - Ecosense / FTLab RadonEye RD200: devices/ecosense-radoneye-rd200.md
@@ -168,6 +171,7 @@ nav:
           - "BlueDriver Bluetooth Pro OBD-II Scan Tool": devices/bluedriver-obd2.md
           - "Blueriiot Blue Connect (Go / Plus)": devices/blueriiot-blue-connect.md
           - "Boosted Boards and Boosted Rev": devices/boosted-boards.md
+          - "Piaggio gitamini / gita pro": devices/piaggio-gita-mini.md
           - "Eurotronic Comet Blue Radiator Thermostat": devices/eurotronic-comet-blue.md
           - "Even Realities G1 Smart Glasses": devices/even-g1-glasses.md
           - "Exway Electric Skateboards": devices/exway-eskate.md
@@ -292,6 +296,7 @@ nav:
           - OBDLink MX+: devices/obdlink-mx-plus.md
           - Triumph Tiger 900: devices/triumph-tiger-900.md
           - BMW Motorcycle Diagnostics: devices/bmw-motorcycle-diagnostics.md
+          - Nissan Leaf Battery Data (OBD-II): devices/nissan-leaf-obd2.md
           - Bafang BBS02 Mid-Drive: devices/bafang-bbs02.md
           - Tongsheng TSDZ2 Mid-Drive: devices/tsdz2-tongsheng.md
           - Bosch Performance Line CX Gen4: devices/bosch-ebike-cx-gen4.md

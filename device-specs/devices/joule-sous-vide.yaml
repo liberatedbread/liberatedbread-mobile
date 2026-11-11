@@ -96,8 +96,8 @@ device:
         block-transfer channel for firmware, logs and certificates.
     No 700b4324-9836-4383-a2b2-31a9098d1473 is referenced by either app.
 
-    FRAMING. Every write to 700b4322 is exactly one protobuf-encoded envelope
-    (the vendor calls it StreamMessage), with no length prefix, header,
+    FRAMING. Every write to 700b4322 is exactly one protobuf-encoded envelope,
+    with no length prefix, header,
     checksum or chunking layer of its own. Every read of 700b4323 returns
     exactly one envelope. A message longer than one ATT payload travels as an
     ATT long write (prepared writes, which write-with-response gives you) or

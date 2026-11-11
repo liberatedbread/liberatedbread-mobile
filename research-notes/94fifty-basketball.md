@@ -20,8 +20,8 @@ over Bluetooth (TI dual-mode SoC) to the "94Fifty Basketball" app.
 ## Local BLE feasibility
 - All skill classification is on the ball's DSP; the app is a display/coaching shell.
   Core function is inherently local — no cloud needed for metrics.
-- Dex shows a structured protocol layer: `com/_94fifty/protocol/ProtocolInfo` and
-  BLE classes (`BleDirectAdvertisingTestRequest`, `BluetoothDeviceBridge`).
+- Dex shows a structured protocol layer (a protocol-description class) and BLE
+  classes (a direct-advertising test request and a Bluetooth device bridge).
 - **No UUID literals in dex strings** — GATT/SPP identifiers are likely built from byte
   arrays in code. One stray UUID literal: `32e5fcfc-52ee-41b0-827a-f18929716fef` (role TBD).
 - Ball used a TI dual-mode (classic + BLE) SoC, so Android may use classic SPP rather

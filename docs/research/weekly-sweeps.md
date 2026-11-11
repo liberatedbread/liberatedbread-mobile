@@ -466,3 +466,39 @@ by this project.
 - **Eye-Fi**: the consolidated receiver, credential and TAR findings improve
   the existing research trail, but hardware discovery/retry and reset-card
   provisioning still need validation. No outbound camera-client spec is added.
+
+## 2026-11-08
+
+### Added this week
+
+Two *Do these next* picks and one candidate from the
+[2026-10-25](#2026-10-25) sweep. Every spec is `testing: untested`; wire
+facts from client code are `reported`.
+
+| Spec | Source | Notes |
+|---|---|---|
+| [Yogasleep Dohm Connect](../devices/yogasleep-dohm-connect.md) | 2026-10-25 candidate | One vendor service (`00005600-d102-11e1-9b23-00025b005aa5`) with one write+notify characteristic. ASCII commands ending in `$`: device ID (`i$`, which every other command needs), power, speed 1–10, name, clock and the three schedule slots, with the reply grammar. Replies carry no request IDs, so a client reads back after writes. `t` and `I` are `hypothesis`, and `I` (change the ID) is `advanced`. One power switch entity. Upstream's example device ID is replaced with one derived from a documentation MAC. `scripts/test_yogasleep_dohm_connect_spec.py`. |
+| [Hasbro Furby Connect](../devices/hasbro-furby-connect.md) | #23 | Name-only advertisement, the vendor service `dab91435-…` with eight characteristics, and the Nordic legacy DFU service. Action addressing at four levels, antenna colour, eye backlight, mood meters, name, the sensor stream start/stop and the keep-quiet write every 3 s. The DLC upload is described as a procedure only; announce, delete and bootloader entry are `advanced`. No Hasbro content is reproduced. bluefluff and PyFluff agree, but PyFluff is a port of bluefluff, so that confirms transcription, not the wire. `scripts/test_hasbro_furby_connect_spec.py`. |
+| [Nissan Leaf Battery Data (ZE0 / AZE0 / ZE1)](../devices/nissan-leaf-obd2.md) | #24 | Strictly read-only. The battery controller on 0x79B→0x7BB plus VCM and meter, the ELM327 setup and flow-control commands the open client uses, ISO-TP reassembly, `21` group polls (01/02/04/06/61/62/83/84) and VCM/meter `22` reads. Group 01 has separate decode tables per generation, identified by reply length. A `safety_advisory` (caution) carries the sources' polling cautions (relay clicks with the car off; the battery controller drops overlapping requests). Writes such as fault clearing and the state-of-health reset are named by service only and left out. Several ZE0/AZE0 offsets are `hypothesis`. `scripts/test_nissan_leaf_obd2_spec.py`. |
+
+Schema gaps that came up, each in its spec's `remaining_unknowns` or
+`protocol_details`: a BLE parameter cannot take its value from another
+command's reply (Dohm's device ID), no ASCII-decimal number encoding for
+templates (Dohm), no write-only light or number entity (Furby), one
+characteristic carrying several reply types (Furby), and on the OBD side
+1-byte group ids in `data_identifiers`, per-request ECU addressing,
+multi-field response layouts and variant identification by reply length
+(Leaf).
+
+### New candidates
+
+None worth a row this week. The searches turned up no new cloud shutdowns,
+bankruptcies or withdrawn apps dated since 2026-11-01; Home Assistant 2026.11
+(released 2026-11-04) moved HACS into a built-in Marketplace, which is not a
+device change.
+
+### Status changes to items already listed
+
+- **Eargo / Lexie**: still no coverage confirming whether the apps or the
+  cloud went off after 2026-10-22.
+- **June Oven** and **Futurehome**: already logged; nothing new.

@@ -76,7 +76,7 @@ device:
     notes: >
       Panasonic never published this API. Every byte documented here was
       recovered by the community — the 2019+ encryption was reverse
-      engineered out of the official app's libtvconnect.so (see
+      engineered out of the official app's native code (see
       panasonic-viera issue #9) — so nothing upstream is authoritative.
 
   identification:
@@ -205,6 +205,73 @@ device:
         to port 55000 can drive the TV. On encrypted models the issued
         X_ApplicationId/X_Keyword pair is the whole credential — store both
         and treat the keyword as a secret.
+
+  pairing:
+    # True for the 2019+ encrypted generation; pre-2019 sets need nothing (see
+    # notes). Detect which at runtime from /nrc/sdd_0.xml.
+    required: true
+    confidence: "medium"
+    security_mode: "app_layer"
+    bonding: "none"
+    pin:
+      source: "device_screen"
+      length: 4
+      notes: >
+        Four digits the TV overlays when the CLIENT sends X_DisplayPinCode with
+        its chosen device name. The PIN is never sent in clear: it travels
+        AES-encrypted inside X_RequestAuth (errorCode 600 = wrong PIN), and the
+        reply yields X_ApplicationId plus X_Keyword, which the client stores and
+        reuses for every later session. Lose them and the client pairs again.
+    exclusivity:
+      single_connection: false
+      single_bond: false
+      recovery: >
+        Pairing a second client does not displace the first. If no PIN
+        appears, TV Remote under Settings > Network > TV Remote App Settings is
+        off. If commands fail after working, the stored application id/keyword
+        no longer match (e.g. after a factory reset) — pair again.
+    enter_pairing_mode:
+      required: true
+      notes: >
+        The PIN prompt is client-triggered, but the NRC service only answers
+        once network remote control is enabled on the TV — a one-time menu
+        setting, on by default on some model years. Power-on over the network
+        additionally needs "Powered On By Apps" / "Networked Standby" in the
+        same menu.
+      procedures:
+        - name: "Turn on TV Remote, then request the PIN"
+          verified: false
+          basis: "Panasonic's TV Remote 2 app guide (menu path); panasonic-viera library and Home Assistant panasonic_viera config flow (PIN exchange)."
+          power_state: "on"
+          glyph: "generic/on-screen-menu.svg"
+          steps:
+            - action: "Settings > Network > TV Remote App Settings > TV Remote = On (spelling varies by model year)."
+              actor: "user"
+            - action: "Send X_DisplayPinCode with the client's display name (encrypted generation only)."
+              actor: "client"
+              expect: "A 4-digit PIN overlays the TV picture; the response carries X_ChallengeKey."
+            - action: "Type the PIN into the client."
+              actor: "user"
+            - action: "Send X_RequestAuth and store the decrypted X_ApplicationId and X_Keyword."
+              actor: "client"
+              expect: "The TV shows a pairing-complete message."
+    unpair:
+      supported: "unknown"
+      notes: >
+        No source used here (panasonic-viera, Home Assistant, Panasonic's app
+        guide) documents a list of paired clients on the TV or a way to revoke
+        one. A factory reset clears the paired-client list; on pre-2019 sets
+        there is nothing to revoke, and turning TV Remote off is the only
+        access control.
+    notes: >
+      Two generations behave differently. Pre-2019 sets have no client
+      authorisation at all: once TV Remote is enabled, any LAN host can POST
+      X_SendKey to port 55000 (setup method 'Pre-2019 sets: nothing further to
+      do'). Sets whose /nrc/sdd_0.xml lists X_GetEncryptSessionId require a
+      one-time PIN pairing that issues an application id and AES key; every
+      later NRC command rides inside X_EncryptedCommand. The byte-level flow is
+      nrc_common.encrypted_session.pairing. Nothing involves a Panasonic cloud
+      account, so stored credentials keep working offline.
 
   variants:
     - model: "TX-42AS650"
@@ -449,7 +516,7 @@ protocol_details:
           <X_ApplicationId>{app_id}</X_ApplicationId><X_EncInfo>{encrypted}</X_EncInfo>.
           The reply's X_EncResult decrypts the same way and contains the
           command's real <Action>Response fragment.
-      evidence: "reported — panasonic-viera remote_control.py and the LogicMachine Lua port agree byte for byte; the mask constant comes from the official app's libtvconnect.so (panasonic-viera issue #9)."
+      evidence: "reported — panasonic-viera remote_control.py and the LogicMachine Lua port agree byte for byte; the mask constant is published in panasonic-viera's remote_control.py, which recovered it from the official app's native code (panasonic-viera issue #9)."
 
 # The action catalogue: what exists on the TV, what each takes and returns.
 # All POSTs are SOAP to the control URL in `path` (envelope per

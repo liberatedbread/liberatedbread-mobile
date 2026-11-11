@@ -499,3 +499,20 @@ def test_the_switch_is_scoped_to_the_probe_identified_plug_family(entities, spec
         "command": "get_sysinfo",
         "keys_present": ["children"],
     }
+
+
+def test_manual_core_control_confirmations_stay_scoped(commands):
+    """Owner-confirmed switching does not promote unexercised features."""
+    for name in (
+        "relay_on",
+        "relay_off",
+        "relay_on_child",
+        "relay_off_child",
+        "light_on",
+        "light_off",
+        "get_sysinfo",
+    ):
+        assert commands[name]["verification"] == "confirmed", name
+
+    assert commands["set_brightness"]["verification"] == "reported"
+    assert commands["get_emeter"]["verification"] == "reported"

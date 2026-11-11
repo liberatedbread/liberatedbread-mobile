@@ -121,7 +121,7 @@ device:
       applicable: true
       confidence: medium
       effect: >
-        Clears the stored WiFi credentials and the pairing, returning the base
+        Clears the stored WiFi credentials, returning the base
         to onboarding so it can be given a new network.
       description: >
         On the iKettle 2.0 the community-documented hard reset is holding the
@@ -183,6 +183,23 @@ device:
         Onboarding passes the Wi-Fi credentials over the port-2081 protocol on
         the setup AP; no encryption is documented. Post-setup control is
         unauthenticated on the LAN.
+
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "none"
+    bonding: "none"
+    enter_pairing_mode:
+      required: false
+    notes: >
+      Nothing pairs and nothing is issued. Port 2081 takes commands over TCP
+      or UDP from any host on the LAN, with no password, token or button
+      (ian-kent/ikettle2, iBrew). The discontinued app and cloud were never
+      in this path. That covers the iKettle 2.0 and Smarter Coffee 1 only.
+      The 3rd generation refuses LAN connections and goes through an
+      Electric Imp cloud, and the original iKettle uses a different
+      protocol. Neither source says whether the kettle accepts more than one
+      TCP client at a time.
 
 # The wire protocol. Bespoke command/response material lives under
 # `protocol_details`, the schema's namespace for single-spec protocol blocks

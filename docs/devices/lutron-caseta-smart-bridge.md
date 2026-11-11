@@ -1,7 +1,7 @@
 # Lutron Caseta Smart Bridge 2
 
 > **Status**: Local discovery and service map documented
-> **Protocol**: WiFi (mDNS + LEAP TLS JSON/WebSocket)
+> **Protocol**: WiFi (mDNS + LEAP newline-delimited JSON over TLS)
 > **Manufacturer**: Lutron
 > **Manufacturer Status**: Active
 
@@ -27,7 +27,7 @@ hostname as a fallback.
 
 | Service | Port | Description |
 |---|---:|---|
-| `_leap._tcp.local.` | 8081 | Modern TLS JSON/WebSocket control |
+| `_leap._tcp.local.` | 8081 | Modern control: newline-delimited JSON over TLS |
 | `_lap._tcp.local.` | 8083 | Deprecated local protocol (also hosts cert pairing) |
 | `_lutron._tcp.local.` | 22 | Status/identity TXT records |
 | `_hap._tcp.local.` | 4548 | HomeKit accessory service |

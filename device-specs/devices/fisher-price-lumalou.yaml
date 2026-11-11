@@ -736,7 +736,7 @@ services:
                 type: "bytes"
                 min_length: 14
                 max_length: 14
-                notes: "[BCD hour, BCD minute] (FF FF = no time) + 12 task bytes, each (step << 4) | task_icon with step 1-12, zero-padded."
+                notes: "[BCD hour, BCD minute] (FF FF = no time) + 12 task bytes, each (step << 4) | task_icon with step 1-12; unused slots carry task nibble 0."
               checksum:
                 type: "uint8"
                 auto: "xor_checksum"
@@ -860,7 +860,7 @@ services:
           request_routine_task_status:
             description: >
               0x68: request routine progress. Reply ROUTINE_TASK_STATUS (0x94),
-              payload_formats.RoutineTaskStatus. spec/protocol.json on main
+              payload_formats.RoutineTaskStatus. spec/protocol.json at 9fa5ecf
               calls 0x68 SET_ROUTINE_TASK_STATUS; upstream PR #2 and
               kvdb/gld09-control both send it with no arguments as a request,
               and kvdb reports the unit ignores any arguments.
@@ -1511,7 +1511,7 @@ payload_formats:
     description: "Argument of the day-routine SETs and data of responses 0x2B-0x2F, 0x90, 0x91: fourteen bytes."
     parse_rules:
       - "Bytes 0-1: start time [BCD hour, BCD minute], or FF FF for none."
-      - "Bytes 2-13: twelve task slots. Slot byte = (step << 4) | task_icon with step 1-12; 0x00 is an empty slot. Task icon 0 at step 1 is 0x10, not padding."
+      - "Bytes 2-13: twelve task slots. Slot byte = (step << 4) | task_icon with step 1-12. A slot whose LOW nibble is 0 holds no task, whatever its step nibble: the web client pads with 0x00, and kvdb/gld09-control pads with (position << 4) | 0 (0x40, 0x50 ... 0xc0)."
       - "Task icons: 1 change clothes, 2 wash up, 3 brush teeth, 4 go potty, 5 pack bag, 6 eat, 7 read, 8 clean up, 9-11 the three custom tasks (both open clients draw them as a heart, a swirl/burst and a star/spiral)."
       - "kvdb/gld09-control gives each task its own step (1, 2, 3 ...); the upstream web client lets several tasks share a step. Preserve slot order and step numbers on read-back."
       - "kvdb/gld09-control observed the unit clearing a morning routine's icons on its own some hours after the start time; there is no command to clear them."
@@ -1670,7 +1670,7 @@ protocol_details:
       "0x58": "SET_ROUTINE_MODE_STATUS (declared)"
       "0x59": "REQUEST_ROUTINE_MODE_STATUS"
       "0x5A-0x67": "Day routines: SET at 0x5A (Sunday), 0x5C, 0x5E, 0x60, 0x62, 0x64, 0x66 (Saturday); REQUEST at SET + 1 (declared: set_day_routine, request_day_routine)"
-      "0x68": "REQUEST_ROUTINE_TASK_STATUS (declared). Named SET_ROUTINE_TASK_STATUS on upstream main; PR #2 and kvdb/gld09-control use it as a request."
+      "0x68": "REQUEST_ROUTINE_TASK_STATUS (declared). Named SET_ROUTINE_TASK_STATUS upstream at 9fa5ecf; PR #2 and kvdb/gld09-control use it as a request."
       "0x69": "SET_ROUTINE_MUSIC_STATUS (declared)"
       "0x6A": "REQUEST_ROUTINE_MUSIC_STATUS"
       "0x6B": "ROUTINE_CONTROL_COMMAND (declared: routine_control)"
@@ -1838,7 +1838,7 @@ helpful_urls:
   - title: "stramanu/lumalou: spec/protocol.json"
     url: "https://github.com/stramanu/lumalou/blob/main/spec/protocol.json"
     kind: "protocol_writeup"
-    description: "Machine-readable opcode, response and enum tables (0x68 is misnamed there; see PR #2)."
+    description: "Machine-readable opcode, response and enum tables (0x68 was misnamed there at 9fa5ecf; see PR #2)."
   - title: "stramanu/lumalou: Python package"
     url: "https://github.com/stramanu/lumalou/tree/main/packages/python/src/lumalou"
     kind: "implementation"

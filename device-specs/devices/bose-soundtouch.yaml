@@ -156,6 +156,31 @@ device:
         the network can drive the speaker. The Wi-Fi passphrase is handled by
         the app's setup flow, not the control API documented here.
 
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "none"
+    bonding: "none"
+    exclusivity:
+      single_connection: false
+      single_bond: false
+      recovery: >
+        Nothing to clear: several clients may poll port 8090 and hold the 8080
+        gabbo WebSocket at once, which is how the SoundTouch app and
+        home-automation clients coexist.
+    enter_pairing_mode:
+      required: false
+      notes: >
+        No button, prompt or menu setting: once the speaker is on the LAN the
+        port-8090 API answers any client. The speaker's Bluetooth pairing
+        button pairs an audio source, not a control client, and is unrelated
+        to this API.
+    notes: >
+      The local Web API Bose published at end-of-life is unauthenticated by
+      design — no account, token or approval, so the 2026-05-06 cloud shutdown
+      did not touch local control. Access control is LAN reachability alone
+      (setup.credentials.notes).
+
 http_endpoints:
   - method: "GET"
     path: "/info"

@@ -29,8 +29,8 @@ ble:
 
 protocol:
   note: >
-    Structured protocol layer in app: com/_94fifty/protocol/ProtocolInfo plus BLE
-    classes (BleDirectAdvertisingTestRequest, BluetoothDeviceBridge). Ball has a TI
+    Structured protocol layer in app (a protocol-description class) plus BLE
+    classes (a direct-advertising test request, a Bluetooth device bridge). Ball has a TI
     dual-mode Bluetooth SoC — jadx must determine whether Android uses BLE GATT
     (connectGatt) or classic RFCOMM/SPP. If SPP-only on Android, adjust transport.
   expected_measurements:

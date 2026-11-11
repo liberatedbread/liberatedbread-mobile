@@ -664,8 +664,9 @@ services:
     name: "Nordic UART Service (Armband)"
     notes: >
       Used for armband turn signal accessories. Provisioning flow: scan
-      "AdMore Armband" → connect → setArmbandSide(LEFT/RIGHT) → disconnect →
-      USB reset → rescan to verify. ArmbandType enum: LEFT, RIGHT, UNDEFINED.
+      "AdMore Armband" → connect → set armband side (left/right) → disconnect →
+      USB reset → rescan to verify. Side values in the app: left, right,
+      undefined.
     characteristics:
       - uuid: "6e400002-b5a3-f393-e0a9-e50e24dccaae"
         name: "NUS RX (Armband)"

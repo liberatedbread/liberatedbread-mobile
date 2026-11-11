@@ -273,6 +273,21 @@ device:
         cloud during the vendor-app pairing and recoverable afterwards through
         a Tuya IoT developer project. Per-unit, and rotated whenever the
         device is unbound and paired again.
+    exclusivity:
+      single_connection: true
+      single_bond: true
+      recovery: >
+        Force-close Smart Life / Tuya Smart on every phone near the tester,
+        and power down any Tuya Bluetooth gateway that has it, before
+        connecting. A tester bound to someone else's account cannot be added
+        to yours until they remove it or it is reset — and either way the
+        local key changes.
+      notes: >
+        One binding: a tester belongs to exactly one Tuya account at a time
+        (others reach it through that account's home sharing), and the
+        local key is that binding's. One connection at a time is the normal
+        behaviour of the stock single-link Tuya BLE firmware rather than
+        something a source states for this model.
     unpair:
       # No route short of the reset: on this device unbinding IS the factory
       # reset, which is why `supported` is false rather than true.

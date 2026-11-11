@@ -372,7 +372,7 @@ services:
                   response = hex2(s) + hex2(r) + hex2((r % 16) + (s % 238))
                            + hex2(q) + hex2((v1 % 15) ** 2) + hex2(t)
 
-                where hex2(x) is StringUtils.intToHex2(x, 2): lowercase hex
+                where hex2(x) is the app's int-to-hex helper with width 2: lowercase hex
                 digits left-padded with zeros to 2 chars (pad-only, no
                 truncation or masking). A value above 0xff would emit more
                 than 2 chars, but none can occur — every term is provably
@@ -495,7 +495,7 @@ services:
             Example: raw "a1b2c3" → reversed bytes "c3b2a1" → interpret bits of resulting integer.
 
             SCOPE: this layout is 4-probe-specific — it is exactly what
-            Bbq4bwItemModel.bleParseDeviceStatus parses, so it applies to the
+            the app's 4-probe model status parser reads, so it applies to the
             IBBQ-4BW / BBQ-4BW / IBT-4XS / IBT-24S family only. The IBT-26S
             uses a different, wider layout (parsed as a long in the app's
             IBT-26S model): probe alert bits 0-5 (probeNum-1),

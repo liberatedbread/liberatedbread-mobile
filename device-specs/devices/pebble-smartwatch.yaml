@@ -154,20 +154,78 @@ device:
   pairing:
     required: true
     confidence: "medium"
-    security_mode: "unknown"
+    # Confirmed on the watch: the PebbleOS pairing-confirmation API carries a
+    # numeric-comparison token to display, and Pebble's help has the user
+    # press the check-mark button to accept.
+    security_mode: "numeric_comparison"
     bonding: "required"
-    notes: >
-      Ordinary operating-system Bluetooth pairing: the Pebble Protocol rides a
-      serial link to an already-paired watch, so pairing is a precondition
-      handled by the host stack rather than a step a client implements. Which
-      association model the watch requests is not established here, and for a
-      client it does not much matter — the pairing is done in the OS settings
-      before any of this protocol starts.
-    enter_pairing_mode:
-      required: false
+    exclusivity:
+      single_connection: true
+      single_bond: false
+      recovery: >
+        Disconnect or close the phone app (the Pebble/Core app, Rebble or
+        Gadgetbridge) before connecting from a computer; the watch talks to
+        one host at a time. If pairing loops between connecting and
+        negotiating, forget the phone on the watch (Settings, Bluetooth,
+        the phone, Forget) AND forget every Pebble entry on the phone, then
+        pair again from scratch.
       notes: >
-        Watches advertise a "Pebble ..." name and pair as a standard Bluetooth
-        device; there is no separate mode to enter from the client side.
+        The watch's Bluetooth settings list the devices it has paired with,
+        so it remembers more than one; it serves only one at a time.
+    enter_pairing_mode:
+      required: true
+      indicator: "The watch's Bluetooth settings screen reads \"Now Discoverable\"."
+      notes: >
+        A watch is discoverable during first-run setup and, after that,
+        while its Bluetooth settings screen is open — not all the time.
+        Pairing is started from the phone app, not from the phone's own
+        Bluetooth settings: Pebble's help and Gadgetbridge both warn that
+        pairing the LE side through the OS menu breaks it.
+      procedures:
+        - name: "Open Bluetooth settings on the watch, then accept the prompt"
+          verified: false
+          basis: >
+            Pebble's own help articles (Pebble Time settings; iOS pairing),
+            preserved by the Rebble archive, and Gadgetbridge's Pebble
+            pairing guide for Pebble 2 and Core Devices watches.
+          power_state: "on"
+          glyph: "generic/on-screen-menu.svg"
+          steps:
+            - action: "On the watch, open Settings, then Bluetooth, and leave the screen open."
+              actor: "user"
+              expect: "The screen reads \"Now Discoverable\"."
+            - action: "Start pairing from the phone or client app and pick the watch from its list."
+              actor: "client"
+            - action: "Accept the phone's pairing prompt, then press the check-mark (Up) button on the watch to confirm."
+              actor: "user"
+              expect: "The watch shows it is connected."
+    unpair:
+      supported: true
+      requires_factory_reset: false
+      clears: "That one phone's pairing; apps, settings and other pairings stay."
+      procedures:
+        - name: "Forget the phone from the watch's Bluetooth settings"
+          verified: false
+          basis: "Pebble's iOS pairing help article, preserved by the Rebble archive."
+          power_state: "on"
+          glyph: "generic/on-screen-menu.svg"
+          steps:
+            - action: "On the watch, open Settings, then Bluetooth, select the phone and choose Forget."
+              actor: "user"
+            - action: "On the phone, forget the watch in Bluetooth settings — on older watches both the \"Pebble\" and \"Pebble-LE\" entries."
+              actor: "user"
+    notes: >
+      Ordinary Bluetooth pairing, confirmed on the watch: the Pebble
+      Protocol rides a link to an already-paired watch, so pairing is a
+      precondition the host stack and the phone app handle rather than a
+      step a protocol client implements. Older watches (Classic, Steel,
+      Time) hold two pairings with a phone — a Classic one ("Pebble XXXX")
+      and an LE one ("Pebble-LE XXXX") — and both have to be cleared when
+      a pairing goes bad; Pebble 2 and the 2025 Core Devices watches are
+      LE-only. No credential sits above the bond: once paired, the watch
+      answers the protocol. Medium confidence: Pebble's archived help, the
+      PebbleOS developer documentation and Gadgetbridge agree, but this
+      project has not paired one.
 # The Pebble Protocol application layer + libpebble2 transports. Bespoke
 # protocol material lives under `protocol_details` because the schema's top
 # level is closed; that block is the schema's namespace for single-spec

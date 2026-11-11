@@ -50,9 +50,8 @@ Pairing: press the Connect button — the blue LED blinks rapidly for a ~2 minut
 window — then pair from the host OS Bluetooth settings. On Android the OS-level
 bond is mandatory before the vendor app will connect (confirmed by an app error
 string). The adapter's pairing mode is configurable between **Auto** and
-**Manual** (`OBDLinkMXPPairingMode` enum in the app). The app's setup wizard has
-a dedicated press-the-pair-button page (`SetupWizardPressPairButtonPage`) with
-an instructional animation.
+**Manual** (a pairing-mode setting in the app). The app's setup wizard has
+a dedicated press-the-pair-button page with an instructional animation.
 
 **Factory reset**: hold the button ~15 s until the green POWER LED flashes
 rapidly (vendor support article 43000714324). Clears adapter config and bonds;
@@ -64,9 +63,9 @@ touches nothing on the vehicle.
 
 | UUID | Role | Evidence |
 |------|------|----------|
-| `0000fff0-0000-1000-8000-00805f9b34fb` | Serial service | string literal in `OCTech.OBD2.dll`, `ServiceAndCharacteristicPairs.DefaultServiceUUID` |
-| `0000fff1-…` | Notify (adapter → host) | `DefaultCharacteristicRxUUID` |
-| `0000fff2-…` | Write (host → adapter) | `DefaultCharacteristicTxUUID` |
+| `0000fff0-0000-1000-8000-00805f9b34fb` | Serial service | string literal in the app: its default serial service |
+| `0000fff1-…` | Notify (adapter → host) | the app's default receive characteristic |
+| `0000fff2-…` | Write (host → adapter) | the app's default transmit characteristic |
 
 Same family-A pipe as the OBDLink CX. The app enables notifications via the
 standard CCCD (`0x2902`) with a Notify/Indicate fallback. Not yet observed
@@ -77,7 +76,7 @@ side matches.
 
 SPP (UUID `00001101-0000-1000-8000-00805f9b34fb`, string in the app) advertised
 as `OBDLink MX+`. Primary link per the vendor spec sheet; iOS uses it via MFi
-iAP2. The app throws `DualModeRequiresClassicBluetoothException` when an
+iAP2. The app raises a dedicated needs-Classic error when an
 operation needs Classic, so a BLE-only client should expect some functions
 (possibly including firmware update) to be Classic-only until proven otherwise.
 
@@ -105,22 +104,22 @@ firmware path. Full reference: OBDLink FRPM rev F.
 ### Firmware update
 
 In-app, over the existing serial link — **no separate BLE OTA/DFU service**.
-Flow recovered from `OCTech.OBD2.OBDLink.Firmware.*`:
+Flow recovered from the app's firmware-update code:
 
-1. App downloads a manifest and "v5" firmware file (`OBDLinkFirmwareFilev5`,
-   with `ValidateFile` / `ReadHeader`) from `api.obdlink.com/devices` —
+1. App downloads a manifest and "v5" firmware file (parsed by a header
+   reader and a file validator) from `api.obdlink.com/devices` —
    per-device-code manifests, Stable/Beta branches, optional private code.
-2. `OBDLinkFirmwareLoader` connects to the adapter bootloader
-   (`BootloaderCommunicator`), checks bootloader version bounds and DeviceID
-   (enum lists `OBDLinkMX_1150/1151`, `OBDLinkLX`, `OBDLinkCX`, …).
-3. Upload via `StartUploadCommand` + chunked `SendChunkCommand`; a dedicated
-   `Validation` firmware image type verifies the flash afterwards.
-4. Recovery path exists: `OBDLinkFirmwareRecoveryUtility` + "power cycle
-   device, select from list and retry" strings.
+2. The app's firmware loader connects to the adapter bootloader, checks
+   bootloader version bounds and the device ID (the app's list covers two
+   MX hardware revisions, the LX, the CX and others).
+3. Upload is a start-upload command followed by chunked send-chunk
+   commands; a dedicated validation image type verifies the flash afterwards.
+4. Recovery path exists: a firmware-recovery utility that asks the user to
+   power-cycle the device, pick it from a list and retry.
 
 Latest MX+ firmware reported in the wild: 5.12.x. Whether image validation is
 cryptographic (signature) or structural (header/checksum) is still open — the
-`InvalidFirmwareImageException` check is client-side and needs either IL-level
+app's invalid-image check is client-side and needs either IL-level
 decompilation or an observed update to characterize.
 
 ## Tools Used

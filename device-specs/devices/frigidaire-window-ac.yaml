@@ -145,11 +145,62 @@ device:
         - "Cloud/account binding for the appliance"
       issued_to_client: []
 
+  pairing:
+    required: true
+    confidence: "medium"
+    # No local control surface exists (see device.notes), so this block
+    # describes the only gate there is: the cloud account the unit is bound to.
+    security_mode: "app_layer"
+    bonding: "none"
+    pin:
+      source: "user_chosen"
+      notes: >
+        The credential a client holds is the owner's Electrolux account, never
+        anything issued by the appliance. Either the account's email and
+        password, signed in over OAuth2 to the OCP cloud as
+        bm1549/home-assistant-frigidaire does, or an API key plus access and
+        refresh tokens generated for that account in the Electrolux Developer
+        Portal, as electrolux-oss/electrolux-group-developer-sdk expects.
+    exclusivity:
+      single_connection: false
+      single_bond: false
+      recovery: >
+        Nothing to clear on the appliance: any number of clients can sign in
+        to the same account. A unit that does not show up in the appliance
+        list is usually bound to a different account. Remove it there, or
+        follow setup.factory_reset and onboard it again.
+    unpair:
+      supported: true
+      requires_factory_reset: false
+      clears: "That client's account session or developer tokens; the appliance and its account binding are untouched."
+      notes: >
+        Revocation happens at the account, not the appliance: delete the API
+        key in the developer portal, or change the account password (whether
+        that also kills refresh tokens already issued is not established).
+        Moving the appliance to another account is a different operation.
+        Remove it from the app, then reset it per setup.factory_reset.
+    enter_pairing_mode:
+      required: false
+      notes: >
+        A new client needs nothing at the hardware. The Wi-Fi/Connect hold
+        belongs to onboarding (setup method cloud_account), which binds the
+        unit to an account once; it does not authorise individual clients.
+    notes: >
+      The APK audit in device.notes found only provisioning-time local paths,
+      so no LAN or BLE surface exists to authorise against. A client signs in
+      to the Electrolux cloud as the account owner, enumerates the appliances
+      bound to that account, and sends attribute writes through it. Nothing a
+      client stores survives the service: when Electrolux retires it, or the
+      account, every client loses control at once. Frigidaire switching off
+      its 1.0 Smart App and making owners re-onboard to the 2.0 app is the
+      precedent. Confidence is medium because two working open clients
+      authenticate this way; this project has not replayed either.
+
 http_endpoints:
   - method: "GET"
     path: "/appliance/api/v2/appliances?includeMetadata=true"
     name: "Appliance List"
-    description: "Cloud account enumeration path; path and GET method confirmed in the app's endpoint enum (GET_APPLIANCES_V2) against the api.ocp.electrolux.one production host."
+    description: "Cloud account enumeration path; path and GET method confirmed in the app's table of cloud endpoints against the api.ocp.electrolux.one production host."
     response_body:
       content_type: "application/json"
 
@@ -164,19 +215,17 @@ http_endpoints:
     path: "/appliance/api/v2/appliances/{applianceId}/command"
     name: "Appliance Command"
     description: >
-      Cloud command path; path and PUT method confirmed in the app's endpoint
-      enum (PUT_SEND_COMMAND). Payload is a single-property JSON map keyed by an
+      Cloud command path; path and PUT method confirmed in the app's table
+      of cloud endpoints. Payload is a single-property JSON map keyed by an
       OCP attribute name, e.g. {"fanSpeedSetting": "LOW"} or {"executeCommand":
       "ON"}, sent one property per call (medium confidence, app-derived, not
       hardware-verified; exact serialization requires traffic capture).
-      This endpoint is the encoding referenced by every entity `commands` value
-      in this spec. Those values use two forms: a bare OCP attribute name (e.g.
-      set_temperature -> "targetTemperatureC") means "PUT this attribute with the
-      value the control supplies", i.e. {"<attribute>": <control value>}; the
-      form "<attribute>=<VALUE>" (e.g. turn_on -> "executeCommand=ON") means
-      "PUT this attribute with the literal VALUE", i.e. {"<attribute>":
-      "<VALUE>"}. There are no separately declared command blocks because OCP
-      control is attribute writes, not named commands.
+      Every entry in the top-level `commands:` block is one PUT to this
+      endpoint, and its `arguments` map is the JSON body: a `{parameter}`
+      value is filled from the control (set_temperature sends
+      {"targetTemperatureC": <temperature>}), a literal is sent as written
+      (turn_on sends {"executeCommand": "ON"}). Entity `commands` values
+      name those entries.
     request_body:
       content_type: "application/json"
 
@@ -286,7 +335,7 @@ commands:
       applianceId:
         type: "string"
         source: "credential:appliance_id"
-    notes: "The daiane window-AC profile omits sleepMode, so availability on window units is unverified."
+    notes: "The app's window-AC capability profile omits sleepMode, so availability on window units is unverified."
     verification: "reported"
   sleep_mode_off:
     description: "Disable sleep mode."
@@ -361,7 +410,7 @@ commands:
       applianceId:
         type: "string"
         source: "credential:appliance_id"
-    notes: "The daiane profile marks cleanAirMode access 'read', so write support is unverified — lower confidence than the rest of this block."
+    notes: "The window-AC capability profile marks cleanAirMode access 'read', so write support is unverified — lower confidence than the rest of this block."
     verification: "hypothesis"
   clean_air_off:
     description: "Disable the ionizer."
@@ -384,8 +433,8 @@ entities:
     max_temp: 30
     temp_step: 1
     notes: >
-      OCP wire names below come from the app's bundled capability profile
-      (ac_daiane_capabilities.json) and its attribute-name enum; medium
+      OCP wire names below come from the app's bundled window-AC
+      capability profile and its attribute-name enum; medium
       confidence, app-derived, not verified against hardware.
       targetTemperatureC is readwrite, 16-30 C in steps of 1 (the app's
       attribute enum also maps a targetTemperatureF attribute; the bundled
@@ -416,7 +465,7 @@ entities:
     name: "Room Temperature"
     device_class: "temperature"
     unit: "F"
-    notes: "ambientTemperatureC is the wire name in the app's attribute enum, but the bundled daiane profile declares no ambient-temperature attribute; low confidence until a traffic capture confirms it."
+    notes: "ambientTemperatureC is the wire name in the app's attribute enum, but the bundled window-AC capability profile declares no ambient-temperature attribute; low confidence until a traffic capture confirms it."
     state_topic: "appliance/{device_id}/state"
     state_mapping:
       value: "ambientTemperatureC"
@@ -431,7 +480,7 @@ entities:
 
   - platform: "switch"
     name: "Sleep Mode"
-    notes: "sleepMode attribute (readwrite, OFF/ON) per the app's attribute enum and the bundled emmanuelle capability profiles; the daiane window-AC profile omits it, so availability on window units is unverified. Medium confidence."
+    notes: "sleepMode attribute (readwrite, OFF/ON) per the app's attribute enum and its bundled portable-AC capability profiles; the window-AC profile omits it, so availability on window units is unverified. Medium confidence."
     state_topic: "appliance/{device_id}/state"
     state_mapping:
       value: "sleepMode"
@@ -441,7 +490,7 @@ entities:
 
   - platform: "switch"
     name: "Display"
-    notes: "displayLight is an enum (DISPLAY_LIGHT_0/DISPLAY_LIGHT_100), not a boolean; the daiane profile declares it readwrite."
+    notes: "displayLight is an enum (DISPLAY_LIGHT_0/DISPLAY_LIGHT_100), not a boolean; the window-AC capability profile declares it readwrite."
     state_topic: "appliance/{device_id}/state"
     state_mapping:
       value: "displayLight"
@@ -451,7 +500,7 @@ entities:
 
   - platform: "switch"
     name: "Energy Saving (Eco)"
-    notes: "energySavingMode attribute (readwrite, OFF/ON) — eco is this separate attribute, not a value of mode. Per the daiane profile's triggers, turning it ON removes TURBO from the allowed fanSpeedSetting values."
+    notes: "energySavingMode attribute (readwrite, OFF/ON) — eco is this separate attribute, not a value of mode. Per the window-AC capability profile's triggers, turning it ON removes TURBO from the allowed fanSpeedSetting values."
     state_topic: "appliance/{device_id}/state"
     state_mapping:
       value: "energySavingMode"
@@ -461,7 +510,7 @@ entities:
 
   - platform: "switch"
     name: "Clean Air (Ionizer)"
-    notes: "cleanAirMode attribute (OFF/ON). The daiane profile marks it access 'read', so write support is unverified and the commands below are low confidence."
+    notes: "cleanAirMode attribute (OFF/ON). The window-AC capability profile marks it access 'read', so write support is unverified and the commands below are low confidence."
     state_topic: "appliance/{device_id}/state"
     state_mapping:
       value: "cleanAirMode"

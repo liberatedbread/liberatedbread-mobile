@@ -617,9 +617,9 @@ protocol_details:
         - {offset: 18, length: 1, name: "power_on_count", type: "uint8", unit: "count"}
         - {offset: 19, length: 1, name: "mode", type: "uint8", notes: "Decode using the packet's protocol version"}
         - {offset: 20, length: 1, name: "ending_battery_percent", type: "uint8", unit: "%", notes: "Present only when <=100"}
-      protocol_6: "Different 20-byte layout; do not decode with this table"
-      protocol_9: "The public implementation registers this decoder for compatibility; physical verification remains limited"
-      availability: "Latest retained summary can change seconds after a session; anonymous direct read worked in the captured implementation, while charger availability has a settlement window"
+    protocol_6: "Different 20-byte layout; do not decode with the protocol_7_8 table"
+    protocol_9: "The public implementation registers the protocol_7_8 decoder for compatibility; physical verification remains limited"
+    availability: "Latest retained summary can change seconds after a session; anonymous direct read worked in the captured implementation, while charger availability has a settlement window"
 
   service_data_diagnostics:
     service_data_a:
@@ -753,7 +753,7 @@ protocol_details:
     - V008
     - V009
 
-  # Per-version deltas from the app's ProtocolVersion/Advertisement mappings.
+  # Per-version deltas from the app's protocol-version and advertisement mappings.
   # Byte layouts change significantly across versions — read the protocol
   # version characteristic (or advertising byte 4) before parsing anything else.
   protocol_changelog:

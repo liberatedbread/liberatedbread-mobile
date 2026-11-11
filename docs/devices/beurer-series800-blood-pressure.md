@@ -55,9 +55,11 @@ transfers the saved result.
 | Passphrase protection | not_applicable (no WiFi, no PIN found in app code) |
 | Confidence | medium (app analysis and vendor manual; not replayed against hardware) |
 
-The app requests OS bonding. No app-level PIN exists for blood-pressure
-devices, so bonding is expected to be Just Works or Numeric Comparison —
-unconfirmed until someone pairs one.
+The app requests OS bonding and carries no PIN of its
+own. Beurer's manuals for sibling HealthManager Pro monitors (BM 96, BM 54)
+have the monitor show a PIN on its display at first connection, entered on the
+phone — so expect an OS passkey prompt (six digits on the BM 54). Unconfirmed
+for the BM92 until someone pairs one.
 
 The BM92-specific manual workflow is:
 

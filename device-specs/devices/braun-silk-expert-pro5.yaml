@@ -15,9 +15,8 @@ device:
     status: untested
     notes: >
       No hardware on the bench. All protocol facts were recovered by static
-      analysis of the Braun IPL app v3.3.3 (versionCode 7067, base APK sha256
-      0ad7cfaa1249b64420de941d5467bd260111f365f4fdc86bd2cb4c80bd842b0c,
-      acquired 2026-08-29). No HCI snoop or on-device replay exists yet —
+      analysis of the Braun IPL app v3.3.3 (versionCode 7067; the analysed
+      APK's hash is recorded under evidence.artifacts). No HCI snoop or on-device replay exists yet —
       the open questions at the bottom of this file are the verification list.
   protocol: "ble"
   transport: "ble-gatt"
@@ -55,8 +54,7 @@ device:
     the manufacturer-data AD structure (0xFF) from raw scan records: the two
     company-ID bytes little-endian (P&G = 0x00DC, wire bytes DC 00), then one
     BLE protocol-version byte (0x65 observed), then one device-type byte —
-    0x61 is the Silk-expert Pro 5 generation (the app's codename for it is
-    "Victoria3").
+    0x61 is the Silk-expert Pro 5 generation.
 
   safety_advisory:
     severity: "danger"
@@ -275,7 +273,9 @@ device:
   pairing:
     required: "unknown"
     confidence: "low"
-    security_mode: "unknown"
+    # Just Works by elimination: the device has no display or keypad to show
+    # or take a passkey, and the app supplies none.
+    security_mode: "just_works"
     bonding: "required"
     exclusivity:
       single_connection: "unknown"
@@ -286,10 +286,13 @@ device:
         the DEVICE_RESET command is the heavy option.
     unpair:
       supported: "unknown"
-      requires_factory_reset: false
       notes: >
-        No unpair procedure short of DEVICE_RESET was found in the app;
-        whether the device offers one on-air is unestablished.
+        No unpair procedure short of DEVICE_RESET was found in the app, and
+        DEVICE_RESET is the factory reset in `setup.factory_reset`, not a
+        narrower bond-clearing step. Forgetting the device in the phone's
+        Bluetooth settings removes the phone's half of the bond only;
+        whether the device then accepts a fresh bond from that phone, or
+        holds the old one and refuses, is unestablished.
     enter_pairing_mode:
       required: false
       notes: >
@@ -306,7 +309,14 @@ device:
       passkey or PIN appears anywhere in the app's BLE layer, so if pairing
       is authenticated at all it is not via a code the user sees. No command
       carries a credential: bonding is the entire access-control story, and
-      whoever bonds can read session data and skin-tone measurements.
+      whoever bonds can read session data and skin-tone measurements. The
+      stakes are low in one direction: the device flashes, senses skin tone
+      and gates intensity on its own, so a client that cannot bond loses
+      bookkeeping and Wi-Fi provisioning, never the device's function. No
+      public client, teardown or capture exists to settle the question
+      (searched: general web and GitHub for Braun IPL / Silk-expert BLE
+      work); the Oral-B iO spec shares this UUID family but its open GATT is
+      not evidence for this device, whose app bonds explicitly.
 
 cloud:
   required: false
@@ -437,6 +447,12 @@ services:
             description: "EXECUTE START_PATCH_TEST — the pre-treatment skin-reaction test the vendor manual recommends."
             value: [0xC3, 11]
             verification: "reported"
+            advanced: true
+            advanced_reason: >
+              Puts an IPL device into its patch-test mode (operation state 9),
+              in which the user fires test flashes on a small patch of skin.
+              Start it only on an explicit user request, with the skin tone
+              measured and the intensity matched to it per the vendor manual.
           ota_update_start:
             description: "EXECUTE OTA_UPDATE_START — begin a firmware update (operation state 10; OTA lifecycle push reasons 0x1005-0x1007)."
             value: [0xC3, 12]

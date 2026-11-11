@@ -25,6 +25,7 @@ device:
   manufacturer_status: "abandoned"
   testing:
     status: untested
+    detail: capture-verified
     notes: >
       Static analysis of the official Android app (UUIDs, opcodes, frame
       layout, checksum and name patterns re-checked against a second read,

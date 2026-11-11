@@ -96,14 +96,50 @@ device:
       issued_to_client: []
       notes: "No credential crosses to this app; it never connects."
   pairing:
-    required: "unknown"
-    confidence: "low"
+    required: true
+    confidence: "medium"
+    security_mode: "legacy_pin"
+    bonding: "required"
+    pin:
+      source: "fixed_default"
+      value: "1234"
+      length: 4
+      notes: >
+        The HC-05 / HC-06 factory default, and the value the SparkFun
+        Skimmer Scanner pairs with. Some HC-05 batches ship with 0000
+        instead. It is a product-wide constant, not a secret — and leaving
+        it unchanged is part of the skimmer tell, because the criminal's
+        phone needs to unlock the module without ever touching it again.
+    exclusivity:
+      single_connection: true
+      recovery: >
+        Not something this app ever needs: it never connects. For anyone
+        verifying with the Skimmer Scanner, a module that is already linked
+        to another phone will not answer until that link drops.
+      notes: >
+        A slave-mode HC-05 / HC-06 serves one SPP link at a time. Whether a
+        given module keeps several remembered pairings is firmware-dependent
+        and irrelevant to a passive check, so it is not stated.
+    enter_pairing_mode:
+      required: false
+      indicator: "On most HC-05 / HC-06 boards the status LED blinks quickly while unpaired and discoverable."
+      notes: >
+        A slave-mode module is discoverable and pairable whenever it is
+        powered and not connected. There is no button: the only way to
+        change the PIN or clear its pairing list is the module's AT command
+        mode, which needs a wire to the module itself.
     notes: >
-      Nobody has established whether this device demands a bond before
-      its control surface answers. Recorded as unknown rather than
-      assumed open: the rest of this spec was derived without a
-      connection ever being made, so the absence of a pairing step in
-      it is not evidence that there is none.
+      These are Bluetooth Classic serial (SPP) modules, Bluetooth 2.0-era
+      parts that use legacy PIN pairing with no Secure Simple Pairing, so
+      pairing happens in the host's Bluetooth settings with the PIN above
+      before any serial channel opens. That is the step the SparkFun
+      Skimmer Scanner automates: pair with 1234, open the serial channel,
+      send 'P', and treat an 'M' reply as the skimmer firmware's tell. This
+      spec deliberately does none of it — it matches the advertised name
+      passively and never pairs — so this block describes the module class,
+      not anything this integration does. Medium confidence rests on the
+      SparkFun open-source app and the module family's published defaults;
+      this project has not paired with one.
   discovery:
     # Match the HC-05 / HC-06 module name (Classic modules, so BLE visibility is
     # module-dependent). We dropped HC-03 / HC-08 / FREE2MOVE and the "malicious"

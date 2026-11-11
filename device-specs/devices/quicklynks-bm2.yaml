@@ -71,6 +71,8 @@ device:
             value: "^(Battery Monitor|Li Battery Monitor|ZX-1689)"
           manufacturer_data:
             company_id: 76
+            match: "prefix"
+            pattern: "0215655f83caae16a10a702e31f30d58dd82"
             description: "Legacy BM2 percentage advertisement; enhanced records use a ciphertext-derived ID."
         notes: >
           Names and service UUIDs are selection leads, not telemetry

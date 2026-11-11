@@ -36,20 +36,22 @@ device:
     SAFETY: OBD pin 16 is usually unswitched — a dongle left plugged in will flatten a
     battery, quickly on a motorcycle. Unplug after each session.
   identification:
-    local_name_prefix: "OBD"
+    local_name_prefixes: ["OBD", "UniCarScan"]
     service_uuids:
       - "000018f0-0000-1000-8000-00805f9b34fb"
-      - "0000ffe0-0000-1000-8000-00805f9b34fb"
+    notes: >
+      Family B's 18F0 service is an advertised Vgate-class signal. FFE0/FFE1
+      is only the HM-10 serial-module layout, shared with unrelated devices;
+      use it for post-connect family-C routing, never scan-time identity.
   discovery:
     methods:
       - type: "ble_scan"
         ble:
           local_name:
             match: "contains"
-            value: "OBD"
+            values: ["OBD", "UniCarScan"]
           service_uuids:
             - "000018f0-0000-1000-8000-00805f9b34fb"
-            - "0000ffe0-0000-1000-8000-00805f9b34fb"
       - type: "bt_classic_inquiry"
         bt_classic:
           name:
@@ -77,13 +79,17 @@ device:
     - model: "GATT family B (18F0/2AF0/2AF1)"
       identification:
         service_uuids: ["000018f0-0000-1000-8000-00805f9b34fb"]
-      notes: "Vgate iCar Pro 2S BLE, LELink2. Separate notify and write characteristics."
+      notes: "Vgate iCar Pro 2S BLE. Separate notify and write characteristics."
     - model: "GATT family C (FFE0/FFE1)"
       identification:
         service_uuids: ["0000ffe0-0000-1000-8000-00805f9b34fb"]
       notes: >
         HM-10 module clones. Single bidirectional characteristic — the same pattern as the
-        MoTool Slacker. Community-reported.
+        MoTool Slacker. Community-reported. The LELink / LELink2 dongles belong here, not
+        in family B: pbutterworth/py-nissan-leaf-obd-ble (elm327.py, MIT) ships FFE0 with
+        FFE1 as both its read and write characteristic as its defaults, which its README
+        says match the LeLink OBD BLE dongle, and the Home Assistant community thread for the integration built on
+        it is about a LELink 2 (helpful_urls of nissan-leaf-obd2.yaml).
     - model: "UniCarScan UCSI-2100 (WGSoft)"
       identification:
         local_name_prefix: "UniCarScan"
@@ -219,24 +225,29 @@ device:
         it — worth knowing before leaving one in the connector.
 
   pairing:
-    required: true
+    # This block answers for the BLE GATT families -- the link `protocol: ble`
+    # names and the one setup method 'ble_direct' (pairing_required: false)
+    # drives. The schema has no per-variant pairing, so the Classic SPP
+    # members' answer (required: true, legacy PIN) lives in
+    # `bluetooth_classic.pairing`, and the one BLE exception is in the notes.
+    required: false
     confidence: "medium"
-    security_mode: "legacy_pin"
-    bonding: "optional"
+    security_mode: "none"
+    bonding: "none"
     pin:
       source: "fixed_default"
       notes: >
-        A fixed default per adapter family, and not a secret in any meaningful
-        sense: the PIN is proof that somebody is standing at the car with the
-        dongle in reach. Bluetooth Classic variants commonly take 1234, 0000
-        or 6789; the OBDLink CX uses 123456. No single value is stated here
-        because this spec covers a family, and the right one is whichever the
-        adapter in hand documents.
+        Only for the BLE exception: the OBDLink CX (GATT family A) asks for a
+        fixed passkey of 123456, the same on every unit. Other BLE adapters
+        ask for nothing. The Classic SPP members' PINs (commonly 1234, 0000
+        or 6789) are under `bluetooth_classic.pairing.pin`. None of these is
+        a secret: the PIN is proof that somebody is standing at the car with
+        the dongle in reach.
     exclusivity:
       single_connection: true
       recovery: >
-        Remove the old bond from the previous host as well as the new one.
-        Classic adapters accept one connection at a time, and a phone
+        Disconnect, or forget the adapter on, the previous host as well as the
+        new one. These adapters serve one client at a time, and a phone
         reconnecting in the background is the usual cause of an adapter that
         "stopped working" after a second device was introduced.
     enter_pairing_mode:
@@ -247,14 +258,31 @@ device:
         power from the connector. The window applies to the OBDLink CX, which
         is pairable only for the first five minutes after power-on — plug it
         in, then pair, in that order, or cycle the ignition and start again.
+    unpair:
+      supported: "unknown"
+      notes: >
+        Every documented route is host-side: forget the adapter in the
+        host's Bluetooth settings, on every host that has paired it; the
+        adapter is then usually paired again from scratch with the same
+        fixed PIN. Adapter-side clearing varies by product and is mostly
+        undocumented. Generic ELM327 clones have no control at all beyond
+        unplugging them, which power-cycles rather than resets. OBDLink's MX+ and LX
+        restore factory settings with a 15-second hold of the pair button
+        (see obdlink-mx-plus); OBDLink documents no equivalent for the CX,
+        and whether the restore clears stored bonds is not stated.
     notes: >
-      The adapter is the one part of an OBD-II stack that does need pairing,
-      which is why this block reads harder than the rest of the spec. Most BLE
-      adapters take a connection with no pairing at all; the exception is
-      family A, whose OBDLink CX exemplar bonds with a legacy PIN and always
-      encrypts the link. Bluetooth Classic SPP variants pair with the host
-      operating system first and are not reachable from an application until
-      they have; their link-layer story is `bluetooth_classic.pairing`.
+      Split by transport, because the family spans two radios and the schema
+      cannot give each variant its own pairing block. BLE (this block, and
+      this spec's primary transport): most adapters take a connection with no
+      pairing at all, which is what `required: false` and `security_mode:
+      none` state. The exception is family A's OBDLink CX exemplar, which
+      bonds with a fixed passkey of 123456, is pairable only for the first
+      five minutes after power-on, and always encrypts the link -- a client
+      that meets an encrypted characteristic on a family-A adapter should
+      fall back to OS-level pairing with that passkey. Bluetooth Classic SPP
+      variants always pair: with the host operating system, by legacy PIN,
+      before an application can open the socket; that answer is
+      `bluetooth_classic.pairing` (required: true).
   host_compatibility:
     - stack: "corebluetooth"
       status: "incompatible"

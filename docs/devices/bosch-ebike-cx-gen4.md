@@ -27,8 +27,8 @@ to document.
 | Property | Value |
 |----------|-------|
 | System | Performance Line CX, Gen4 |
-| Display | Kiox (also Nyon, Purion, Intuvia across the range) |
-| App | eBike Flow (also Bosch's dealer diagnostic tooling) |
+| Display | Kiox (BUI330), Nyon (2021, BUI350); also Purion, Intuvia across the range |
+| App | eBike Connect (Gen4/BES2; eBike Flow is the smart system's), plus Bosch's dealer diagnostic tooling |
 | Bus | CAN, 500 kbit/s |
 
 ### Kiox display internals

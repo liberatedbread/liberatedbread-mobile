@@ -168,7 +168,7 @@ that register.
 | `005f0009-3ff2-4ed5-b045-4c7463617865` | Unknown input | write. Takes writes and shows no effect |
 | `005f000a-3ff2-4ed5-b045-4c7463617865` | Unknown channel | read, write, notify. Sends empty notifications now and then |
 
-The trailing bytes of the WDX base, `4c7463617865`, spell "exactLE"
+The last seven bytes of the WDX base, `45 4c7463617865`, spell "exactLE"
 backwards. That was the stack's name before it became Arm Cordio. The UUIDs
 and properties of `0002`–`0005` match the open-source Cordio definitions
 exactly.

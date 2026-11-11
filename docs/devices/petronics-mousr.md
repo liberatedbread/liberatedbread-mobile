@@ -20,8 +20,9 @@ physical scaling of drive values and firmware compatibility remain open.
 
 Charge and wake the toy, then connect to the Nordic UART service and enable
 notifications. Static analysis found no account or application-layer
-activation requirement. The guide discusses Bluetooth pairing, but whether a
-persistent bond is required on every firmware/phone combination is unverified.
+activation requirement. The user guide's "pairing" is the app's device list —
+press the chin pushbutton, open the app, tap the toy — with no PIN and no OS
+Bluetooth step, so the spec records no pairing (low confidence: not replayed).
 
 | Property | Value |
 |----------|-------|

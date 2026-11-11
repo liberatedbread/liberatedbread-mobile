@@ -21,7 +21,7 @@ Two protocol generations exist, detected by advertised name/service:
 | Generation | Models | BLE name prefixes | Transport |
 |-----------|--------|-------------------|-----------|
 | WiLink (legacy) | A1, A1 Pro, R1 Pro, R2, early C2 | `WalkingPad*`, `KS-R1*` | Private service `0xFE00` |
-| FTMS | MC21, X21, KS-HD-* (Z1D…), Zeal OEM | `KS-MC21-*`, `KS-SMC21C-*`, `ZP-ZEALR1-*`, `KS-HD-*` | Standard Fitness Machine Service `0x1826` |
+| FTMS | MC21, X21, KS-HD-* (Z1D…), Zeal OEM | `KS-MC21-*`, `KS-SMC21C-*`, `ZP-ZEALR1-*`, `KS-HD-*`, `KS-AP-RF3`, `KS-AP-RP3`, `KS-AP-ZP3` | Standard Fitness Machine Service `0x1826` |
 
 Only one BLE central can be connected at a time; if the official app holds
 the connection, other clients cannot connect.
@@ -40,8 +40,8 @@ the connection, other clients cannot connect.
 | Property | Value |
 |----------|-------|
 | Setup required | No |
-| Method | `ble_direct` — scan for `0xFE00` or `0x1826`, connect, command |
-| Setup AP / advertised name | `WalkingPad*`, `KS-*`, `ZP-ZEALR1-*`, `KINGSMITH*`, `DYNAMAX*` |
+| Method | `ble_direct` — match WiLink `0xFE00` or a documented FTMS name prefix, then connect and command; bare `0x1826` is not identity |
+| Setup AP / advertised name | WiLink `WalkingPad*` / `KS-R1*`; FTMS `KS-MC21-*`, `KS-SMC21C-*`, `ZP-ZEALR1-*`, `KS-HD-*`, `KS-AP-RF3`, `KS-AP-RP3`, `KS-AP-ZP3` and the X21 prefixes declared in the spec |
 | Passphrase protection | not_applicable (no pairing, no authentication) |
 | Confidence | high (multiple working open implementations) |
 

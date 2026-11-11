@@ -103,14 +103,13 @@ device:
     and the scale API under /api/service-scale/. All of it is account-
     bound app traffic — the BLE control plane never touches it.
   identification:
-    service_uuids:
-      - "00001826-0000-1000-8000-00805f9b34fb"   # FTMS models
+    local_name_prefixes: ["URTM", "SYWP"]
     notes: >
-      UR-protocol models (URTM*/SYWP* name prefixes) do not expose their
-      service UUID as a constant in the app; identify them by advertised
-      name prefix and enumerate services after connect. 0x1826 / 0xFFF0
-      cover the FTMS and FT classes respectively — 0xFFF0 is attributed to
-      the FT proprietary protocol class ONLY. Whether UR-class pads
+      Require a UREVO-family advertised name before selecting this spec.
+      Generic FTMS 0x1826 and the widely shared 0xFFF0 service are protocol-
+      routing signals after that family match, never identity evidence.
+      UR-protocol models do not expose their service UUID as a constant in
+      the app; enumerate services after connect. Whether UR-class pads
       advertise 0xFFF0 (or anything else) is unknown; their service and
       characteristic UUIDs must come from hardware capture, not from this
       list.
@@ -121,7 +120,7 @@ device:
           - "00001826-0000-1000-8000-00805f9b34fb"
       notes: >
         Standard Fitness Machine Service generation, selected when the
-        advertisement carries 0x1826.
+        advertisement carries 0x1826 after the UREVO family-name match.
     - model: "FT"
       notes: >
         FT proprietary generation: service 0xFFF0, Frame-A grammar with
@@ -131,9 +130,8 @@ device:
         local_name_prefix: "URTM"
       notes: >
         UR proprietary generation, matched by advertised-name prefix at
-        handler-selection time. The family also ships under the SYWP*
-        prefix (SYWP006), which this identification block cannot carry as
-        a second machine-readable prefix — match it by name too. No GATT
+        handler-selection time. Top-level identification also covers the
+        SYWP* prefix (SYWP006), which belongs to this same family. No GATT
         service UUID is known for this class (see device notes); endpoints
         must be enumerated after connect.
 
@@ -161,9 +159,9 @@ device:
         steps:
           - action: "Power on the pad so it advertises."
             actor: user
-          - action: "Scan: name prefixes URTM* / SYWP* (UR protocol), advertised service 0x1826 (FTMS) or 0xFFF0 (FT proprietary)."
+          - action: "Scan for the UREVO family-name prefixes URTM* / SYWP*; do not select this spec from generic 0x1826 or 0xFFF0 advertisements alone."
             actor: client
-          - action: "Connect over GATT and discover services; pick the protocol class by advertised service UUID (0x1826 / 0xFFF0) or name prefix."
+          - action: "After that family match, connect and discover services; use 0x1826 to select FTMS, 0xFFF0 for FT, or the enumerated UR endpoints."
             actor: client
           - action: "Enable notifications (0x2ACD/0x2ADA on FTMS, 0xFFF1 on FT, enumerated notify char on UR), then write commands (0x2AD9 / 0xFFF2 / enumerated write char)."
             actor: client

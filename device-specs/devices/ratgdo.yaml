@@ -188,8 +188,8 @@ device:
     confidence: medium
     notes: >
       Two-part setup. HARDWARE: wire the ratgdo board to the opener's
-      wall-control terminals and pair it to the opener with the opener's learn
-      button (see chamberlain-garage-opener-secplus.yaml). NETWORK: the board
+      wall-control terminals (see chamberlain-garage-opener-secplus.yaml); no
+      learn-button press is needed for the wired link. NETWORK: the board
       is an ESPHome device — on first boot it hosts a Wi-Fi provisioning AP (or
       is flashed with credentials); once on the LAN it advertises
       _esphomelib._tcp and answers the web server on :80 and the native API on
@@ -206,7 +206,7 @@ device:
         ble:
           pairing_required: false
         steps:
-          - action: "Flash ratgdo ESPHome firmware and wire the board to the opener terminals; pair with the opener's learn button."
+          - action: "Flash ratgdo ESPHome firmware and wire the board to the opener terminals. No learn-button press is needed; the board syncs its rolling code on boot."
             actor: user
           - action: "Join the board to Wi-Fi (ESPHome AP/improv, or flashed credentials)."
             actor: user
@@ -278,6 +278,40 @@ device:
         from the mDNS TXT: `api_encryption` means a PSK is set and Noise is
         required, `api_encryption_supported` means the build can do Noise but
         has no key yet and still accepts plaintext.
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "none"
+    bonding: "none"
+    pin:
+      source: "user_chosen"
+      notes: >
+        Only where the owner added one: web_server basic/digest credentials,
+        or a native-API Noise PSK. Both are written into the board's YAML by
+        whoever builds the firmware — nothing on the board issues them — so a
+        client gets them from the owner, and changing them means reflashing.
+    exclusivity:
+      single_connection: false
+      single_bond: false
+      notes: >
+        The native API takes several clients at once (ESPHome's default
+        max_connections is 4 on ESP8266 boards, 5 on ESP32), so Home Assistant
+        and a phone app can both be connected; a further client is refused
+        until one disconnects.
+    enter_pairing_mode:
+      required: false
+    notes: >
+      Stock ratgdo firmware gates nothing. The published board configs declare
+      `web_server:` with no auth and `api:` with no encryption key, so the REST
+      and SSE endpoints and the plaintext native API answer any client on the
+      LAN — and that surface includes the Learn switch (which opens the
+      opener's radio-remote enrolment window from the network) and an API
+      service that wipes paired remotes from the opener. An owner who builds
+      their own firmware can add web_server auth (the app must then send it)
+      or an `api: encryption: key:` (Noise; see the `api_encryption` TXT
+      key). There is nothing to revoke short of changing those values and
+      reflashing. The opener side has no pairing either — see
+      chamberlain-garage-opener-secplus.yaml.
 
 local_access:
   status: native

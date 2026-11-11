@@ -52,7 +52,7 @@ November 2021 is not a universal manufacturing cutoff.
 | Setup required | No account, Wi-Fi provisioning or application key |
 | Method | `ble_direct`: identify generation, subscribe, then query |
 | Passphrase protection | not_applicable |
-| Confidence | medium for local operation; low for every OS/firmware bonding combination |
+| Confidence | medium — three working clients (rd200v2, radonpy, ESPHome) connect without pairing; OS bonding behaviour unrecorded |
 
 Only one phone can connect at a time. Close the vendor app or previous client
 before connecting. Neither public client implements an application PIN/key

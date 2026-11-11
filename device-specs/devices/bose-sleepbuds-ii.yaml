@@ -250,9 +250,16 @@ device:
       characteristic demands encryption, so this proves little); the
       owner's guide never shows a passkey or a Bluetooth-settings step and
       the buds have no button or display, so any pairing that does happen
-      can only be Just Works. Until someone watches the SMP exchange,
-      implement for both: connect, and accept a Just Works bond if the
-      stack asks.
+      can only be Just Works. The community client's code never asks the
+      host stack to pair, so whatever bond exists on its bench was formed
+      by the OS, if at all. Bose's own disconnect instructions also split
+      by platform — forget the buds in iOS Bluetooth settings, but
+      disconnect from inside the app on Android — which fits an
+      iOS-initiated bond more than a bond the buds demand, but proves
+      neither. No second source, teardown or capture was found (searched:
+      Bose support articles, the owner's guide, the community repository,
+      general web). Until someone watches the SMP exchange, implement for
+      both: connect, and accept a Just Works bond if the stack asks.
 
 services:
   - uuid: "0000180a-0000-1000-8000-00805f9b34fb"

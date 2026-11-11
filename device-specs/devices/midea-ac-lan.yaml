@@ -160,6 +160,48 @@ device:
         gates the encrypted TCP 6444 session; it is obtained from the cloud once
         and then used entirely locally.
 
+  pairing:
+    # V3 is the generation the gate applies to; V2 units need nothing (see
+    # notes), and V1 is unsupported by the open clients.
+    required: true
+    confidence: "medium"
+    security_mode: "app_layer"
+    bonding: "none"
+    pin:
+      source: "vendor_app"
+      notes: >
+        A V3 unit's TOKEN + KEY (K1) pair comes from the Midea cloud and
+        nowhere else. The client asks for it by the device id that discovery
+        returns. msmart-ng does this with built-in NetHome Plus accounts that
+        the unit is not linked to, so the fetch proves only that the client
+        can reach the cloud, not that it owns the unit. The owner's own app
+        account also works, and the CLIs offer region and account
+        alternatives when the default fails. Community reports say each
+        fetch returns a different pair and that any fetched pair keeps
+        working, so a client can cache one and reuse it. Per-unit; never
+        record a value.
+    unpair:
+      supported: false
+      notes: >
+        No source documents a way to revoke a fetched pair, on the unit or in
+        the cloud. Whether a Wi-Fi module reset invalidates the pairs already
+        fetched has not been established.
+    enter_pairing_mode:
+      required: false
+      notes: >
+        Nothing at the hardware: no button, no window. The remote-control AP
+        gesture in setup.factory_reset is Wi-Fi onboarding only.
+    notes: >
+      On V3 firmware the gate is the token/key handshake that opens the
+      encrypted TCP 6444 session, and the credential for it is fetched once
+      from the Midea cloud (setup method cloud_account). V2 units have no
+      gate at all: they speak the same protocol on 6444 with no token, to any
+      LAN host. The cloud's death is what matters here. A V3 unit whose pair
+      was fetched and stored keeps working locally indefinitely, but a V3
+      unit with no stored pair cannot be controlled at all once the token
+      endpoint is gone. Fetch and keep the pair while the cloud answers.
+      Sources: msmart-ng and midea-beautiful-air; nothing replayed here.
+
 # The Midea LAN appliance protocol. Bespoke protocol material lives under
 # `protocol_details` because the schema's top level is closed; that block is
 # the schema's namespace for single-spec protocol blocks.

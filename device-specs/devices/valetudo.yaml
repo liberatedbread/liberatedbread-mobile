@@ -171,6 +171,30 @@ device:
       notes: >
         The local REST/UI can be given HTTP Basic auth; by default it is open on
         the LAN. No vendor cloud is involved.
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "none"
+    bonding: "none"
+    exclusivity:
+      single_connection: false
+      single_bond: false
+    enter_pairing_mode:
+      required: false
+    notes: >
+      Nothing pairs on a default install: Valetudo's shipped configuration has
+      HTTP Basic auth switched off and serves /api/v2 to anyone on the LAN.
+      Its webserver does block requests from non-private (public) source
+      addresses by default, which is a reachability rule rather than a
+      credential. The owner can turn Basic auth on from the Valetudo UI; the
+      username and password are then theirs (the shipped placeholders are
+      `valetudo` / `valetudo`, and are inert while auth is off), and a client
+      should treat a 401 as "ask the owner for them". MQTT is the other
+      direction — Valetudo connects out to the owner's broker with whatever
+      credentials the owner configures — so nothing is presented to the
+      robot there. There is no vendor cloud to lose: removing it is the point
+      of the software. Source: Valetudo's default_config.json and
+      valetudo.cloud.
 
 http_endpoints:
   - method: "GET"

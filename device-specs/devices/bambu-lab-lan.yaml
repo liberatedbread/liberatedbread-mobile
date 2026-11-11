@@ -153,6 +153,85 @@ device:
         The LAN Access Code is the shared credential for all three local
         transports. Onboarding is via the touchscreen; the passphrase is entered
         there, not over a link this spec documents.
+  pairing:
+    required: true
+    confidence: "medium"
+    # No link-layer pairing: the gate is a shared password (the LAN Access
+    # Code) presented as the MQTT/FTPS/camera login, plus a mode switch on
+    # newer firmware.
+    security_mode: "app_layer"
+    bonding: "none"
+    pin:
+      source: "device_screen"
+      length: 8
+      notes: >
+        The LAN Access Code, read off the printer's own touchscreen (network /
+        LAN settings; the menu path differs between the X1, P1 and A1 lines).
+        Per-unit, so no value appears here. Every local client presents the
+        same code as the password for user `bblp`; nothing is issued to the
+        client and nothing per-client is stored on the printer.
+    exclusivity:
+      single_bond: false
+      recovery: >
+        A client that suddenly fails to authenticate usually holds a stale
+        code: the code is reported to change after a refresh from the screen,
+        after toggling LAN Only mode, and across some firmware updates. Read
+        it off the screen again and update every client that stores it (slicer,
+        Home Assistant, print-farm tools) — they all share the one value.
+      notes: >
+        Any number of clients may share the code. Whether the on-printer
+        broker limits simultaneous MQTT sessions was not established here.
+    unpair:
+      supported: true
+      requires_factory_reset: false
+      clears: "The Access Code itself — and therefore every local client at once."
+      notes: >
+        There is no per-client revocation because there are no per-client
+        credentials. Refreshing the Access Code from the touchscreen (or
+        toggling LAN Only mode, which community guides report regenerates it)
+        locks out everyone holding the old code. A factory reset also reissues
+        it, along with the account binding and Wi-Fi.
+    enter_pairing_mode:
+      required: true
+      procedures:
+        - name: "Enable LAN Only mode (and Developer Mode on authorization-control firmware) on the touchscreen"
+          verified: false
+          basis: >
+            ha-bambulab's documentation (LAN-mode setup and its Authorization
+            Control page) and Bambu Lab's January 2025 authorization-control
+            announcement as reported by the 3D-printing press. Menu paths not
+            transcribed; they differ per model line.
+          power_state: "on"
+          glyph: "generic/on-screen-menu.svg"
+          steps:
+            - action: "On the printer's touchscreen, open the network / LAN settings and switch LAN Only mode on."
+              actor: "user"
+            - action: "On firmware with authorization control (X1C 01.08.05.00+, P1 01.08.02.00+, A1 01.05.00.00+), also switch on Developer Mode, which sits beside the Access Code and is only offered in LAN Only mode."
+              actor: "user"
+            - action: "Read the Access Code, serial and IP from the same screens, then connect mqtts://{ip}:8883 as bblp + access code."
+              actor: "client"
+              expect: "CONNACK accepted; reports arrive on device/{serial}/report."
+      notes: >
+        Not a timed window — both switches persist until turned off. Strictly
+        the Access Code is shown and accepted without LAN Only mode, which is
+        enough for read-only monitoring in "hybrid" use; it is control that the
+        mode switches gate on current firmware.
+    notes: >
+      The gate is one shared, per-unit secret shown on the printer's screen:
+      the LAN Access Code, used as the password for MQTT (8883), FTPS (990) and
+      both camera transports. Possession of it is the whole of local
+      authorisation, and it does not depend on the vendor cloud — the cloud
+      dying costs nothing here once the code is known. The catch is
+      Bambu's authorization-control firmware (from January 2025): on it, a
+      cloud-bound printer still answers status reads with the code, but
+      rejects third-party control commands unless they come through Bambu's
+      own signed path. Restoring local write control means LAN Only mode plus
+      Developer Mode, which in turn disconnects the printer from Bambu Cloud
+      (Handy app, remote monitoring). Earlier P1 firmware (around 01.07.00.00)
+      already restricted a cloud-bound printer driven locally to little more
+      than the light. Downgrading firmware remains possible per Bambu's
+      release notes. See setup method `device_ui` and
+      `credentials.issued_to_client`.
 
 # The broker's socket, declared so a consumer picks its connector from the
 # spec rather than inferring TLS from the port number. One value for every

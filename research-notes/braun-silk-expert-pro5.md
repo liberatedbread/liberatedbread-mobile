@@ -23,8 +23,8 @@ link) is expected.
 - Discovery: no scan filter; the app parses the **manufacturer-data AD
   structure** (`0xFF`) from scan records: bytes 2–3 = company ID
   little-endian (P&G = `0x00DC`), byte 4 = BLE protocol version (`0x65` seen),
-  byte 5 = device type; accepted type **`0x61`** ("Victoria3" = Silk-expert
-  Pro 5 generation).
+  byte 5 = device type; accepted type **`0x61`** (the Silk-expert Pro 5
+  generation).
 - Connect with autoConnect=false, negotiate **MTU 515**, then subscribe to
   Status/Push/Raw notifications and Read indications. App explicitly bonds
   (`BOND_BONDED` tracked; device has a `BONDING` operation state).

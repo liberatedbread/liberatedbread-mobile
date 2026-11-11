@@ -186,6 +186,57 @@ device:
         presents digest credentials from pairing; the TV shows the PIN and
         the user transcribes it, so pairing cannot be fully automated.
 
+  pairing:
+    # True for secured (2016+ Android, pairing_type digest_auth_pairing) sets;
+    # older sets need nothing (see notes). The TV says which in
+    # /system featuring.systemfeatures.
+    required: true
+    confidence: "medium"
+    security_mode: "app_layer"
+    bonding: "none"
+    pin:
+      source: "device_screen"
+      length: 4
+      notes: >
+        Four digits the TV shows after the CLIENT posts /6/pair/request. The
+        client returns them in /6/pair/grant, HMAC-signed together with the
+        request's timestamp (jointspace_common.auth.pairing_flow); the
+        pair/request reply carries a timeout for the PIN. What persists is the
+        client-chosen device id plus the TV-issued auth_key, used as HTTP
+        digest username/password on every later request — keep both.
+    exclusivity:
+      single_connection: false
+      single_bond: false
+      recovery: >
+        Each client pairs under its own device id and existing pairings are
+        unaffected. A 401 on every request means the stored device id /
+        auth_key pair is missing or no longer known to the TV (after a reset);
+        pair again.
+    enter_pairing_mode:
+      required: false
+      notes: >
+        No button or menu toggle: the client's pair/request makes the PIN
+        appear, and the 2014+ API is always on. Only the original 2k9-2k11
+        jointSPACE sets need a one-time enabling step — typing 5646877223 on
+        the remote while watching TV (setup method 'device_ui') — and those
+        sets have no pairing at all.
+    unpair:
+      supported: "unknown"
+      notes: >
+        jointspace_common.auth says the TV forgets a client on factory reset
+        or an explicit unpair in its menus, but none of the sources used here
+        (haphilipsjs, pylips, suborb) names that menu or offers an API call to
+        revoke a pairing. A factory reset clears every paired client.
+    notes: >
+      Two regimes, decided by the TV itself: pre-2016 and some early Android
+      sets serve plain HTTP on 1925 with no authorisation whatsoever, while
+      sets reporting secured_transport true / pairing_type
+      digest_auth_pairing answer 401 on HTTPS 1926 to everything until the
+      client has paired once with the on-screen PIN. Issued credentials have
+      no expiry in the published clients and involve no Philips cloud.
+      Byte-level flow in jointspace_common.auth.pairing_flow; credential
+      summary in setup.credentials.
+
   variants:
     - model: "2k9-2k11 (xxPFL8xx4H, xxPFL5xx6-xxPFL9xx6)"
       name: "Original jointSPACE models"
@@ -320,8 +371,9 @@ protocol_details:
               expiry in the published clients; the credentials work until the
               TV is reset or unpaired.
         shared_key: >
-          The HMAC key is a constant shipped in every client (it gates only
-          the PIN signature, not transport security): base64
+          The HMAC key is a constant published in open-source clients —
+          suborb/philips_android_tv (philips.py) and haphilipsjs carry it
+          (it gates only the PIN signature, not transport security): base64
           "ZmVay1EQVFOaZhwQ4Kv81ypLAZNczV9sG4KkseXWn1NEk6cXmPKO/MCa9sryslvLCFMnNe4Z4CPXzToowvhHvA=="
           (decode before use). The same key's first 16 bytes decrypt the
           *_encrypted system fields below.

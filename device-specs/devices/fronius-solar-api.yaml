@@ -131,6 +131,33 @@ device:
         set passwords). Network onboarding is via the device's own web UI, not
         this API.
 
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "none"
+    bonding: "none"
+    enter_pairing_mode:
+      required: false
+      notes: >
+        There is no pairing mode and no button. The one thing a person may
+        have to do is switch the Solar API on in the inverter's web UI — on
+        GEN24 / Tauro / Verto, and on any datalogger that has been factory
+        reset on bundle 1.14.1 or later, where it comes up deactivated (see
+        the device_ui setup method's second step and setup.factory_reset).
+        That is a persistent setting, not a pairing window: once it is on,
+        every client on the LAN is answered.
+    notes: >
+      Nothing is issued to a client and nothing is checked: the Solar API
+      answers plain GETs regardless of the web UI's user and admin
+      passwords, which protect only the configuration pages. Fronius's own
+      Solar API documentation is the basis. The failure that looks like a
+      pairing problem is the disabled API — a datalogger that is plainly on
+      the network but answers nothing under /solar_api/ — and the fix is the
+      enable switch above, not a credential. No vendor cloud is involved, so
+      its loss changes nothing here. The API is read-only; control (power
+      limits, battery) lives on the inverter's separate Modbus TCP
+      interface, which this spec does not cover.
+
 http_endpoints:
   - method: "GET"
     path: "/solar_api/GetAPIVersion.cgi"

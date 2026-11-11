@@ -1,0 +1,936 @@
+# Nissan Leaf (ZE0 / AZE0 / ZE1) battery data over OBD-II -- Device Specification
+# Status: In Progress -- read-only battery diagnostics transcribed from open-source
+#         clients (OVMS, dalathegreat/Battery-Emulator, py-nissan-leaf-obd-ble) and the
+#         community CAN spreadsheet (dalathegreat/leaf_can_bus_messages). Nothing here
+#         has been run against a car by this project.
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+
+device:
+  name: "Nissan Leaf (ZE0 / AZE0 / ZE1) battery diagnostics"
+  manufacturer: "Nissan"
+  manufacturer_status: "active"
+  testing:
+    status: untested
+  protocol: "obd2"
+  category: "vehicle"
+  type: "Battery electric car: traction-battery data read from the Li-ion Battery Controller over the OBD-II connector"
+  aliases:
+    - "Nissan LEAF"
+    - "Leaf 24 kWh / 30 kWh (ZE0, AZE0)"
+    - "Leaf 40 kWh / 62 kWh e+ (ZE1)"
+  notes: >
+    Nissan is an active manufacturer and still sells the Leaf. What ended is a cloud
+    service: Nissan stopped the NissanConnect EV app on 30 March 2026 for Leafs built
+    up to May 2019 (and e-NV200 vans), per its UK, Irish and Cypriot ownership pages.
+    The app is what gave owners remote charge status and remote charging. The
+    car's own diagnostic bus was never part of that service, and it still answers.
+
+    This spec covers that local path. A phone or a home server talks to a plug-in
+    ELM327-class OBD-II adapter, usually a BLE one (see obd2-bluetooth-adapter.yaml for
+    the adapter side). Through it the client polls the Li-ion Battery Controller
+    (LBC, the pack's BMS) on CAN ID 0x79B and reads the answer on 0x7BB. The polls
+    are KWP2000-style ReadDataByLocalIdentifier requests (service 0x21) that
+    the community calls "groups". The answers are ISO-TP multi-frame. Group 0x01
+    carries state of charge, a health figure, the pack's Ah capacity, HV pack voltage
+    and current. Group 0x02 has the 96 cell voltages, group 0x04 the pack
+    temperatures, and group 0x61 the health block that ZE1 cars use for SOH. A few
+    vehicle-level values (12 V battery, charge counters, gear, plug state) come from
+    the VCM on 0x797 / 0x79A with UDS ReadDataByIdentifier (0x22). The odometer and
+    tyre pressures come from the meter on 0x743 / 0x763.
+
+    GENERATIONS. The group 0x01 layout differs by generation, and the length the
+    LBC announces in its first frame tells them apart: 0x29 (41 bytes) on ZE0,
+    0x2B (43) on AZE0 and 0x35 (53) on ZE1. Decode tables are therefore given per
+    generation under protocol_details.lbc_groups. The generation names follow the
+    community spreadsheet's README: ZE0 for 2010-2012 24 kWh cars, AZE0 for
+    2013-2017 24/30 kWh cars, ZE1 for 2018+ 40/62 kWh cars. OVMS documentation calls
+    AZE0 "ZE0" too, so check the model year, not the label.
+
+    READ-ONLY SCOPE. This document carries reads only. The same open sources also
+    implement LBC writes: clearing DTCs, and a session, security-access and
+    routine sequence that resets the pack's degradation history. Those are left
+    out on purpose and listed by service only under protocol_details.excluded_services.
+    They change what the car reports about its own battery, and the people relying
+    on this spec are often deciding whether to buy a used Leaf.
+
+    ZE1 PORT ISOLATION. On ZE1 cars a CAN gateway sits between the OBD-II port and
+    the vehicle buses, and it powers down when the ignition is off. With the car off
+    the port goes quiet and polls go unanswered. OVMS documents this, and so does the
+    py-nissan-leaf-obd-ble README ("the car must be on"). ZE0/AZE0 ports stay
+    reachable with the car off.
+
+    CONFIDENCE: every byte offset below is transcribed from open-source code or the
+    community spreadsheet (verification: reported), or inferred from their sample
+    dumps (hypothesis). This project has not polled a car.
+  safety_advisory:
+    severity: "caution"
+    summary: >
+      Diagnostic polling adds traffic on the car's buses and can wake modules;
+      poll gently, never alongside another tester, and only the read requests
+      listed here.
+    detail: >
+      These requests are read-only, but they still go onto a working car's
+      buses. Follow the open clients this spec is taken from. The py-nissan-leaf-obd-ble
+      Home Assistant integration polls every 10 s while the car is on. When it finds the
+      car off it backs off to 5 minutes, because on some cars each poll of a
+      sleeping car clicks a relay and frequent polling wears it out. OVMS does not
+      poll the LBC at all while the car is off. On ZE1 it polls the balancing-shunt
+      group only while charging, to keep traffic down while driving. Battery-Emulator
+      stops its own polling while another tool (Leaf Spy, for example) is querying
+      0x79B. It also never starts a group transfer while one is in flight, because the
+      LBC drops a request that arrives while it is still sending a reply. Do not send the
+      excluded write services. This is an independent, experimental client
+      unaffiliated with Nissan; the vehicle's own instructions govern.
+      Leave the adapter unplugged when not in use unless its
+      own documentation says it is safe to leave in place.
+  variants:
+    - model: "ZE0"
+    - model: "AZE0"
+    - model: "ZE1"
+  discovery:
+    none: >
+      Nothing to discover: the car is reached through its OBD-II connector. What
+      a phone scans for is the ADAPTER plugged into that connector -- see
+      obd2-bluetooth-adapter.yaml for how adapters are found. The LeLink-class
+      FFE0/FFE1 serial service that py-nissan-leaf-obd-ble uses is a post-connect
+      route there (GATT family C), not a scan-time identity: the HM-10 layout is
+      shared with unrelated devices. The generation is identified by querying
+      the car (the group 0x01 reply length), not by finding it.
+  setup:
+    required: false
+    confidence: "medium"
+    notes: >
+      Nothing to provision on the car. The setup that matters is the adapter's
+      (pairing, if any) and the ELM327 session initialisation, which is
+      recorded in protocol_details.elm327_session.
+    methods:
+      - type: "wired"
+        verified: false
+        description: >
+          Plug an ELM327-class adapter into the OBD-II connector, wake the car
+          (ZE1: switch it on), connect to the adapter and run the ELM327
+          initialisation. There is no pairing or credential exchange with the car.
+        steps:
+          - action: "Plug the adapter into the car's OBD-II connector."
+            actor: "user"
+            expect: "The adapter powers up from the connector."
+          - action: "On a ZE1 (2018+) car, switch the car on. ZE0/AZE0 cars answer with the car off, but polling a sleeping car may wake modules; see the safety advisory."
+            actor: "user"
+            notes: >
+              The ZE1 CAN gateway isolates the port with the ignition off
+              (OVMS documentation; py-nissan-leaf-obd-ble README).
+          - action: "Connect to the adapter (BLE GATT serial pipe or Classic SPP) and send the initialisation in protocol_details.elm327_session."
+            actor: "client"
+            expect: "Each AT command answers OK."
+          - action: "Poll LBC group 0x01 and identify the generation from the first-frame length (0x29 ZE0, 0x2B AZE0, 0x35 ZE1)."
+            actor: "client"
+            expect: "A multi-frame reply on 0x7BB starting 61 01."
+    factory_reset:
+      applicable: false
+      effect: >
+        Not applicable. A car reached over a diagnostic connector holds no
+        credentials or pairing state for a client to clear. The LBC's
+        degradation-history reset that some open tools implement is a write to
+        the battery controller, not a return to an unprovisioned state, and it is
+        out of scope for this read-only spec (see
+        protocol_details.excluded_services).
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        Switching adapter or host is a physical swap. The car keeps no record of
+        which tool last connected.
+    credentials:
+      wifi_passphrase_protection: "not_applicable"
+      stored_on_device: []
+      issued_to_client: []
+      notes: >
+        Access control is physical: whoever reaches the connector can read
+        these groups. None of the reads here needs a diagnostic session or
+        SecurityAccess (OVMS and Battery-Emulator send the 0x21 polls cold).
+
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "none"
+    bonding: "none"
+    enter_pairing_mode:
+      required: false
+    exclusivity:
+      single_connection: true
+      recovery: >
+        One tester at a time on the connector. Unplug any other OBD-II
+        dongle or telematics device (an OVMS module, an insurance dongle)
+        before polling, because their requests to the same ECUs interleave
+        with this client's and corrupt the multi-frame replies.
+    notes: >
+      Nothing gates the documented surface. The LBC answers the 0x21 group
+      reads on a bare connection, with no diagnostic session and no
+      SecurityAccess, and the car stores nothing about the client: OVMS and
+      Battery-Emulator send these polls cold. The only physical precondition
+      is power state. A ZE1's CAN gateway isolates the port until the car is
+      switched on (see setup). The operations that ARE gated (Battery-
+      Emulator's degradation-history reset, which runs a SecurityAccess
+      seed/key exchange) are writes, and this spec leaves them out (see
+      protocol_details.excluded_services). Any Bluetooth pairing belongs to
+      the adapter, not the car: see obd2-bluetooth-adapter.yaml.
+
+obd:
+  role: "vehicle"
+  connector:
+    standard: "sae-j1962"
+    model_years: >
+      All generations (2010+). On ZE1 the port sits behind a CAN gateway that
+      powers down with the ignition off.
+    verification: "reported"
+  transport:
+    standard: "iso15765-4"
+    bitrate: 500000
+    addressing: "11bit"
+    request_id: "0x79B"
+    response_id: "0x7BB"
+    verification: "reported"
+  adapter_requirements:
+    - "Custom request headers (ATSH 79B / 797 / 743): none of these ECUs answers the functional 0x7DF broadcast."
+    - "Multi-frame ISO-TP receive: group 0x01 is 6-8 frames, group 0x02 is 29 frames and group 0x61 is 48 frames (331 bytes, a 12-bit first-frame length)."
+    - "Client-addressed flow control: the flow-control frame must go to the LBC's request ID 0x79B (ATFCSH 79B), not the default 0x7E0."
+    - "Timing: the community spreadsheet says the flow-control frame must follow the LBC's first frame within 15 ms. Battery-Emulator, on a native CAN interface, answers each frame with 30 01 00, a block size of 1."
+    - "Clone ELM327 firmware is untested here; py-nissan-leaf-obd-ble's defaults are for the LeLink BLE dongle (its README), and its Home Assistant community thread is about the LeLink 2. No other adapter is reported."
+  ecus:
+    - name: "LBC (Li-ion Battery Controller / BMS)"
+      request_id: "0x79B"
+      response_id: "0x7BB"
+      owns:
+        - "state of charge"
+        - "state of health and Hx"
+        - "pack Ah capacity"
+        - "HV pack voltage and current"
+        - "cell voltages"
+        - "pack temperatures"
+        - "balancing shunts"
+        - "charge counters (group 0x62)"
+      verification: "reported"
+    - name: "VCM (vehicle control module)"
+      request_id: "0x797"
+      response_id: "0x79A"
+      owns:
+        - "12 V battery voltage and current"
+        - "quick-charge and L1/L2 charge counts"
+        - "gear position, power switch, plug state, charge mode"
+        - "VIN (KWP group 0x81)"
+      verification: "reported"
+    - name: "M&A (meter / instrument cluster)"
+      request_id: "0x743"
+      response_id: "0x763"
+      owns:
+        - "odometer"
+        - "tyre pressures"
+      verification: "reported"
+    - name: "CHARGER (on-board charger)"
+      request_id: "0x792"
+      response_id: "0x793"
+      verification: "reported"
+    - name: "INVERTER / MC"
+      request_id: "0x784"
+      response_id: "0x78C"
+      verification: "reported"
+    - name: "BCM"
+      request_id: "0x745"
+      response_id: "0x765"
+      verification: "reported"
+    - name: "HVAC"
+      request_id: "0x744"
+      response_id: "0x764"
+      verification: "reported"
+    - name: "ABS"
+      request_id: "0x740"
+      response_id: "0x760"
+      verification: "reported"
+    - name: "SHIFT (ZE0 only)"
+      request_id: "0x79D"
+      response_id: "0x7BD"
+      verification: "reported"
+
+  requests:
+    - name: "lbc_group_01_battery_summary"
+      description: >
+        LBC group 0x01: HV current, HV pack voltage, 12 V supply, insulation
+        resistance, Hx/SOH, SOC and Ah capacity. Reply length identifies the
+        generation; decode with protocol_details.lbc_groups.group_01.
+      command_class: "advanced"
+      requires: ["custom_headers", "multiframe_rx", "flow_control"]
+      service: "21"
+      request: "21 01"
+      expected_response: "61 01"
+      writes: false
+      verification: "reported"
+      notes: "Sent to 0x79B, answered on 0x7BB. Single frame on the wire: 02 21 01 (padding FF or 00)."
+    - name: "lbc_group_02_cell_voltages"
+      description: "LBC group 0x02: 96 cell voltages, then pack and bus voltage. 198-byte reply (first frame 10 C6)."
+      command_class: "advanced"
+      requires: ["custom_headers", "multiframe_rx", "flow_control"]
+      service: "21"
+      request: "21 02"
+      expected_response: "61 02"
+      writes: false
+      verification: "reported"
+    - name: "lbc_group_04_temperatures"
+      description: "LBC group 0x04: pack thermistor raw values and per-sensor temperatures. 16 bytes on ZE0/AZE0, 31 on ZE1."
+      command_class: "advanced"
+      requires: ["custom_headers", "multiframe_rx", "flow_control"]
+      service: "21"
+      request: "21 04"
+      expected_response: "61 04"
+      writes: false
+      verification: "reported"
+    - name: "lbc_group_06_balancing_shunts"
+      description: "LBC group 0x06: cell balancing-shunt status. 26-byte reply. Bit layout is disputed between sources; see remaining_unknowns."
+      command_class: "advanced"
+      requires: ["custom_headers", "multiframe_rx", "flow_control"]
+      service: "21"
+      request: "21 06"
+      expected_response: "61 06"
+      writes: false
+      verification: "reported"
+    - name: "lbc_group_61_health_block"
+      description: >
+        LBC group 0x61: Hx, SOH, dash capacity bars, unfiltered and filtered SOH
+        and (ZE1) pack capacity. 331-byte reply, so the first frame is 11 4B. OVMS
+        polls it on ZE1 only; whether ZE0/AZE0 answer is not established.
+      command_class: "advanced"
+      requires: ["custom_headers", "multiframe_rx", "flow_control"]
+      service: "21"
+      request: "21 61"
+      expected_response: "61 61"
+      writes: false
+      verification: "reported"
+    - name: "lbc_group_62_charge_counters"
+      description: "LBC group 0x62: lifetime L1/L2 and quick-charge counts, then usage histograms. 0x76 bytes on ZE0/AZE0, 0x78 on ZE1."
+      command_class: "advanced"
+      requires: ["custom_headers", "multiframe_rx", "flow_control"]
+      service: "21"
+      request: "21 62"
+      expected_response: "61 62"
+      writes: false
+      verification: "reported"
+    - name: "lbc_group_83_part_number"
+      description: "LBC group 0x83: battery part number, 7 ASCII characters at payload[2..8]."
+      command_class: "advanced"
+      requires: ["custom_headers", "multiframe_rx", "flow_control"]
+      service: "21"
+      request: "21 83"
+      expected_response: "61 83"
+      writes: false
+      verification: "reported"
+    - name: "lbc_group_84_pack_serial"
+      description: "LBC group 0x84: battery pack serial number, 16 ASCII characters at payload[2..17]."
+      command_class: "advanced"
+      requires: ["custom_headers", "multiframe_rx", "flow_control"]
+      service: "21"
+      request: "21 84"
+      expected_response: "61 84"
+      writes: false
+      verification: "reported"
+      notes: "A per-pack identifier. Treat it like a VIN: do not publish one read from a real car."
+    - name: "lbc_read_dtc"
+      description: >
+        Read the LBC's stored DTCs: UDS ReadDTCInformation, reportDTCByStatusMask,
+        mask 0x0E. Reply 59 02 <availability mask>, then 4 bytes per DTC (3-byte
+        code and 1 status byte).
+      command_class: "advanced"
+      requires: ["custom_headers", "multiframe_rx", "flow_control"]
+      service: "19"
+      request: "19 02 0E"
+      expected_response: "59 02"
+      writes: false
+      verification: "reported"
+      notes: >
+        From Battery-Emulator. Do not run it at the same time as a group transfer:
+        the LBC drops a request that lands while it is still answering another.
+    - name: "vcm_read_did"
+      description: >
+        VCM UDS ReadDataByIdentifier. Send 22 <DID hi> <DID lo> to 0x797; the reply on
+        0x79A is 62 <DID hi> <DID lo> <data>. DIDs and decodes are in
+        obd.data_identifiers.
+      command_class: "advanced"
+      requires: ["custom_headers"]
+      service: "22"
+      request: "22 ?? ??"
+      expected_response: "62 ?? ??"
+      writes: false
+      verification: "reported"
+    - name: "meter_read_did"
+      description: "Meter (M&A) UDS ReadDataByIdentifier, sent to 0x743 and answered on 0x763; see the 0x0Exx entries in obd.data_identifiers."
+      command_class: "advanced"
+      requires: ["custom_headers"]
+      service: "22"
+      request: "22 0E ??"
+      expected_response: "62 0E ??"
+      writes: false
+      verification: "reported"
+    - name: "vcm_read_vin"
+      description: "VIN from the VCM: 21 81 sent to 0x797. 19-byte reply after 61 81: 17 ASCII VIN characters and 2 zero bytes."
+      command_class: "advanced"
+      requires: ["custom_headers", "multiframe_rx", "flow_control"]
+      service: "21"
+      request: "21 81"
+      expected_response: "61 81"
+      writes: false
+      verification: "reported"
+      notes: "AZE0 cars may return 0x1B (ESC) characters; OVMS replaces them with spaces. Never publish a real VIN."
+
+  data_identifiers:
+    - did: "0x1304"
+      name: "VCM power switch state (bit 7 of the data byte set = on)"
+      type: "uint8"
+      source: "py-nissan-leaf-obd-ble commands/decoders (VCM 0x797)"
+      verification: "reported"
+    - did: "0x1156"
+      name: "VCM gear position (1 Park, 2 Reverse, 3 Neutral, 4 Drive; Eco is 5 or 7, sources disagree)"
+      type: "uint8"
+      source: "dalathegreat/leaf_can_bus_messages README worked example; py-nissan-leaf-obd-ble"
+      verification: "reported"
+    - did: "0x1103"
+      name: "VCM 12 V battery voltage"
+      type: "uint8"
+      unit: "V"
+      scale: 0.08
+      source: "py-nissan-leaf-obd-ble"
+      verification: "reported"
+    - did: "0x1183"
+      name: "VCM 12 V battery current (signed 16-bit, 1/256 A per bit)"
+      type: "uint16"
+      unit: "A"
+      formula: "(x - 65536 if x >= 32768 else x) / 256"
+      source: "OVMS vehicle_nissanleaf (PollReply_12VCurrent); py-nissan-leaf-obd-ble"
+      verification: "reported"
+    - did: "0x1203"
+      name: "VCM quick-charge (CHAdeMO) count; 0xFFFF = no value"
+      type: "uint16"
+      source: "OVMS vehicle_nissanleaf; py-nissan-leaf-obd-ble"
+      verification: "reported"
+    - did: "0x1205"
+      name: "VCM L0/L1/L2 (AC) charge count; 0xFFFF = no value"
+      type: "uint16"
+      source: "OVMS vehicle_nissanleaf; py-nissan-leaf-obd-ble"
+      verification: "reported"
+    - did: "0x115D"
+      name: "VCM ambient temperature"
+      type: "uint8"
+      unit: "C"
+      formula: "x / 2 - 40"
+      source: "py-nissan-leaf-obd-ble. The community spreadsheet's 797-79a sheet instead reads this DID as degrees F + 41, at a different byte; unresolved."
+      verification: "reported"
+    - did: "0x1234"
+      name: "VCM J1772 plug state (0 not plugged, 1 partially plugged, 2 plugged)"
+      type: "uint8"
+      source: "py-nissan-leaf-obd-ble"
+      verification: "reported"
+    - did: "0x114E"
+      name: "VCM charging mode (0 not charging, 1 L1, 2 L2, 3 L3/quick)"
+      type: "uint8"
+      source: "py-nissan-leaf-obd-ble"
+      verification: "reported"
+    - did: "0x121A"
+      name: "VCM vehicle speed (signed 16-bit)"
+      type: "uint16"
+      unit: "km/h"
+      formula: "(x - 65536 if x >= 32768 else x) / 10"
+      source: "py-nissan-leaf-obd-ble"
+      verification: "reported"
+    - did: "0x1236"
+      name: "VCM on-board charger output power (signed 16-bit)"
+      type: "uint16"
+      unit: "W"
+      formula: "(x - 65536 if x >= 32768 else x) * 100"
+      source: "py-nissan-leaf-obd-ble"
+      verification: "reported"
+    - did: "0x1146"
+      name: "VCM traction motor power (signed 16-bit)"
+      type: "uint16"
+      unit: "W"
+      formula: "(x - 65536 if x >= 32768 else x) * 40"
+      source: "py-nissan-leaf-obd-ble"
+      verification: "reported"
+    - did: "0x1255"
+      name: "VCM motor RPM (signed 16-bit; the source marks its parser as needing a fix)"
+      type: "uint16"
+      unit: "rpm"
+      formula: "x - 65536 if x >= 32768 else x"
+      source: "py-nissan-leaf-obd-ble"
+      verification: "hypothesis"
+    - did: "0x1151"
+      name: "VCM A/C system power"
+      type: "uint8"
+      unit: "W"
+      scale: 250
+      source: "py-nissan-leaf-obd-ble"
+      verification: "reported"
+    - did: "0x1152"
+      name: "VCM auxiliary equipment power"
+      type: "uint8"
+      unit: "W"
+      scale: 100
+      source: "py-nissan-leaf-obd-ble"
+      verification: "reported"
+    - did: "0x131A"
+      name: "VCM e-Pedal mode (0x04 = on; ZE1)"
+      type: "uint8"
+      source: "py-nissan-leaf-obd-ble"
+      verification: "reported"
+    - did: "0x0E01"
+      name: "Meter odometer (24-bit big-endian, data bytes 3-5)"
+      type: "uint32"
+      unit: "km"
+      source: "py-nissan-leaf-obd-ble (meter 0x743)"
+      verification: "reported"
+    - did: "0x0E25"
+      name: "Meter tyre pressure front right (0.25 psi per bit)"
+      type: "uint8"
+      unit: "kPa"
+      scale: 1.7236894
+      source: "py-nissan-leaf-obd-ble; 0x0E26 front left, 0x0E27 rear right, 0x0E28 rear left decode the same way"
+      verification: "reported"
+
+protocol_details:
+  conventions:
+    payload_offsets: >
+      Every offset in lbc_groups counts bytes of the REASSEMBLED ISO-TP payload,
+      with payload[0] the positive-response service byte (0x61) and payload[1]
+      the group number. This is the convention of py-nissan-leaf-obd-ble and of
+      Battery-Emulator's "payload[n]" comments. OVMS indexes from the byte after
+      the group number, so an OVMS offset is this offset minus 2. The community
+      spreadsheet counts per CAN frame. Its "line n, Dk" is payload[6 + 7*(n-1)
+      + (k-1)] for n >= 1; in the first frame (line 0), Dk is payload[k-2].
+    endianness: "big"
+    decode: >
+      value = raw * scale / divisor + value_offset, where raw is the
+      big-endian integer at [byte_offset, byte_offset + length), read as two's
+      complement when signed is true. Missing scale/divisor default to 1 and
+      value_offset to 0.
+    sentinels: >
+      0xFF-filled bytes are padding. 0xFFFF in a cell-voltage or thermistor
+      slot means "no reading" (Battery-Emulator), and 0xFFFF in a charge
+      counter means no value (OVMS).
+  elm327_session:
+    source: "py-nissan-leaf-obd-ble elm327.py / obd.py (MIT)"
+    ble_default_gatt:
+      service_uuid: "0000ffe0-0000-1000-8000-00805f9b34fb"
+      notify_characteristic: "0000ffe1-0000-1000-8000-00805f9b34fb"
+      write_characteristic: "0000ffe1-0000-1000-8000-00805f9b34fb"
+      notes: >
+        The LeLink/LeLink2 defaults the library ships. Other adapters need their
+        own UUIDs (the integration makes all three configurable); see
+        obd2-bluetooth-adapter.yaml for the adapter GATT families.
+    line_terminator: "\r"
+    prompt: ">"
+    init:
+      - {command: "ATZ", expect: "anything (the reply can be junk); wait 1 s"}
+      - {command: "ATE0", expect: "OK", purpose: "echo off"}
+      - {command: "ATSP6", expect: "OK", purpose: "ISO 15765-4 CAN, 11-bit, 500 kbit/s"}
+      - {command: "ATH1", expect: "OK", purpose: "show CAN IDs, so 0x7BB / 0x79A / 0x763 replies can be told apart"}
+      - {command: "ATL0", expect: "OK", purpose: "linefeeds off"}
+      - {command: "ATS0", expect: "OK", purpose: "no spaces between bytes"}
+      - {command: "ATCAF0", expect: "OK", purpose: "CAN auto-formatting off: the client writes the ISO-TP PCI byte itself and reassembles replies itself"}
+      - {command: "AT RV", expect: "a voltage such as 12.6V", purpose: "optional: the library treats < 6 V as the adapter not being in a live socket"}
+    per_ecu_header:
+      description: >
+        Sent whenever the target ECU changes (the library caches the last
+        header). <hdr> is the request ID without 0x: 79B, 797 or 743.
+      commands:
+        - "ATSH <hdr>"
+        - "ATFCSH <hdr>"
+        - "ATFCSD 30 00 00"
+        - "ATFCSM 1"
+      notes: >
+        ATFCSD 30 00 00 is a ContinueToSend flow-control frame with block size 0
+        (send everything) and STmin 0. ATFCSM 1 makes the adapter send that
+        user-defined frame. The library sets no receive filter (no ATCRA); see
+        remaining_unknowns.
+    request_format: >
+      Because CAN auto-formatting is off, every request carries its own
+      single-frame PCI byte: "022101" is LBC group 0x01 (PCI 02, then 21 01);
+      "03221156" is VCM DID 0x1156. Requests to the LBC are padded to 8 bytes
+      on native-CAN clients (Battery-Emulator pads with 00, the spreadsheet with
+      FF).
+    native_can_flow_control: >
+      Clients on a raw CAN interface (Battery-Emulator) answer each frame from
+      0x7BB with "30 01 00 FF FF FF FF FF" on 0x79B. That is block size 1, so one
+      consecutive frame per flow control. The spreadsheet says it must be sent
+      within 15 ms of the frame it answers.
+  iso_tp_reassembly: >
+    Frame type is the PCI high nibble. 0x0 is a single frame: the low nibble is
+    the length and the data follows. 0x1 is a first frame: the 12-bit length is
+    (PCI & 0x0F) << 8 | byte1 and 6 data bytes follow. Group 0x61's 331 bytes
+    arrive as 11 4B. 0x2 is a consecutive frame: the low nibble is a sequence
+    number running 1..F and wrapping to 0, and 7 data bytes follow. Concatenate in
+    order and truncate to the announced length; the tail of the last frame is
+    padding. A single frame 03 7F <service> <NRC> is a negative response.
+    Battery-Emulator explicitly discards these, so they are never decoded as group
+    data. Group 0x02 is longer than 16 frames, so the sequence number wraps more
+    than once. Count frames, not sequence values, to know when the reply is complete.
+  generation_by_group_01_length:
+    "0x29": "ZE0 (2010-2012, 24 kWh)"
+    "0x2B": "AZE0 (2013-2017, 24 / 30 kWh)"
+    "0x35": "ZE1 (2018+, 40 / 62 kWh)"
+    "0x2C": "ZE1 shortly after wake-up; layout not mapped by any source -- poll again"
+  lbc_groups:
+    group_01:
+      ZE0:
+        response_length: 41
+        fields:
+          - {name: "hv_current_1", byte_offset: 2, length: 4, signed: true, divisor: 1024, unit: "A", verification: "hypothesis", source: "Position from Battery-Emulator (all layouts, not decoded); scale from py-nissan-leaf-obd-ble's ZE1 decoder"}
+          - {name: "hv_current_2", byte_offset: 8, length: 4, signed: true, divisor: 1024, unit: "A", verification: "hypothesis", source: "As hv_current_1"}
+          - {name: "hv_pack_voltage", byte_offset: 20, length: 2, divisor: 100, unit: "V", verification: "hypothesis", source: "py-nissan-leaf-obd-ble decodes this on ZE1; the 24 kWh sample dumps in OVMS give 395.61 V and 368.13 V at the same offset"}
+          - {name: "aux_12v_voltage", byte_offset: 22, length: 2, divisor: 1000, unit: "V", verification: "reported", source: "Battery-Emulator (mV, same offset on every layout); the community spreadsheet notes this word as 'Acc V / 1024'"}
+          - {name: "insulation_resistance", byte_offset: 24, length: 2, unit: "kΩ", verification: "reported", source: "Battery-Emulator"}
+          - {name: "hx", byte_offset: 28, length: 2, divisor: 100, unit: "%", verification: "reported", source: "Battery-Emulator, community spreadsheet ('Hfactor*100'), OVMS"}
+          - {name: "state_of_charge", byte_offset: 31, length: 3, divisor: 10000, unit: "%", verification: "reported", source: "Community spreadsheet group 1 line 4 D5:D7 ('SOC*10000')"}
+          - {name: "capacity_ah", byte_offset: 34, length: 4, divisor: 10000, unit: "Ah", verification: "reported", source: "Battery-Emulator (u32 at 34..37); OVMS reads the low 24 bits at 35..37"}
+      AZE0:
+        response_length: 43
+        fields:
+          - {name: "hv_current_1", byte_offset: 2, length: 4, signed: true, divisor: 1024, unit: "A", verification: "hypothesis", source: "As ZE0"}
+          - {name: "hv_current_2", byte_offset: 8, length: 4, signed: true, divisor: 1024, unit: "A", verification: "hypothesis", source: "As ZE0"}
+          - {name: "hv_pack_voltage", byte_offset: 20, length: 2, divisor: 100, unit: "V", verification: "hypothesis", source: "As ZE0"}
+          - {name: "aux_12v_voltage", byte_offset: 22, length: 2, divisor: 1000, unit: "V", verification: "reported", source: "Battery-Emulator"}
+          - {name: "insulation_resistance", byte_offset: 24, length: 2, unit: "kΩ", verification: "reported", source: "Battery-Emulator"}
+          - {name: "hx", byte_offset: 28, length: 2, divisor: 100, unit: "%", verification: "reported", source: "Battery-Emulator (0x2B layout), OVMS"}
+          - {name: "state_of_charge", byte_offset: 31, length: 3, divisor: 10000, unit: "%", verification: "hypothesis", source: "Assumed to share the ZE0 offset, as Hx and capacity do; no open client decodes SOC from the 0x2B layout"}
+          - {name: "capacity_ah", byte_offset: 34, length: 4, divisor: 10000, unit: "Ah", verification: "reported", source: "Battery-Emulator (0x2B layout), OVMS"}
+      ZE1:
+        response_length: 53
+        fields:
+          - {name: "hv_current_1", byte_offset: 2, length: 4, signed: true, divisor: 1024, unit: "A", verification: "reported", source: "py-nissan-leaf-obd-ble lbc decoder. Battery-Emulator notes 62 kWh owners found it unusable"}
+          - {name: "hv_current_2", byte_offset: 8, length: 4, signed: true, divisor: 1024, unit: "A", verification: "reported", source: "py-nissan-leaf-obd-ble lbc decoder"}
+          - {name: "hv_pack_voltage", byte_offset: 20, length: 2, divisor: 100, unit: "V", verification: "reported", source: "py-nissan-leaf-obd-ble lbc decoder"}
+          - {name: "aux_12v_voltage", byte_offset: 22, length: 2, divisor: 1000, unit: "V", verification: "reported", source: "Battery-Emulator (confirmed on its bench for ZE1)"}
+          - {name: "insulation_resistance", byte_offset: 24, length: 2, unit: "kΩ", verification: "reported", source: "Battery-Emulator"}
+          - {name: "health_1024", byte_offset: 30, length: 2, divisor: 102.4, unit: "%", verification: "reported", source: "OVMS (Hx, citing Dala's 2018 Leaf CAN document) and py-nissan-leaf-obd-ble (hv_battery_health). Battery-Emulator disagrees: it reads no Hx from this layout and takes ZE1 Hx from group 0x61"}
+          - {name: "state_of_charge", byte_offset: 33, length: 3, divisor: 10000, unit: "%", verification: "reported", source: "OVMS, py-nissan-leaf-obd-ble"}
+          - {name: "capacity_ah", byte_offset: 37, length: 3, divisor: 10000, unit: "Ah", verification: "reported", source: "OVMS, py-nissan-leaf-obd-ble"}
+    group_02:
+      response_length: 198
+      applies_to: ["ZE0", "AZE0", "ZE1"]
+      cells:
+        count: 96
+        first_offset: 2
+        stride: 2
+        length: 2
+        divisor: 1000
+        unit: "V"
+        invalid: "0xFFFF (Battery-Emulator), or any value >= 5000 mV (OVMS)"
+        verification: "reported"
+        source: "OVMS PollReply_BMS_Volt, Battery-Emulator, community spreadsheet group 2"
+      fields:
+        - {name: "pack_voltage", byte_offset: 194, length: 2, divisor: 100, unit: "V", verification: "reported", source: "OVMS"}
+        - {name: "bus_voltage", byte_offset: 196, length: 2, divisor: 100, unit: "V", verification: "reported", source: "OVMS"}
+    group_04:
+      response_length: {ZE0: 16, AZE0: 16, ZE1: 31}
+      sensors:
+        count: 4
+        raw_offset: 2
+        temp_offset: 4
+        stride: 3
+        raw_length: 2
+        raw_absent: "0xFFFF -- sensor 3 is absent on 2013+ packs, which have three sensors (Battery-Emulator)"
+        temp_unit: "C"
+        temp_byte: "Whole degrees Celsius as reported by the LBC; signedness below 0 C not established"
+        raw_to_celsius: {scale: -0.102, raw_offset: -710, formula: "-0.102 * (raw - 710)", source: "OVMS (linear approximation; Battery-Emulator uses its own raw-to-F conversion instead)"}
+        verification: "reported"
+      fields:
+        - {name: "sensor_5_temp", byte_offset: 14, length: 1, unit: "C", verification: "reported", source: "OVMS"}
+      notes: "ZE1's 31-byte reply is decoded with the same first 16 bytes by OVMS, which calls its own ZE1 capture incomplete; the rest is unmapped."
+    group_06:
+      response_length: 26
+      notes: >
+        Balancing-shunt flags for the 96 cells. The layout is disputed. OVMS
+        reads 24 bytes (payload[2..25]) at 4 bits per byte: bit 3 = first cell of
+        the byte, bit 0 = fourth ("shunt order 8421"). It then inverts the whole
+        set. Battery-Emulator reads 12 bytes (payload[2..13]) at 8 bits per byte,
+        with bit i of byte n = cell 8n + i. No decode is asserted here.
+    group_61:
+      response_length: 331
+      applies_to: ["ZE1"]
+      fields:
+        - {name: "hx", byte_offset: 2, length: 2, divisor: 100, unit: "%", verification: "reported", source: "Battery-Emulator (ZE1 takes Hx from here)"}
+        - {name: "state_of_health", byte_offset: 4, length: 2, divisor: 100, unit: "%", verification: "reported", source: "OVMS PollReply_BMS_SOH, Battery-Emulator"}
+        - {name: "soh_bar_count", byte_offset: 6, length: 1, verification: "reported", source: "Battery-Emulator (reads 0xFF on a pack bench-tested off the car)"}
+        - {name: "state_of_health_unfiltered", byte_offset: 7, length: 2, divisor: 100, unit: "%", verification: "reported", source: "Battery-Emulator"}
+        - {name: "state_of_health_filtered", byte_offset: 9, length: 2, divisor: 100, unit: "%", verification: "reported", source: "Battery-Emulator"}
+        - {name: "capacity_ah", byte_offset: 14, length: 4, divisor: 10000, unit: "Ah", verification: "reported", source: "Battery-Emulator (ZE1 only)"}
+    group_62:
+      response_length: {ZE0: 118, AZE0: 118, ZE1: 120}
+      fields:
+        - {name: "l1_l2_charge_count", byte_offset: 2, length: 2, verification: "reported", source: "Battery-Emulator; 0xFFFF = no value"}
+        - {name: "quick_charge_count", byte_offset: 4, length: 2, verification: "reported", source: "Battery-Emulator; 0xFFFF = no value"}
+      notes: "payload[6..end] holds usage histograms whose per-generation offsets are not transcribed here."
+  polling_cadence:
+    py_nissan_leaf_obd_ble: "Every 10 s with the car on; 5 min when the car looks off (the VCM probe got no reply); 1 h when the adapter is out of BLE range."
+    ovms_ze1_seconds_by_state: {car_off: "no polling", car_on_or_driving: "group 01/02 every 60 s, 04 every 180 s, 61 every 900 s", charging: "same, plus group 06 every 60 s"}
+    ovms_aze0_seconds_by_state: {car_off: "no polling", on_driving_or_charging: "group 01/02/06 every 60 s, 04 every 180 s"}
+    battery_emulator: "One LBC group every 10 s in rotation (2 s for the first pass); static groups 0x62/0x83/0x84 dropped from the rotation once read."
+  excluded_services:
+    description: >
+      Services that the same open sources send and that this read-only spec deliberately
+      does not carry as requests. They are named by service only, so a reader
+      knows they exist and why they are absent.
+    entries:
+      - service: "10 C0 to the VCM (0x797)"
+        why: >
+          py-nissan-leaf-obd-ble sends 02 10 C0 first and calls it a mystery
+          command. It treats no reply as "car off" and skips the remaining polls.
+          It is a DiagnosticSessionControl into a Nissan-specific session. Battery-Emulator
+          uses the same session request on the LBC as the first step of its
+          degradation-history reset. Its effect on the VCM is undocumented. A
+          read-only client can probe with VCM DID 0x1304 instead; whether that
+          works as a wake probe on every generation is a hypothesis.
+      - service: "14 (ClearDiagnosticInformation) to the LBC"
+        why: "Clears stored battery DTCs (Battery-Emulator). A write."
+      - service: "10 / 3E / 27 / 31 sequence to the LBC"
+        why: >
+          Battery-Emulator's degradation-history (SOH) reset: session control,
+          tester present, a SecurityAccess seed/key exchange and RoutineControl. It rewrites
+          what the pack reports about its own health. Out of scope.
+  test_vectors:
+    description: >
+      Invented values only -- no frame here was read from a real car. Each vector
+      is the frame sequence an ELM327 with ATH1 prints (CAN ID, then 8 data bytes,
+      spaces added for reading). scripts/test_nissan_leaf_obd2_spec.py reassembles
+      it with the ISO-TP rules above and checks every decoded value against
+      `expected`.
+    lbc_group_01:
+      - variant: "ZE0"
+        request: "79B 02 21 01"
+        frames:
+          - "7BB 10 29 61 01 FF FF F8 00"
+          - "7BB 21 00 00 FF FF F8 00 FF"
+          - "7BB 22 FF FF FF FF FF FF FF"
+          - "7BB 23 98 58 30 70 05 DC 00"
+          - "7BB 24 00 24 22 00 08 64 70"
+          - "7BB 25 00 09 27 C0 FF FF FF"
+        expected: {hv_current_1: -2.0, hv_current_2: -2.0, hv_pack_voltage: 390.0, aux_12v_voltage: 12.4, insulation_resistance: 1500, hx: 92.5, state_of_charge: 55.0, capacity_ah: 60.0}
+      - variant: "AZE0"
+        request: "79B 02 21 01"
+        frames:
+          - "7BB 10 2B 61 01 FF FF F8 00"
+          - "7BB 21 00 00 FF FF F8 00 FF"
+          - "7BB 22 FF FF FF FF FF FF FF"
+          - "7BB 23 8C A0 30 D4 03 E8 00"
+          - "7BB 24 00 21 34 00 09 27 C0"
+          - "7BB 25 00 07 A1 20 FF FF FF"
+          - "7BB 26 FF FF FF FF FF FF FF"
+        expected: {hv_current_1: -2.0, hv_current_2: -2.0, hv_pack_voltage: 360.0, aux_12v_voltage: 12.5, insulation_resistance: 1000, hx: 85.0, state_of_charge: 60.0, capacity_ah: 50.0}
+      - variant: "ZE1"
+        request: "79B 02 21 01"
+        frames:
+          - "7BB 10 35 61 01 FF FF F8 00"
+          - "7BB 21 00 00 FF FF F8 00 FF"
+          - "7BB 22 FF FF FF FF FF FF FF"
+          - "7BB 23 94 70 32 00 03 E8 FF"
+          - "7BB 24 FF FF FF 25 80 00 0B"
+          - "7BB 25 71 B0 00 0F 42 40 FF"
+          - "7BB 26 FF FF FF FF FF FF FF"
+          - "7BB 27 FF FF FF FF FF FF FF"
+        expected: {hv_current_1: -2.0, hv_current_2: -2.0, hv_pack_voltage: 380.0, aux_12v_voltage: 12.8, insulation_resistance: 1000, health_1024: 93.75, state_of_charge: 75.0, capacity_ah: 100.0}
+    lbc_group_02:
+      request: "79B 02 21 02"
+      frames:
+          - "7BB 10 C6 61 02 0F 3C 0F 3D"
+          - "7BB 21 0F 3E 0F 3F 0F 40 0F"
+          - "7BB 22 41 0F 42 0F 43 0F 44"
+          - "7BB 23 0F 45 0F 46 0F 47 0F"
+          - "7BB 24 48 0F 49 0F 4A 0F 4B"
+          - "7BB 25 0F 4C 0F 4D 0F 4E 0F"
+          - "7BB 26 4F 0F 50 0F 51 0F 52"
+          - "7BB 27 0F 53 0F 54 0F 55 0F"
+          - "7BB 28 56 0F 57 0F 58 0F 59"
+          - "7BB 29 0F 5A 0F 5B 0F 5C 0F"
+          - "7BB 2A 5D 0F 5E 0F 5F 0F 60"
+          - "7BB 2B 0F 61 0F 62 0F 63 0F"
+          - "7BB 2C 64 0F 65 0F 66 0F 67"
+          - "7BB 2D 0F 68 0F 69 0F 6A 0F"
+          - "7BB 2E 6B 0F 6C 0F 6D 0F 6E"
+          - "7BB 2F 0F 6F 0F 70 0F 71 0F"
+          - "7BB 20 72 0F 73 0F 74 0F 75"
+          - "7BB 21 0F 76 0F 77 0F 78 0F"
+          - "7BB 22 79 0F 7A 0F 7B 0F 7C"
+          - "7BB 23 0F 7D 0F 7E 0F 7F 0F"
+          - "7BB 24 80 0F 81 0F 82 0F 83"
+          - "7BB 25 0F 84 0F 85 0F 86 0F"
+          - "7BB 26 87 0F 88 0F 89 0F 8A"
+          - "7BB 27 0F 8B 0F 8C 0F 8D 0F"
+          - "7BB 28 8E 0F 8F 0F 90 0F 91"
+          - "7BB 29 0F 92 0F 93 0F 94 0F"
+          - "7BB 2A 95 0F 96 0F 97 0F 98"
+          - "7BB 2B 0F 99 0F 9A 0F 9B 94"
+          - "7BB 2C 70 94 3E FF FF FF FF"
+      expected: {cell_first: 3.900, cell_last: 3.995, cell_count: 96, pack_voltage: 380.0, bus_voltage: 379.5}
+    lbc_group_04:
+      variant: "AZE0"
+      request: "79B 02 21 04"
+      frames:
+        - "7BB 10 10 61 04 02 58 0B 02"
+        - "7BB 21 4E 0C FF FF FF 02 62"
+        - "7BB 22 0A 0B 00 FF FF FF FF"
+      expected:
+        raw: [600, 590, null, 610]
+        temp_byte_c: [11, 12, null, 10]
+        raw_to_celsius: [11.22, 12.24, null, 10.2]
+        sensor_5_temp: 11
+    lbc_group_61:
+      variant: "ZE1"
+      request: "79B 02 21 61"
+      frames:
+        - "7BB 11 4B 61 61 29 04 23 8C"
+        - "7BB 21 0B 23 5A 23 8C 00 00"
+        - "7BB 22 00 00 10 05 90 00 00"
+        - "7BB 23 00 00 00 00 00 00 00"
+        - "7BB 24 00 00 00 00 00 00 00"
+        - "7BB 25 00 00 00 00 00 00 00"
+        - "7BB 26 00 00 00 00 00 00 00"
+        - "7BB 27 00 00 00 00 00 00 00"
+        - "7BB 28 00 00 00 00 00 00 00"
+        - "7BB 29 00 00 00 00 00 00 00"
+        - "7BB 2A 00 00 00 00 00 00 00"
+        - "7BB 2B 00 00 00 00 00 00 00"
+        - "7BB 2C 00 00 00 00 00 00 00"
+        - "7BB 2D 00 00 00 00 00 00 00"
+        - "7BB 2E 00 00 00 00 00 00 00"
+        - "7BB 2F 00 00 00 00 00 00 00"
+        - "7BB 20 00 00 00 00 00 00 00"
+        - "7BB 21 00 00 00 00 00 00 00"
+        - "7BB 22 00 00 00 00 00 00 00"
+        - "7BB 23 00 00 00 00 00 00 00"
+        - "7BB 24 00 00 00 00 00 00 00"
+        - "7BB 25 00 00 00 00 00 00 00"
+        - "7BB 26 00 00 00 00 00 00 00"
+        - "7BB 27 00 00 00 00 00 00 00"
+        - "7BB 28 00 00 00 00 00 00 00"
+        - "7BB 29 00 00 00 00 00 00 00"
+        - "7BB 2A 00 00 00 00 00 00 00"
+        - "7BB 2B 00 00 00 00 00 00 00"
+        - "7BB 2C 00 00 00 00 00 00 00"
+        - "7BB 2D 00 00 00 00 00 00 00"
+        - "7BB 2E 00 00 00 00 00 00 00"
+        - "7BB 2F 00 00 00 00 00 00 00"
+        - "7BB 20 00 00 00 00 00 00 00"
+        - "7BB 21 00 00 00 00 00 00 00"
+        - "7BB 22 00 00 00 00 00 00 00"
+        - "7BB 23 00 00 00 00 00 00 00"
+        - "7BB 24 00 00 00 00 00 00 00"
+        - "7BB 25 00 00 00 00 00 00 00"
+        - "7BB 26 00 00 00 00 00 00 00"
+        - "7BB 27 00 00 00 00 00 00 00"
+        - "7BB 28 00 00 00 00 00 00 00"
+        - "7BB 29 00 00 00 00 00 00 00"
+        - "7BB 2A 00 00 00 00 00 00 00"
+        - "7BB 2B 00 00 00 00 00 00 00"
+        - "7BB 2C 00 00 00 00 00 00 00"
+        - "7BB 2D 00 00 00 00 00 00 00"
+        - "7BB 2E 00 00 00 00 00 00 00"
+        - "7BB 2F 00 00 00 FF FF FF FF"
+      expected: {hx: 105.0, state_of_health: 91.0, soh_bar_count: 11, state_of_health_unfiltered: 90.5, state_of_health_filtered: 91.0, capacity_ah: 105.0}
+    vcm_and_meter_single_frames:
+      - {request: "797 03 22 11 56", frame: "79A 04 62 11 56 01 00 00 00", did: "0x1156", expected_raw: 1, meaning: "Park (the spreadsheet README's own worked example)"}
+      - {request: "797 03 22 11 03", frame: "79A 04 62 11 03 AF 00 00 00", did: "0x1103", expected: 14.0}
+      - {request: "797 03 22 11 83", frame: "79A 05 62 11 83 FF 80 00 00", did: "0x1183", expected: -0.5}
+      - {request: "797 03 22 12 03", frame: "79A 05 62 12 03 00 2A 00 00", did: "0x1203", expected: 42}
+      - {request: "797 03 22 11 5D", frame: "79A 04 62 11 5D 64 00 00 00", did: "0x115D", expected: 10.0}
+      - {request: "797 03 22 12 1A", frame: "79A 05 62 12 1A 02 EE 00 00", did: "0x121A", expected: 75.0}
+      - {request: "743 03 22 0E 01", frame: "763 06 62 0E 01 01 86 A0 00", did: "0x0E01", expected: 100000}
+      - {request: "743 03 22 0E 25", frame: "763 04 62 0E 25 A0 00 00 00", did: "0x0E25", expected: 275.79}
+
+evidence:
+  public_research: >
+    Facts were transcribed from four open sources, read but not executed. (1)
+    dalathegreat/leaf_can_bus_messages: the README's ECU request/response table and
+    worked VCM example, and the canmsgs.xlsx sheets "79b-7bb" (group layouts) and
+    "797-79a". (2) OVMS vehicle_nissanleaf: poll lists per generation, reply
+    lengths, and decoders for groups 01/02/04/06/61 and VCM DIDs. (3)
+    dalathegreat/Battery-Emulator NISSAN-LEAF-BATTERY: frame-by-frame decoders
+    keyed on the group 0x01 length, group 0x61/0x62/0x83/0x84, DTC read, and
+    native-CAN flow control. (4) py-nissan-leaf-obd-ble, the library behind the
+    nissan-leaf-obd-ble Home Assistant integration: the ELM327 init and header
+    sequence over BLE, the VCM/meter DID table and the ZE1 group 0x01 decoder.
+    Leaf Spy, the closed commercial app, was not examined.
+  open_questions: >
+    The AZE0 SOC offset, the ZE1 group 0x01 health word, the group 0x06 bit
+    layout and whether ZE0/AZE0 answer group 0x61 are unresolved; see
+    remaining_unknowns.
+  artifacts:
+    - type: "community_repo"
+      artifact: "github.com/dalathegreat/leaf_can_bus_messages @ 6eca0f8 (2026-07-06): README.md, canmsgs.xlsx"
+    - type: "public_implementation"
+      artifact: "github.com/openvehicles/Open-Vehicle-Monitoring-System-3 @ 2755ca5 (2026-11-07): vehicle/OVMS.V3/components/vehicle_nissanleaf (MIT)"
+    - type: "public_implementation"
+      artifact: "github.com/dalathegreat/Battery-Emulator @ 52bb567 (2026-11-07): Software/src/battery/NISSAN-LEAF-BATTERY.cpp/.h (GPL-3.0)"
+    - type: "public_implementation"
+      artifact: "github.com/pbutterworth/py-nissan-leaf-obd-ble @ ea21a40 (2026-05-03), PyPI 0.1.2: elm327.py, obd.py, commands.py, decoders.py, protocols/protocol_can.py"
+    - type: "public_implementation"
+      artifact: "github.com/pbutterworth/nissan-leaf-obd-ble @ 6eebefe (2026-05-03): README.md, coordinator.py, manifest.json"
+
+remaining_unknowns:
+  - "AZE0 state-of-charge offset in group 0x01: assumed to equal ZE0's payload[31..33] because Hx and capacity share offsets, but no open client decodes SOC from the 0x2B layout."
+  - "ZE1 group 0x01 payload[30..31]: OVMS and py-nissan-leaf-obd-ble read it as Hx/'health' divided by 102.4; Battery-Emulator reads no Hx from this layout and uses group 0x61 instead. Which figure matches the dash or Leaf-Spy-style SOH is not established."
+  - "HV current and HV pack voltage on ZE0/AZE0: offsets taken from the ZE1 decoder and supported only by sample dumps (hypothesis). The current's sign test in py-nissan-leaf-obd-ble masks bit 27 (0x8000000) rather than bit 31, which gives the same result for realistic currents; full two's complement is assumed here."
+  - "The 12 V word at payload[22..23]: Battery-Emulator reads millivolts; the community spreadsheet's note says '/1024'. Millivolts is used here."
+  - "Group 0x06 balancing-shunt bit layout: OVMS (24 bytes, 4 bits each, order 8421, then inverted) and Battery-Emulator (12 bytes, 8 bits each, LSB first) disagree."
+  - "Whether ZE0/AZE0 answer group 0x61, and what its payload past byte 17 holds (331 bytes in total)."
+  - "Group 0x04 on ZE1 (31 bytes): only the first 16 bytes are mapped, and OVMS calls its own capture incomplete. Whether the per-sensor temperature byte is signed below 0 C is not stated by any source."
+  - "The ZE1 group 0x01 reply of length 0x2C seen shortly after wake-up has no mapped layout."
+  - "How an ELM327 picks which CAN IDs to print when ATSH is 79B and no ATCRA filter is set: py-nissan-leaf-obd-ble sets none and works with the LeLink2. Adding ATCRA 7BB (or 79A / 763) is a plausible hardening, but a hypothesis."
+  - "Whether ELM327 firmware honours ATFCSH/ATFCSD/ATFCSM while CAN auto-formatting is off (ATCAF0), as the library configures, or whether the multi-frame reads succeed for another reason on the LeLink2."
+  - "Which OBD-II connector pins carry the bus that reaches the LBC on each generation. The spreadsheet says 0x79B answers on both EV-CAN and CAR-CAN and 0x797 on CAR-CAN only, but no source maps that to J1962 pins."
+  - "Gear-position code for Eco: 7 per the spreadsheet README, 5 per py-nissan-leaf-obd-ble."
+  - "VCM DID 0x115D ambient temperature: py-nissan-leaf-obd-ble uses data byte 3 as x/2 - 40 C; the spreadsheet's 797-79a sheet describes a degrees-F + 41 encoding at another byte."
+  - "Whether the VCM 10 C0 session probe the HA library sends has side effects, and whether a 22 13 04 read is an adequate read-only replacement as a wake probe."
+  - "e-NV200 vans share much of this stack per OVMS, but are not covered here."
+
+helpful_urls:
+  - title: "dalathegreat/leaf_can_bus_messages (CAN spreadsheet, DBCs, ECU ID table)"
+    url: "https://github.com/dalathegreat/leaf_can_bus_messages"
+    kind: "protocol_writeup"
+    description: >-
+      Community CAN database for ZE0, AZE0 and ZE1, with the request/response ID
+      table for every Leaf ECU and the 79b-7bb sheet behind the group layouts.
+  - title: "pbutterworth/nissan-leaf-obd-ble (Home Assistant integration)"
+    url: "https://github.com/pbutterworth/nissan-leaf-obd-ble"
+    kind: "implementation"
+    description: >-
+      Local BLE ELM327 polling of a Leaf from Home Assistant; source of the ELM
+      session and the polling-cadence and relay-wear notes.
+  - title: "pbutterworth/py-nissan-leaf-obd-ble (protocol library)"
+    url: "https://github.com/pbutterworth/py-nissan-leaf-obd-ble"
+    kind: "implementation"
+    description: >-
+      The library under the integration: AT init, per-ECU headers and flow
+      control, ISO-TP reassembly and the VCM/meter/LBC decoders.
+  - title: "OVMS Nissan Leaf vehicle module"
+    url: "https://github.com/openvehicles/Open-Vehicle-Monitoring-System-3/tree/master/vehicle/OVMS.V3/components/vehicle_nissanleaf"
+    kind: "implementation"
+    description: >-
+      Per-generation LBC poll lists and decoders, and the documentation of the
+      ZE1 CAN gateway that isolates the OBD-II port with the ignition off.
+  - title: "dalathegreat/Battery-Emulator (Nissan Leaf battery driver)"
+    url: "https://github.com/dalathegreat/Battery-Emulator"
+    kind: "implementation"
+    description: >-
+      Native-CAN LBC client whose Nissan Leaf driver decodes groups 0x01, 0x02,
+      0x04, 0x06, 0x61, 0x62, 0x83 and 0x84 frame by frame and keys the group 0x01
+      layout on reply length.
+  - title: "Nissan UK: NissanConnect EV maintenance notice"
+    url: "https://www.nissan.co.uk/ownership/maintenance-page.html"
+    kind: "vendor_support"
+    description: >-
+      Nissan's notice that the NissanConnect EV app for the Leaf (built up to May
+      2019) and e-NV200 stops operating from 30 March 2026.
+  - title: "Electrifying.com: Nissan pulling plug on pre-2019 Leaf app"
+    url: "https://www.electrifying.com/blog/article/nissan-pulling-plug-on-pre-2019-leaf-app"
+    kind: "other"
+    description: "Press coverage of the NissanConnect EV shutdown and what owners lose."
+  - title: "Home Assistant community thread: Nissan Leaf via LeLink 2 ELM327 BLE"
+    url: "https://community.home-assistant.io/t/custom-component-nissan-leaf-via-lelink-2-elm327-ble/561961"
+    kind: "forum"
+    description: "Discussion thread for the integration, linked from its README."
