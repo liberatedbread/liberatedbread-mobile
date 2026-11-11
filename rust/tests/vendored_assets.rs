@@ -1483,21 +1483,42 @@ fn the_vendored_handshakes_reach_the_connect_time_api() {
         fs::read_to_string(spec_path(file)).unwrap_or_else(|e| panic!("reading {file}: {e}"))
     };
 
-    // SpotLED: three fixed writes to the command characteristic, in order,
-    // addressed to the service that declares it.
+    // SpotLED: subscribe to the command characteristic through the GATT
+    // client (never CCCD bytes written to FF21 itself), then GetBufferSize and
+    // GetDisplayInfo as fixed writes, in order, all addressed to the service
+    // that declares them. The queries are answered by notification, so no step
+    // is an ATT read.
     let spotled =
         spec_ble_handshake(yaml("spotled-led-panel.yaml")).expect("spotled's handshake resolves");
-    assert_eq!(spotled.steps.len(), 3, "spotled declares three writes");
+    assert_eq!(
+        spotled.steps.len(),
+        3,
+        "spotled declares a subscribe and two writes"
+    );
     assert!(
-        spotled.steps.iter().all(|s| s.write.is_some()
-            && s.service_uuid.as_deref() == Some("0000ff20-0000-1000-8000-00805f9b34fb")),
-        "every spotled step is an addressed write, got {:?}",
+        spotled.steps.iter().all(|s| s.service_uuid.as_deref()
+            == Some("0000ff20-0000-1000-8000-00805f9b34fb")
+            && s.characteristic_uuid == "0000ff21-0000-1000-8000-00805f9b34fb"
+            && !s.read),
+        "every spotled step is addressed to FF20/FF21 and none reads, got {:?}",
         spotled.steps
     );
-    assert_eq!(
-        spotled.steps[0].write.as_deref(),
-        Some(&[0x00, 0x00, 0x00, 0x01][..])
+    assert!(
+        spotled.steps[0].subscribe && spotled.steps[0].write.is_none(),
+        "notifications are enabled first, by subscribing: {:?}",
+        spotled.steps[0]
     );
+    assert_eq!(
+        spotled.steps[1].write.as_deref(),
+        Some(&[0x04, 0x14, 0x00, 0x00][..]),
+        "GetBufferSize"
+    );
+    assert_eq!(
+        spotled.steps[2].write.as_deref(),
+        Some(&[0x04, 0x12, 0x00, 0x00][..]),
+        "GetDisplayInfo"
+    );
+    assert!(spotled.steps[1..].iter().all(|s| !s.subscribe));
 
     // SmartDawn: two subscriptions, opened before anything is sent.
     let smartdawn = spec_ble_handshake(yaml("smartdawn-smart-lights.yaml"))
