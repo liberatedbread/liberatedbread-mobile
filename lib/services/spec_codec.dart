@@ -1223,13 +1223,15 @@ abstract class SpecCodec {
   Future<IppPrinterStatusDto> decodeIppStatus({required List<int> reply});
 
   /// Encode a composed black-and-white RGB888 label as a whole Brother QL
-  /// raster job, placed on the head for the given media.
+  /// raster job, placed on the head for the given media. [copies] are pages
+  /// of that one job, so a run of labels is one connection to the printer.
   Future<Uint8List> renderBrotherQlJob({
     required String specYaml,
     required BrotherQlJobParamsDto params,
     required Uint8List rgb,
     required int width,
     required int height,
+    int copies = 1,
   });
 
   /// Which of a raster-printer family's variants a device is, from the name

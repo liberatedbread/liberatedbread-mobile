@@ -154,12 +154,14 @@ class PulseOxHistoryChunkDto {
   final int consumed;
   final List<PulseOxSessionDto> sessions;
   final int records;
+  final int skipped;
   final bool endOfTransfer;
 
   const PulseOxHistoryChunkDto({
     required this.consumed,
     required this.sessions,
     required this.records,
+    required this.skipped,
     required this.endOfTransfer,
   });
 
@@ -168,6 +170,7 @@ class PulseOxHistoryChunkDto {
       consumed.hashCode ^
       sessions.hashCode ^
       records.hashCode ^
+      skipped.hashCode ^
       endOfTransfer.hashCode;
 
   @override
@@ -178,6 +181,7 @@ class PulseOxHistoryChunkDto {
           consumed == other.consumed &&
           sessions == other.sessions &&
           records == other.records &&
+          skipped == other.skipped &&
           endOfTransfer == other.endOfTransfer;
 }
 

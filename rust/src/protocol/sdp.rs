@@ -60,7 +60,23 @@ impl Element {
     }
 }
 
+/// Deeper nesting than any real record: a protocol descriptor list sits
+/// three or four sequences down. The bound keeps a reply built of nothing
+/// but sequence headers from recursing once per three bytes.
+const MAX_DEPTH: usize = 16;
+
 fn element(bytes: &[u8], offset: usize) -> Result<(Element, usize), ProtocolError> {
+    element_at(bytes, offset, 0)
+}
+
+fn element_at(
+    bytes: &[u8],
+    offset: usize,
+    depth: usize,
+) -> Result<(Element, usize), ProtocolError> {
+    if depth > MAX_DEPTH {
+        return Err(malformed("SDP element nested too deeply"));
+    }
     let header = *bytes
         .get(offset)
         .ok_or_else(|| malformed("short SDP element"))?;
@@ -99,7 +115,7 @@ fn element(bytes: &[u8], offset: usize) -> Result<(Element, usize), ProtocolErro
     if kind == 6 || kind == 7 {
         let mut child = 0;
         while child < value.len() {
-            let (element, next) = element(&value, child)?;
+            let (element, next) = element_at(&value, child, depth + 1)?;
             children.push(element);
             child = next;
         }
@@ -161,6 +177,21 @@ pub fn rfcomm_channel_from_sdp_response(bytes: &[u8]) -> Result<Option<u8>, Prot
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn nesting_past_any_real_record_is_refused_not_recursed() {
+        let nested = |levels: usize| {
+            let mut bytes = vec![0x08, 0x01];
+            for _ in 0..levels {
+                let mut outer = vec![0x35, bytes.len() as u8];
+                outer.extend_from_slice(&bytes);
+                bytes = outer;
+            }
+            bytes
+        };
+        assert!(element(&nested(MAX_DEPTH), 0).is_ok());
+        assert!(element(&nested(MAX_DEPTH + 1), 0).is_err());
+    }
 
     fn response(channel: u8, continued: bool) -> Vec<u8> {
         vec![

@@ -3,6 +3,7 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:clock/clock.dart';
 import 'package:flutter/foundation.dart';
 
 import '../core/error_text.dart';
@@ -41,8 +42,9 @@ class SocketBiSecurTransport implements BiSecurTransport {
   Future<void> open(String host, int port, Duration timeout) async {
     // ignore: close_sinks — held in _socket and destroyed by close().
     final socket = await Socket.connect(host, port, timeout: timeout);
-    socket.setOption(SocketOption.tcpNoDelay, true);
+    // Held before anything can throw, so close() always has it to destroy.
     _socket = socket;
+    socket.setOption(SocketOption.tcpNoDelay, true);
     _incoming = StreamIterator(socket);
   }
 
@@ -125,6 +127,10 @@ class BiSecurGatewayClient implements BiSecurClient {
   final Duration positionGap;
 
   var _tag = 0;
+
+  /// Since the last position poll, across reads: the floor is the gateway's,
+  /// and it does not care that a second read is a new session.
+  Stopwatch? _sincePosition;
 
   BiSecurGatewayClient({
     required this.host,
@@ -234,8 +240,14 @@ class BiSecurGatewayClient implements BiSecurClient {
     final readings = <BiSecurPortReading>[];
     for (final group in groups) {
       for (final port in group.ports) {
-        await Future<void>.delayed(readings.isEmpty ? commandGap : positionGap);
+        var wait = readings.isEmpty ? commandGap : positionGap;
+        final since = _sincePosition?.elapsed;
+        if (since != null && positionGap - since > wait) {
+          wait = positionGap - since;
+        }
+        await Future<void>.delayed(wait);
         readings.add(await _readPort(session, token, group, port));
+        _sincePosition = clock.stopwatch()..start();
       }
     }
     return readings;

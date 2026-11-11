@@ -45,14 +45,13 @@ class _IppPrinterScreenState extends ConsumerState<IppPrinterScreen> {
   /// The IPP port: the advertised one when IPP is all the device advertises
   /// (then the mDNS SRV port IS the IPP port), else the standard 631 — a
   /// device also seen as a raw socket or LPD queue has a merged port that
-  /// may be 9100 or 515.
+  /// may be 9100 or 515. An `_ipps._tcp` advert counts as "something else"
+  /// for the same reason: its SRV port is the TLS one (often 443), and this
+  /// screen speaks plain IPP.
   int get _ippPort {
     final types = widget.device.serviceTypes;
     final ippOnly =
-        types.isNotEmpty &&
-        types.every(
-          (t) => t.startsWith('_ipp._tcp') || t.startsWith('_ipps._tcp'),
-        );
+        types.isNotEmpty && types.every((t) => t.startsWith('_ipp._tcp'));
     return ippOnly ? (widget.device.port ?? 631) : 631;
   }
 

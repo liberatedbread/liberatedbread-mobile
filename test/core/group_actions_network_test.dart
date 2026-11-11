@@ -331,7 +331,10 @@ void main() {
       expect(plan.direct.last.values, {'rgb': '${0xE40303}'});
     });
 
-    test('a bridge is on, then told its colour as a hue byte', () {
+    test('a bridge is told its colour as a hue byte, which turns it on', () {
+      // No separate turn_on: the codec sends the zone's ON ahead of the
+      // colour in each of its three rounds, and three more in front would
+      // be six inside a second — past the five that unlink a bulb.
       final entity = _entity(
         platform: 'light',
         actions: [
@@ -350,7 +353,7 @@ void main() {
         entities: [entity],
         prideColor: (r: 0, g: 255, b: 0),
       );
-      expect(plan.direct.map((s) => s.action.role), ['turn_on', 'set_color']);
+      expect(plan.direct.map((s) => s.action.role), ['set_color']);
       expect(plan.direct.last.values, {'hue': '${0x60}'});
     });
 

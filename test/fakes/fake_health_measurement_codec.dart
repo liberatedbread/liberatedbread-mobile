@@ -47,6 +47,7 @@ class FakeHealthMeasurementCodec implements HealthMeasurementCodec {
         consumed: 0,
         sessions: [],
         records: 0,
+        skipped: 0,
         endOfTransfer: false,
       );
     }

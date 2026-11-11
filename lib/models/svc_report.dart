@@ -166,7 +166,10 @@ class SvcReportResponse {
     where: where,
     entity: entity,
     detail: 'not one of the spec\'s options',
-    sample: textSample(raw),
+    // The option is what a spec author needs, so it goes — but through the
+    // same redaction as a key: an input the user named after a console is
+    // fine, one named after its address is not.
+    sample: textSample(redactKey(raw)),
   );
 
   /// A reply key with any identifier-shaped path segment replaced by `<id>`.
@@ -175,12 +178,52 @@ class SvcReportResponse {
   ///
   /// IPv4 addresses go first, on the whole key, because the split on `.`
   /// would cut one into harmless-looking numbers.
+  ///
+  /// Within a segment, a token is what sits between `-`, `_`, `:` and
+  /// spaces, and a token is an identifier when it is a short hex run that
+  /// looks like the tail of an address (`shelly1-AABBCC`) or a serial
+  /// (capitals and digits together). Only the token goes, so the model in
+  /// front of it stays readable.
   static String redactKey(String key) => [
-    for (final part in key.replaceAll(_ipv4, '<id>').split('.'))
-      _identifierLike.hasMatch(part) ? '<id>' : part,
+    for (final part
+        in key.replaceAll(_ipv6, '<id>').replaceAll(_ipv4, '<id>').split('.'))
+      _identifierLike.hasMatch(part) ? '<id>' : _redactTokens(part),
   ].join('.');
 
+  static String _redactTokens(String segment) => segment.splitMapJoin(
+    _tokenBreak,
+    onNonMatch: (token) => _isIdentifierToken(token) ? '<id>' : token,
+  );
+
+  static final RegExp _tokenBreak = RegExp(r'[-_:\s]+');
+
+  static bool _isIdentifierToken(String token) {
+    // The last three bytes of a MAC, as devices put in their own names. A
+    // lower-case run with no digit is as likely a word ("facade"), and
+    // those stay.
+    if (_hexTail.hasMatch(token)) {
+      return token.contains(RegExp(r'\d')) || token == token.toUpperCase();
+    }
+    // A serial: eight or more capitals and digits, with enough digits that
+    // it is not a name ("H5075" and "ENERGY2" are not; "SN12AB3456" is).
+    if (_serialLike.hasMatch(token)) {
+      return RegExp(r'\d').allMatches(token).length >= 3 &&
+          token.contains(RegExp('[A-Z]'));
+    }
+    return false;
+  }
+
+  static final RegExp _hexTail = RegExp(r'^[0-9a-fA-F]{6,7}$');
+  static final RegExp _serialLike = RegExp(r'^[A-Z0-9]{8,}$');
+
   static final RegExp _ipv4 = RegExp(r'\b\d{1,3}(\.\d{1,3}){3}\b');
+
+  /// Three or more colon-separated hex groups, `::` included: no reply key
+  /// looks like that by accident.
+  static final RegExp _ipv6 = RegExp(
+    r'\b[0-9a-f]{0,4}(:[0-9a-f]{0,4}){3,}\b',
+    caseSensitive: false,
+  );
 
   static final RegExp _identifierLike = RegExp(
     // MAC (any separator), UUID, or 8+ hex digits / 6+ plain digits anywhere

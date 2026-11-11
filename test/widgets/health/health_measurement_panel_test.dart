@@ -192,6 +192,7 @@ void main() {
         consumed: bytes.length,
         sessions: sessions,
         records: 2,
+        skipped: 0,
         endOfTransfer: true,
       ),
     );

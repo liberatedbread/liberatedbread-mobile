@@ -287,8 +287,16 @@ class IplSetupSession extends ChangeNotifier {
               : 'The device refused the command (status $status).',
         );
       }
+      // The device HAS acknowledged by here. A completion that does not
+      // arrive in time must not read as "did not acknowledge": the device
+      // may be mid patch test and able to flash.
       final completed = await completionOutcome.timeout(
         const Duration(seconds: 10),
+        onTimeout: () => throw const _IplError(
+          'The device accepted the command but has not reported finishing '
+          'it. It may still be running — check the device before trying '
+          'again.',
+        ),
       );
       if (completed.error != null) throw completed.error!;
       final reason = completed.value!;

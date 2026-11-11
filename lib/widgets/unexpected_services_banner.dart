@@ -114,15 +114,27 @@ class _UnexpectedServicesBannerState
   }
 
   Future<void> _send({required bool toServer}) async {
+    // The snackbar's "Send to server" can be tapped after the screen under
+    // it has gone, and `ref` is not there to read then.
+    if (!mounted) return;
     final report = _report;
     if (report == null || _busy) return;
     final messenger = ScaffoldMessenger.maybeOf(context);
+    // Held now: a report that reaches the server while this banner is being
+    // torn down (the link dropped mid-send) is still a report that was sent,
+    // and one not marked is offered again as a duplicate.
+    final handledNotifier = ref.read(svcReportHandledProvider.notifier);
     setState(() => _busy = true);
     // Simultaneously: the POST is in flight while the mail app opens.
     final posted = toServer ? _post(report) : Future.value(false);
     final emailed = await _email(report);
     final serverOk = await posted;
-    if (!mounted) return;
+    if (!mounted) {
+      if (serverOk || emailed) {
+        await handledNotifier.markHandled(report.itemKeys);
+      }
+      return;
+    }
     setState(() => _busy = false);
 
     final String message;
@@ -154,9 +166,7 @@ class _UnexpectedServicesBannerState
       ),
     );
     if (handled) {
-      await ref
-          .read(svcReportHandledProvider.notifier)
-          .markHandled(report.itemKeys);
+      await handledNotifier.markHandled(report.itemKeys);
     }
   }
 
@@ -171,8 +181,10 @@ class _UnexpectedServicesBannerState
           children: [
             const Text(
               'Exactly this, and nothing else. No Bluetooth or network '
-              'address, no hostname, and nothing you named the device. A '
-              'response includes only the part the app could not read.',
+              'address, no hostname, and no name you gave the device in '
+              'this app. A Bluetooth device\'s own advertised name is '
+              'included when it has one. A response includes only the part '
+              'the app could not read.',
             ),
             const SizedBox(height: 12),
             SelectableText(

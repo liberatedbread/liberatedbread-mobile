@@ -9,7 +9,7 @@ import '../frb_generated.dart';
 import 'device_api.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These functions are ignored because they are not marked as `pub`: `brother_placement`, `raster_print_dto`
+// These functions are ignored because they are not marked as `pub`: `brother_placement`, `canvas_len`, `raster_print_dto`
 // These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `BrotherPlacement`
 // These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_fields_are_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`
 
@@ -119,12 +119,14 @@ Future<Uint8List> renderBrotherQlJob({
   required List<int> rgb,
   required int width,
   required int height,
+  required int copies,
 }) => RustLib.instance.api.crateApiPrintApiRenderBrotherQlJob(
   specYaml: specYaml,
   params: params,
   rgb: rgb,
   width: width,
   height: height,
+  copies: copies,
 );
 
 /// Whether the spec's status surface is IPP Get-Printer-Attributes.

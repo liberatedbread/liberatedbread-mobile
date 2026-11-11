@@ -392,6 +392,11 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
   List<String>? _refinedHiddenNames;
   bool _surfaceRefined = false;
 
+  /// Poll rounds [_refineSurface] has let pass because a probe had not
+  /// answered yet, and how many it allows before settling on what it has.
+  int _refineDeferrals = 0;
+  static const _maxRefineDeferrals = 3;
+
   List<NetworkEntityDto> get _entities =>
       _refinedEntities ?? widget.controls.entities;
 
@@ -403,6 +408,19 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
   /// successful poll is the whole job.
   Future<void> _refineSurface() async {
     if (_surfaceRefined || _stateByCommand.isEmpty) return;
+    // Not on a round a probe missed: one failed command does not fail the
+    // poll, a probe with no reply matches nothing, and settling then would
+    // drop every probe-scoped entity for as long as the screen is open —
+    // the probe-only commands stop being polled once this latches. A probe
+    // the device never answers is given a few rounds and then settled
+    // without, so it is not polled forever.
+    final unanswered = widget.controls.stateProbes.any(
+      (probe) => !_stateByCommand.containsKey(probe.command),
+    );
+    if (unanswered && _refineDeferrals < _maxRefineDeferrals) {
+      _refineDeferrals++;
+      return;
+    }
     _surfaceRefined = true;
     try {
       final surface = await ref
@@ -1674,7 +1692,12 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
       if (reading == null &&
           roles.isEmpty &&
           returned != null &&
-          entity.stateCommand.isNotEmpty) {
+          entity.stateCommand.isNotEmpty &&
+          // Not a robot's shadow: it arrives a section at a time
+          // (_onRoombaState merges them), so until the rest lands most
+          // entities have no field yet — and a finding, once recorded,
+          // stays on the banner of a robot that is behaving.
+          _roomba == null) {
         Log.net.debug(
           'kasa/${entity.name}: state command '
           '"${entity.stateCommand}" answered but no field mapped to a reading '

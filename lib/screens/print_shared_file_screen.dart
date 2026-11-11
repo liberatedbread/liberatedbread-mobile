@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import 'dart:async';
 import 'dart:typed_data';
+import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -28,12 +29,17 @@ class PrintSharedFileScreen extends ConsumerWidget {
   Future<void> _onPaper(BuildContext context, WidgetRef ref) async {
     final messenger = ScaffoldMessenger.of(context);
     try {
+      // Read before the dialog opens: a photo that cannot be read fails
+      // here, into the message below, rather than inside the dialog's layout
+      // callback where it is an empty preview.
+      final image = _isPdf ? null : await _photoImage();
       await ref
           .read(osPrintServiceProvider)
           .printDocument(
             name: file.name ?? (_isPdf ? 'Document' : 'Photo'),
-            build: (format) =>
-                _isPdf ? Future.value(file.bytes) : _photoPage(format),
+            build: (format) => image == null
+                ? Future.value(file.bytes)
+                : _photoPage(format, image),
           );
     } on Object catch (e) {
       Log.app.warning('printing a shared file failed', error: e);
@@ -44,9 +50,48 @@ class PrintSharedFileScreen extends ConsumerWidget {
   }
 
   /// A photo fitted to one page of [format].
-  Future<Uint8List> _photoPage(PdfPageFormat format) {
+  ///
+  /// The PDF library reads JPEG and PNG itself, and little else: an iPhone's
+  /// camera photo is HEIC. What it cannot read the platform's own decoder
+  /// usually can (it is what the label path uses), so that is the fallback,
+  /// at no more than a page's worth of pixels.
+  Future<pw.ImageProvider> _photoImage() async {
+    try {
+      return pw.MemoryImage(file.bytes);
+    } on Object {
+      final buffer = await ui.ImmutableBuffer.fromUint8List(file.bytes);
+      final descriptor = await ui.ImageDescriptor.encoded(buffer);
+      try {
+        final landscape = descriptor.width >= descriptor.height;
+        final longest = landscape ? descriptor.width : descriptor.height;
+        final target = longest > _maxPhotoSide ? _maxPhotoSide : null;
+        final codec = await descriptor.instantiateCodec(
+          targetWidth: landscape ? target : null,
+          targetHeight: landscape ? null : target,
+        );
+        final frame = await codec.getNextFrame();
+        codec.dispose();
+        try {
+          final png = await frame.image.toByteData(
+            format: ui.ImageByteFormat.png,
+          );
+          if (png == null) throw StateError('the photo would not re-encode');
+          return pw.MemoryImage(png.buffer.asUint8List());
+        } finally {
+          frame.image.dispose();
+        }
+      } finally {
+        descriptor.dispose();
+        buffer.dispose();
+      }
+    }
+  }
+
+  /// A4 at 300 dpi along its long side, near enough.
+  static const _maxPhotoSide = 3508;
+
+  Future<Uint8List> _photoPage(PdfPageFormat format, pw.ImageProvider image) {
     final doc = pw.Document(creator: 'Liberated Bread');
-    final image = pw.MemoryImage(file.bytes);
     doc.addPage(
       pw.Page(
         pageFormat: format,

@@ -19,6 +19,19 @@ void main() {
       );
     });
 
+    test('takes the conjunction a legal form hung from with it', () {
+      expect(displayVendorName('Eli Lilly and Company'), 'Eli Lilly');
+      expect(
+        displayVendorName('Becton, Dickinson and Company'),
+        'Becton, Dickinson',
+      );
+    });
+
+    test('a radio stem inside another word is not that radio', () {
+      expect(displayVendorName('Fortelink Inc.'), 'Fortelink');
+      expect(displayVendorName('Telink Micro LLC'), 'Telink');
+    });
+
     test('puts an all-capitals filing in title case, sparing acronyms', () {
       expect(
         displayVendorName('TP-LINK TECHNOLOGIES CO.,LTD.'),

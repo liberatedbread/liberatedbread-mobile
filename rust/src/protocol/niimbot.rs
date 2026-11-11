@@ -224,6 +224,14 @@ pub fn encode_print_job(
         .or(feature.and_then(|f| f.max_width))
         .unwrap_or(96) as usize;
     let row_bytes = (width as usize).div_ceil(8).min(head_dots.div_ceil(8));
+    // A row packet is [row u16][counts x3][repeat] + the row, under a
+    // one-byte length: a head wider than that has no row this envelope can
+    // carry, and `packet` would wrap the length rather than say so.
+    if 6 + row_bytes > u8::MAX as usize {
+        return Err(ProtocolError::ImageDimensionsInvalid {
+            reason: format!("a {row_bytes}-byte row does not fit a NIIMBOT packet"),
+        });
+    }
     let char_uuid = print_characteristic(spec)?;
     let protocol = GenericProtocol::new(Arc::new(spec.clone()));
 
@@ -242,7 +250,9 @@ pub fn encode_print_job(
     };
     let wait = |frame: &mut EncodedFrame, reply: u8| {
         frame.reply_waits.push(ReplyWait {
-            after_write: frame.writes.len() - 1,
+            // Saturating: a spec whose first command renders to no bytes
+            // pushed no write to wait after.
+            after_write: frame.writes.len().saturating_sub(1),
             characteristic_uuid: char_uuid.clone(),
             expect_prefix: vec![HEAD[0], HEAD[1], reply],
             must_carry: None,

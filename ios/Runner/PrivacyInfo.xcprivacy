@@ -48,7 +48,9 @@
       app addressed to us. Email only does the mail half alone. The banner's
       "What's sent?" shows the payload verbatim beforehand. It names the
       matched spec, the services the spec does not describe and/or the
-      responses the app could not read, the app version and the platform. A
+      responses the app could not read, the app version, the platform and,
+      over BLE, the name the device itself advertises (never one the user
+      gave it, and never one that carries its address). A
       response is described by its shape: a Wi-Fi reply's key NAMES with
       identifier-like segments redacted, never its values; for a BLE value
       that would not decode, at most 32 bytes of it; for an unknown option,

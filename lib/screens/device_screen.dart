@@ -1182,6 +1182,7 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
                 spec: matched.spec,
                 services: _services,
                 advertisedName: widget.device.name,
+                deviceId: widget.device.id,
                 // Values from this device the spec's format rejected,
                 // recorded by the value widgets below.
                 responses: ref.watch(

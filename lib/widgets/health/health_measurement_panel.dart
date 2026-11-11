@@ -9,6 +9,7 @@ import '../../core/health_reference.dart';
 import '../../core/web_link.dart';
 import '../../models/health_measurement_plan.dart';
 import '../../providers/ble_provider.dart';
+import '../../providers/health_history_provider.dart';
 import '../../providers/health_measurement_codec_provider.dart';
 import '../../services/health_measurement_codec.dart';
 import '../../services/health_measurement_session.dart';
@@ -69,6 +70,7 @@ class _HealthMeasurementPanelState extends ConsumerState<HealthMeasurementPanel>
       pollInterval: widget.pollInterval,
       staleAfter: widget.staleAfter,
       syncTimeout: widget.syncTimeout,
+      store: ref.read(healthHistoryStoreProvider),
     )..start();
   }
 
@@ -209,13 +211,18 @@ class _HealthMeasurementPanelState extends ConsumerState<HealthMeasurementPanel>
   ) {
     final sample = state.liveSample;
     if (sample == null) {
-      return state.phase == HealthSessionPhase.error
-          ? const SizedBox.shrink()
-          : const _ProgressMessage(
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (state.phase != HealthSessionPhase.error)
+            const _ProgressMessage(
               message:
                   'Waiting for a fresh sample. Clip on the oximeter and '
                   'keep your hand still.',
-            );
+            ),
+          ..._earlierLiveSessions(context, state),
+        ],
+      );
     }
     final text = Theme.of(context).textTheme;
     final scheme = Theme.of(context).colorScheme;
@@ -260,6 +267,30 @@ class _HealthMeasurementPanelState extends ConsumerState<HealthMeasurementPanel>
             style: text.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
           ),
         ],
+        if (state.liveTrend.length >= 2) ...[
+          const SizedBox(height: 14),
+          MeasurementTrendChart(
+            title: 'SpO₂ this session',
+            unit: '%',
+            series: [
+              MeasurementTrendSeries(
+                label: 'SpO₂',
+                values: [for (final s in state.liveTrend) s.spo2Percent],
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          MeasurementTrendChart(
+            title: 'Pulse this session',
+            unit: 'bpm',
+            series: [
+              MeasurementTrendSeries(
+                label: 'Pulse',
+                values: [for (final s in state.liveTrend) s.pulseBpm],
+              ),
+            ],
+          ),
+        ],
         const SizedBox(height: 14),
         HealthReferenceGuidance(
           kind: widget.plan.kind,
@@ -269,8 +300,32 @@ class _HealthMeasurementPanelState extends ConsumerState<HealthMeasurementPanel>
               : null,
           launcher: widget.linkLauncher,
         ),
+        ..._earlierLiveSessions(context, state),
       ],
     );
+  }
+
+  /// Live sessions kept from earlier connections: each one's span and its
+  /// least, most and average, newest first.
+  List<Widget> _earlierLiveSessions(
+    BuildContext context,
+    HealthMeasurementState state,
+  ) {
+    final sessions = [...state.sessions]
+      ..sort((a, b) => b.startedAt.compareTo(a.startedAt));
+    if (sessions.isEmpty) return const [];
+    return [
+      const SizedBox(height: 8),
+      ExpansionTile(
+        tilePadding: EdgeInsets.zero,
+        childrenPadding: EdgeInsets.zero,
+        title: Text('Earlier sessions (${sessions.length})'),
+        children: [
+          for (final session in sessions) _SessionCard(session: session),
+        ],
+      ),
+      _savedFooter(context),
+    ];
   }
 
   Widget _pulseHistory(
@@ -281,6 +336,11 @@ class _HealthMeasurementPanelState extends ConsumerState<HealthMeasurementPanel>
     final sessions = [...state.sessions]
       ..sort((a, b) => b.startedAt.compareTo(a.startedAt));
     if (sessions.isEmpty) {
+      if (state.phase == HealthSessionPhase.ready) {
+        // The transfer ended and carried nothing: a spinner would wait
+        // for sessions that are not coming.
+        return const Text('The oximeter has no stored sessions.');
+      }
       return state.phase == HealthSessionPhase.error
           ? const SizedBox.shrink()
           : const _ProgressMessage(
@@ -350,8 +410,69 @@ class _HealthMeasurementPanelState extends ConsumerState<HealthMeasurementPanel>
             ],
           ),
         ],
+        if (state.skippedRecords > 0) ...[
+          const SizedBox(height: 8),
+          Text(
+            state.skippedRecords == 1
+                ? '1 stored record could not be read and was left out.'
+                : '${state.skippedRecords} stored records could not be read '
+                      'and were left out.',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+        ],
+        _savedFooter(context),
       ],
     );
+  }
+
+  /// Says where the readings above live, and lets the user remove them.
+  Widget _savedFooter(BuildContext context) {
+    if (!_session.hasSavedHistory) return const SizedBox.shrink();
+    final scheme = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.only(top: 8),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              'Saved on this phone only.',
+              style: Theme.of(
+                context,
+              ).textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
+            ),
+          ),
+          TextButton(
+            onPressed: () => unawaited(_confirmClear(context)),
+            child: const Text('Clear saved'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _confirmClear(BuildContext context) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Clear saved readings?'),
+        content: const Text(
+          'This removes the readings this app has kept for this device. '
+          'The device\'s own memory is not changed, and an oximeter does not '
+          'send a session twice.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Clear'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true) await _session.clearSaved();
   }
 
   Widget _bloodPressure(
@@ -446,6 +567,7 @@ class _HealthMeasurementPanelState extends ConsumerState<HealthMeasurementPanel>
             ],
           ),
         ],
+        _savedFooter(context),
       ],
     );
   }

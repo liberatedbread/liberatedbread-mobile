@@ -57,12 +57,15 @@ void main() {
       // Waiting for the answer first is fine, including with latency.
       peer
         ..violations.clear()
-        ..responseLatency = const Duration(milliseconds: 5);
+        // Wide apart on purpose: these are real timers, and with 5 ms of
+        // latency against a 2 ms wait a loaded machine overslept the wait,
+        // the answer landed first, and the second read was no violation.
+        ..responseLatency = const Duration(milliseconds: 200);
       wire.channel.send(AttEncode.read(0x0003));
       await Future<void>.delayed(const Duration(milliseconds: 2));
       wire.channel.send(AttEncode.read(0x0006)); // still in the air: too soon
       expect(peer.violations, hasLength(1));
-      await Future<void>.delayed(const Duration(milliseconds: 20));
+      await Future<void>.delayed(const Duration(milliseconds: 600));
       wire.channel.send(AttEncode.read(0x0003));
       expect(peer.violations, hasLength(1));
     });

@@ -110,6 +110,15 @@ heading.
   the spec does not confirm, and the thermal stream is not decoded because its
   layout is not recovered. The frames match the spec's literal ones; tested
   against a fake camera, not run on hardware.
+- **Health readings are kept on the phone.** Pulse-oximeter sessions and
+  blood-pressure readings a device hands over are saved per device in the
+  app's own storage and shown again on the next connection, with a "Clear
+  saved" control on the panel. Nothing is sent anywhere and they are never
+  part of a device report. A live oximeter draws its SpO₂ and pulse for the
+  session in progress, and each run of ten samples or more is kept as a
+  session (when, and the least, most and average of each), listed under
+  "Earlier sessions"; the per-second samples themselves are not kept.
+
 - **Yeelight lights over the LAN (`yeelight_lan`).** The cube lamp's spec now
   drives power, brightness, colour and colour temperature over JSON lines on
   TCP 55443, reads state back, and paints a module's rows on a unit that lists
@@ -773,6 +782,46 @@ heading.
   ABI assertions no longer name it.
 
 ### Fixed
+
+- **Weekly review sweep (2026-11-10).** Found by reading the week's merges;
+  none run on hardware.
+  - *Device reports:* a nameless device reopened from Saved Devices no longer
+    reports its Bluetooth address as its "advertised name"; "What's sent" and
+    the privacy notes now say the advertised name is included; a report that
+    reaches the server while its banner is being torn down is still marked
+    sent; a Roomba's section-at-a-time state no longer files "unmapped state"
+    findings.
+  - *Wi-Fi:* a variant probe that misses one poll no longer drops the
+    probe-scoped entities for the life of the screen (Elgato); Yeelight and
+    LimitlessLED sends go to the spec's port, not another service's
+    discovered one; pride mode no longer doubles a LimitlessLED zone's ON,
+    reports a strip whose rainbow effect could not be found as failed, and a
+    hue-only light no longer offers pastels it would send as full colour; the
+    LocalThings link no longer borrows another service's port.
+  - *Printing:* canvas sizes are overflow-checked and an over-long Brother
+    label is refused before its head canvas is allocated; SDP nesting is
+    bounded; HEIC photos print on paper; an `_ipps`-only advert is not sent
+    plain IPP on its TLS port; a second tap on Print is not a second label;
+    Android does not replay a share from Recents.
+  - *Health and IPL:* QardioArm keeps its own cards instead of a panel that
+    could not decode it; a monitor that needs pairing says so; an empty PO60
+    sync ends instead of spinning; a 0/0 pressure is not "Normal"; a Braun
+    command the device acknowledged is no longer reported as unacknowledged
+    when its completion is late.
+  - *Follow-ups:* Brother copies go as pages of one job instead of a
+    connection each; report redaction also catches address tails
+    (`shelly1-AABBCC`), serials and IPv6, redacts an unrecognised option the
+    same way, drops unparseable mDNS sightings, and findings already handled
+    no longer use up the per-device cap; an oximeter frame with zeros in it is
+    "no reading", not 0 %; a PO60 sync skips a record it cannot read (and
+    says how many), keeps a session carried by the end-of-transfer record, and
+    its timeout restarts on progress; a name-matched spec is credited for the
+    declared services a unit does carry, so one missing an optional service
+    no longer loses to a looser spec that declares fewer.
+  - *Read-only handlers:* a dropped BLE link is reported; a SunSpec socket
+    drop does not hide the meter for the session; an AC Infinity stored-level
+    reply does not clear the stale warning; BiSecur's 2 s position-poll floor
+    holds across reads.
 
 - **A Roomba screen closed during its TLS handshake no longer leaves a ghost
   session on the robot.** Closing the session while the socket was still

@@ -40,7 +40,12 @@ class MainActivity : FlutterActivity() {
         super.onCreate(savedInstanceState)
         // Not on a re-creation (rotation, process restore): the intent is the
         // one already handled, and printing it twice would be a surprise.
-        if (savedInstanceState == null) {
+        // Nor on a relaunch from Recents: Android redelivers the ORIGINAL
+        // share intent then, flagged as history, and the file would be
+        // offered for printing again every time the app is reopened.
+        val fromHistory =
+            (intent?.flags ?: 0) and Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY != 0
+        if (savedInstanceState == null && !fromHistory) {
             val launch = intent
             initialShareLoading = true
             readShareInBackground(launch) { share ->
@@ -122,6 +127,11 @@ class MainActivity : FlutterActivity() {
                 "name" to displayName(uri),
             )
         } catch (e: Exception) {
+            null
+        } catch (e: OutOfMemoryError) {
+            // A share near the size limit is several copies of itself on
+            // the way to Dart, and this is a bare thread: uncaught, a large
+            // scan on a small heap takes the whole app down.
             null
         }
     }

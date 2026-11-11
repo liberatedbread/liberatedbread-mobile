@@ -1326,12 +1326,14 @@ class RealSpecCodec implements SpecCodec {
     required Uint8List rgb,
     required int width,
     required int height,
+    int copies = 1,
   }) => print_rust.renderBrotherQlJob(
     specYaml: specYaml,
     params: params,
     rgb: rgb,
     width: width,
     height: height,
+    copies: copies,
   );
 
   @override

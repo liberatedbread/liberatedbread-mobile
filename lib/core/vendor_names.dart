@@ -25,6 +25,9 @@ final _legalSuffix = RegExp(
   caseSensitive: false,
 );
 
+/// The conjunction or dash a legal form hung from, once the form is gone.
+final _danglingJoin = RegExp(r'\s+(and|und|et|&|-)$', caseSensitive: false);
+
 /// A parenthesised aside — a subsidiary's city, an abbreviation.
 final _parenthetical = RegExp(r'\s*\([^)]*\)');
 
@@ -45,6 +48,9 @@ String displayVendorName(String raw) {
   for (var previous = ''; previous != name;) {
     previous = name;
     name = name.replaceFirst(_legalSuffix, '');
+    // "Eli Lilly and Company" must not be left as "Eli Lilly and", nor
+    // "X - S.p.A." as "X -".
+    name = name.replaceFirst(_danglingJoin, '');
   }
   name = name.replaceFirst(RegExp(r'[\s,&.]+$'), '');
   // "F5 Inc.", "MG Co., Ltd.": a name this short is an abbreviation that
@@ -116,7 +122,10 @@ const _radioVendors = {
 String? _radioVendorOf(String name) {
   final lower = name.toLowerCase();
   for (final MapEntry(:key, :value) in _radioVendors.entries) {
-    if (lower.contains(key)) return value;
+    // At a word's start: "Fortelink Inc." is not a Telink radio.
+    if (RegExp('(^|[^a-z0-9])${RegExp.escape(key)}').hasMatch(lower)) {
+      return value;
+    }
   }
   return null;
 }

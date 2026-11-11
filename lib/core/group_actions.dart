@@ -877,7 +877,9 @@ int? limitlessledHueByte(Rgb color) {
   final hsv = HSVColor.fromColor(
     Color.fromARGB(255, color.r, color.g, color.b),
   );
-  if (hsv.saturation == 0 || hsv.value == 0) return null;
+  // Nor for a pastel: the byte carries no saturation, so warm white would
+  // arrive as full orange.
+  if (hsv.saturation < 0.5 || hsv.value == 0) return null;
   final h = hsv.hue;
   final byte = switch (h) {
     < 120 => 0xB0 - h / 120 * 0x50,
@@ -1009,7 +1011,11 @@ GroupNetworkPlan resolveNetworkGroupPlan({
         final effect = _networkRainbowEffectAction(entity);
         if (action == null && effect == null) break;
         final on = _networkAction(entity, 'turn_on');
-        if (on != null) {
+        // A legacy LimitlessLED colour carries the zone's ON in each of its
+        // rounds already; a separate one ahead of it makes six ONs in under
+        // a second, past the five that unlink a bulb just powered up.
+        final colourTurnsOn = action?.transport == kLimitlessledTransport;
+        if (on != null && !colourTurnsOn) {
           direct.add(
             GroupNetworkSend(entity: entity, action: on, values: const {}),
           );

@@ -57,6 +57,25 @@ void main() {
     expect(saved?.handledCharacteristicUuids, isNotEmpty);
   });
 
+  test(
+    'a cuff whose record the decoder cannot read keeps its own cards',
+    () async {
+      if (!rustReady) {
+        markTestSkipped('Rust lib not loaded');
+        return;
+      }
+      // QardioArm has the same systolic/diastolic entities on 0x2A35, but
+      // names each flag bit instead of a `flags` byte. Claimed by the panel,
+      // its entity cards were hidden and no record ever decoded.
+      final qardio = await specCodec.loadDeviceSpec(
+        await rootBundle.loadString(
+          'vendor/protocol-specs/device-specs/devices/qardio-arm.yaml',
+        ),
+      );
+      expect(healthMeasurementPlan(qardio, _discovered(qardio)), isNull);
+    },
+  );
+
   test('F7 frame crosses the real FFI as a typed live sample', () async {
     if (!rustReady) {
       markTestSkipped('Rust lib not loaded');
@@ -132,8 +151,9 @@ void main() {
       final offset = index * 24;
       record[offset] = 0xE9;
       record[offset + 1] = index == 0 ? 1 : 0x42;
-      record.setRange(offset + 2, offset + 8, [26, 11, 8, 14, 30, 1]);
-      record.setRange(offset + 8, offset + 14, [26, 11, 8, 14, 31, 2]);
+      // The second, end-of-transfer record is a later session of its own.
+      record.setRange(offset + 2, offset + 8, [26, 11, 8, 14 + index, 30, 1]);
+      record.setRange(offset + 8, offset + 14, [26, 11, 8, 14 + index, 31, 2]);
       record[offset + 17] = 99;
       record[offset + 18] = 94;
       record[offset + 19] = 97;
@@ -147,9 +167,12 @@ void main() {
     );
     expect(history.consumed, 48);
     expect(history.endOfTransfer, isTrue);
-    expect(history.sessions, hasLength(1));
-    expect(history.sessions.single.spo2Avg, 97);
-    expect(history.sessions.single.startedAt, '2026-11-08T14:30:01');
+    // The record that ends the transfer carries the last session too.
+    expect(history.sessions, hasLength(2));
+    expect(history.skipped, 0);
+    expect(history.sessions.first.spo2Avg, 97);
+    expect(history.sessions.first.startedAt, '2026-11-08T14:30:01');
+    expect(history.sessions.last.startedAt, '2026-11-08T15:30:01');
   });
 }
 

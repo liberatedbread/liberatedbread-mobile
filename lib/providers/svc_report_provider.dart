@@ -38,9 +38,20 @@ SvcReport? buildBleSvcReport({
   required DeviceSpecDto spec,
   required List<BleDiscoveredService> services,
   required String advertisedName,
+  String? deviceId,
   List<SvcReportResponse> responses = const [],
   String? reportId,
 }) {
+  // A device opened from the saved list carries the name it was saved
+  // under, and a nameless one was saved as "Unknown (<id>)" — the id being
+  // its Bluetooth address on Android and Linux. A name with the id in it is
+  // not the device's own, and the report promises no address.
+  final id = deviceId?.trim().toLowerCase() ?? '';
+  final name = advertisedName.trim();
+  final reportedName =
+      name.isEmpty || (id.isNotEmpty && name.toLowerCase().contains(id))
+      ? null
+      : advertisedName;
   final declared = [
     for (final s in spec.serviceUuids) normalizeUuid(s),
     for (final s in spec.services) normalizeUuid(s.uuid),
@@ -87,7 +98,7 @@ SvcReport? buildBleSvcReport({
     specKey: specKeyFor(spec),
     specDeviceName: spec.deviceName,
     specManufacturer: spec.manufacturer,
-    advertisedName: advertisedName.trim().isEmpty ? null : advertisedName,
+    advertisedName: reportedName,
     unexpected: unexpectedServices,
     responses: responses,
     discovered: {for (final s in services) normalizeUuid(s.uuid)}.toList()
@@ -97,6 +108,9 @@ SvcReport? buildBleSvcReport({
     platform: svcReportPlatform(),
   );
 }
+
+/// `_name._tcp` or `_name._udp`, with a subtype or domain after it at most.
+final RegExp _serviceTypeShape = RegExp(r'^_[a-z0-9-]+\._(tcp|udp)(\.|$)');
 
 /// The Wi-Fi report for [device] against the spec [entry] it matched, or null
 /// when the spec declares every mDNS type and SSDP target worth mentioning
@@ -111,7 +125,7 @@ SvcReport? buildWifiSvcReport({
   final mdns = unexpectedMdnsTypes(
     declared: identity.mdnsServiceTypes,
     announced: device.serviceTypes,
-  );
+  ).where(_serviceTypeShape.hasMatch).toList();
   final ssdp = unexpectedSsdpTargets(
     declared: identity.ssdpSearchTargets,
     answered: device.ssdpTargets,
@@ -139,7 +153,14 @@ SvcReport? buildWifiSvcReport({
     unexpected: unexpectedServices,
     responses: responses,
     discovered: [
-      ...{for (final t in device.serviceTypes) normalizeServiceType(t)},
+      // Only what reads as a service TYPE. A sighting the scanner could not
+      // parse keeps its whole instance name here, and that is the user's
+      // name for the device.
+      ...{
+        for (final t in device.serviceTypes)
+          if (_serviceTypeShape.hasMatch(normalizeServiceType(t)))
+            normalizeServiceType(t),
+      },
       // A uuid: target is a per-unit serial; it stays on the phone.
       ...{
         for (final t in device.ssdpTargets)
@@ -245,8 +266,13 @@ final wifiSvcReportProvider = FutureProvider.autoDispose
 class ResponseAnomalyNotifier
     extends Notifier<Map<String, List<SvcReportResponse>>> {
   /// Per device, so a device that fails every notification cannot grow the
-  /// list (and the report) without bound.
+  /// list (and the report) without bound. Counts findings still to report:
+  /// ones already sent or dismissed are done with, and counting them shut
+  /// out every later finding for the life of the process.
   static const maxPerDevice = 16;
+
+  /// The most kept per device, reported or not.
+  static const maxKeptPerDevice = 64;
 
   @override
   Map<String, List<SvcReportResponse>> build() => const {};
@@ -255,9 +281,16 @@ class ResponseAnomalyNotifier
   /// so a notify stream that keeps failing does not rebuild the screen.
   void record(String deviceKey, SvcReportResponse response) {
     final existing = state[deviceKey] ?? const <SvcReportResponse>[];
-    if (existing.contains(response) || existing.length >= maxPerDevice) {
+    if (existing.contains(response) || existing.length >= maxKeptPerDevice) {
       return;
     }
+    // A handled key is "<transport>|<spec>|<item key>"; the device key here
+    // is not that scope, so match on the finding's own part of it.
+    final handled = ref.read(svcReportHandledProvider);
+    final open = existing
+        .where((r) => !handled.any((key) => key.endsWith('|${r.itemKey}')))
+        .length;
+    if (open >= maxPerDevice) return;
     Log.reports.info('unexpected ${response.problem} at ${response.where}');
     state = {
       ...state,

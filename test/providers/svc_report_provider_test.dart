@@ -95,6 +95,19 @@ void main() {
       );
     });
 
+    test('a saved nameless device does not report its address as a name', () {
+      // Saved Devices reopens a nameless peripheral as "Unknown (<id>)", and
+      // the id is its Bluetooth address on Android and Linux.
+      final report = buildBleSvcReport(
+        spec: _bleSpec,
+        services: [_service(_svcUuid), _service(_dfuUuid)],
+        advertisedName: 'Unknown (AA:BB:CC:DD:EE:FF)',
+        deviceId: 'aa:bb:cc:dd:ee:ff',
+      )!;
+      expect(report.toJson().containsKey('advertised_name'), isFalse);
+      expect(report.toPrettyJson().toUpperCase(), isNot(contains('AA:BB')));
+    });
+
     test('carries the unexpected service and its characteristics', () {
       final report = buildBleSvcReport(
         spec: _bleSpec,
@@ -322,7 +335,57 @@ void main() {
     });
   });
 
+  group('SvcReportResponse.redactKey', () {
+    test('an address tail or serial goes, and the name around it stays', () {
+      String r(String key) => SvcReportResponse.redactKey(key);
+      expect(r('shelly1-AABBCC.relay'), 'shelly1-<id>.relay');
+      expect(r('Govee_H5075_1A2B3C'), 'Govee_H5075_<id>');
+      expect(r('devices.SN12AB3456.state'), 'devices.<id>.state');
+      expect(r('peers.fe80::1ff:fe23:4567:890a'), 'peers.<id>');
+      // Words that happen to be hex, model numbers and plain keys stay.
+      expect(r('light_facade.on'), 'light_facade.on');
+      expect(r('H5075.temperature2'), 'H5075.temperature2');
+      expect(r('ENERGY_TOTAL'), 'ENERGY_TOTAL');
+      expect(r('state.brightness'), 'state.brightness');
+    });
+
+    test('an unrecognized option is redacted like a key', () {
+      final response = SvcReportResponse.unrecognizedValue(
+        where: 'command:get',
+        entity: 'Input',
+        raw: 'TV-AABBCC',
+      );
+      expect(response.sample, 'TV-<id>');
+    });
+  });
+
   group('ResponseAnomalyNotifier', () {
+    test('findings already handled do not use up the cap', () async {
+      final c = ProviderContainer();
+      addTearDown(c.dispose);
+      final notifier = c.read(responseAnomaliesProvider.notifier);
+      SvcReportResponse r(int i) => SvcReportResponse.unmappedState(
+        command: 'c$i',
+        entity: 'E',
+        keys: const ['a'],
+      );
+      for (var i = 0; i < ResponseAnomalyNotifier.maxPerDevice; i++) {
+        notifier.record('wifi:h', r(i));
+      }
+      notifier.record('wifi:h', r(100));
+      expect(
+        c.read(responseAnomaliesProvider)['wifi:h'],
+        hasLength(ResponseAnomalyNotifier.maxPerDevice),
+      );
+      // Sent: the first sixteen are done with, and a new one is heard.
+      await c.read(svcReportHandledProvider.notifier).markHandled([
+        for (var i = 0; i < ResponseAnomalyNotifier.maxPerDevice; i++)
+          'wifi|Bulb|Acme|${r(i).itemKey}',
+      ]);
+      notifier.record('wifi:h', r(100));
+      expect(c.read(responseAnomaliesProvider)['wifi:h'], contains(r(100)));
+    });
+
     test('records once per finding, and caps per device', () {
       final c = ProviderContainer();
       addTearDown(c.dispose);
