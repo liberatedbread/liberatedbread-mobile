@@ -65,6 +65,126 @@ void main() {
     expect(_looksLikePdf(pdf), isTrue);
   });
 
+  group('setup sections follow the screen they are printed from', () {
+    const instructions = SetupInstructionsDto(
+      notes: 'Overview.',
+      methods: [
+        SetupMethodDto(
+          name: 'Pairing',
+          steps: [SetupStepDto(action: 'Hold for 5 s')],
+          stages: [],
+          troubleshooting: [
+            TroubleshootingDto(symptom: 'No LED', causes: ['Battery flat']),
+          ],
+        ),
+        // Blank: no section, as the screen draws no card for it.
+        SetupMethodDto(
+          name: 'Empty',
+          description: '  ',
+          steps: [],
+          stages: [],
+          troubleshooting: [],
+        ),
+      ],
+      factoryReset: FactoryResetDto(effect: 'Wipes it.', procedures: []),
+      rejoin: RejoinDto(notes: 'One phone at a time.'),
+    );
+
+    test('after a failed connect, reconnecting and troubleshooting lead', () {
+      expect(
+        [for (final s in setupInstructionsSections(instructions)) s.heading],
+        [
+          'Reconnecting',
+          "If it won't connect",
+          'Overview',
+          'Pairing',
+          'Factory reset',
+        ],
+      );
+    });
+
+    test('from the pairing guide, the steps lead', () {
+      expect(
+        [
+          for (final s in setupInstructionsSections(
+            instructions,
+            afterFailedConnect: false,
+          ))
+            s.heading,
+        ],
+        [
+          'Overview',
+          'Pairing',
+          "If it won't connect",
+          'If it disconnects later',
+          'Factory reset',
+        ],
+      );
+    });
+  });
+
+  test('a staged route and a reset procedure print every part', () {
+    const instructions = SetupInstructionsDto(
+      methods: [
+        SetupMethodDto(
+          name: 'HomeKit pairing',
+          steps: [],
+          stages: [
+            SetupStageDto(
+              name: 'Join the hub',
+              description: '  Put it near the hub.  ',
+              steps: [
+                SetupStepDto(action: 'Hold the button', expect: 'Blinks'),
+              ],
+              troubleshooting: [],
+            ),
+            // No name or description: only its steps print.
+            SetupStageDto(
+              description: '   ',
+              steps: [SetupStepDto(action: 'Scan the code')],
+              troubleshooting: [],
+            ),
+          ],
+          troubleshooting: [],
+        ),
+      ],
+      factoryReset: FactoryResetDto(
+        effect: 'Wipes it.',
+        procedures: [
+          FactoryResetProcedureDto(
+            name: 'Long press',
+            holdSeconds: 15,
+            steps: [SetupStepDto(action: 'Hold power')],
+          ),
+          FactoryResetProcedureDto(
+            name: 'Power cycle',
+            steps: [SetupStepDto(action: 'Unplug it five times')],
+          ),
+        ],
+      ),
+    );
+
+    final sections = setupInstructionsSections(instructions);
+
+    expect(sections.map((s) => s.heading), [
+      'HomeKit pairing',
+      'Factory reset',
+    ]);
+    expect(sections[0].paragraphs, [
+      'Join the hub',
+      'Put it near the hub.',
+      '1. Hold the button\n   Expect: Blinks',
+      '1. Scan the code',
+    ]);
+    expect(sections[1].paragraphs, [
+      'Wipes it.',
+      'Long press (hold 15 s)',
+      '1. Hold power',
+      'Power cycle',
+      '1. Unplug it five times',
+    ]);
+  });
+
   test('a label prints at its physical size', () async {
     final pdf = await labelImagePdf(
       format: PdfPageFormat.a4,

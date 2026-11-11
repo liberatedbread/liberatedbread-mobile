@@ -13,6 +13,7 @@ import '../core/log.dart';
 import '../providers/adopt_provider.dart';
 import '../services/adopt_service.dart';
 import '../widgets/device_list_tile.dart';
+import '../widgets/numbered_step.dart';
 import 'rabbit_air_setup_screen.dart';
 
 /// Guides a person through putting a factory-reset Wi-Fi device onto their home
@@ -48,6 +49,12 @@ const _bleSetupScreens = <String, WidgetBuilder>{
 };
 
 Widget _rabbitAirSetupScreen(BuildContext _) => const RabbitAirSetupScreen();
+
+/// Whether this screen can drive the BLE provisioning conversation a spec
+/// names by [protocolHandler] — so another screen can point a device there
+/// without a second copy of the routing table.
+bool adoptDrivesBleProvisioning(String? protocolHandler) =>
+    _bleSetupScreens.containsKey(protocolHandler);
 
 class _AdoptDeviceScreenState extends ConsumerState<AdoptDeviceScreen> {
   _Stage _stage = _Stage.pickDevice;
@@ -328,15 +335,15 @@ class _AdoptDeviceScreenState extends ConsumerState<AdoptDeviceScreen> {
           ),
         ),
         const SizedBox(height: 20),
-        _instruction(
-          context,
-          '1',
-          'Factory reset the device so it starts advertising its setup network.',
+        const NumberedStep(
+          number: 1,
+          text:
+              'Factory reset the device so it starts advertising its setup '
+              'network.',
         ),
-        _instruction(
-          context,
-          '2',
-          _canOpenWifiSettings
+        NumberedStep(
+          number: 2,
+          text: _canOpenWifiSettings
               ? 'Open Wi-Fi settings and join that network. Then come back '
                     'and pick your device below.'
               : 'Open the Settings app, tap Wi-Fi and join that network. '
@@ -729,34 +736,6 @@ class _AdoptDeviceScreenState extends ConsumerState<AdoptDeviceScreen> {
                 }),
               ),
             ),
-        ],
-      ),
-    );
-  }
-
-  Widget _instruction(BuildContext context, String number, String body) {
-    final scheme = Theme.of(context).colorScheme;
-    final text = Theme.of(context).textTheme;
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          CircleAvatar(
-            radius: 14,
-            backgroundColor: scheme.secondaryContainer,
-            child: Text(
-              number,
-              style: text.labelLarge?.copyWith(
-                color: scheme.onSecondaryContainer,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Text(body, style: text.bodyMedium?.copyWith(height: 1.5)),
-          ),
         ],
       ),
     );

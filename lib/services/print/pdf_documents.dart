@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 
+import '../../core/setup_content.dart';
 import '../spec_codec.dart';
 
 /// Whether [bytes] is a PDF (by its `%PDF` signature, which is what a
@@ -116,16 +117,37 @@ Future<Uint8List> textDocumentPdf({
 }
 
 /// A device's setup and troubleshooting notes as a printed page — the same
-/// order the screen shows them in.
+/// sections, in the same order, as the screen it is printed from
+/// ([setupInstructionsSections]).
 Future<Uint8List> setupInstructionsPdf({
   required PdfPageFormat format,
   required String deviceName,
   required SetupInstructionsDto instructions,
+  bool afterFailedConnect = true,
+}) => textDocumentPdf(
+  format: format,
+  title: deviceName,
+  subtitle: afterFailedConnect
+      ? 'Setup & troubleshooting'
+      : 'Pairing instructions',
+  sections: setupInstructionsSections(
+    instructions,
+    afterFailedConnect: afterFailedConnect,
+  ),
+);
+
+/// The printed sections of [instructions], ordered as `SetupInstructionsScreen`
+/// orders them: after a failed connect the rejoin note and troubleshooting
+/// lead; from the pairing guide ([afterFailedConnect] false) the overview
+/// and steps lead, troubleshooting follows, and the rejoin note is for later.
+/// The factory reset closes both.
+List<PdfSection> setupInstructionsSections(
+  SetupInstructionsDto instructions, {
+  bool afterFailedConnect = true,
 }) {
   String step(SetupStepDto s, int i) => [
     '${i + 1}. ${s.action}',
-    if (s.expect != null && s.expect!.trim().isNotEmpty)
-      '   Expect: ${s.expect!.trim()}',
+    if (hasSetupText(s.expect)) '   Expect: ${s.expect!.trim()}',
   ].join('\n');
 
   final troubleshooting = [
@@ -137,55 +159,67 @@ Future<Uint8List> setupInstructionsPdf({
   final rejoin = instructions.rejoin?.notes?.trim();
   final reset = instructions.factoryReset;
 
-  return textDocumentPdf(
-    format: format,
-    title: deviceName,
-    subtitle: 'Setup & troubleshooting',
-    sections: [
-      if (rejoin != null && rejoin.isNotEmpty)
-        (heading: 'Reconnecting', paragraphs: [rejoin]),
-      if (troubleshooting.isNotEmpty)
-        (
+  final PdfSection? rejoinSection = hasSetupText(rejoin)
+      ? (
+          heading: afterFailedConnect
+              ? 'Reconnecting'
+              : 'If it disconnects later',
+          paragraphs: [rejoin!],
+        )
+      : null;
+  final PdfSection? troubleshootingSection = troubleshooting.isEmpty
+      ? null
+      : (
           heading: "If it won't connect",
           paragraphs: [
             for (final t in troubleshooting)
               [t.symptom, for (final c in t.causes) '  - $c'].join('\n'),
           ],
-        ),
-      if ((instructions.notes ?? '').trim().isNotEmpty)
-        (heading: 'Overview', paragraphs: [instructions.notes!.trim()]),
-      for (final method in instructions.methods)
-        if (method.description != null ||
-            method.steps.isNotEmpty ||
-            method.stages.isNotEmpty)
-          (
-            heading: method.name ?? 'Setup',
-            paragraphs: [
-              if (method.description != null) method.description!.trim(),
-              for (final (i, s) in method.steps.indexed) step(s, i),
-              for (final stage in method.stages) ...[
-                if (stage.name != null) stage.name!,
-                if (stage.description != null) stage.description!.trim(),
-                for (final (i, s) in stage.steps.indexed) step(s, i),
-              ],
-            ],
-          ),
-      if (reset != null)
+        );
+  final pairing = <PdfSection>[
+    if (hasSetupText(instructions.notes))
+      (heading: 'Overview', paragraphs: [instructions.notes!.trim()]),
+    for (final method in instructions.methods)
+      if (setupMethodHasContent(method))
         (
-          heading: 'Factory reset',
+          heading: method.name ?? 'Setup',
           paragraphs: [
-            if (reset.effect != null) reset.effect!.trim(),
-            for (final p in reset.procedures) ...[
-              [
-                p.name,
-                if (p.holdSeconds != null) '(hold ${p.holdSeconds} s)',
-              ].join(' '),
-              for (final (i, s) in p.steps.indexed) step(s, i),
+            if (hasSetupText(method.description)) method.description!.trim(),
+            for (final (i, s) in method.steps.indexed) step(s, i),
+            for (final stage in method.stages) ...[
+              if (stage.name != null) stage.name!,
+              if (hasSetupText(stage.description)) stage.description!.trim(),
+              for (final (i, s) in stage.steps.indexed) step(s, i),
             ],
           ],
         ),
+  ];
+
+  return [
+    if (afterFailedConnect) ...[
+      ?rejoinSection,
+      ?troubleshootingSection,
+      ...pairing,
+    ] else ...[
+      ...pairing,
+      ?troubleshootingSection,
+      ?rejoinSection,
     ],
-  );
+    if (reset != null)
+      (
+        heading: 'Factory reset',
+        paragraphs: [
+          if (reset.effect != null) reset.effect!.trim(),
+          for (final p in reset.procedures) ...[
+            [
+              p.name,
+              if (p.holdSeconds != null) '(hold ${p.holdSeconds} s)',
+            ].join(' '),
+            for (final (i, s) in p.steps.indexed) step(s, i),
+          ],
+        ],
+      ),
+  ];
 }
 
 /// A composed label on a regular printer: one page of [format] with the

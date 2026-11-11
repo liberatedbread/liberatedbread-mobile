@@ -4,7 +4,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:liberated_bread_mobile/screens/setup_instructions_screen.dart';
+import 'package:liberated_bread_mobile/services/print/os_print_service.dart';
 import 'package:liberated_bread_mobile/services/spec_codec.dart';
+
+import '../fakes/fake_os_print_service.dart';
 
 const _full = SetupInstructionsDto(
   notes: 'Enable Bluetooth on the mug, then connect.',
@@ -55,7 +58,12 @@ const _full = SetupInstructionsDto(
   ),
 );
 
-Future<void> _pump(WidgetTester tester, SetupInstructionsDto instructions) {
+Future<void> _pump(
+  WidgetTester tester,
+  SetupInstructionsDto instructions, {
+  bool afterFailedConnect = true,
+  OsPrintService? printer,
+}) {
   // The screen is a scrolling ListView; a tall surface lets every section
   // build so the assertions do not have to scroll each one into view.
   tester.view.physicalSize = const Size(1000, 3000);
@@ -64,10 +72,14 @@ Future<void> _pump(WidgetTester tester, SetupInstructionsDto instructions) {
   addTearDown(tester.view.resetDevicePixelRatio);
   return tester.pumpWidget(
     ProviderScope(
+      overrides: [
+        if (printer != null) osPrintServiceProvider.overrideWithValue(printer),
+      ],
       child: MaterialApp(
         home: SetupInstructionsScreen(
           deviceName: 'Ember Mug',
           instructions: instructions,
+          afterFailedConnect: afterFailedConnect,
         ),
       ),
     ),
@@ -316,5 +328,59 @@ void main() {
     expect(find.text('HomeKit pairing'), findsOneWidget);
     expect(find.text('Gen 3 setup AP'), findsOneWidget);
     expect(find.text('Depends on the hardware'), findsOneWidget);
+  });
+
+  testWidgets('from the pairing guide, the steps lead and rejoin trails', (
+    tester,
+  ) async {
+    // Someone setting up a new device has not failed to connect yet: the
+    // pairing steps come first, troubleshooting after, and the rejoin note
+    // is "for later" rather than "try this first".
+    await _pump(tester, _full, afterFailedConnect: false);
+
+    expect(find.text('Pairing instructions'), findsOneWidget);
+    expect(find.text('Setup & troubleshooting'), findsNothing);
+    expect(find.text('Try this first'), findsNothing);
+    expect(find.text('If it disconnects later'), findsOneWidget);
+    expect(find.textContaining('Close the other client'), findsOneWidget);
+
+    double top(String label) => tester.getTopLeft(find.text(label)).dy;
+    expect(top('Overview'), lessThan(top('How to pair')));
+    expect(top('How to pair'), lessThan(top('If it won’t connect')));
+    expect(
+      top('If it won’t connect'),
+      lessThan(top('If it disconnects later')),
+    );
+    expect(
+      top('If it disconnects later'),
+      lessThan(tester.getTopLeft(find.text('Factory reset').first).dy),
+    );
+  });
+
+  testWidgets('after a failed connect, troubleshooting leads the steps', (
+    tester,
+  ) async {
+    await _pump(tester, _full);
+
+    double top(String label) => tester.getTopLeft(find.text(label)).dy;
+    expect(top('Try this first'), lessThan(top('If it won’t connect')));
+    expect(top('If it won’t connect'), lessThan(top('How to pair')));
+    expect(find.text('If it disconnects later'), findsNothing);
+  });
+
+  testWidgets('Print from the pairing guide hands the dialog the notes', (
+    tester,
+  ) async {
+    // The printout's section order is pinned in pdf_documents_test; this is
+    // the button reaching the print dialog with a document for this device.
+    final printer = FakeOsPrintService();
+    await _pump(tester, _full, afterFailedConnect: false, printer: printer);
+
+    await tester.tap(find.byTooltip('Print'));
+    await tester.runAsync(() => Future<void>.delayed(Duration.zero));
+    await tester.pumpAndSettle();
+
+    expect(printer.jobs.map((j) => j.name), ['Ember Mug setup']);
+    expect(String.fromCharCodes(printer.jobs.single.pdf.take(5)), '%PDF-');
   });
 }

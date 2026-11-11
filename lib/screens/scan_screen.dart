@@ -25,9 +25,11 @@ import '../services/radio_recognition.dart';
 import '../widgets/ad_banner_bar.dart';
 import '../widgets/black_hat_icon.dart';
 import '../widgets/device_list_tile.dart';
+import '../widgets/pair_new_device_card.dart';
 import '../widgets/radar_scanner.dart';
 import 'device_screen.dart';
 import 'about_screen.dart';
+import 'ble_pairing_guide_screen.dart';
 import 'diagnostics_screen.dart';
 import 'ha_settings_screen.dart';
 import 'radio_device_screen.dart';
@@ -1125,6 +1127,18 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
             ],
           ],
         ],
+        // Last, after everything the scan found, in every scan state: the
+        // person who has scrolled past the results without seeing their
+        // device is the one asking how to make it show up.
+        const SizedBox(height: 36),
+        PairNewDeviceCard(
+          onTap: () => Navigator.push(
+            context,
+            MaterialPageRoute<void>(
+              builder: (_) => const BlePairingGuideScreen(),
+            ),
+          ),
+        ),
       ],
     );
   }

@@ -697,6 +697,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  List<SetupInstructionsDto?>
+  dco_decode_list_opt_box_autoadd_setup_instructions_dto(dynamic raw);
+
+  @protected
   List<ParameterDto> dco_decode_list_parameter_dto(dynamic raw);
 
   @protected
@@ -2155,6 +2159,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   List<NetworkStateProbeDto> sse_decode_list_network_state_probe_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  List<SetupInstructionsDto?>
+  sse_decode_list_opt_box_autoadd_setup_instructions_dto(
     SseDeserializer deserializer,
   );
 
@@ -4041,6 +4051,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_list_network_state_probe_dto(
     List<NetworkStateProbeDto> self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_list_opt_box_autoadd_setup_instructions_dto(
+    List<SetupInstructionsDto?> self,
     SseSerializer serializer,
   );
 

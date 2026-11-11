@@ -1335,6 +1335,12 @@ abstract class SpecCatalogue {
   Future<List<BleProvisioningProfileDto>> bleProvisioningProfiles(
     List<int> indices,
   );
+
+  /// The renderable `device.setup` instructions of the specs at [indices],
+  /// in that order, null where a spec carries none — what
+  /// [SpecCodec.setupInstructions] answers for one YAML, for many specs at
+  /// once without re-sending and re-parsing them.
+  Future<List<SetupInstructionsDto?>> setupInstructions(List<int> indices);
 }
 
 /// One catalogue member as the non-rendering paths see it: the YAML it was
@@ -1477,6 +1483,11 @@ class EmptySpecCatalogue implements SpecCatalogue {
   Future<List<BleProvisioningProfileDto>> bleProvisioningProfiles(
     List<int> indices,
   ) async => const [];
+
+  @override
+  Future<List<SetupInstructionsDto?>> setupInstructions(
+    List<int> indices,
+  ) async => const [];
 }
 
 /// Whether [error] is flutter_rust_bridge saying the native core was never
@@ -1607,6 +1618,12 @@ class FallbackSpecCatalogue implements SpecCatalogue {
   Future<List<BleProvisioningProfileDto>> bleProvisioningProfiles(
     List<int> indices,
   ) => _codec.bleProvisioningProfiles([for (final i in indices) specs[i].yaml]);
+
+  @override
+  Future<List<SetupInstructionsDto?>> setupInstructions(List<int> indices) =>
+      Future.wait([
+        for (final i in indices) _codec.setupInstructions(specs[i].yaml),
+      ]);
 
   @override
   Future<List<SpecMatch>> matchDevice({
