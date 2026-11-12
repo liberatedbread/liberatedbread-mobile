@@ -21,6 +21,7 @@ import '../providers/radio_profile_provider.dart';
 import '../providers/saved_radio_provider.dart';
 import '../services/plan_export_service.dart';
 import '../services/saved_radio_store.dart';
+import '../widgets/confirm_dialog.dart';
 import 'radio_device_screen.dart';
 
 /// Provides the exporter. Overridden in tests with a temp directory.
@@ -74,9 +75,19 @@ class _ChannelPlanScreenState extends ConsumerState<ChannelPlanScreen> {
         ref.watch(selectedRadioProfileProvider).value ??
         defaultRadioProfile;
 
+    final compact = MediaQuery.sizeOf(context).width < 480;
+
     return Scaffold(
       appBar: AppBar(
-        title: Text(_selecting ? '${_selected.length} selected' : plan.name),
+        title: _selecting
+            ? Text(
+                '${_selected.length} selected',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              )
+            : compact
+            ? null
+            : Text(plan.name, maxLines: 1, overflow: TextOverflow.ellipsis),
         leading: _selecting
             ? IconButton(
                 // The one icon-only action here without a name: a screen
@@ -111,24 +122,69 @@ class _ChannelPlanScreenState extends ConsumerState<ChannelPlanScreen> {
                   ? null
                   : () => setState(() => _selecting = true),
             ),
-            IconButton(
-              tooltip: 'Export as CHIRP CSV',
-              icon: const Icon(Icons.ios_share),
-              onPressed: plan.isEmpty ? null : () => _export(plan),
-            ),
-            if (profile.isProgrammable)
+            if (compact)
+              PopupMenuButton<String>(
+                tooltip: 'More plan actions',
+                icon: const Icon(Icons.more_vert),
+                onSelected: (action) {
+                  if (action == 'export') _export(plan);
+                  if (action == 'program') _programRadio(plan, profile);
+                },
+                itemBuilder: (context) => [
+                  PopupMenuItem(
+                    value: 'export',
+                    enabled: !plan.isEmpty,
+                    child: const ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: Icon(Icons.ios_share),
+                      title: Text('Export as CHIRP CSV'),
+                    ),
+                  ),
+                  if (profile.isProgrammable)
+                    PopupMenuItem(
+                      value: 'program',
+                      enabled: !plan.isEmpty,
+                      child: const ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        leading: Icon(Icons.settings_input_antenna),
+                        title: Text('Program radio'),
+                      ),
+                    ),
+                ],
+              )
+            else ...[
               IconButton(
-                tooltip: 'Program radio',
-                icon: const Icon(Icons.settings_input_antenna),
-                onPressed: plan.isEmpty
-                    ? null
-                    : () => _programRadio(plan, profile),
+                tooltip: 'Export as CHIRP CSV',
+                icon: const Icon(Icons.ios_share),
+                onPressed: plan.isEmpty ? null : () => _export(plan),
               ),
+              if (profile.isProgrammable)
+                IconButton(
+                  tooltip: 'Program radio',
+                  icon: const Icon(Icons.settings_input_antenna),
+                  onPressed: plan.isEmpty
+                      ? null
+                      : () => _programRadio(plan, profile),
+                ),
+            ],
           ],
         ],
       ),
       body: Column(
         children: [
+          if (compact && !_selecting)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  plan.name,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.titleLarge,
+                ),
+              ),
+            ),
           if (plan.builtWithTxUnlock) const _UnlockBanner(),
           _CapacityBar(plan: plan, profile: profile),
           Expanded(
@@ -194,7 +250,16 @@ class _ChannelPlanScreenState extends ConsumerState<ChannelPlanScreen> {
           ? null
           : ReorderableDragStartListener(
               index: index,
-              child: const Icon(Icons.drag_handle),
+              child: Semantics(
+                label:
+                    'Reorder '
+                    '${channel.name.isEmpty ? 'channel ${index + 1}' : channel.name}',
+                child: const SizedBox(
+                  width: 48,
+                  height: 48,
+                  child: Icon(Icons.drag_handle),
+                ),
+              ),
             ),
       onTap: _selecting
           ? () => setState(() {
@@ -225,6 +290,17 @@ class _ChannelPlanScreenState extends ConsumerState<ChannelPlanScreen> {
 
   Future<void> _deleteSelected(ChannelPlan plan) async {
     final indices = {..._selected};
+    if (indices.isEmpty) return;
+    final count = indices.length;
+    final confirmed = await confirmAction(
+      context,
+      title: 'Delete $count selected channel${count == 1 ? '' : 's'}?',
+      message:
+          'They are removed from "${plan.name}". This cannot be undone; '
+          'the plan and its other channels stay.',
+      confirmLabel: 'Delete',
+    );
+    if (!confirmed || !mounted) return;
     await ref.read(channelPlansProvider.notifier).removeMany(plan.id, indices);
     if (!mounted) return;
     setState(() {
@@ -552,10 +628,12 @@ class _ChannelEditSheetState extends State<_ChannelEditSheet> {
             ],
           ),
           const SizedBox(height: 8),
-          Row(
+          Wrap(
+            spacing: 12,
+            runSpacing: 8,
+            crossAxisAlignment: WrapCrossAlignment.center,
             children: [
               const Text('Power'),
-              const SizedBox(width: 12),
               SegmentedButton<PowerLevel>(
                 // The radio's own levels, plus the channel's if the radio
                 // lacks it (a UV-32 plan retargeted at a Mini) so what it

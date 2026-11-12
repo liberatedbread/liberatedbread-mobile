@@ -313,6 +313,11 @@ void main() {
     await tester.tap(find.byType(FloatingActionButton));
     await tester.pumpAndSettle();
 
+    expect(
+      find.text('Tap a device for controls or more information.'),
+      findsOneWidget,
+    );
+    expect(find.text('Tap a device to see what it advertises.'), findsNothing);
     // The list is lazy, and the recognised section is its last.
     await tester.scrollUntilVisible(find.text('Opens its own web page'), 100);
     expect(find.text('Recognized, not controlled here'), findsOneWidget);

@@ -5387,3 +5387,57 @@ fn the_lumalou_encodes_its_command_bodies_and_decodes_its_state() {
         .flat_map(|e| &e.actions)
         .all(|a| a.command_name.as_deref() != Some("set_time_prescaler")));
 }
+
+/// Every catalogue device spec answers the pairing question since the
+/// 2026-11 refresh (upstream's `test_device_specs.py` fails one without it),
+/// and the setup page shows that answer — so every one of them must reach
+/// the app as renderable pairing facts, BLE and Wi-Fi alike. A shape change
+/// upstream that the parser silently drops would otherwise empty the page's
+/// Pairing section across the whole catalogue with no test noticing.
+#[test]
+fn every_vendored_device_spec_yields_pairing_facts() {
+    let mut missing = Vec::new();
+    for path in vendored_yaml_paths() {
+        // `examples/` holds reference specs, which upstream exempts.
+        if path.parent().and_then(|d| d.file_name()) != Some("devices".as_ref()) {
+            continue;
+        }
+        let yaml = fs::read_to_string(&path).expect("readable spec");
+        let spec = parse_device_spec(&yaml).expect("vendored spec parses");
+        let has_block = spec.device.extensions.contains_key("pairing");
+        let instructions = liberated_bread_core::spec::setup::setup_instructions(&spec);
+        let pairing = instructions.and_then(|i| i.pairing);
+        if has_block && pairing.is_none() {
+            missing.push(path.display().to_string());
+        }
+    }
+    assert!(
+        missing.is_empty(),
+        "pairing blocks the parser dropped:\n{}",
+        missing.join("\n")
+    );
+}
+
+#[test]
+fn vendored_pairing_facts_carry_pins_and_procedures() {
+    let tv = parse_device_spec(&fs::read_to_string(spec_path("android-tv-remote.yaml")).unwrap())
+        .unwrap();
+    let p = liberated_bread_core::spec::setup::parse_pairing(&tv).expect("TV pairing");
+    assert_eq!(p.required, Some(true));
+    assert_eq!(p.security_mode.as_deref(), Some("app_layer"));
+    let pin = p.pin.expect("TV pin");
+    assert_eq!(pin.source.as_deref(), Some("device_screen"));
+    assert_eq!(pin.length, Some(6));
+    assert!(pin.value.is_none(), "a per-unit code is never in the spec");
+    let unpair = p.unpair.expect("TV unpair");
+    assert_eq!(unpair.supported, Some(true));
+    assert!(!unpair.procedures.is_empty());
+
+    let mug = parse_device_spec(&fs::read_to_string(spec_path("ember-mug.yaml")).unwrap()).unwrap();
+    let p = liberated_bread_core::spec::setup::parse_pairing(&mug).expect("Ember pairing");
+    assert_eq!(p.required, Some(false));
+    assert_eq!(p.exclusivity.and_then(|e| e.single_connection), Some(true));
+    let mode = p.enter_pairing_mode.expect("Ember pairing mode");
+    assert_eq!(mode.procedures.len(), 1);
+    assert_eq!(mode.procedures[0].verified, Some(false));
+}

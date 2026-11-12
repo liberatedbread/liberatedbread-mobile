@@ -78,7 +78,12 @@ void main() {
         codec: FakeSpecCodec(),
       ),
     );
-    expect(find.text('No services found on this device.'), findsOneWidget);
+    expect(
+      find.textContaining(
+        'Connected, but no controllable features were found.',
+      ),
+      findsOneWidget,
+    );
   });
 
   testWidgets('falls back to the raw browser with well-known names when no '
@@ -93,6 +98,9 @@ void main() {
         characteristics: [],
       ),
     ];
+    tester.view.physicalSize = const Size(1200, 2400);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
     await tester.pumpWidget(
       await _wrap(
         const DeviceControlPanel(
@@ -102,11 +110,18 @@ void main() {
         ),
         ble: FakeBleService(),
         codec: FakeSpecCodec(), // no spec -> no match -> raw fallback
+        specs: const {},
       ),
     );
     await tester.pumpAndSettle();
 
-    expect(find.byType(Card), findsNWidgets(2));
+    expect(find.byKey(const ValueKey('unmatched-device-header')), findsOne);
+    await tester.scrollUntilVisible(find.text('Generic Access'), 100);
+    expect(find.byType(Card, skipOffstage: false), findsNWidgets(3));
+    expect(
+      find.textContaining('No typed controls matched this device'),
+      findsOne,
+    );
     expect(find.text('Battery Service'), findsOneWidget);
     expect(find.text('Generic Access'), findsOneWidget);
     expect(find.byType(TypedCharacteristicWidget), findsNothing);
@@ -1476,6 +1491,10 @@ void main() {
         'one', (tester) async {
       await pumpLight(tester);
 
+      expect(
+        find.byKey(const ValueKey('unmatched-device-header')),
+        findsNothing,
+      );
       expect(find.text('Bulb'), findsOneWidget);
       // The light's Control Service repeated the card's verbs as generic
       // command cards. Folded, not removed: still mounted, one tap away.
@@ -1639,7 +1658,12 @@ void main() {
       );
       await tester.pumpAndSettle();
       expect(find.text('HEADER'), findsOneWidget);
-      expect(find.text('No services found on this device.'), findsOneWidget);
+      expect(
+        find.textContaining(
+          'Connected, but no controllable features were found.',
+        ),
+        findsOneWidget,
+      );
     });
   });
 }

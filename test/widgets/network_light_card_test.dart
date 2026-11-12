@@ -3,6 +3,7 @@
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:liberated_bread_mobile/providers/network_control_provider.dart';
@@ -75,19 +76,27 @@ NetworkEntityDto _lightEntity({bool multizone = false}) => NetworkEntityDto(
 Widget _wrap(
   NetworkEntityDto entity,
   FakeSpecCodec codec,
-  _FakeLifxClient client,
-) => ProviderScope(
+  _FakeLifxClient client, {
+  double textScale = 1,
+}) => ProviderScope(
   overrides: [
     specCodecProvider.overrideWithValue(codec),
     lifxControlClientProvider.overrideWithValue(client),
   ],
   child: MaterialApp(
-    home: Scaffold(
-      body: NetworkLightCard(
-        entity: entity,
-        specYaml: 'lifx',
-        host: '192.168.1.44',
-        targetMac: 'd0:73:d5:aa:bb:cc',
+    home: Builder(
+      builder: (context) => MediaQuery(
+        data: MediaQuery.of(
+          context,
+        ).copyWith(textScaler: TextScaler.linear(textScale)),
+        child: Scaffold(
+          body: NetworkLightCard(
+            entity: entity,
+            specYaml: 'lifx',
+            host: '192.168.1.44',
+            targetMac: 'd0:73:d5:aa:bb:cc',
+          ),
+        ),
       ),
     ),
   ),
@@ -1129,6 +1138,23 @@ void main() {
       expect(find.byType(SwatchButton), findsNWidgets(16));
       expect(find.byType(UnclaimedActions), findsNothing);
     });
+  });
+
+  testWidgets('a long light name wraps instead of being cut at larger text', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(320, 700);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    const name = 'LIFX Z Multizone Strip';
+    await tester.pumpWidget(
+      _wrap(_lightEntity(), FakeSpecCodec(), _FakeLifxClient(), textScale: 1.3),
+    );
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
+    final paragraph = tester.renderObject<RenderParagraph>(find.text(name));
+    expect(paragraph.didExceedMaxLines, isFalse);
   });
 
   testWidgets('zone chips are named, stateful buttons', (tester) async {

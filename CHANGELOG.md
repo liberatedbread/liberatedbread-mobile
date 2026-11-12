@@ -13,6 +13,26 @@ heading.
 
 ### Added
 
+- **Every device's pairing answer, on both transports.** The refreshed
+  catalogue gives every spec a `device.pairing` block: on Bluetooth whether
+  the device pairs or bonds, on Wi-Fi how a client gets authorised (an
+  on-screen code, a link button, or an open API whose only gate is the
+  network). The setup page and its printout gain a Pairing section that
+  covers whether to pair at all, the code and where to find it, how to open
+  the pairing window and how long it stays open, one-phone-at-a-time limits
+  and how to recover from them, and how to make the device forget a phone. A
+  spec with a pairing block and no setup block now gets that page too, so a
+  failed Wi-Fi connect's "How to connect" says, for example, that a TV wants
+  the code on its screen. The Bluetooth pairing guide also lists devices whose
+  only instructions are a pairing-mode button. Procedures show their hold
+  time and press count, and say when nobody has tried them on real hardware.
+- **Device screens audited for small phones and large text.** The channel
+  plan's actions fold into a menu on narrow screens, and the connected
+  header's buttons stack when large text needs the room. Swatches and drag
+  handles have 48 dp touch targets, secondary text is full contrast, and
+  characteristic properties are spelled out (Read/Write/Notify). Bulk channel
+  deletes ask first. A light whose state is unknown is no longer drawn as off.
+  A BLE device that no spec matched says why it shows raw services.
 - **LED space Wi-Fi panels over UDP (`popled_json`).** Joined to a panel's
   "YS…" hotspot, a scan now sends the spec's dev_info probe to
   255.255.255.255:9090 (built by the core's frame builder, which reproduces the

@@ -389,9 +389,9 @@ class _LightControlCardState extends ConsumerState<LightControlCard> {
                   ],
                 ),
               ),
-              if (hasToggle)
+              if (hasToggle && shownOn != null)
                 Switch(
-                  value: shownOn ?? false,
+                  value: shownOn,
                   onChanged: _sending
                       ? null
                       : (on) {
@@ -401,7 +401,8 @@ class _LightControlCardState extends ConsumerState<LightControlCard> {
                 ),
             ],
           ),
-          if (!hasToggle && (turnOn != null || turnOff != null))
+          if ((turnOn != null || turnOff != null) &&
+              (!hasToggle || shownOn == null))
             Padding(
               padding: const EdgeInsets.only(top: 10),
               child: Wrap(
@@ -521,6 +522,7 @@ class _LightControlCardState extends ConsumerState<LightControlCard> {
         style: text.bodySmall?.copyWith(color: scheme.error),
       );
     }
+    if (shownOn == null) return Text('State unknown', style: style);
     // Lights commonly have no readable state at all (most strips are
     // write-only); a working blind control is normal, so only a live decode
     // earns a state line.
@@ -530,7 +532,6 @@ class _LightControlCardState extends ConsumerState<LightControlCard> {
     return Text(switch (shownOn) {
       true => _assumedOn != null ? 'On (sent)' : 'On',
       false => _assumedOn != null ? 'Off (sent)' : 'Off',
-      null => 'Ready',
     }, style: style);
   }
 }

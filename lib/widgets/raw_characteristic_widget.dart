@@ -250,9 +250,9 @@ class _RawCharacteristicWidgetState
       return char.canWrite ? _buildWriteRow() : const SizedBox.shrink();
     }
     final properties = <String>[];
-    if (char.canRead) properties.add('R');
-    if (char.canWrite) properties.add('W');
-    if (char.canNotify) properties.add('N');
+    if (char.canRead) properties.add('Read');
+    if (char.canWrite) properties.add('Write');
+    if (char.canNotify) properties.add('Notify');
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -410,7 +410,7 @@ class _RawCharacteristicWidgetState
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // Captioned: bare bytes under the R/W/N chips read as one more
+        // Captioned: bare bytes under the property chips read as one more
         // property rather than what the device returned.
         if (value != null) ...[
           Text(

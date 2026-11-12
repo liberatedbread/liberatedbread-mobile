@@ -299,6 +299,41 @@ void main() {
     );
   });
 
+  test('hasPairingSteps counts a pairing-mode procedure as a route', () {
+    // Many Bluetooth specs say how to open the pairing window only in
+    // `device.pairing`, with no `device.setup` route at all.
+    expect(
+      hasPairingSteps(
+        const SetupInstructionsDto(
+          methods: [],
+          pairing: PairingDto(
+            required_: true,
+            enterPairingMode: PairingModeDto(
+              procedures: [
+                FactoryResetProcedureDto(name: 'Hold the button', steps: []),
+              ],
+            ),
+          ),
+        ),
+      ),
+      isTrue,
+    );
+    expect(
+      hasPairingSteps(
+        const SetupInstructionsDto(
+          methods: [],
+          pairing: PairingDto(
+            required_: false,
+            securityMode: 'none',
+            enterPairingMode: PairingModeDto(required_: false, procedures: []),
+          ),
+        ),
+      ),
+      isFalse,
+      reason: '"nothing pairs" is no route to show a new owner',
+    );
+  });
+
   group('over the vendored catalogue', () {
     TestWidgetsFlutterBinding.ensureInitialized();
 

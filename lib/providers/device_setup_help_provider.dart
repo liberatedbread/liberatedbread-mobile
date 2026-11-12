@@ -10,7 +10,7 @@ import 'scan_match_provider.dart';
 import 'spec_codec_provider.dart';
 
 /// A device's pairing/troubleshooting help: the matched product's name and its
-/// spec's renderable `device.setup` instructions.
+/// spec's renderable `device.setup` instructions and `device.pairing` facts.
 @immutable
 class DeviceSetupHelp {
   /// The matched spec's product name — "Ember Mug" — for the screen title, so

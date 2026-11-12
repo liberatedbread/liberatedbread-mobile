@@ -1,6 +1,7 @@
 // Copyright 2026 Pigs Can Fly Labs LLC
 // SPDX-License-Identifier: Apache-2.0
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:liberated_bread_mobile/models/radio_target.dart';
@@ -36,7 +37,11 @@ const _pl2303 = SerialPortInfo(
   productId: 0x2303,
 );
 
-Widget _wrap(SerialPortService ports, {bool active = true}) => ProviderScope(
+Widget _wrap(
+  SerialPortService ports, {
+  bool active = true,
+  double textScale = 1,
+}) => ProviderScope(
   overrides: [
     serialPortServiceProvider.overrideWithValue(ports),
     serialRadioProgrammerProvider.overrideWithValue(FakeRadioProgrammer()),
@@ -46,7 +51,16 @@ Widget _wrap(SerialPortService ports, {bool active = true}) => ProviderScope(
       (ref) async => InMemorySettingsStore(),
     ),
   ],
-  child: MaterialApp(home: UsbScanScreen(active: active)),
+  child: MaterialApp(
+    home: Builder(
+      builder: (context) => MediaQuery(
+        data: MediaQuery.of(
+          context,
+        ).copyWith(textScaler: TextScaler.linear(textScale)),
+        child: UsbScanScreen(active: active),
+      ),
+    ),
+  ),
 );
 
 void main() {
@@ -96,6 +110,31 @@ void main() {
     await tester.pumpWidget(_wrap(FakeSerialPorts([_pl2303])));
     await tester.pumpAndSettle();
     expect(find.textContaining('Counterfeit PL2303'), findsOneWidget);
+  });
+
+  testWidgets('the full cable compatibility caution stays visible', (
+    tester,
+  ) async {
+    for (final (width, scale) in [(390.0, 1.0), (320.0, 1.3)]) {
+      tester.view.physicalSize = Size(width, 844);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(
+        _wrap(FakeSerialPorts([_pl2303]), textScale: scale),
+      );
+      await tester.pumpAndSettle();
+
+      expect(tester.takeException(), isNull);
+      final caution = tester.renderObject<RenderParagraph>(
+        find.textContaining('Counterfeit PL2303'),
+      );
+      expect(caution.maxLines, isNull);
+      expect(
+        caution.didExceedMaxLines,
+        isFalse,
+        reason: '$width pt at ${scale}x',
+      );
+    }
   });
 
   testWidgets('with nothing plugged in, says how to plug a cable in', (

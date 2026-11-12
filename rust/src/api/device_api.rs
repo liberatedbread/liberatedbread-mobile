@@ -6914,12 +6914,17 @@ pub struct SetupMethodDto {
     pub troubleshooting: Vec<TroubleshootingDto>,
 }
 
-/// One named way to factory-reset the device.
+/// One named thing to do at the hardware — a factory reset, or the
+/// pairing block's pairing-mode and unpair procedures, which share the shape.
 #[derive(Debug, Clone)]
 pub struct FactoryResetProcedureDto {
     pub name: String,
     pub hold_seconds: Option<u32>,
+    /// How many presses, when the procedure counts them.
+    pub press_count: Option<u32>,
     pub indicator: Option<String>,
+    /// `Some(false)` when nobody has run it on real hardware yet.
+    pub verified: Option<bool>,
     pub steps: Vec<SetupStepDto>,
 }
 
@@ -6939,13 +6944,73 @@ pub struct RejoinDto {
     pub notes: Option<String>,
 }
 
-/// One spec's `device.setup` block, rendered-ready.
+/// `device.pairing.pin` — the passkey or PIN, when one is involved.
+#[derive(Debug, Clone)]
+pub struct PairingPinDto {
+    /// `fixed_default`, `printed_label`, `device_screen`, `vendor_app`,
+    /// `derived`, `user_chosen` or `unknown`.
+    pub source: Option<String>,
+    /// The PIN itself — only for a product-wide `fixed_default`.
+    pub value: Option<String>,
+    pub length: Option<u32>,
+    pub notes: Option<String>,
+}
+
+/// `device.pairing.exclusivity` — whether a second client is shut out.
+#[derive(Debug, Clone)]
+pub struct PairingExclusivityDto {
+    pub single_connection: Option<bool>,
+    pub single_bond: Option<bool>,
+    pub recovery: Option<String>,
+    pub notes: Option<String>,
+}
+
+/// `device.pairing.enter_pairing_mode` — what makes the device pairable.
+#[derive(Debug, Clone)]
+pub struct PairingModeDto {
+    pub required: Option<bool>,
+    pub window_seconds: Option<u32>,
+    pub advertised_name: Option<String>,
+    pub indicator: Option<String>,
+    pub procedures: Vec<FactoryResetProcedureDto>,
+    pub notes: Option<String>,
+}
+
+/// `device.pairing.unpair` — how a remembered client is forgotten.
+#[derive(Debug, Clone)]
+pub struct UnpairDto {
+    pub supported: Option<bool>,
+    pub requires_factory_reset: Option<bool>,
+    pub clears: Option<String>,
+    pub procedures: Vec<FactoryResetProcedureDto>,
+    pub notes: Option<String>,
+}
+
+/// `device.pairing` — whether a client must pair or bond before the device
+/// answers (on Wi-Fi: how a client gets authorised), and what a person does
+/// at the hardware for that. `unknown` tri-states arrive as `None`.
+#[derive(Debug, Clone)]
+pub struct PairingDto {
+    pub required: Option<bool>,
+    pub confidence: Option<String>,
+    pub security_mode: Option<String>,
+    pub bonding: Option<String>,
+    pub pin: Option<PairingPinDto>,
+    pub exclusivity: Option<PairingExclusivityDto>,
+    pub enter_pairing_mode: Option<PairingModeDto>,
+    pub unpair: Option<UnpairDto>,
+    pub notes: Option<String>,
+}
+
+/// One spec's `device.setup` block, rendered-ready, with the `device.pairing`
+/// block beside it.
 #[derive(Debug, Clone)]
 pub struct SetupInstructionsDto {
     pub notes: Option<String>,
     pub methods: Vec<SetupMethodDto>,
     pub factory_reset: Option<FactoryResetDto>,
     pub rejoin: Option<RejoinDto>,
+    pub pairing: Option<PairingDto>,
 }
 
 impl From<crate::spec::setup::SetupStep> for SetupStepDto {
@@ -6963,6 +7028,58 @@ impl From<crate::spec::setup::Troubleshooting> for TroubleshootingDto {
         TroubleshootingDto {
             symptom: t.symptom,
             causes: t.causes,
+        }
+    }
+}
+
+impl From<crate::spec::setup::FactoryResetProcedure> for FactoryResetProcedureDto {
+    fn from(p: crate::spec::setup::FactoryResetProcedure) -> Self {
+        FactoryResetProcedureDto {
+            name: p.name,
+            hold_seconds: p.hold_seconds,
+            press_count: p.press_count,
+            indicator: p.indicator,
+            verified: p.verified,
+            steps: p.steps.into_iter().map(Into::into).collect(),
+        }
+    }
+}
+
+impl From<crate::spec::setup::PairingBlock> for PairingDto {
+    fn from(p: crate::spec::setup::PairingBlock) -> Self {
+        PairingDto {
+            required: p.required,
+            confidence: p.confidence,
+            security_mode: p.security_mode,
+            bonding: p.bonding,
+            pin: p.pin.map(|pin| PairingPinDto {
+                source: pin.source,
+                value: pin.value,
+                length: pin.length,
+                notes: pin.notes,
+            }),
+            exclusivity: p.exclusivity.map(|e| PairingExclusivityDto {
+                single_connection: e.single_connection,
+                single_bond: e.single_bond,
+                recovery: e.recovery,
+                notes: e.notes,
+            }),
+            enter_pairing_mode: p.enter_pairing_mode.map(|m| PairingModeDto {
+                required: m.required,
+                window_seconds: m.window_seconds,
+                advertised_name: m.advertised_name,
+                indicator: m.indicator,
+                procedures: m.procedures.into_iter().map(Into::into).collect(),
+                notes: m.notes,
+            }),
+            unpair: p.unpair.map(|u| UnpairDto {
+                supported: u.supported,
+                requires_factory_reset: u.requires_factory_reset,
+                clears: u.clears,
+                procedures: u.procedures.into_iter().map(Into::into).collect(),
+                notes: u.notes,
+            }),
+            notes: p.notes,
         }
     }
 }
@@ -7000,22 +7117,14 @@ impl From<crate::spec::setup::SetupInstructions> for SetupInstructionsDto {
                 .collect(),
             factory_reset: s.factory_reset.map(|fr| FactoryResetDto {
                 effect: fr.effect,
-                procedures: fr
-                    .procedures
-                    .into_iter()
-                    .map(|p| FactoryResetProcedureDto {
-                        name: p.name,
-                        hold_seconds: p.hold_seconds,
-                        indicator: p.indicator,
-                        steps: p.steps.into_iter().map(Into::into).collect(),
-                    })
-                    .collect(),
+                procedures: fr.procedures.into_iter().map(Into::into).collect(),
             }),
             rejoin: s.rejoin.map(|r| RejoinDto {
                 in_place_supported: r.in_place_supported,
                 requires_factory_reset: r.requires_factory_reset,
                 notes: r.notes,
             }),
+            pairing: s.pairing.map(Into::into),
         }
     }
 }

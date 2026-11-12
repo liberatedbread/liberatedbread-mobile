@@ -45,7 +45,7 @@ class _SubtitleAndDetail extends StatelessWidget {
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: text.bodySmall?.copyWith(
-                color: scheme.onSurfaceVariant.withValues(alpha: 0.7),
+                color: scheme.onSurfaceVariant,
                 // Tabular figures stop the row jittering as values update.
                 fontFeatures: const [FontFeature.tabularFigures()],
               ),
@@ -74,11 +74,13 @@ class SectionHeader extends StatelessWidget {
     final count = this.count;
     return Row(
       children: [
-        Text(
-          label,
-          style: text.titleSmall?.copyWith(
-            fontWeight: FontWeight.w700,
-            letterSpacing: 0.2,
+        Flexible(
+          child: Text(
+            label,
+            style: text.titleSmall?.copyWith(
+              fontWeight: FontWeight.w700,
+              letterSpacing: 0.2,
+            ),
           ),
         ),
         if (count != null) ...[
@@ -163,6 +165,10 @@ class DeviceListTile extends StatelessWidget {
   /// identification.
   final String? description;
 
+  /// Lines available to [description]. Ordinary scan observations stay at one;
+  /// null lets actionable compatibility guidance use as many as it needs.
+  final int? descriptionMaxLines;
+
   /// Whether this device has stopped being heard from.
   ///
   /// Replaces the signal meter with a warning glyph, because the two say
@@ -197,9 +203,11 @@ class DeviceListTile extends StatelessWidget {
     this.badge,
     this.badgeIsClaim = false,
     this.description,
+    this.descriptionMaxLines = 1,
     this.stale = false,
     this.staleReason,
-  }) : assert(
+  }) : assert(descriptionMaxLines == null || descriptionMaxLines > 0),
+       assert(
          onConfigure == null || configureTooltip != null,
          'a configure action needs a tooltip: it is an icon with no label',
        );
@@ -319,12 +327,12 @@ class DeviceListTile extends StatelessWidget {
                       Text(
                         description!,
                         style: text.bodySmall?.copyWith(
-                          color: scheme.onSurfaceVariant.withValues(
-                            alpha: 0.75,
-                          ),
+                          color: scheme.onSurfaceVariant,
                         ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
+                        maxLines: descriptionMaxLines,
+                        overflow: descriptionMaxLines == null
+                            ? TextOverflow.visible
+                            : TextOverflow.ellipsis,
                       ),
                     ],
                   ],

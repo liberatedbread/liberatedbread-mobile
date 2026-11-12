@@ -529,6 +529,11 @@ void main() {
 
     expect(find.byType(Switch), findsNothing);
     expect(find.textContaining('Could not reach'), findsOneWidget);
+    expect(
+      find.textContaining('offline or have a new network address'),
+      findsOne,
+    );
+    expect(find.textContaining('moved ports'), findsNothing);
   });
 
   // ── The other transport: a remote of stateless plain-HTTP buttons ────────
