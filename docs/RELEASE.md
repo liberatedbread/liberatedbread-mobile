@@ -218,8 +218,12 @@ static checks in Step 4.
 
 For Android, install `android/key.properties` in the release worktree as
 described under [Android signing](#android-signing), using an absolute path to
-the backed-up upload keystore. It is gitignored deliberately. This check must
-succeed: without the file Gradle silently falls back to the shared debug key,
+the backed-up upload keystore. It is gitignored deliberately.
+`release-android.sh` installs it for you: it offers to copy the main
+checkout's file into the release worktree. It checks that git ignores the
+path there before the copy and checks again after it. If the first check
+fails, nothing is written. If the second fails, it deletes the copy it just
+made. This check must succeed: without the file Gradle silently falls back to the shared debug key,
 and Play will reject the AAB:
 
 ```bash

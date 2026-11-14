@@ -56,11 +56,22 @@ platform_device_tests() {
 
 # The worktree is fresh, and key.properties is gitignored, so it is never
 # there on a first run. Copy the main checkout's, point at one, or write one.
+#
+# The file holds the keystore passwords, so whether git ignores it is checked
+# twice. The first check runs BEFORE anything is written: `git check-ignore`
+# matches the path against the worktree's ignore rules whether or not the
+# file exists, so a release worktree whose .gitignore lost the entry stops the
+# run with no secrets on disk. The second check runs AFTER the file is in
+# place, against the real file. If that one fails, a file this run wrote is
+# deleted before the run stops, so it cannot be staged by accident.
 ensure_key_properties() {
-  local props=android/key.properties src store
+  local props=android/key.properties src store wrote=false
   if [[ ! -s "$props" ]]; then
+    git check-ignore -q "$props" ||
+      die "$props is not gitignored in the release worktree; refusing to put the signing passwords there."
+    log "$props is gitignored in the release worktree."
     if [[ -s "$PROJECT_DIR/$props" ]] &&
-      confirm "Copy $PROJECT_DIR/$props into the release worktree?" y; then
+      confirm "Copy $PROJECT_DIR/$props into the release worktree? (verified gitignored there before the copy, and checked again after it)" y; then
       src="$PROJECT_DIR/$props"
     else
       src="$(ask "Path to an existing key.properties (blank to write a new one)" "")"
@@ -71,9 +82,17 @@ ensure_key_properties() {
     else
       write_key_properties "$props"
     fi
+    wrote=true
   fi
   chmod 600 "$props"
-  git check-ignore -q "$props" || die "$props is not gitignored here; refusing to continue."
+  if ! git check-ignore -q "$props"; then
+    if [[ "$wrote" == true ]]; then
+      rm -f "$props"
+      die "$props is not gitignored here; deleted the copy just written and refusing to continue."
+    fi
+    die "$props is not gitignored here; refusing to continue."
+  fi
+  log "$props is in place and still gitignored."
 
   store="$(key_prop "$props" storeFile)"
   KEY_ALIAS="$(key_prop "$props" keyAlias)"
