@@ -3,7 +3,7 @@ description: >
   A BLE companion app for Liberated Bread - keeping your IoT devices alive
   and talking, one Bluetooth packet at a time.
 publish_to: 'none'
-version: 0.1.0+1
+version: 0.0.0+1
 
 environment:
   # What pubspec.lock and the pinned Flutter 3.44.8 already demand. This is
