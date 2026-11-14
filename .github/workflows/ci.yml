@@ -349,6 +349,11 @@ jobs:
       # aapt2: each runtime-fatal permission it must catch being stripped.
       - name: Self-test the APK verifier
         run: ./scripts/verify-apk-selftest.sh
+      # The guided release scripts' shared logic (release-android.sh,
+      # release-apple.sh): prompts, CHANGELOG/record parsing, and which tag
+      # and commit get released, against a throwaway repo and origin.
+      - name: release-lib selftest
+        run: ./scripts/release-lib-selftest.sh
       - name: device-select selftest
         run: ./scripts/device-select-selftest.sh
       # run-android.sh's emulator boot against stub adb/emulator: re-running

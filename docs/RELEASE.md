@@ -86,6 +86,44 @@ PRODUCTION_RELEASE_DATE=<YYYY-MM-DD, after actual publication>
 
 ## Cutting a release
 
+### The guided scripts
+
+Two interactive scripts walk this whole checklist, one per store:
+
+```bash
+./scripts/release-android.sh   # Google Play (Linux or macOS)
+./scripts/release-apple.sh     # App Store (the release Mac)
+```
+
+Each asks first whether to **cut a new tag** (pubspec.yaml's version on the
+CI-green tip of `origin/main`) or **build an existing tag**, for example one the
+other platform's script already cut. `--new-tag` and `--from-tag vX.Y.Z` answer
+that question up front. Then each script:
+
+- runs every step a shell can run: fetch, the CI gate (it watches a running
+  CI run), the clean worktree, `test.sh` and the netdisco suites, the phone
+  preflight, the local tag, `release.sh`, the artifact checks (`jarsigner`,
+  or `verify_ios_app.sh` plus the ITMS-91053 preflight), hashes, the tag push,
+  and the GitHub Release from the CHANGELOG section;
+- stops for every step that happens in a store console or on a phone, says
+  exactly what to do, and waits for Enter (`q` stops the run);
+- asks before anything outward-facing: creating the tag, pushing it, and
+  publishing the GitHub Release;
+- keeps the release record below in
+  `../liberatedbread-release-records/<version>/`, along with the build logs
+  and a copy of each uploaded artifact. A re-run of the same commit offers to
+  skip each step that already passed, so a release that waits days for App
+  Review is resumed with `--from-tag`.
+
+The iOS upload goes through `xcrun altool` when an App Store Connect API key is
+available (`ASC_KEY_ID`, `ASC_ISSUER_UUID`, and the `.p8` as in the Apple
+runbook Step 5), and through Transporter otherwise. Play Console steps stay
+manual. A failed check stops the script; nothing in it sets the `release.sh`
+overrides. The steps below are what the scripts do, and they still work by
+hand.
+
+### By hand
+
 This is the release manager's end-to-end checklist. The examples ship `0.1.0`;
 substitute the version actually in `pubspec.yaml`. A store build must use
 **neither** `LB_RELEASE_UNTAGGED=1` nor `LB_RELEASE_DIRTY=1`.
