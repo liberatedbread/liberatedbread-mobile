@@ -253,6 +253,11 @@ log "verify-ios-app selftest"
 log "verify-apk selftest"
 ./scripts/verify-apk-selftest.sh
 
+# The guided release's prompts, changelog/record parsing and tag resolution,
+# against a throwaway repo and origin. It runs a few times a year otherwise.
+log "release-lib selftest"
+./scripts/release-lib-selftest.sh
+
 # The emulated-network responder answers only what was asked — the property the
 # netdisco suites' "the app sent the right query" claims rest on. No sockets,
 # so it runs here rather than in the netdisco job.
