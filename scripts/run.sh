@@ -22,6 +22,12 @@ err()  { printf '\033[1;31m[run]\033[0m %s\n' "$*" >&2; }
 # Auto-upgrades the repo-managed SDK at ~/.flutter-sdk to CI's pinned Flutter.
 # shellcheck source=flutter-ensure-version.sh
 source "$SCRIPT_DIR/flutter-ensure-version.sh"
+# find_adb, and adb_maybe_bounce: with no device found, list what adb sees
+# and, if that is nothing, offer to restart the adb server and retry.
+# shellcheck source=android-device-select.sh
+source "$SCRIPT_DIR/android-device-select.sh"
+# shellcheck source=adb-maybe-bounce.sh
+source "$SCRIPT_DIR/adb-maybe-bounce.sh"
 
 # ── parse args ───────────────────────────────────────────────────────────────
 
@@ -137,6 +143,14 @@ fi
 
 # ── go ───────────────────────────────────────────────────────────────────────
 
-ensure_device
+# ensure_device exits 1 when it finds no device and cannot boot the emulator.
+# Run it in a subshell first so that failure can be retried once after an adb
+# server restart (a wedged server hides a plugged-in phone), then in this
+# shell, where a second failure exits as before. Without an adb there is no
+# server to restart, and nothing to offer.
+if ! ( ensure_device ); then
+  find_adb >/dev/null && adb_maybe_bounce || exit 1
+  ensure_device
+fi
 log "Running: flutter ${FLUTTER_ARGS[*]}"
 exec flutter "${FLUTTER_ARGS[@]}"

@@ -52,6 +52,11 @@ err()  { printf '\033[1;31m[android-device-tests]\033[0m %s\n' "$*" >&2; }
 
 # shellcheck source=android-device-select.sh
 source "$SCRIPT_DIR/android-device-select.sh"
+# adb_maybe_bounce / adb_retry_after_bounce: with no phone found, or an adb
+# install failing, list what adb sees and, if that is nothing, offer to
+# restart the adb server and retry.
+# shellcheck source=adb-maybe-bounce.sh
+source "$SCRIPT_DIR/adb-maybe-bounce.sh"
 source "$SCRIPT_DIR/regen-bindings.sh"
 source "$SCRIPT_DIR/regen-spec-index.sh"
 # Defines ensure_gradle_jdk, called before the build below, as run-android.sh does.
@@ -115,7 +120,12 @@ done
 cd "$PROJECT_DIR"
 
 if [[ "$LIST_ONLY" == "true" ]]; then
-  list_android_devices
+  # No phone listed may be a wedged adb server rather than nothing plugged in.
+  listing="$(list_android_devices)"
+  printf '%s\n' "$listing"
+  if [[ "$listing" == "No physical"* ]] && adb_maybe_bounce; then
+    list_android_devices
+  fi
   exit 0
 fi
 
@@ -124,6 +134,14 @@ DEVICE=""
 # the `!` inverts the status and `$?` in that branch is always 0.
 pick_rc=0
 DEVICE="$(pick_android_device "$DEVICE_ID")" || pick_rc=$?
+# No phone (exit 2) may be a wedged adb server: adb_maybe_bounce lists what
+# adb sees and, if that is nothing, offers to restart it; pick again if a
+# device came up. Not for exit 1 (a broken toolchain) or exit 3 (a phone IS
+# attached, just not the one named), which a restart does not change.
+if (( pick_rc == 2 )) && adb_maybe_bounce; then
+  pick_rc=0
+  DEVICE="$(pick_android_device "$DEVICE_ID")" || pick_rc=$?
+fi
 if (( pick_rc != 0 )); then
   # Exit 2 only — see the iOS runner. Exit 1 is "flutter devices --machine
   # could not be parsed", a broken toolchain rather than an absent phone, and
@@ -191,7 +209,7 @@ restore_real_app() {
     return 1
   fi
   # -d as in run-android.sh: allow a version-code downgrade during dev.
-  if ! "$adb" -s "$DEVICE" install -r -d "$apk"; then
+  if ! adb_retry_after_bounce "$adb" -s "$DEVICE" install -r -d "$apk"; then
     err "Reinstalling the app failed."
     return 1
   fi

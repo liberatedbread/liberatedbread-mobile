@@ -130,6 +130,12 @@ if [[ -z "${ADB:-}" ]]; then
   exit 1
 fi
 
+# adb_maybe_bounce / adb_retry_after_bounce: when no device can be found, or
+# an adb command against one fails, list what adb sees and, if that is
+# nothing, offer to restart the adb server and retry.
+# shellcheck source=adb-maybe-bounce.sh
+source "$SCRIPT_DIR/adb-maybe-bounce.sh"
+
 # ── Gradle-compatible JDK ────────────────────────────────────────────────────
 #
 # Shared with setup.sh: point Flutter at a JDK the Gradle wrapper can run
@@ -152,9 +158,10 @@ is_emulator() { [[ "$1" == emulator-* ]]; }
 first_physical() { list_online_devices | while read -r s; do is_emulator "$s" || echo "$s"; done | head -n1; }
 first_emulator() { list_online_devices | while read -r s; do is_emulator "$s" && echo "$s"; done | head -n1; }
 
-if [[ "$LIST_ONLY" == "true" ]]; then
+# Prints the attached devices; returns 1 when there are none.
+print_device_list() {
+  local found=false serial state kind model
   log "Attached Android devices:"
-  found=false
   while read -r serial state; do
     [[ -z "$serial" ]] && continue
     found=true
@@ -166,7 +173,16 @@ if [[ "$LIST_ONLY" == "true" ]]; then
       printf '  %-24s %-9s %s\n' "$serial" "$kind" "$state"
     fi
   done < <(adb_devices_states)
-  [[ "$found" == "true" ]] || warn "  (none attached — start an emulator or plug a phone in)"
+  [[ "$found" == "true" ]] && return 0
+  warn "  (none attached — start an emulator or plug a phone in)"
+  return 1
+}
+
+if [[ "$LIST_ONLY" == "true" ]]; then
+  # Nothing listed may be a wedged adb server rather than nothing plugged in.
+  if ! print_device_list && adb_maybe_bounce; then
+    print_device_list || true
+  fi
   exit 0
 fi
 
@@ -216,7 +232,23 @@ resolve_device() {
   esac
 }
 
-resolve_device
+# resolve_device (and the emulator boot it may call) exits 1 on failure, so it
+# runs in a subshell that hands DEVICE_ID back through a file. On failure,
+# adb_maybe_bounce lists the devices and, when adb sees none, offers to
+# restart the adb server; if that brings a device up, resolve once more,
+# this time in this shell so a second failure exits as it always did. An
+# emulator the subshell launched keeps running and is the one the retry
+# waits for.
+resolved_file="$(mktemp)"
+if ( resolve_device; printf '%s\n' "$DEVICE_ID" >"$resolved_file" ); then
+  DEVICE_ID="$(cat "$resolved_file")"
+  rm -f "$resolved_file"
+else
+  rc=$?
+  rm -f "$resolved_file"
+  adb_maybe_bounce || exit "$rc"
+  resolve_device
+fi
 MODEL="$("$ADB" -s "$DEVICE_ID" shell getprop ro.product.model 2>/dev/null | tr -d '\r' || true)"
 log "Device: $DEVICE_ID (${MODEL:-unknown})"
 
@@ -275,7 +307,7 @@ if [[ "$ACTION" == "copy" ]]; then
   stamp="$(date +%Y%m%d-%H%M%S 2>/dev/null || echo build)"
   dest="/sdcard/Download/liberated-bread-${BUILD_TYPE}-${stamp}.apk"
   log "Copying $APK to the phone..."
-  "$ADB" -s "$DEVICE_ID" push "$APK" "$dest"
+  adb_retry_after_bounce "$ADB" -s "$DEVICE_ID" push "$APK" "$dest"
   log "Copied to $dest on $DEVICE_ID."
   log "Install on the phone: Files → Download → that .apk (allow \"install"
   log "unknown apps\" for your file manager the first time)."
@@ -286,7 +318,7 @@ fi
 # sideload: install → (optionally) launch, standalone.
 log "Installing $APK on $DEVICE_ID (reinstall, keep data)..."
 # -r reinstall keeping data; -d allow a version-code downgrade during dev.
-"$ADB" -s "$DEVICE_ID" install -r -d "$APK"
+adb_retry_after_bounce "$ADB" -s "$DEVICE_ID" install -r -d "$APK"
 
 if [[ "$LAUNCH" == "true" ]]; then
   log "Launching $PACKAGE_ID..."

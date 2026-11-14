@@ -146,7 +146,7 @@ fi
 # regen/JDK helpers; the calls each makes are logged in order.
 sandbox="$(mktemp -d)"
 mkdir -p "$sandbox/scripts" "$sandbox/flutter/bin" "$sandbox/sdk/platform-tools"
-cp scripts/run-android-device-tests.sh scripts/android-device-select.sh \
+cp scripts/run-android-device-tests.sh scripts/android-device-select.sh scripts/adb-maybe-bounce.sh \
   "$sandbox/scripts/"
 printf 'regen_frb_bindings() { :; }\n' >"$sandbox/scripts/regen-bindings.sh"
 printf 'regen_spec_index() { :; }\n' >"$sandbox/scripts/regen-spec-index.sh"
