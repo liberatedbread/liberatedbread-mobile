@@ -15,14 +15,21 @@ if (keystorePropertiesFile.exists()) {
     // A key missing here reaches the signing config as null, and
     // :app:signReleaseBundle then dies minutes into the build with a bare
     // NullPointerException and no message. Name the key now instead.
-    def missing = ["storeFile", "storePassword", "keyAlias", "keyPassword"].findAll {
+    def missing = ["storeFile", "storePassword", "keyAlias"].findAll {
         !keystoreProperties.getProperty(it)?.trim()
     }
     if (missing) {
         throw new GradleException(
             "android/key.properties is missing ${missing.join(', ')}. " +
-            "It needs storeFile (an absolute path), storePassword, keyAlias " +
-            "and keyPassword; see docs/RELEASE.md 'Android signing'.")
+            "It needs storeFile (an absolute path), storePassword and keyAlias, " +
+            "plus keyPassword if the key's password differs; see " +
+            "docs/RELEASE.md 'Android signing'.")
+    }
+    // keyPassword defaults to storePassword. In a PKCS12 keystore, keytool's
+    // default since JDK 9, they are the same password: Java protects the keys
+    // with the store's. Only a JKS key given its own password needs it set.
+    if (!keystoreProperties.getProperty("keyPassword")?.trim()) {
+        keystoreProperties.setProperty("keyPassword", keystoreProperties.getProperty("storePassword"))
     }
 }
 
