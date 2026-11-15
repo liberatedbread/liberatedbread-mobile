@@ -26,10 +26,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   When `origin/main`'s pubspec version is already tagged on an earlier
   commit, the guided release scripts pick the next version themselves and
   prepare its release commit and PR (pubspec.yaml bump and CHANGELOG.md cut)
-  without asking first. The version follows the Unreleased headings: a
-  `### Removed` section or a BREAKING note is a major bump (minor below
-  1.0.0), `### Added`, `### Changed` or `### Deprecated` a minor one, and
-  anything else a patch. `--new-tag X.Y.Z` still picks a version by hand.
+  without asking first. The version is the next patch after the highest tag
+  (0.0.0 → 0.0.1); `--new-tag X.Y.Z` still picks a minor or major by hand.
 
 
 ## [0.0.0] - 2026-11-13

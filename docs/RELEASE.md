@@ -113,10 +113,8 @@ that question up front. Then each script:
   stays with you, after CI and review, as for any change. The script waits,
   then re-checks `origin/main` and continues with the new version.
   When `origin/main`'s version is already tagged on an earlier commit (the
-  usual state between releases), it does not stop to ask: it picks the next
-  version from the highest tag and the Unreleased headings (`### Removed` or
-  a BREAKING marker: major, below 1.0.0 minor; `### Added`, `### Changed` or
-  `### Deprecated`: minor; otherwise patch) and goes straight to preparing
+  usual state between releases), it does not stop to ask: it takes the next
+  patch after the highest tag (0.0.0 → 0.0.1) and goes straight to preparing
   that commit. `--new-tag X.Y.Z` overrides the pick;
 
 - runs every step a shell can run: fetch, the CI gate (it watches a running
