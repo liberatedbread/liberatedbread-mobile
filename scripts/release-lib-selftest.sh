@@ -155,6 +155,39 @@ expect "record_set replaces in place" $'A=2\nB=https://x/y?a=b&c=d' "$(cat "$R")
 expect "record_get with & and / in the value" 'https://x/y?a=b&c=d' "$(record_get "$R" B)"
 expect "record_get: prefix keys do not collide" "" "$(record_get "$R" AB)"
 
+# ── phone preflight: the skip option ─────────────────────────────────────────
+#
+# A skip never counts as the step passing: it is recorded under its own key,
+# and the platform hook (the phone runners) is not reached.
+
+(
+  parse_args --from-tag v1.0.0 --skip-device-tests
+  expect "parse_args: --skip-device-tests" "true/existing/v1.0.0" "$SKIP_DEVICE_TESTS/$MODE/$TAG"
+  parse_args --new-tag
+  expect "parse_args: no skip by default" "false" "$SKIP_DEVICE_TESTS"
+)
+expect "release args: nothing physical" "--all --expect-lan-devices --no-printing" \
+  "${RELEASE_DEVICE_TEST_ARGS[*]}"
+preflight_case() { # preflight_case SKIP_FLAG STDIN — prints DONE/SKIPPED/hook
+  (
+    RECORD="$TMP/preflight-record.txt" PLATFORM_KEY=ANDROID PLATFORM_NAME=Android
+    RELEASE_SHA=abc123 SHORT_SHA=abc123 SKIP_DEVICE_TESTS="$1"
+    rm -f "$RECORD"
+    hook=no
+    # shellcheck disable=SC2329  # stubs: device_preflight calls them
+    platform_device_tests() { hook=yes; }
+    # shellcheck disable=SC2329  # (the same)
+    require_clean() { :; }
+    device_preflight <<<"$2" >/dev/null 2>&1
+    printf '%s/%s/%s' "$(recorded PREFLIGHT_ANDROID_DONE_SHA)" \
+      "$(recorded PREFLIGHT_ANDROID_SKIPPED_SHA)" "$hook"
+  )
+}
+expect "device_preflight: --skip-device-tests skips without asking" "/abc123/no" \
+  "$(preflight_case true "")"
+expect "device_preflight: No at the prompt skips" "/abc123/no" "$(preflight_case false n)"
+expect "device_preflight: Yes runs and marks done" "abc123//yes" "$(preflight_case false y)"
+
 # ── tag resolution against a throwaway origin ────────────────────────────────
 
 git_q() { git -c user.name=t -c user.email=t@t -c init.defaultBranch=main "$@" >/dev/null 2>&1; }

@@ -11,6 +11,7 @@
 #   ./scripts/run-android-device-tests.sh                # hardware suite, first attached phone
 #   ./scripts/run-android-device-tests.sh --all          # ...then ci_all_test.dart in mock mode
 #   ./scripts/run-android-device-tests.sh --all --allow-keychain-wipe  # ...including the keychain suite, which WIPES the app's secure storage
+#   ./scripts/run-android-device-tests.sh --all --no-printing  # ...without printing_test.dart (the release runs this way)
 #   ./scripts/run-android-device-tests.sh --device <serial-or-name>
 #   ./scripts/run-android-device-tests.sh --list         # attached phones, then exit
 #   ./scripts/run-android-device-tests.sh --if-present   # exit 0 (not 2) when no phone is attached
@@ -63,12 +64,13 @@ source "$SCRIPT_DIR/regen-spec-index.sh"
 # shellcheck source=ensure-gradle-jdk.sh
 source "$SCRIPT_DIR/ensure-gradle-jdk.sh"
 
-usage() { sed -n '5,39p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '5,40p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
 
 DEVICE_ID=""
 LIST_ONLY=false
 RUN_ALL=false
 ALLOW_KEYCHAIN_WIPE=false
+NO_PRINTING=false
 IF_PRESENT=false
 EXPECT_LAN=false
 LIVE_BLE_NAME=""
@@ -85,6 +87,7 @@ while (( $# > 0 )); do
     --list)               LIST_ONLY=true; shift ;;
     --all)                RUN_ALL=true; shift ;;
     --allow-keychain-wipe) ALLOW_KEYCHAIN_WIPE=true; shift ;;
+    --no-printing)        NO_PRINTING=true; shift ;;
     --if-present)         IF_PRESENT=true; shift ;;
     --expect-lan-devices) EXPECT_LAN=true; shift ;;
     --live-ble-name)
@@ -107,6 +110,11 @@ done
 # through the --all aggregate, and passed alone it would say nothing.
 if [[ "$ALLOW_KEYCHAIN_WIPE" == "true" && "$RUN_ALL" != "true" ]]; then
   err "--allow-keychain-wipe does nothing without --all: keychain_accessibility_test.dart runs only in the mock-mode aggregate."
+  exit 2
+fi
+# The same for --no-printing: printing_test.dart runs only in the aggregate.
+if [[ "$NO_PRINTING" == "true" && "$RUN_ALL" != "true" ]]; then
+  err "--no-printing does nothing without --all: printing_test.dart runs only in the mock-mode aggregate."
   exit 2
 fi
 
@@ -240,12 +248,16 @@ if [[ "$RUN_ALL" == "true" ]]; then
   # storage. LB_PHYSICAL_PHONE tells the suite it is on a phone (the emulator
   # lanes never define it), and it refuses unless LB_KEYCHAIN_WIPE_OK is set,
   # which only --allow-keychain-wipe does here.
-  wipe_define=()
+  aggregate_defines=()
   if [[ "$ALLOW_KEYCHAIN_WIPE" == "true" ]]; then
     warn "--allow-keychain-wipe: keychain_accessibility_test.dart WILL DELETE every secure-storage item of ca.pigscanfly.liberatedbread on this phone."
-    wipe_define=(--dart-define=LB_KEYCHAIN_WIPE_OK=true)
+    aggregate_defines=(--dart-define=LB_KEYCHAIN_WIPE_OK=true)
   else
     log "keychain_accessibility_test.dart will skip on the phone (its fresh-install case wipes the app's secure storage); pass --allow-keychain-wipe on a phone whose credentials are disposable."
+  fi
+  if [[ "$NO_PRINTING" == "true" ]]; then
+    log "--no-printing: printing_test.dart will skip (LB_SKIP_PRINTING)."
+    aggregate_defines+=(--dart-define=LB_SKIP_PRINTING=true)
   fi
   if ! flutter test integration_test/ci_all_test.dart \
       -d "$DEVICE" \
@@ -253,7 +265,7 @@ if [[ "$RUN_ALL" == "true" ]]; then
       --timeout "$TEST_TIMEOUT" \
       --dart-define=LIBERATED_BREAD_MOCK=true \
       --dart-define=LB_PHYSICAL_PHONE=true \
-      "${wipe_define[@]+"${wipe_define[@]}"}" \
+      "${aggregate_defines[@]+"${aggregate_defines[@]}"}" \
       "${PASSTHROUGH[@]+"${PASSTHROUGH[@]}"}"; then
     err "Mock-mode aggregate failed on the phone."
     status=1

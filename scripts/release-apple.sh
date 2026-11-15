@@ -101,7 +101,9 @@ platform_gates() {
 }
 
 platform_device_tests() {
-  local args=(--all --expect-lan-devices --live-ble-any) extra
+  # RELEASE_DEVICE_TEST_ARGS (release-lib.sh): no printing suite, and no
+  # connection to whichever BLE peripheral happens to be strongest.
+  local args=("${RELEASE_DEVICE_TEST_ARGS[@]}") extra
   if confirm "Does this Mac's iPhone development profile carry the multicast entitlement (pass --keep-multicast)?" y; then
     args+=(--keep-multicast)
   fi

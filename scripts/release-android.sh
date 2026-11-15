@@ -71,7 +71,11 @@ public class KeyProps {
   }
 }
 JAVA
-  java "$src/KeyProps.java" "$@" 2> >(grep -v '^Picked up JAVA_TOOL_OPTIONS' >&2) || rc=$?
+  # `|| true` in the filter: grep -v exits 1 when java wrote nothing else to
+  # stderr (the usual case), and release_main's `set -E` carries its ERR trap
+  # into this process substitution, which then printed "Stopped by an
+  # unexpected failure ... :74" for every call although nothing had stopped.
+  java "$src/KeyProps.java" "$@" 2> >(grep -v '^Picked up JAVA_TOOL_OPTIONS' >&2 || true) || rc=$?
   rm -f "$src/KeyProps.java"
   rmdir "$src" 2>/dev/null || true
   return "$rc"
@@ -98,12 +102,14 @@ platform_gates() {
     "Play Console's listing, Data safety, ads, location declaration and content rating are complete (docs/RELEASE.md 'Google Play, the first time')"
 }
 
+# RELEASE_DEVICE_TEST_ARGS (release-lib.sh): no printing suite, and no
+# connection to whichever BLE peripheral happens to be strongest.
 platform_device_tests() {
   local extra
   extra="$(ask "Extra arguments for run-android-device-tests.sh (e.g. --device SERIAL), blank for none" "")"
   # shellcheck disable=SC2086  # extra is word-split on purpose: it is flags
-  run_until_pass "run-android-device-tests.sh --all --expect-lan-devices --live-ble-any $extra" \
-    ./scripts/run-android-device-tests.sh --all --expect-lan-devices --live-ble-any $extra
+  run_until_pass "run-android-device-tests.sh ${RELEASE_DEVICE_TEST_ARGS[*]} $extra" \
+    ./scripts/run-android-device-tests.sh "${RELEASE_DEVICE_TEST_ARGS[@]}" $extra
 }
 
 # The worktree is fresh, and key.properties is gitignored, so it is never

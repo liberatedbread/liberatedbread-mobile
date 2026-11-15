@@ -52,6 +52,11 @@ const _brotherSpec = 'device-specs/devices/brother-ql-1110nwb.yaml';
 const _ippSpec = 'device-specs/devices/ipp-network-printer.yaml';
 const _niimbotSpec = 'device-specs/devices/niimbot-d110.yaml';
 
+/// Set by `--no-printing` on the phone runners, which the guided release
+/// passes: a release acceptance run leaves out the suite whose whole subject
+/// is sending print jobs, even to the loopback fakes below.
+const _skipPrinting = bool.fromEnvironment('LB_SKIP_PRINTING');
+
 /// Where to write screenshots, when set (LB_SHOT_DIR=/some/dir).
 final _shotDir = Platform.environment['LB_SHOT_DIR'];
 final _shotKey = GlobalKey();
@@ -425,6 +430,7 @@ void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
   setUpAll(() async {
+    if (_skipPrinting) return;
     if (!MockBleService.rustAvailable) await RustLib.init();
   });
 
@@ -514,6 +520,7 @@ void main() {
       // The QR code arrived as a QR code.
       expect(_hasFinderPattern(decoded.rows, 1296), isTrue);
     },
+    skip: _skipPrinting,
   );
 
   testWidgets('an IPP printer shows the status it reports', (tester) async {
@@ -552,7 +559,7 @@ void main() {
     expect(find.text('Black Toner'), findsOneWidget);
     expect(find.text('12%'), findsOneWidget);
     expect(find.text('A4 (210x297 mm)'), findsOneWidget);
-  });
+  }, skip: _skipPrinting);
 
   testWidgets(
     'a label reaches an emulated NIIMBOT D110 through its whole task',
@@ -623,5 +630,6 @@ void main() {
       expect(printer.rows.values.expand((r) => r).length, greaterThan(50));
       expect(printer.rows.values.expand((r) => r).every((d) => d < 96), isTrue);
     },
+    skip: _skipPrinting,
   );
 }

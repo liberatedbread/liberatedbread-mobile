@@ -127,6 +127,10 @@ that question up front. Then each script:
   and the GitHub Release from the CHANGELOG section;
 - stops for every step that happens in a store console or on a phone, says
   exactly what to do, and waits for Enter (`q` stops the run);
+- runs the phone preflight with nothing physical acted on (below), and lets you
+  skip it: answer No when it asks, or pass `--skip-device-tests`. A skip is
+  recorded as `PREFLIGHT_<PLATFORM>_SKIPPED_SHA`, never as passed, so a re-run
+  of the same commit asks again;
 - asks before anything outward-facing: creating the tag, pushing it, and
   publishing the GitHub Release;
 - keeps the release record below in
@@ -212,14 +216,22 @@ clean worktree.
 ### 3. Run the physical-phone preflight, then tag
 
 From the release worktree, use an Android phone and an iPhone on a LAN with at
-least one supported device. These commands exercise real Bluetooth, Wi-Fi
-discovery and the mock end-to-end flows against `$RELEASE_SHA`;
-`--live-ble-any` also connects read-only to a nearby peripheral:
+least one supported device. These commands exercise the phone's real Bluetooth
+stack, Wi-Fi discovery and the mock end-to-end flows against `$RELEASE_SHA`,
+without acting on anything physical around the phone:
 
 ```bash
-./scripts/run-android-device-tests.sh --all --expect-lan-devices --live-ble-any
-./scripts/run-ios-device-tests.sh --all --expect-lan-devices --live-ble-any --keep-multicast
+./scripts/run-android-device-tests.sh --all --expect-lan-devices --no-printing
+./scripts/run-ios-device-tests.sh --all --expect-lan-devices --no-printing --keep-multicast
 ```
+
+`--no-printing` leaves `printing_test.dart` out of the mock-mode aggregate. The
+release deliberately does not pass `--live-ble-any`, which connects to whichever
+BLE peripheral is strongest in range (a lock, a printer, a meter) and reads every
+readable characteristic; add it, or `--live-ble-name NAME` for a peripheral of
+your own, when that is wanted. The Wi-Fi scan only sends discovery datagrams;
+nothing it finds is connected to. The guided scripts ask for extra arguments,
+which is where either goes.
 
 `--keep-multicast` is valid only after the iPhone's development profile includes
 the entitlement. Do not add `--allow-keychain-wipe` unless every credential the

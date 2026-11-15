@@ -28,6 +28,14 @@
 #                      an earlier run, already cut it). Pushes it if it is
 #                      only local.
 #
+# and, with either:
+#
+#   --skip-device-tests  skip the physical-phone preflight (Step 3) without
+#                      being asked. Without it the step asks first, and No
+#                      skips it too. A skip is noted in the record
+#                      (PREFLIGHT_<PLATFORM>_SKIPPED_SHA) and never marks the
+#                      step done, so a re-run of the same commit asks again.
+#
 # State lives in a release record outside every worktree (docs/RELEASE.md's
 # KEY=value list, plus *_DONE_SHA markers), so an interrupted run can be
 # re-run with --from-tag and offers to skip what already passed for the same
@@ -69,6 +77,20 @@ FLUTTER_HOME="${FLUTTER_HOME:-$HOME/.flutter-sdk}"
 export PATH="${FLUTTER_HOME}/bin:$HOME/.cargo/bin:$PATH"
 
 REMOTE="${LB_RELEASE_REMOTE:-origin}"
+
+# What the release passes the phone runners (platform_device_tests). An
+# acceptance run here must not act on anything physical around the phone:
+#   --no-printing    printing_test.dart stays out of the mock-mode aggregate.
+#                    Its printers are loopback fakes, but a release has no use
+#                    for a suite whose whole subject is sending print jobs.
+#   no --live-ble-any, which connects to whichever connectable BLE peripheral
+#                    is strongest in the room and reads every readable
+#                    characteristic: somebody's lock, printer or meter. Add it
+#                    (or --live-ble-name NAME) at the "extra arguments" prompt
+#                    to opt back in.
+# The Wi-Fi scan stays: it is discovery datagrams only, and nothing it finds is
+# connected to or sent a command.
+RELEASE_DEVICE_TEST_ARGS=(--all --expect-lan-devices --no-printing)
 GITHUB_RELEASES_URL="https://github.com/liberatedbread/liberatedbread-mobile/releases"
 
 # ── output ───────────────────────────────────────────────────────────────────
@@ -368,7 +390,7 @@ record_url() {
 
 usage() {
   cat >&2 <<EOF
-Usage: $(basename "$0") [--new-tag [X.Y.Z] | --from-tag vX.Y.Z]
+Usage: $(basename "$0") [--new-tag [X.Y.Z] | --from-tag vX.Y.Z] [--skip-device-tests]
 
 Guided $PLATFORM_NAME store release (docs/RELEASE.md). Asks which of the two
 modes when neither flag is given:
@@ -378,11 +400,15 @@ modes when neither flag is given:
                      yet, bump pubspec.yaml, date CHANGELOG.md's Unreleased
                      entries as [X.Y.Z], and push that commit to main first
   --from-tag vX.Y.Z  build an existing tag (pushing it first if only local)
+  --skip-device-tests
+                     skip the physical-phone preflight without asking (the
+                     step otherwise asks, and No skips it too); the record
+                     notes the skip
 EOF
 }
 
 parse_args() {
-  MODE="" TAG="" WANT_VERSION=""
+  MODE="" TAG="" WANT_VERSION="" SKIP_DEVICE_TESTS=false
   while (($#)); do
     case "$1" in
       --new-tag)
@@ -405,6 +431,7 @@ parse_args() {
         shift
         ;;
       --from-tag=*) MODE=existing TAG="${1#*=}" ;;
+      --skip-device-tests) SKIP_DEVICE_TESTS=true ;;
       -h|--help) usage; exit 0 ;;
       *) usage; exit 1 ;;
     esac
@@ -917,13 +944,30 @@ run_until_pass() {
 device_preflight() {
   step "$PLATFORM_NAME physical-phone preflight (Step 3)"
   already_done "PREFLIGHT_${PLATFORM_KEY}_DONE_SHA" "The $PLATFORM_NAME phone preflight" && return
+  if [[ "${SKIP_DEVICE_TESTS:-false}" == true ]]; then
+    skip_device_preflight "--skip-device-tests"
+    return
+  fi
   say "Needs: a $PLATFORM_NAME phone attached to this machine, on a LAN with at least" \
-    "one supported device, and a connectable Bluetooth peripheral nearby." \
+    "one supported device. Nothing physical is acted on: no printing suite, and" \
+    "no connection to nearby Bluetooth peripherals (${RELEASE_DEVICE_TEST_ARGS[*]})." \
     "Watch the phone: a fresh install raises the Bluetooth and Local Network prompts."
-  pause
+  if ! confirm "Run the $PLATFORM_NAME phone suites now? (No skips this step for this release)" y; then
+    skip_device_preflight "answered No"
+    return
+  fi
   platform_device_tests
   require_clean "The release worktree (after the device runners)"
   mark_done "PREFLIGHT_${PLATFORM_KEY}_DONE_SHA"
+}
+
+# skip_device_preflight WHY — note the skip and carry on. Recorded under its
+# own key and never as *_DONE_SHA, so the record says the preflight did not
+# run, and a re-run of this commit asks again rather than offering "already
+# passed".
+skip_device_preflight() {
+  warn "Skipping the $PLATFORM_NAME phone preflight ($1): nothing in this release has run on a $PLATFORM_NAME phone."
+  record "PREFLIGHT_${PLATFORM_KEY}_SKIPPED_SHA" "$RELEASE_SHA"
 }
 
 create_local_tag() {
@@ -931,7 +975,10 @@ create_local_tag() {
     return
   fi
   step "Tag $TAG (local only, for now)"
-  confirm "Every suite passed. Create the annotated tag $TAG on $SHORT_SHA?" y ||
+  local passed="Every suite passed."
+  [[ "$(recorded "PREFLIGHT_${PLATFORM_KEY}_DONE_SHA")" == "$RELEASE_SHA" ]] ||
+    passed="The host suites passed; the $PLATFORM_NAME phone preflight was SKIPPED."
+  confirm "$passed Create the annotated tag $TAG on $SHORT_SHA?" y ||
     die "Stopped before tagging."
   git tag -a "$TAG" -m "Liberated Bread $VERSION" "$RELEASE_SHA"
   log "Tagged $TAG locally. It is pushed only after the artifact checks pass."
