@@ -44,8 +44,14 @@ import 'package:shared_preferences/shared_preferences.dart';
 /// host's loopback interface, so 127.0.0.1 reaches the host directly.
 const _shotPort = int.fromEnvironment('E2E_SHOT_PORT', defaultValue: 8099);
 
+/// Hide the DEBUG corner ribbon, for store-listing screenshots
+/// (assets/promo/README.md). Debug builds only can run this test, so this is
+/// the one way to get a ribbon-free frame out of it.
+const _hideDebugBanner = bool.fromEnvironment('E2E_HIDE_DEBUG_BANNER');
+
 void main() {
   final binding = IntegrationTestWidgetsFlutterBinding.ensureInitialized();
+  if (_hideDebugBanner) WidgetsApp.debugAllowBannerOverride = false;
   // Keep frames flowing continuously so what is on screen when a screenshot is
   // taken matches what the test has pumped.
   binding.framePolicy = LiveTestWidgetsFlutterBindingFramePolicy.fullyLive;

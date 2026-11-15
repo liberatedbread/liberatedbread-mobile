@@ -22,6 +22,10 @@
 #   E2E_SHOT_DIR   output directory for PNGs (default: ./e2e-shots)
 #   E2E_UDID       simulator UDID, or "booted" (default: booted)
 #   E2E_SHOT_PORT  listen port on 127.0.0.1 (default: 8099)
+#   E2E_ADB_SERIAL capture from this Android device/emulator with
+#                  `adb exec-out screencap` instead of simctl. Pair it with
+#                  `adb -s <serial> reverse tcp:8099 tcp:8099` so the app's
+#                  127.0.0.1 requests reach this server.
 
 import os
 import re
@@ -32,6 +36,7 @@ from urllib.parse import parse_qs, urlparse
 
 OUT_DIR = os.path.expanduser(os.environ.get("E2E_SHOT_DIR", "./e2e-shots"))
 UDID = os.environ.get("E2E_UDID", "booted")
+ADB_SERIAL = os.environ.get("E2E_ADB_SERIAL", "")
 PORT = int(os.environ.get("E2E_SHOT_PORT", "8099"))
 
 # Smallest byte count we will accept as a real frame of app UI.
@@ -132,11 +137,20 @@ class ShotHandler(BaseHTTPRequestHandler):
             pass
 
         try:
-            proc = subprocess.run(
-                ["xcrun", "simctl", "io", UDID, "screenshot", "--type=png", path],
-                capture_output=True,
-                timeout=CAPTURE_TIMEOUT_S,
-            )
+            if ADB_SERIAL:
+                with open(path, "wb") as out:
+                    proc = subprocess.run(
+                        ["adb", "-s", ADB_SERIAL, "exec-out", "screencap", "-p"],
+                        stdout=out,
+                        stderr=subprocess.PIPE,
+                        timeout=CAPTURE_TIMEOUT_S,
+                    )
+            else:
+                proc = subprocess.run(
+                    ["xcrun", "simctl", "io", UDID, "screenshot", "--type=png", path],
+                    capture_output=True,
+                    timeout=CAPTURE_TIMEOUT_S,
+                )
         except subprocess.TimeoutExpired:
             # 500, not 422: a wedged simctl means *this server* can no longer
             # do its job, which is a different failure from a bad frame. The

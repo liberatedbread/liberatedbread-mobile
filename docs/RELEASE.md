@@ -511,9 +511,9 @@ lost upload key. Back the upload key up off every build machine anyway.
   on Android 12+ and the repeater search fails there; the cap means dropping
   location-based suggestions on Android.
 - **Listing**: content rating, target audience (not children), a 512×512 icon,
-  a 1024×500 feature graphic, and at least two phone screenshots. For the
-  screenshots, run `./scripts/run-android.sh --mock` and capture with
-  `adb exec-out screencap -p > shot.png`.
+  a 1024×500 feature graphic, and at least two phone screenshots. All three
+  are ready to upload in `assets/promo/` (see its README to regenerate or
+  recapture them).
 
 ## Websites
 
