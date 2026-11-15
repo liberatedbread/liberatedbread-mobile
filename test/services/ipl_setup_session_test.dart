@@ -77,9 +77,139 @@ void main() {
         _activation,
         _wakeup,
       ]);
-      expect(specCodec.encodeCalls.single.commandName, 'set_wakeup');
+      // The spec carries no 0A30 command any more; the documented 01 goes
+      // out raw, and nothing is asked of the spec codec.
+      expect(ble.writes.last.value, [0x01]);
+      expect(specCodec.encodeCalls, isEmpty);
     },
   );
+
+  group('FOREO without 0A30, as on the replayed F.REV.K unit', () {
+    IplSetupSession foreo(FakeForeoBle ble, FakeSpecCodec specCodec) =>
+        IplSetupSession(
+          ble: ble,
+          specCodec: specCodec,
+          iplCodec: FakeIplCodec(),
+          deviceId: 'AA:BB:CC:DD:EE:FF',
+          specYaml: 'yaml',
+          spec: foreoSpec(proWarning: 'Spec warning.'),
+          discoveredServices: iplDiscovered(const [
+            _security,
+            _sw,
+            _activation,
+            foreoCommandChar,
+          ]),
+        );
+
+    test('is ready with no wake-up step and reads Basic', () async {
+      final specCodec = FakeSpecCodec();
+      final ble = FakeForeoBle(specCodec: specCodec);
+      final session = foreo(ble, specCodec);
+      addTearDown(session.dispose);
+      session.start();
+      await _settle();
+
+      expect(session.state.phase, IplSetupPhase.ready);
+      expect(session.state.wakeupEnabled, isNull);
+      expect(session.state.swRevision, 'PEACH2 F.REV.K');
+      expect(session.state.proModeSupported, isTrue);
+      expect(session.state.proMode, isFalse);
+      expect(ble.reads.map((read) => read.charUuid), isNot(contains(_wakeup)));
+      expect(specCodec.encodeCalls.map((call) => call.commandName), [
+        'get_removal_mode',
+      ]);
+      expect(session.proModeWarning, 'Spec warning.');
+    });
+
+    test(
+      'unlocks Pro and disables it again, verifying each by read-back',
+      () async {
+        final specCodec = FakeSpecCodec();
+        final ble = FakeForeoBle(specCodec: specCodec);
+        final session = foreo(ble, specCodec);
+        addTearDown(session.dispose);
+        session.start();
+        await _settle();
+
+        await session.setProMode(true);
+        expect(session.state.proMode, isTrue);
+        expect(session.state.proModeError, isNull);
+        expect(ble.mode, 0x06);
+
+        await session.setProMode(false);
+        expect(session.state.proMode, isFalse);
+        expect(ble.mode, 0x01);
+        expect(specCodec.encodeCalls.map((call) => call.commandName), [
+          'get_removal_mode',
+          'set_removal_mode_pro',
+          'get_removal_mode',
+          'set_removal_mode_basic',
+          'get_removal_mode',
+        ]);
+      },
+    );
+
+    test('a unit already in Pro offers Disable', () async {
+      final specCodec = FakeSpecCodec();
+      final ble = FakeForeoBle(specCodec: specCodec, mode: 0x06);
+      final session = foreo(ble, specCodec);
+      addTearDown(session.dispose);
+      session.start();
+      await _settle();
+      expect(session.state.proMode, isTrue);
+    });
+
+    test('retries through busy read-backs', () async {
+      final specCodec = FakeSpecCodec();
+      final ble = FakeForeoBle(specCodec: specCodec, busyReplies: 2);
+      final session = foreo(ble, specCodec);
+      addTearDown(session.dispose);
+      session.start();
+      await Future<void>.delayed(const Duration(milliseconds: 500));
+      expect(session.state.proMode, isFalse);
+      expect(
+        ble.writes.where((write) => write.charUuid == foreoCommandChar),
+        hasLength(3),
+      );
+    });
+
+    test(
+      'a write the read-back contradicts is reported, not assumed',
+      () async {
+        final specCodec = FakeSpecCodec();
+        final ble = FakeForeoBle(specCodec: specCodec, applies: false);
+        final session = foreo(ble, specCodec);
+        addTearDown(session.dispose);
+        session.start();
+        await _settle();
+
+        await session.setProMode(true);
+        expect(session.state.phase, IplSetupPhase.ready);
+        expect(session.state.proMode, isFalse);
+        expect(session.state.proModeError, contains('still reports Basic'));
+        expect(session.state.error, isNull);
+      },
+    );
+
+    for (final revision in ['PEACH2Duo F.REV.K', 'PEACH2 F.REV.C']) {
+      test('$revision gets no Pro switch and no FFF1 traffic', () async {
+        final specCodec = FakeSpecCodec();
+        final ble = FakeForeoBle(specCodec: specCodec, swRevision: revision);
+        final session = foreo(ble, specCodec);
+        addTearDown(session.dispose);
+        session.start();
+        await _settle();
+        expect(session.state.phase, IplSetupPhase.ready);
+        expect(session.state.proModeSupported, isFalse);
+        await session.setProMode(true);
+        expect(specCodec.encodeCalls, isEmpty);
+        expect(
+          ble.writes.where((write) => write.charUuid == foreoCommandChar),
+          isEmpty,
+        );
+      });
+    }
+  });
 
   test('an already activated FOREO gets no activation write', () async {
     final ble = FakeBleService(

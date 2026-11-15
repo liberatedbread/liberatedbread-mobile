@@ -91,6 +91,69 @@ void main() {
     ]);
   });
 
+  testWidgets('FOREO Pro mode: unlock asks first, then Disable appears', (
+    tester,
+  ) async {
+    final specCodec = FakeSpecCodec();
+    final ble = FakeForeoBle(specCodec: specCodec);
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          bleServiceProvider.overrideWithValue(ble),
+          specCodecProvider.overrideWithValue(specCodec),
+          iplCodecProvider.overrideWithValue(FakeIplCodec()),
+        ],
+        child: MaterialApp(
+          home: Scaffold(
+            body: SingleChildScrollView(
+              child: IplSetupPanel(
+                deviceId: 'AA:BB:CC:DD:EE:FF',
+                specYaml: 'yaml',
+                spec: foreoSpec(proWarning: 'Warning from the spec.'),
+                services: iplDiscovered(const [
+                  _security,
+                  _sw,
+                  _activation,
+                  foreoCommandChar,
+                ]),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    for (var index = 0; index < 8; index++) {
+      await tester.pump();
+    }
+    expect(find.text('Activated'), findsOneWidget);
+    expect(find.text('Basic'), findsOneWidget);
+    expect(find.text('Disable Pro mode'), findsNothing);
+
+    await tester.tap(find.text('Unlock Pro mode'));
+    await tester.pumpAndSettle();
+    expect(find.text('Unlock Pro mode?'), findsOneWidget);
+    expect(find.text('Warning from the spec.'), findsOneWidget);
+    expect(ble.mode, 0x01, reason: 'nothing is written before confirming');
+
+    await tester.tap(
+      find.descendant(
+        of: find.byType(AlertDialog),
+        matching: find.widgetWithText(FilledButton, 'Unlock Pro mode'),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(ble.mode, 0x06);
+    expect(find.textContaining('Pro · boost'), findsOneWidget);
+    expect(find.text('Unlock Pro mode'), findsNothing);
+
+    await tester.tap(find.text('Disable Pro mode'));
+    for (var index = 0; index < 8; index++) {
+      await tester.pump();
+    }
+    expect(ble.mode, 0x01);
+    expect(find.text('Unlock Pro mode'), findsOneWidget);
+  });
+
   testWidgets('patch test asks before sending anything, then acknowledges', (
     tester,
   ) async {

@@ -15,25 +15,47 @@ Future<ForeoActivationDto> foreoActivation({required String deviceAddress}) =>
       deviceAddress: deviceAddress,
     );
 
+/// `wakeup` is `None` when the unit exposes no 0A30 characteristic.
 Future<ForeoStatusDto> decodeForeoStatus({
   required List<int> activation,
-  required List<int> wakeup,
+  Uint8List? wakeup,
 }) => RustLib.instance.api.crateApiIplApiDecodeForeoStatus(
   activation: activation,
   wakeup: wakeup,
 );
 
+/// Whether this unit gets the Basic/Pro switch, from its 2A28 SW revision.
+bool foreoProModeSupported({required String swRevision}) => RustLib.instance.api
+    .crateApiIplApiForeoProModeSupported(swRevision: swRevision);
+
+/// An all-FF (or empty) FFF1 read-back: the device was busy, retry.
+bool foreoReplyBusy({required List<int> reply}) =>
+    RustLib.instance.api.crateApiIplApiForeoReplyBusy(reply: reply);
+
+/// An FFF1 read-back acknowledging a settings write (leading 01).
+bool foreoWriteAcknowledged({required List<int> reply}) =>
+    RustLib.instance.api.crateApiIplApiForeoWriteAcknowledged(reply: reply);
+
+/// The 0BD0 read-back as Pro (`true`) or Basic (`false`).
+Future<bool> decodeForeoRemovalMode({required List<int> reply}) =>
+    RustLib.instance.api.crateApiIplApiDecodeForeoRemovalMode(reply: reply);
+
 class ForeoActivationDto {
   final Uint8List securityAccess;
   final Uint8List activationWrite;
 
+  /// Written to 0A30 on firmware that exposes it.
+  final Uint8List wakeupWrite;
+
   const ForeoActivationDto({
     required this.securityAccess,
     required this.activationWrite,
+    required this.wakeupWrite,
   });
 
   @override
-  int get hashCode => securityAccess.hashCode ^ activationWrite.hashCode;
+  int get hashCode =>
+      securityAccess.hashCode ^ activationWrite.hashCode ^ wakeupWrite.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -41,14 +63,17 @@ class ForeoActivationDto {
       other is ForeoActivationDto &&
           runtimeType == other.runtimeType &&
           securityAccess == other.securityAccess &&
-          activationWrite == other.activationWrite;
+          activationWrite == other.activationWrite &&
+          wakeupWrite == other.wakeupWrite;
 }
 
 class ForeoStatusDto {
   final bool locked;
-  final bool wakeupEnabled;
 
-  const ForeoStatusDto({required this.locked, required this.wakeupEnabled});
+  /// `None` when the unit has no 0A30 wake-up characteristic.
+  final bool? wakeupEnabled;
+
+  const ForeoStatusDto({required this.locked, this.wakeupEnabled});
 
   @override
   int get hashCode => locked.hashCode ^ wakeupEnabled.hashCode;

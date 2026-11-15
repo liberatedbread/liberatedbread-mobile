@@ -14,6 +14,7 @@ import '../providers/device_description_provider.dart';
 import '../providers/device_spec_match_provider.dart';
 import '../providers/network_control_provider.dart';
 import '../providers/spec_choice_provider.dart';
+import '../services/ipl_setup_session.dart' show foreoProModeCommands;
 import '../services/number_registry.dart';
 import '../services/spec_codec.dart';
 import 'binary_sensor_card.dart';
@@ -1177,10 +1178,11 @@ class _ServiceCardState extends State<_ServiceCard> {
             );
           }
           if (matched != null && specChar != null) {
-            final setupOwnedCommands =
-                matched.spec.protocolHandler == 'ipl_braun'
-                ? const {'measure_skin_tone', 'start_patch_test'}
-                : const <String>{};
+            final setupOwnedCommands = switch (matched.spec.protocolHandler) {
+              'ipl_braun' => const {'measure_skin_tone', 'start_patch_test'},
+              'ipl_foreo' => foreoProModeCommands,
+              _ => const <String>{},
+            };
             final typed = TypedCharacteristicWidget(
               deviceId: widget.deviceId,
               serviceUuid: service.uuid,
@@ -1196,12 +1198,14 @@ class _ServiceCardState extends State<_ServiceCard> {
             return Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const ListTile(
+                ListTile(
                   dense: true,
-                  leading: Icon(Icons.tune),
-                  title: Text('IPL setup commands'),
+                  leading: const Icon(Icons.tune),
+                  title: const Text('IPL setup commands'),
                   subtitle: Text(
-                    'Use the setup panel above to measure skin tone or start a patch test.',
+                    matched.spec.protocolHandler == 'ipl_foreo'
+                        ? 'Use the setup panel above to unlock or disable Pro mode.'
+                        : 'Use the setup panel above to measure skin tone or start a patch test.',
                   ),
                 ),
                 typed,

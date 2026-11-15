@@ -11,6 +11,21 @@ plus the finders' incidental spec notes). Verified items were put to an adversar
 **Open: 2 verified, 9 unverified.** Five more were delivered upstream; see
 below.
 
+## Found 2026-11-14, wiring the FOREO Peach 2 Pro-mode switch
+
+Checked against a real PEACH2 (F.REV.K). The app's reading is in
+`rust/src/protocol/ipl.rs` and `lib/services/ipl_setup_session.dart`.
+
+- foreo-peach-2 `set_removal_mode_pro.advanced_reason` is the text the app
+  shows at the opt-in, and it tells the end user to "read the mode back with
+  get_removal_mode" — a client instruction, not something a person can act
+  on. That sentence belongs in `description`.
+- The Basic/Pro visibility rule (Go / Pro MAX always, plain Peach 2 unless the
+  SW revision ends a–g, never Duo) and the busy / acknowledgement read-back
+  rules live only in prose (`protocol_details.paywall`,
+  `command_protocol`), so `ipl.rs` transcribes them. Structured fields would
+  let the app read them instead.
+
 ## Found 2026-11-08, implementing static-key AES and the SEEBlue envelope
 
 None of this was checked against hardware. The app's reading is in

@@ -8,6 +8,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- **Replacement manual links.** Replaced four dead PDF URLs with verified
+  copies: Breville's current original-Joule instruction book, Victron's current
+  SmartSolar manual, the ID107Plus HR manufacturer's FCC exhibit, and an
+  Internet Archive replay of Panasonic's TH-32AS610 operating instructions.
 - **November discovery follow-up: eight new protocol specs.** Canon PV-223
   gains a Classic RFCOMM/SPP client surface; KING JIM TEPRA Lite LR30, Root
   RT0/RT1 and Brother Skitch PP1 gain BLE protocols. Genki Wave and OP-Z gain
