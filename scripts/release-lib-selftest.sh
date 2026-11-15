@@ -144,6 +144,21 @@ expect "changelog_cut: existing section refused (3)" 3 \
 expect "changelog_cut: no Unreleased heading (4)" 4 \
   "$(printf '# C\n\n## [0.1.0] - x\n' | changelog_cut 0.2.0 d >/dev/null; echo $?)"
 
+expect "changelog_unreleased: body up to the next release" $'\n### Added\n\n- the new thing' \
+  "$(changelog_unreleased <"$TMP/unrel.md")"
+expect "changelog_unreleased: none is empty" "" "$(printf '# C\n\n## [0.1.0] - x\n- a\n' | changelog_unreleased)"
+expect "changelog_bump_kind: Fixed only is patch" patch \
+  "$(printf '### Fixed\n\n- a\n' | changelog_bump_kind 1.2.3)"
+expect "changelog_bump_kind: nothing is patch" patch "$(changelog_bump_kind 1.2.3 </dev/null)"
+expect "changelog_bump_kind: Added is minor" minor \
+  "$(printf '### Fixed\n- a\n### Added\n- b\n' | changelog_bump_kind 1.2.3)"
+expect "changelog_bump_kind: Removed is major" major \
+  "$(printf '### Added\n- b\n### Removed\n- c\n' | changelog_bump_kind 1.2.3)"
+expect "changelog_bump_kind: BREAKING is major" major \
+  "$(printf '### Changed\n- **BREAKING:** c\n' | changelog_bump_kind 2.0.0)"
+expect "changelog_bump_kind: breaking below 1.0 is minor" minor \
+  "$(printf '### Removed\n- c\n' | changelog_bump_kind 0.4.1)"
+
 # ── release record ───────────────────────────────────────────────────────────
 
 R="$TMP/record.txt"
@@ -208,7 +223,7 @@ expect "check_new_version: not above the latest tag" 1 \
   "$( (check_new_version 0.0.5 >/dev/null 2>&1); echo $?)"
 expect "check_new_version: an existing tag" 1 "$( (check_new_version 0.1.0 >/dev/null 2>&1); echo $?)"
 VERSION=0.1.0
-expect "suggest_version: next patch once tagged" "0.1.1" "$(suggest_version)"
+expect "suggest_version: once tagged, the bump the Unreleased headings ask for" "0.2.0" "$(suggest_version)"
 VERSION=0.2.0
 expect "suggest_version: an untagged bump already on main" "0.2.0" "$(suggest_version)"
 
@@ -236,6 +251,23 @@ git rev-parse -q --verify refs/heads/release/v0.3.0 >/dev/null &&
   fail "prep declined: branch discarded" || pass "prep declined: branch discarded"
 [[ ! -e "$TMP/prep" ]] && pass "prep declined: worktree discarded" ||
   fail "prep declined: worktree discarded"
+
+# main's version already tagged on an earlier commit (v0.1.0 is on "one",
+# main is "notes"): no "Not ready" error and no version prompt; it prepares
+# 0.2.0 (### Added) straight away. Answers: commit y, push y, then q at the
+# wait for the merge.
+git_q push origin --delete release/v0.2.0
+git_q branch -D release/v0.2.0
+: >"$TMP/gh.log"
+( WANT_VERSION=""; resolve_new_tag ) <<<$'y\ny\nq' >/dev/null 2>"$TMP/auto.err"
+expect "already tagged: release/v0.2.0 pushed without asking for a version" 1 \
+  "$(git ls-remote --heads origin refs/heads/release/v0.2.0 | wc -l | tr -d ' ')"
+expect "already tagged: pubspec bumped by the changelog" "0.2.0" \
+  "$(git show release/v0.2.0:pubspec.yaml | pubspec_version)"
+grep -q 'Not ready\|Prepare the release commit and PR now' "$TMP/auto.err" &&
+  fail "already tagged: no error, no extra question" || pass "already tagged: no error, no extra question"
+grep -q -- '--head release/v0.2.0' "$TMP/gh.log" && pass "already tagged: PR opened" ||
+  fail "already tagged: PR opened"
 
 if [[ "$status" == 0 ]]; then echo "release-lib selftest: all passed"; fi
 exit "$status"

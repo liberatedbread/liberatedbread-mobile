@@ -20,6 +20,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   hand. It refuses a version that is not above every tag, and an empty
   Unreleased section.
 
+### Changed
+
+- **A release after a release no longer stops at "tags are never reused".**
+  When `origin/main`'s pubspec version is already tagged on an earlier
+  commit, the guided release scripts pick the next version themselves and
+  prepare its release commit and PR (pubspec.yaml bump and CHANGELOG.md cut)
+  without asking first. The version follows the Unreleased headings: a
+  `### Removed` section or a BREAKING note is a major bump (minor below
+  1.0.0), `### Added`, `### Changed` or `### Deprecated` a minor one, and
+  anything else a patch. `--new-tag X.Y.Z` still picks a version by hand.
+
 
 ## [0.0.0] - 2026-11-13
 
