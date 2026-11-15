@@ -1,132 +1,296 @@
-# Agent guide — Liberated Bread Mobile
+# Agent guide — Liberated Bread Protocol Specs
 
 Guidance for AI coding agents (Claude Code and others) working in this repo.
-Humans: see [README.md](README.md) and [CONTRIBUTING.md](CONTRIBUTING.md).
+Humans: start with [README.md](README.md).
 
 ## What this is
 
-A cross-platform **Flutter + Rust** app for discovering and controlling
-locally-controllable IoT devices **without the vendor cloud**. It speaks two
-transports from one catalogue of YAML device specs:
+The clean-room **knowledge base** of reverse-engineered protocols for
+locally-controllable IoT devices — so abandoned hardware keeps working without
+the vendor cloud. The two most common transports, and the ones the mobile app
+speaks, are:
 
-- **BLE** — GATT scan, connect, read/write, standard SIG profiles.
-- **Wi-Fi/LAN** — discovery over mDNS/DNS-SD and SSDP/UPnP, control over HTTP
-  and SOAP.
+- **BLE** (`protocol: ble` / `ble_gatt`) — GATT services, characteristics,
+  message formats.
+- **Wi-Fi/LAN** (`protocol: wifi`, with `http` / `soap` / `ssdp` / `udp`
+  transport blocks) — discovery via mDNS/DNS-SD and SSDP/UPnP, control over HTTP
+  and SOAP, and device provisioning.
 
-It also programs handheld radios, which are not spec-driven: each radio family
-has its own codec in `rust/src/protocol/radio/`, reached over the radio's own
-Bluetooth or a **USB serial** programming cable.
+Specs are not limited to those two. The authoritative `device.protocol` enum in
+`device-specs/schema.json` also covers `bluetooth_classic` (BR/EDR devices
+reached over RFCOMM/SPP, L2CAP or HID — printers, OBD dongles, headphones,
+the Quin pill box; see [docs/protocols/bluetooth-classic-common.md](docs/protocols/bluetooth-classic-common.md)),
+`zigbee`, `zwave`, `obd2`, `uart`, and `can` (e-bikes, OBD-II dongles, and
+other wired/radio buses) — treat that enum as the source of truth for what a
+spec may declare. A Classic spec carries the top-level `bluetooth_classic`
+block, a `device.pairing` block and a `host_compatibility` verdict for
+`corebluetooth`; a dual-mode device declares the protocol of the link its
+control surface runs on and records the other radio beside it.
 
-Flutter owns the UI, transports, and permissions; the Rust core
-(`rust/src/`, wired via `flutter_rust_bridge`) owns all protocol logic — spec
-parsing, byte codecs, BLE profiles, and rendering the HTTP/SOAP requests that
-drive Wi-Fi devices. Both transports run through the same spec-driven pipeline,
-so a change that only touches one transport should still leave the other whole.
+**The specs are the product.** `device-specs/devices/*.yaml` is written to be
+implementable on its own, validated against `device-specs/schema.json`. We do
+**not** ship a supported device-client library; helper scripts under `scripts/`
+are verification/research scaffolding, not a client surface.
 
-**One deliberate exception: desktop serial ports live in Rust.** On Linux and
-macOS, `rust/src/serial.rs` (bridged by `rust/src/api/serial_api.rs`) opens,
-reads and writes ports through the `serialport` crate — the way to a port there
-without an LGPL library. libserialport, the usual Dart route, is LGPL-3.0, with
-its obligation to let users relink the app against a modified copy;
-`serialport` is MPL-2.0, whose copyleft covers only its own files. It is a
-transport and nothing more: the radio conversation stays in the Dart
-programmer, sending frames `radio_api` computes, exactly as over BLE. Android's
-serial path is Dart (`usb_serial`, over the USB host stack), and iOS has none.
-Don't move either "back" to match the rule above.
+## Clean-room rules (absolute)
 
-## Setup
+See [docs/CLEANROOM_RULES.md](docs/CLEANROOM_RULES.md). In short:
 
-- **Local:** `./scripts/setup.sh` (Linux/macOS) installs Flutter, Rust, FRB
-  codegen, and the platform toolchains.
-- **Claude Code on the web:** `.claude/hooks/session-start.sh` provisions the
-  session automatically (Flutter + host Rust always; Linux-desktop deps and the
-  Android SDK/emulator when the machine can use them). Toolchain versions are
-  read from `.github/workflows/ci.yml` by `scripts/ci-versions.sh` — never pin
-  them here.
+- **Never commit APKs, decompiled source trees, or vendor assets.** They are
+  gitignored (`workspace/`, `*.apk`, `*.pcap`, …) — keep it that way.
+- Do not paste vendor app strings/UI copy beyond short paraphrases.
+- Do not name the vendor app's internal classes, methods or source paths.
+  Describe the role instead: "the app's BLE scanner", not `SenseScanner.java`.
+  Citing an *open-source* project by file is fine — that is attribution.
+- **Scrub identifiers that are yours, not the device's.** Hardware
+  verification fills your notes with the LAN address, MAC, hostname, serial
+  and keys of your own unit; none of it is reusable and all of it is public
+  once committed. Replace with a placeholder (`aa:bb:cc:dd:ee:ff`,
+  `192.168.1.50`, `<user-key>`) and keep the format so the example still
+  teaches. Keep OUI prefixes and product-fixed addresses like a SoftAP's
+  `10.10.100.254` — those are the fact. Applies to `research-notes/` and
+  `docs/devices/` too.
+- Only commit **derived** facts, protocol details, and your own writing.
 
-## Build, test, lint
+## Setup, test, lint
 
-```bash
-./scripts/test.sh          # local CI mirror (format, analyze, flutter test, clippy)
-flutter test --exclude-tags=netdisco,live_ble,live_radio,live_wifi,hardware   # Dart unit + widget tests (builds host Rust lib on demand)
-cd rust && cargo test      # Rust unit tests
-flutter analyze --fatal-infos
-cd rust && cargo clippy --all-targets -- -D warnings
-```
-
-Pass `--exclude-tags=netdisco` — as `scripts/test.sh` and CI do (they also
-exclude `live_ble,live_radio,live_wifi,hardware`, the real-device suites). The
-local-network discovery suites (`@Tags(['netdisco'])`) are only *declared* in
-`dart_test.yaml`, not skipped by default, so a bare `flutter test` runs them;
-they bind ports 5353/1900 and wait real seconds for real datagrams, and fail on
-a machine already running avahi/systemd-resolved. Run them deliberately, on
-their own, backed by the stdlib responder `scripts/net_virtual_device.py`:
+- **Claude Code on the web:** `.claude/hooks/session-start.sh` installs the
+  Python deps automatically.
+- **Local:**
 
 ```bash
-./scripts/ci-netdisco-tests.sh          # what CI's Local-network discovery job runs
+pip install -r requirements.txt -r requirements-dev.txt
+ruff check .                      # lint the helper scripts
+pytest -q                         # test suite
+python scripts/validate_specs.py  # validate every spec against schema.json
+python scripts/validate_glyphs.py # glyph references, manifest and SVG hygiene
+python scripts/check_links.py     # helpful_urls still resolve (network; not in CI)
+python scripts/build_index.py --check   # JSON API freshness (what CI checks)
+mkdocs build --strict             # docs must build clean
 ```
 
-Testing devices without hardware (fakes, mock mode, emulated BLE peripherals,
-virtual BlueZ, and the network responder) is documented in
-[CONTRIBUTING.md](CONTRIBUTING.md#testing-ble-without-hardware). Tests are not
-optional here — they're a feature.
+CI (`.github/workflows/ci.yml`) runs exactly these.
 
-## Load-bearing rules
+**Do not commit `device-specs/index.json`.** It is generated, and CI's
+`publish-index` job rebuilds and commits it on every push to main — that is the
+whole reason it moved out of branches: with several spec PRs open at once, a
+60 kB machine-written file that every one of them touches conflicts with every
+other one. A PR carrying it fails CI (`Reject a hand-carried index.json`) with
+the command to drop it. If you want to see the index your specs produce,
+`python scripts/generate_index.py` still writes it locally — just leave it out
+of the commit (`python scripts/generate_index.py --check` reports staleness
+without writing).
 
-- **Never edit `vendor/protocol-specs/`.** It is a git subtree vendored
-  unmodified from
-  [liberatedbread-protocol-specs](https://github.com/liberatedbread/liberatedbread-protocol-specs).
-  Edits are invisible upstream and CI fails the PR. To change a spec, open a PR
-  against that repo, then refresh here with `./scripts/update-specs.sh`.
-  **Committed refreshes come from upstream `main` only.** Upstream squash-merges
-  its PRs, so a PR-branch tip vanishes the moment it merges — a subtree pulled
-  from one records a `git-subtree-split` that dangles, every later pull
-  degrades into a full-tree squash, and (this happened) the vendored catalogue
-  quietly stops corresponding to anything upstream can name. Iterating on a
-  spec and the app together, refresh from your local checkout — that path is
-  for UNCOMMITTED iteration:
-  `./scripts/update-specs.sh my-branch --from ../liberatedbread-protocol-specs`,
-  then re-pull `main` once the spec PR lands and commit that.
-  Upstream tracks its glyph artwork (`glyphs/**`) in Git LFS; a plain clone or
-  subtree pull carries 3-line pointer files, which is the intended state here —
-  the app bundles the YAML, not the artwork. If a local `git lfs` install
-  starts failing the pull's checkout, `git lfs install --local --skip-smudge`.
-  Upstream's `device-specs/index.json` — the list the app's loader reads — is
-  built by upstream CI *after* a spec merges, so a branch's index never names
-  the spec you are writing. The script rebuilds it from the vendored specs for
-  you in that case (`--rebuild-index` forces it for any source), leaving it
-  uncommitted on purpose: it is local state, and committing it would put the
-  next subtree pull back into conflict on a generated file. Needs a python3
-  with `pyyaml` + `jsonschema`; nothing else here does.
-- **Never hand-edit generated FRB bindings** (`lib/src/rust/**`,
-  `rust/src/frb_generated.rs`). Regenerate with
-  `flutter_rust_bridge_codegen generate` after changing `rust/src/api/**`. CI
-  fails if the bindings are out of sync.
-- **Keep both transports in mind.** BLE lives in `*ble_service.dart` /
-  `rust/src/protocol/profiles/`; Wi-Fi lives in `*network_scan_service.dart`,
-  `*_control_service.dart` (HTTP/SOAP), and `rust/src/protocol/{http,soap}.rs`.
-  Radios live in `rust/src/protocol/radio/` (codecs), `*_programmer.dart`
-  (sessions: serial, and the radio's own BLE in `baofeng_ble_programmer.dart`,
-  all implementing `RadioProgrammer`) and `*serial_port_service.dart` (cables).
-- Bundled specs are discovered from the subtree's `device-specs/index.json`,
-  not a list in Dart: adding a device is a spec refresh, never a Dart edit.
-  `rust/tests/vendored_assets.rs` fails if `device_spec_provider.dart` names a
-  spec file directly (the example bulb is the one permitted fallback literal).
-- Follow existing style: `dart format` / `cargo fmt`, lines ~80 cols, and keep
-  `clippy -- -D warnings` clean.
+## Instruction glyphs (`glyphs/`)
 
-## More
+Small **original** drawings of the hardware a reset or pairing step refers to —
+which button, what the LED does — referenced from specs by `glyph` /
+`indicator_glyph` and rendered beside the step. Full guide:
+[docs/contributing/glyphs.md](docs/contributing/glyphs.md). The three rules
+worth knowing before you touch the directory:
 
-- [docs/BUILD_AND_TEST.md](docs/BUILD_AND_TEST.md) — build/run/test guide
-- [docs/RELEASE.md](docs/RELEASE.md) — releasing: build store artifacts with
-  `./scripts/release.sh`, which stamps `git describe` into
-  `AppConstants.appVersion`; [docs/APP_STORE_SUBMISSION.md](docs/APP_STORE_SUBMISSION.md)
-  is the Apple-side runbook
-- [docs/WALKTHROUGH.md](docs/WALKTHROUGH.md) — E2E architecture + spec format
-- [docs/ios-from-linux.md](docs/ios-from-linux.md) — iPhone workflows from Linux
-- [SPECS_TO_FIX.md](SPECS_TO_FIX.md) — problems whose fix is upstream in the
-  vendored spec catalogue; never patched here
-- [docs/GROUP_CONTROL_AND_VOICE.md](docs/GROUP_CONTROL_AND_VOICE.md) — design
-  note: group ops across both transports, and a Siri/Shortcuts surface
-- [docs/LINUX_DIRECT_ATT.md](docs/LINUX_DIRECT_ATT.md) — the Linux raw-ATT
-  path for peripherals bluetoothd cannot enumerate, and how to delete it
+- **Draw it, never derive it.** Vendor artwork is inadmissible in any processed
+  form — not a manual crop, not a trace over a product photo, not a recoloured
+  app asset. `origin: original_drawing` in `glyphs/MANIFEST.yaml` is an
+  attestation, and it is the only value the validator accepts.
+- **Tracked with Git LFS.** Run `git lfs install` in a fresh clone or you get
+  pointer files instead of drawings.
+- **Every glyph is referenced and every reference resolves.** An orphan in the
+  store is a validation failure. Run `python scripts/validate_glyphs.py`.
+
+## Manual links (`helpful_urls` with `kind: manual`)
+
+An owner holding abandoned hardware wants the manual, and "the manual" is the
+single most common thing they cannot find once the vendor's site is gone. Add
+one wherever you can:
+
+```yaml
+helpful_urls:
+  - title: "Kwikset Kevo 2nd generation installation and user guide (PDF)"
+    url: "https://s7d5.scene7.com/is/content/BDHHI/Kwikset/Tech-Docs/5064452.pdf"
+    kind: "manual"
+    description: >
+      Vendor-hosted guide for the 2nd-generation lock, including the
+      ten-second Reset button hold used in this spec.
+```
+
+- **Verify it resolves before committing it.** The schema says a dead link is
+  worse than no link. `python scripts/check_links.py --kind manual` checks the
+  ones already in tree; it is not in CI, because it talks to the open internet
+  and a third-party site having a bad afternoon must not fail a spec PR.
+- **Prefer vendor-hosted, then an aggregator, then the Internet Archive.**
+  Archive links are not a fallback to be embarrassed about here — for a dead
+  vendor they are the only thing that will still resolve in five years, which
+  is the failure this whole registry exists for. Use the `/web/<timestamp>/`
+  replay form, never the availability API.
+- **A 403 is not a dead link.** manuals.plus, fcc.report, Codeberg and most
+  Zendesk vendor portals refuse anything without a browser fingerprint. The
+  checker reports those separately as "blocked" so nobody deletes a good link
+  to make it go green.
+- **Say which model.** Most specs here cover a family, so a bare "manual" link
+  is a guessing game; a convention test requires the description.
+
+## Adding or changing a device
+
+1. `docs/devices/_template.md` → `docs/devices/<device>.md` (include setup,
+   pairing, factory reset, rebinding).
+2. Add the device to `docs/devices/index.md` and to `mkdocs.yml`'s nav.
+3. Add a spec under `device-specs/devices/`, then
+   `python scripts/validate_specs.py`. Every device spec must carry a
+   `device.pairing` block — on BLE "nothing pairs" is the usual answer, on
+   Wi-Fi/LAN it says how a client gets authorised (link button, on-screen
+   PIN, cloud-fetched key, admin login, or nothing at all), and saying it
+   is the point; see
+   [docs/protocols/pairing.md](docs/protocols/pairing.md). If the device has
+   more than one `setup.methods` entry, each one needs a `name` and a `role`
+   (`primary` / `alternative` / `variant` / `historical`) and the list is
+   ordered easiest first, with anything defunct last. Every entry is a route
+   the reader CHOOSES: two things they must both do, in order, are one method
+   with `stages`, not two methods. `type` is the mechanism, not a label — two
+   methods on one device routinely share it. See
+   [docs/api/spec-format.md](docs/api/spec-format.md#methods), and read
+   [Writing a spec someone can implement](#writing-a-spec-someone-can-implement)
+   before the protocol blocks. The index picks the spec up on its own once this
+   merges — do not commit `device-specs/index.json`.
+4. For net-new reverse engineering, follow the per-target clean-room workflow in
+   [prompts/AGENT_META_PROMPT.md](prompts/AGENT_META_PROMPT.md).
+
+## Writing a spec someone can implement
+
+The bar is one sentence long: **someone holding the hardware and none of your
+context can build a working client from the YAML alone.** Everything below is a
+way that fails in practice, each one drawn from a spec in this tree that had to
+be repaired. [docs/api/spec-format.md](docs/api/spec-format.md) is the field
+reference; this is the craft.
+
+**A fact in prose is a fact no consumer can read.** This is the most common
+defect in the catalogue and the most expensive one downstream. Prose sitting
+*beside* a field is context and is welcome; prose standing *instead of* a field
+is a fact that only a human re-reading the document will ever find. GAPS.md's
+"Mobile handlers' schema asks" is the receipt: twelve places where a mobile
+handler had to hard-code a value, tell two commands apart by their name, or
+parse a payload out of a paragraph, because the spec described the bytes
+without declaring them. If you find yourself writing "the density byte is 0x01
+for light, 0x02 for normal", that is a `parameters` block with an enum, not a
+sentence.
+
+**An undeclared key is invisible, not merely untidy.** The schema root and
+`device` are closed worlds (`additionalProperties: false`), so a made-up
+sibling key fails validation outright. The subtler version passes every gate:
+protocol facts filed under `data_format` instead of `commands`/`format`, under
+`device.payload_formats` instead of the root `payload_formats`, under
+`description` instead of a characteristic's `notes` — all valid YAML, all
+invisible to anything that reads specs by key. Look in `schema.json` before you
+invent a name. If the field genuinely does not exist, put the block under
+`protocol_details` — the declared escape hatch, exempt from the closed-world
+rule — and propose the real field in
+[docs/contributing/spec-evolution.md](docs/contributing/spec-evolution.md).
+
+**Say how sure you are, separately for each kind of sure.** Three mechanisms
+that are routinely confused:
+
+- `verification: confirmed | reported | hypothesis` on an individual fact.
+- `verified` on a setup method or reset procedure, plus `setup.confidence`.
+- `device.testing` on the spec as a whole — "has *this project* driven hardware
+  from this document?" `untested` is the honest default and the usual answer.
+  A new spec needs the block; a reference spec must not carry one. `detail`
+  refines `status` (`capture-verified` only under `untested`, `minimally-` /
+  `mostly-verified` only under `verified`), and anything above a bare
+  `untested` has to name its evidence in `notes` so a reviewer can check it.
+
+Byte-level detail recovered from a decompiled app is `reported`, however
+convincing it looks — `confirmed` means someone ran it against the device. An
+unverified reset procedure or pairing procedure must cite a `basis`; that is
+enforced, because "we think you hold it for ten seconds" and "we held it for
+ten seconds" are different documents.
+
+**Write down what you do not know.** `remaining_unknowns` and
+`evidence.open_questions` cost a line each and are the difference between the
+next person resuming your work and repeating it. Record negative findings the
+same way: `m6-fitness-band` documents an app-to-device match that was
+positively *refuted* by a firmware dump, and that note is worth more than the
+correct answer alone, because it is the wrong turn everyone else was about to
+take.
+
+**Numbers are not implementable until they carry units, endianness and
+scaling.** Every value a client parses needs all three. Units use the canonical
+spelling, are never empty, and name exactly one quantity (`temperature_c`, not
+`temp_c_or_f`); endianness is declared the same way everywhere; a temperature
+that is really `u16 LE − 30` says so, along with its sentinel values. A `bytes`
+parameter bounds its *length* with `min_length`/`max_length` — `min`/`max` mean
+a value range everywhere else in the schema, and the consumer that read
+`fardriver-controller`'s `{type: bytes, min: 1, max: 26}` that way rejected the
+parameter and dropped the entire spec with it.
+
+**A matcher that cannot match fails silently.** A `local_name` matcher needs a
+`value` or a non-empty `values`; a `match: regex` needle must compile;
+`local_name_prefix` is never the empty string; `mac_prefixes` must be usable
+OUIs, and a high-confidence one has to show its working. These are load-bearing
+in both directions — one spec is *found* by its matcher and another *withholds*
+a warning based on one — and a broken needle produces no error, just a device
+that never appears.
+
+**UUIDs are lowercase, everywhere.** Write every 128-bit UUID in canonical
+8-4-4-4-12 form with lowercase hex, and expand 16-bit SIG UUIDs onto the
+Bluetooth base (`0000fff0-0000-1000-8000-00805f9b34fb`). That covers
+structured fields, prose in `notes`/`description`/step text, and the
+`docs/` pages too. Vendor apps and nRF Connect print them uppercase, so
+lowercase a value when you copy it in. Consumers compare UUIDs as strings
+more often than they should, and one spelling makes a grep find every
+use. The schema's `uuid` pattern enforces this for fields, and
+`scripts/test_uuid_case.py` enforces it for everything else. The only
+exception is a string that merely looks like a UUID and whose case
+matters (the Roku client-id secret is hashed as written). Add one to
+that test's `CASE_SIGNIFICANT` table with the reason.
+
+**Firmware update is a control surface, and the most dangerous one.** If
+the device takes new firmware, give it a `features` entry of `type:
+firmware_update` with a `dfu` block. Declare the bytes that reboot it into
+the bootloader as an `advanced` command (or mark the upload endpoint
+`advanced`), and say in `dfu_mode` what it looks like once there. The stack
+defaults (`DfuTarg`, address+1, UUIDs) are in
+[docs/protocols/firmware-update.md](docs/protocols/firmware-update.md). Record
+only what this device changes, and never assert a stack default as a fact
+about the device without saying so.
+
+**Steps are executed by somebody. Say who.** Every step needs an `action`, and
+`actor` is one of `user`, `client`, `device`. It is the field that decides
+whether a setup wizard can automate a step or must stop and ask a person to
+press something.
+
+**Answer the standing questions even when the answer is "no".** A missing block
+is indistinguishable from a question nobody asked, so the negative answers are
+the point: a BLE spec's `pairing` block usually says nothing pairs, and a
+LAN device with an open API says the network is the only gate;
+`factory_reset` may be `applicable: false` or `"unknown"`; `rejoin` answers
+"my router changed, now what?"; `credentials.wifi_passphrase_protection` may be
+`plaintext`. Each of those is a fact somebody would otherwise spend an evening
+establishing.
+
+**Bind the control surface to something a client can render.** `commands` and
+`entities` use documented vocabularies for keys and roles, entity names are
+unique per variant, command templates may only reference parameters they
+declare, and a `locate` command is never `advanced` — a locator is offered as a
+one-tap button with no user in the loop to confirm it, so it must never be
+something a user needs protecting from.
+
+**Test vectors are the highest-leverage thing a spec can carry**, and the
+standard to hold them to is `scripts/test_wemo_spec.py`: it transcribes the
+published algorithm using nothing but the standard library, imports none of our
+code, and asserts the transcription reproduces the spec's own vectors. If that
+test cannot be written, the spec is underspecified no matter what else passes.
+Use documentation-range MACs and invented serials so the vectors identify no
+real unit.
+
+**Byte-level notes are where vendor class names sneak in.** The clean-room rule
+above is easiest to break in exactly the place your notes are densest — a
+parser you traced through the app. Name the role, not the symbol: "the app's
+temperature parser applies `(high << 4) + low`", never the class and method it
+lived in. Citing an *open-source* project by file stays fine.
+
+## Downstream
+
+Specs here are vendored into
+[liberatedbread-mobile](https://github.com/liberatedbread/liberatedbread-mobile)
+as a git subtree; the mobile app renders these YAML specs directly for both BLE
+and Wi-Fi/LAN devices. Keep specs implementable from the document alone.

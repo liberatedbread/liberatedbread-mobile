@@ -1,18 +1,28 @@
 # CLAUDE.md
 
 The full agent guide for this repo lives in **[AGENTS.md](AGENTS.md)** — read it
-first. It covers the project's two transports (BLE and Wi-Fi/LAN), setup, and
-the build/test/lint commands.
+first. It covers the clean-room rules, the BLE and Wi-Fi/LAN spec formats, and
+the setup/test commands.
 
 The rules most likely to bite if skipped:
 
-- **Never edit `vendor/protocol-specs/`** — it's a git subtree; edit specs
-  upstream and refresh with `./scripts/update-specs.sh`.
-- **Never hand-edit generated FRB bindings** (`lib/src/rust/**`,
-  `rust/src/frb_generated.rs`) — regenerate with `flutter_rust_bridge_codegen
-  generate`.
-- Mirror CI before you're done: `./scripts/test.sh`. Running `flutter test`
-  directly, pass `--exclude-tags=netdisco` (as `test.sh` and CI do) — the
-  local-network discovery suites are declared but not skipped by default and
-  bind ports 5353/1900. Run them with `./scripts/ci-netdisco-tests.sh` when you
-  touch the Wi-Fi path.
+- **Clean-room:** never commit APKs, decompiled source, `*.pcap` captures, or
+  vendor assets — only derived facts and your own writing. Two that are easy to
+  miss because they arrive inside otherwise-good work: the vendor app's
+  internal class and method names (paraphrase the role instead), and the
+  identifiers of your own hardware and network after a verification session —
+  LAN address, MAC, hostname, serial, keys. Placeholder them; keep OUI
+  prefixes and product-fixed addresses. See
+  [docs/CLEANROOM_RULES.md](docs/CLEANROOM_RULES.md).
+- **Never commit `device-specs/index.json`** — it is generated, and CI rebuilds
+  and commits it on main. A branch carrying it fails CI (it is the file every
+  parallel spec PR used to conflict on). `python scripts/generate_index.py`
+  still writes it locally if you want to look at it; just don't stage it.
+- **Glyphs are drawn, never derived.** `glyphs/` holds original line art of
+  the buttons and LEDs a reset or pairing step points at. A crop of a vendor
+  manual or a trace over a product photo is a clean-room violation, whatever
+  it has been through in between. They are tracked with Git LFS — run
+  `git lfs install` in a fresh clone.
+- Validate before you're done: `python scripts/validate_specs.py`,
+  `python scripts/validate_glyphs.py`, `ruff check .`, `pytest -q`,
+  `mkdocs build --strict`.

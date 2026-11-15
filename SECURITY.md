@@ -1,35 +1,19 @@
 # Security Policy
 
-## Supported Versions
-
-| Version  | Supported          |
-| -------- | ------------------ |
-| 0.1.x    | :white_check_mark: |
-| < 0.1.0  | :x:                |
-
-The project is pre-1.0, so only the latest `0.1.x` line receives security
-fixes.
-
 ## Reporting a Vulnerability
 
-If you discover a security vulnerability, please report it responsibly.
+**Please do NOT open a public issue for security vulnerabilities.**
 
-**Do NOT open a public GitHub issue for security vulnerabilities.**
+Instead, email security@pigscanfly.ca with:
+- Description of the vulnerability
+- Steps to reproduce
+- Potential impact
+- Suggested fix (if you have one)
 
-Instead, please email security@pigscanfly.ca with:
+We'll acknowledge receipt within 48 hours and aim to provide a fix timeline within 5 business days.
 
-1. A description of the vulnerability
-2. Steps to reproduce
-3. Potential impact
-4. Suggested fix (if any)
+## Supported Versions
 
-We will acknowledge receipt within 48 hours and aim to provide a fix within
-7 days for critical issues.
-
-## Scope
-
-This policy covers the Liberated Bread Mobile application and its direct
-dependencies. BLE protocol-level vulnerabilities should be reported to
-the [OpenGreenIoT](https://github.com/PigsCanFlyLabs/opengreeniot) project. If
-you're unsure whether an issue lives in the app or the protocol, report it to
-both — we'd rather get a duplicate than miss it.
+| Version | Supported |
+|---------|-----------|
+| latest  | Yes       |

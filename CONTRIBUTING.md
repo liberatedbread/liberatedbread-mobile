@@ -1,218 +1,29 @@
-# Contributing to Liberated Bread Mobile
+# Contributing to Liberated Bread Protocol Specs
 
-Thank you for your interest in contributing! We welcome contributions from everyone.
-By participating you agree to our [Code of Conduct](CODE_OF_CONDUCT.md).
+First off -- thanks for wanting to help keep IoT devices alive!
 
-## How to Contribute
+## Documenting a New Device
 
-1. **Fork** the repository
-2. **Create a branch** for your feature or fix: `git checkout -b feature/my-feature`
-3. **Write tests** for your changes
-4. **Run the checks**: `./scripts/test.sh` — the local CI mirror. It runs the
-   formatter, the analyzer, the FRB binding-freshness check, `flutter test` and
-   the Rust suite in the same order and with the same flags CI does, so a green
-   run here is a green run there. Running `flutter test` on its own, pass
-   `--exclude-tags=netdisco` (see below).
-5. **Format your code**: `./scripts/ci-format.sh --write`. Plain `dart format .`
-   walks `build/`, where it reformats cargokit's vendored Dart and then fails
-   because it changed something — CI never notices because its analyze job runs
-   before anything is built, and yours does not.
-7. **Commit** your changes with a clear message
-8. **Push** to your fork and **open a Pull Request**
+The most valuable contribution. If you have an abandoned IoT device:
 
-## Development Setup
+1. Copy `docs/devices/_template.md` to `docs/devices/your-device-name.md`
+2. Fill in as much as you can -- partial documentation is still valuable
+3. Open a PR with your findings
 
-### Flutter
+## Style Guide
 
-```bash
-flutter pub get
-flutter test --exclude-tags=netdisco,live_ble,live_radio,live_wifi,hardware   # see "netdisco" below for why
-```
+- Use the device documentation template for consistency
+- Include hex dumps and protocol byte layouts where possible
+- Reference specific BLE UUIDs, HTTP endpoints, or MQTT topics
+- Credit any existing research you're building on
+- Put human reference material in top-level `helpful_urls` and
+  `helpful_videos` entries. Each entry needs `title` and an HTTP(S) `url`;
+  `description` is optional. Do not invent links, and verify that every link
+  resolves before adding it.
 
-### Rust
+## Code Contributions
 
-Install the stable Rust toolchain (see [README — Prerequisites](README.md#prerequisites)), then:
-
-```bash
-cd rust
-cargo test
-cargo clippy --all-targets --all-features -- -D warnings
-cargo fmt --all
-```
-
-Before opening a PR, run the local CI mirror (covers both Flutter and Rust):
-
-```bash
-./scripts/test.sh
-```
-
-## Testing BLE without hardware
-
-Almost nobody has the cloud-dead device you are fixing support for, and CI has
-no Bluetooth radio at all. There are five ways to stand a device up, at
-different depths — pick the shallowest one that still runs the code you changed.
-
-| What you get | Where | Runs the real `RealBleService`? | Runs the platform plugin? |
-| --- | --- | --- | --- |
-| `FakeBleService` | `test/fakes/fake_ble_service.dart` | no | no |
-| Mock mode | `--dart-define=LIBERATED_BREAD_MOCK=true` | no (it IS the other implementation) | no |
-| Emulated peripherals | `test/fakes/emulated_ble.dart` | **yes** | flutter_blue_plus's Dart core, yes |
-| The Linux stack, routed | `test/fakes/routed_ble.dart` + `fake_att_channel.dart` | **yes** | flutter_blue_plus's core and the Linux direct-ATT router, yes |
-| Virtual BlueZ | `scripts/linux-virtual-ble.sh` | **yes** | **yes**, `flutter_blue_plus_linux` |
-
-**`FakeBleService`** replaces the app's own `BleService` interface. Right for
-widget and screen tests, where the question is what the UI does with a given
-answer.
-
-**Mock mode** is a shipped product feature — demo mode — not a test double. The
-integration suites run in it because it needs no radio, but it means
-`real_ble_service.dart` never executes.
-
-**Emulated peripherals** plug in one layer lower, at flutter_blue_plus's
-federated platform seam, so the shipping service and the real plugin both run
-against a virtual radio. A peripheral is a GATT table plus knobs for the ways
-hardware misbehaves — refused connections, GATT errors, discovery that answers
-empty while services are still resolving, a device that demands pairing:
-
-```dart
-final ble = EmulatedBleAdapter.install();          // once, in setUpAll
-final bulb = ble.add(EmulatedPeripheral.bulb(id: 'AA:BB:CC:DD:EE:01'));
-bulb.pushNotification(EmulatedUuids.batteryLevel, [84]);
-```
-
-See `test/services/real_ble_service_emulated_test.dart` for the service-level
-use and `test/app_real_ble_path_test.dart` for the whole app over that path.
-Both run under a plain `flutter test`.
-
-**The Linux stack, routed** is the emulated adapter with the Linux
-direct-ATT router (docs/LINUX_DIRECT_ATT.md) in front of it, exactly where
-the desktop app puts it, plus scripted ATT peripherals for the devices it
-drives itself. A device can be given both views — what bluetoothd reports
-about it (`discoveryBlocksFor`, `discoveryNeverResolves`, `reportLinkDown`:
-the ways bluetoothd misbehaves) and what its own ATT server answers
-(`FakeAttPeripheral`, with `.ldm330()` as a preset):
-
-```dart
-final rig = RoutedBle.install();                   // once, in setUpAll
-rig.ble.add(EmulatedPeripheral.bulb(id: meter))
-  ..emptyDiscoveries = 1 << 20
-  ..discoveryBlocksFor = const Duration(milliseconds: 300);  // the stall
-rig.channels.peripherals[meter] = FakeAttPeripheral.ldm330();
-```
-
-See `test/services/direct_att/direct_att_router_test.dart`; and
-`test/services/real_ble_service_routed_test.dart`, which re-runs the whole
-emulated RealBleService suite through the router.
-
-**Virtual BlueZ** is for the Linux desktop target, where the real BLE path goes
-through `flutter_blue_plus_linux` to BlueZ over D-Bus. `scripts/
-ble_virtual_peripheral.py` serves `org.bluez` on a private bus — no radio, no
-kernel module, no root — so that backend runs for real:
-
-```bash
-./scripts/linux-virtual-ble.sh bluetoothctl devices
-./scripts/linux-virtual-ble.sh xvfb-run -a flutter test \
-    integration_test/linux_virtual_ble_test.dart -d linux --tags=bluez
-```
-
-It needs `dbus` and `python3-dbus-next` (both in `LINUX_DESKTOP_PACKAGES`, so
-`./scripts/setup.sh` installs them). Suites that need it are tagged
-`@Tags(['bluez'])`, which keeps them out of the device jobs and tells
-`scripts/ci-linux-tests.sh` to run them wrapped. A scenario device can be
-`persisted` — one bluetoothd already keeps, which a scan announces only as a
-property change — and a host suite under `test/` can use the stack too
-(`LB_VIRTUAL_BLE_SCENARIO=<json> ./scripts/linux-virtual-ble.sh flutter test
-<file>`; it skips itself unless the wrapper set `LB_VIRTUAL_BLE=1`). See
-`test/services/direct_att/bluez_view_virtual_test.dart`.
-
-## Testing local-network discovery without a network
-
-Half the catalogue is Wi-Fi hardware, and `RealNetworkScanService` finds it the
-way the hardware expects: a DNS-SD meta-query over mDNS and an SSDP M-SEARCH.
-Neither has a plugin seam to substitute — they are `dart:io` sockets and
-`package:multicast_dns` — so the only way to run that code is to put something
-on the wire that answers.
-
-`scripts/net_virtual_device.py` is that: an mDNS/DNS-SD and SSDP responder for a
-scenario of emulated devices, stdlib only. Both sides join their multicast group
-over the loopback path, so it needs no second machine, no router and no
-privileges. The bundled scenario is one device answering on both transports (a
-Hue bridge — the coalescing case) and one that is SSDP-only (a Wemo plug — the
-reason both transports run).
-
-It answers only what was asked, on both transports: an mDNS question gets the
-records for that name and type, and an SSDP M-SEARCH gets the devices whose
-`ST` it named (`ssdp:all` gets them all). A scenario device can set
-`"deaf_to_wildcard": true` in its `ssdp` block to answer its exact `ST` and
-nothing else — the awkward real behaviour the scan carries extra search targets
-for. `python3 scripts/net_virtual_device_selftest.py` asserts that half without
-touching a socket.
-
-```bash
-# Watch a scan happen, with every answered query logged
-python3 scripts/net_virtual_device.py --verbose &
-./scripts/run-linux.sh          # or: flutter test --tags=netdisco
-
-# What CI runs
-./scripts/ci-netdisco-tests.sh
-```
-
-These suites are tagged `@Tags(['netdisco'])` and have a CI job of their own.
-Two reasons, both in `scripts/ci-netdisco-tests.sh`: they bind ports 5353 and
-1900, which a machine running `avahi-daemon` or `systemd-resolved` cannot
-spare, and a scan window is seconds of waiting for real datagrams rather than
-frames of a fake clock.
-
-**They are not excluded by default** — `dart_test.yaml` only *declares* the tag
-so the runner does not warn about it. What excludes them is the
-`--exclude-tags=netdisco` that `./scripts/test.sh` and CI both pass, so a bare
-`flutter test` on your machine runs them and binds those ports. (Both also
-exclude `live_ble`, `live_radio`, `live_wifi` and `hardware`, the suites that
-drive real devices, so a shell still carrying `LB_LIVE_RADIO=1` from a live
-session cannot program a radio from the mirror.) Use
-`./scripts/test.sh`, or pass the flag yourself. (`exclude_tags` in
-`dart_test.yaml` would make the bare command safe, but it also wins over an
-explicit `--tags=netdisco`, and `flutter test` has no preset passthrough to
-opt back in — so the deliberate run would have no way to happen. See the note
-in `dart_test.yaml`.)
-
-## Device specs live in another repository
-
-`vendor/protocol-specs/` is a **git subtree**, vendored unmodified from
-[liberatedbread-protocol-specs](https://github.com/liberatedbread/liberatedbread-protocol-specs).
-`pubspec.yaml` bundles paths inside it directly — there is no copy under
-`assets/` and no sync step — which is what lets a refresh be one `git subtree
-pull`, and what makes editing it here a mistake:
-
-- **Do not edit files under `vendor/protocol-specs/` in this repository.** The
-  change is invisible upstream, and the next refresh reverts or conflicts with
-  it. CI fails the pull request that does it.
-- To change a spec, open a pull request against the specs repository, then
-  refresh here with `./scripts/update-specs.sh`.
-- While iterating on both at once, pull from the branch you are still writing:
-  `./scripts/update-specs.sh my-branch --from ../liberatedbread-protocol-specs`.
-- `./scripts/update-specs.sh --check` runs the verification alone — no network,
-  no pull. It is what the CI step runs.
-
-The script wraps stock `git subtree` (`pull --squash`); it adds the preflight
-checks, the assertion that every bundled path arrived, and the error triage.
-Doing the `git subtree` commands by hand is fine — you just lose the checks.
-
-## Code Style
-
-- Follow the [Effective Dart](https://dart.dev/effective-dart) guidelines
-- Use `dart format` to format code
-- Keep lines under 80 characters where reasonable
-- Write descriptive variable and function names
-- Rust: run `cargo fmt` and keep `cargo clippy -- -D warnings` clean; follow standard Rust naming (snake_case items, CamelCase types)
-
-## Reporting Issues
-
-- Use the [issue templates](.github/ISSUE_TEMPLATE/) provided
-- Include steps to reproduce bugs
-- Include device/OS information for BLE-related issues
-
-## License
-
-By contributing, you agree that your contributions will be licensed under the
-Apache License 2.0.
+1. Fork the repo
+2. Create a feature branch
+3. Make sure docs build: `mkdocs build --strict`
+4. Submit a PR
