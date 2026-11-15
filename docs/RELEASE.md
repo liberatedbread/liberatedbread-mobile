@@ -456,6 +456,11 @@ keyAlias=upload
 keyPassword=…
 ```
 
+`keyPassword` is optional and defaults to `storePassword`. In a PKCS12
+keystore, the format `keytool` has created by default since JDK 9, the two are
+the same password anyway (`keytool -list -keystore …` prints the type). Set it
+only for a JKS keystore whose key has its own password.
+
 Without that file the build falls back to Android's shared debug key and logs a
 warning, and Play rejects the result. Create the key once:
 
