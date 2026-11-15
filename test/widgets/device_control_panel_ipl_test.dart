@@ -148,19 +148,23 @@ void main() {
         .toList();
     expect(find.byType(IplSetupPanel), findsOneWidget, reason: '$visibleText');
     expect(find.byType(TypedCharacteristicWidget), findsOneWidget);
-    // Pro is an advanced write in the spec (the stock app gates it behind a
-    // subscription and no capture has made it), so it stays out of the panel
-    // until advanced controls are on; Basic is a plain, confirmed write.
-    expect(
-      find.widgetWithText(ElevatedButton, 'Set removal mode pro'),
-      findsNothing,
-    );
-    final basic = find.widgetWithText(ElevatedButton, 'Set removal mode basic');
-    expect(basic, findsOneWidget);
-    await tester.ensureVisible(basic);
-    await tester.tap(basic);
+    // Basic/Pro belongs to the setup panel, which reads the mode back and
+    // labels it Unlock / Disable; the generic card points there rather than
+    // offering the raw opcodes under a second spelling.
+    expect(find.textContaining('unlock or disable Pro mode'), findsOneWidget);
+    for (final raw in [
+      'Set removal mode pro',
+      'Set removal mode basic',
+      'Get removal mode',
+    ]) {
+      expect(find.widgetWithText(ElevatedButton, raw), findsNothing);
+    }
+    final autoFan = find.widgetWithText(ElevatedButton, 'Set auto fan');
+    expect(autoFan, findsOneWidget);
+    await tester.ensureVisible(autoFan);
+    await tester.tap(autoFan);
     await tester.pump();
-    expect(specCodec.encodeCalls.single.commandName, 'set_removal_mode_basic');
+    expect(specCodec.encodeCalls.single.commandName, 'set_auto_fan');
     expect(specCodec.encodeCalls.single.serviceUuid, _actualService);
   });
 

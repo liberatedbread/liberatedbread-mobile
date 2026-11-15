@@ -9,12 +9,15 @@ use crate::protocol::ipl;
 pub struct ForeoActivationDto {
     pub security_access: Vec<u8>,
     pub activation_write: Vec<u8>,
+    /// Written to 0A30 on firmware that exposes it.
+    pub wakeup_write: Vec<u8>,
 }
 
 #[derive(Debug, Clone)]
 pub struct ForeoStatusDto {
     pub locked: bool,
-    pub wakeup_enabled: bool,
+    /// `None` when the unit has no 0A30 wake-up characteristic.
+    pub wakeup_enabled: Option<bool>,
 }
 
 pub fn foreo_activation(device_address: String) -> Result<ForeoActivationDto> {
@@ -22,15 +25,40 @@ pub fn foreo_activation(device_address: String) -> Result<ForeoActivationDto> {
     Ok(ForeoActivationDto {
         security_access: ipl::security_access(&mac),
         activation_write: ipl::activation_write(&mac),
+        wakeup_write: ipl::FOREO_WAKEUP_WRITE.to_vec(),
     })
 }
 
-pub fn decode_foreo_status(activation: Vec<u8>, wakeup: Vec<u8>) -> Result<ForeoStatusDto> {
-    let status = ipl::decode_foreo_status(&activation, &wakeup)?;
+/// `wakeup` is `None` when the unit exposes no 0A30 characteristic.
+pub fn decode_foreo_status(activation: Vec<u8>, wakeup: Option<Vec<u8>>) -> Result<ForeoStatusDto> {
+    let status = ipl::decode_foreo_status(&activation, wakeup.as_deref())?;
     Ok(ForeoStatusDto {
         locked: status.locked,
         wakeup_enabled: status.wakeup_enabled,
     })
+}
+
+/// Whether this unit gets the Basic/Pro switch, from its 2A28 SW revision.
+#[flutter_rust_bridge::frb(sync)]
+pub fn foreo_pro_mode_supported(sw_revision: String) -> bool {
+    ipl::foreo_pro_mode_supported(&sw_revision)
+}
+
+/// An all-FF (or empty) FFF1 read-back: the device was busy, retry.
+#[flutter_rust_bridge::frb(sync)]
+pub fn foreo_reply_busy(reply: Vec<u8>) -> bool {
+    ipl::foreo_reply_busy(&reply)
+}
+
+/// An FFF1 read-back acknowledging a settings write (leading 01).
+#[flutter_rust_bridge::frb(sync)]
+pub fn foreo_write_acknowledged(reply: Vec<u8>) -> bool {
+    ipl::foreo_write_acknowledged(&reply)
+}
+
+/// The 0BD0 read-back as Pro (`true`) or Basic (`false`).
+pub fn decode_foreo_removal_mode(reply: Vec<u8>) -> Result<bool> {
+    ipl::decode_foreo_removal_mode(&reply)
 }
 
 #[cfg(test)]
@@ -49,9 +77,13 @@ mod tests {
 
     #[test]
     fn maps_the_status_and_rejects_platform_uuid_identifiers() {
-        let status = decode_foreo_status(vec![0], vec![1]).unwrap();
+        let status = decode_foreo_status(vec![0], Some(vec![1])).unwrap();
         assert!(status.locked);
-        assert!(status.wakeup_enabled);
+        assert_eq!(status.wakeup_enabled, Some(true));
+        assert_eq!(
+            decode_foreo_status(vec![1], None).unwrap().wakeup_enabled,
+            None
+        );
         assert!(foreo_activation("123e4567-e89b-12d3-a456-426614174000".to_string()).is_err());
     }
 }

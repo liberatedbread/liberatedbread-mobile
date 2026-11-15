@@ -1484,16 +1484,16 @@ fn the_vendored_handshakes_reach_the_connect_time_api() {
     };
 
     // SpotLED: subscribe to the command characteristic through the GATT
-    // client (never CCCD bytes written to FF21 itself), then GetBufferSize and
-    // GetDisplayInfo as fixed writes, in order, all addressed to the service
-    // that declares them. The queries are answered by notification, so no step
-    // is an ATT read.
+    // client (never CCCD bytes written to FF21 itself), then the official
+    // bootstrap's GetVersion, GetDisplayInfo and GetBufferSize as fixed
+    // writes, in that order, all addressed to the service that declares them.
+    // The queries are answered by notification, so no step is an ATT read.
     let spotled =
         spec_ble_handshake(yaml("spotled-led-panel.yaml")).expect("spotled's handshake resolves");
     assert_eq!(
         spotled.steps.len(),
-        3,
-        "spotled declares a subscribe and two writes"
+        4,
+        "spotled declares a subscribe and three writes"
     );
     assert!(
         spotled.steps.iter().all(|s| s.service_uuid.as_deref()
@@ -1508,16 +1508,13 @@ fn the_vendored_handshakes_reach_the_connect_time_api() {
         "notifications are enabled first, by subscribing: {:?}",
         spotled.steps[0]
     );
-    assert_eq!(
-        spotled.steps[1].write.as_deref(),
-        Some(&[0x04, 0x14, 0x00, 0x00][..]),
-        "GetBufferSize"
-    );
-    assert_eq!(
-        spotled.steps[2].write.as_deref(),
-        Some(&[0x04, 0x12, 0x00, 0x00][..]),
-        "GetDisplayInfo"
-    );
+    for (step, (bytes, name)) in spotled.steps[1..].iter().zip([
+        ([0x04, 0x10, 0x00, 0x00], "GetVersion"),
+        ([0x04, 0x12, 0x00, 0x00], "GetDisplayInfo"),
+        ([0x04, 0x14, 0x00, 0x00], "GetBufferSize"),
+    ]) {
+        assert_eq!(step.write.as_deref(), Some(&bytes[..]), "{name}");
+    }
     assert!(spotled.steps[1..].iter().all(|s| !s.subscribe));
 
     // SmartDawn: two subscriptions, opened before anything is sent.

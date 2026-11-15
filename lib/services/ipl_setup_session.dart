@@ -1,6 +1,7 @@
 // Copyright 2026 Pigs Can Fly Labs LLC
 // SPDX-License-Identifier: Apache-2.0
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 
@@ -13,10 +14,42 @@ import 'spec_codec.dart';
 
 enum IplSetupPhase { checking, needsAction, ready, working, error }
 
+const _foreoCommandChar = '0000fff1-0000-1000-8000-00805f9b34fb';
+const _foreoWakeupChar = '00000a30-0000-1000-8000-00805f9b34fb';
+const _foreoSwRevisionChar = '00002a28-0000-1000-8000-00805f9b34fb';
+
+/// The spec's FFF1 command names the FOREO removal-mode section sends.
+const foreoProModeCommands = {
+  'set_removal_mode_pro',
+  'set_removal_mode_basic',
+  'get_removal_mode',
+};
+
+/// How many times an FFF1 exchange is tried while the device reads back busy
+/// (all FF) — the stock app's limit, per the spec.
+const _foreoBusyAttempts = 5;
+const _unset = Object();
+
 class IplSetupState {
   final IplSetupPhase phase;
   final bool? locked;
+
+  /// Null when the unit has no 0A30 wake-up characteristic (the captured
+  /// new-dialect PEACH2): nothing to enable.
   final bool? wakeupEnabled;
+
+  /// FOREO SW revision (2A28), which picks the command dialect.
+  final String? swRevision;
+
+  /// Whether this FOREO gets the Basic/Pro switch at all.
+  final bool? proModeSupported;
+
+  /// FOREO removal mode: true Pro, false Basic, null not (yet) read.
+  final bool? proMode;
+
+  /// A failure of the removal-mode section alone. Kept apart from [error] so
+  /// a failed Pro write does not read as failed activation.
+  final String? proModeError;
   final int? operationState;
   final int? skinTone;
   final int? energyLevel;
@@ -29,6 +62,10 @@ class IplSetupState {
     required this.phase,
     this.locked,
     this.wakeupEnabled,
+    this.swRevision,
+    this.proModeSupported,
+    this.proMode,
+    this.proModeError,
     this.operationState,
     this.skinTone,
     this.energyLevel,
@@ -109,6 +146,77 @@ class IplSetupSession extends ChangeNotifier {
     }
   }
 
+  /// The spec's own warning for the Pro write, shown at the opt-in.
+  String? get proModeWarning {
+    final target = normalizeUuid(_foreoCommandChar);
+    for (final service in spec.services) {
+      for (final characteristic in service.characteristics) {
+        if (normalizeUuid(characteristic.uuid) != target) continue;
+        for (final command in characteristic.commands) {
+          if (command.name == 'set_removal_mode_pro') {
+            return command.advancedReason;
+          }
+        }
+      }
+    }
+    return null;
+  }
+
+  /// Switch a FOREO between Pro ([pro] true) and Basic removal mode, then
+  /// read the mode back: the write is only reported done once 0BD0 agrees.
+  Future<void> setProMode(bool pro) async {
+    if (_busy || _disposed || handler != 'ipl_foreo') return;
+    if (_state.proModeSupported != true || _state.locked != false) return;
+    _busy = true;
+    _update(
+      phase: IplSetupPhase.working,
+      error: null,
+      notice: null,
+      proModeError: null,
+    );
+    try {
+      final reply = await _foreoExchange(
+        pro ? 'set_removal_mode_pro' : 'set_removal_mode_basic',
+      );
+      if (!iplCodec.writeAcknowledged(reply)) {
+        throw const _IplError(
+          'The device did not acknowledge the mode change.',
+        );
+      }
+      final now = await _readRemovalMode();
+      if (now != pro) {
+        throw _IplError(
+          pro
+              ? 'The device acknowledged but still reports Basic mode.'
+              : 'The device acknowledged but still reports Pro mode.',
+        );
+      }
+      _update(
+        phase: IplSetupPhase.ready,
+        proMode: now,
+        error: null,
+        notice: pro
+            ? 'Pro mode unlocked. The handset +/- levels now include the boost intensities.'
+            : 'Pro mode disabled. The handset is back in Basic mode.',
+      );
+    } catch (error) {
+      bool? mode;
+      try {
+        if (!_disposed) mode = await _readRemovalMode();
+      } catch (_) {}
+      _update(
+        phase: IplSetupPhase.ready,
+        proMode: mode,
+        error: null,
+        proModeError: error is UserFacingException
+            ? error.message
+            : 'The device did not confirm the mode change.',
+      );
+    } finally {
+      _busy = false;
+    }
+  }
+
   Future<void> measureSkinTone() => _executeBraun(5, 'measure_skin_tone');
 
   Future<void> startPatchTest() => _executeBraun(11, 'start_patch_test');
@@ -120,21 +228,73 @@ class IplSetupSession extends ChangeNotifier {
       '00000a10-0000-1000-8000-00805f9b34fb',
       activation.securityAccess,
     );
-    await _readRaw('00002a28-0000-1000-8000-00805f9b34fb');
+    final swRevision = _decodeRevision(await _readRaw(_foreoSwRevisionChar));
     final status = await _readForeoStatus();
+    final needsWakeup = status.wakeupEnabled == false;
+    final proSupported =
+        _exposes(_foreoCommandChar) && iplCodec.proModeSupported(swRevision);
+    bool? proMode;
+    String? proModeError;
+    if (proSupported && !status.locked) {
+      try {
+        proMode = await _readRemovalMode();
+      } catch (error) {
+        proModeError = error is UserFacingException
+            ? error.message
+            : 'The removal mode could not be read.';
+      }
+    }
     _update(
-      phase: status.locked || !status.wakeupEnabled
+      phase: status.locked || needsWakeup
           ? IplSetupPhase.needsAction
           : IplSetupPhase.ready,
       locked: status.locked,
       wakeupEnabled: status.wakeupEnabled,
+      swRevision: swRevision,
+      proModeSupported: proSupported,
+      proMode: proMode,
+      proModeError: proModeError,
       error: null,
       notice: status.locked
           ? 'This device is locked. Activate it before using the controls.'
-          : !status.wakeupEnabled
+          : needsWakeup
           ? 'Wake-up is disabled. Enable it to finish setup.'
-          : 'Device activated and wake-up enabled.',
+          : _foreoReadyText(status.wakeupEnabled),
     );
+  }
+
+  static String _foreoReadyText(bool? wakeupEnabled) => wakeupEnabled == null
+      ? 'Device activated.'
+      : 'Device activated and wake-up enabled.';
+
+  /// 2A28 as text, without the NUL padding some firmware sends.
+  static String _decodeRevision(List<int> bytes) =>
+      utf8.decode(bytes, allowMalformed: true).replaceAll('\u0000', '').trim();
+
+  Future<bool> _readRemovalMode() async =>
+      iplCodec.decodeRemovalMode(await _foreoExchange('get_removal_mode'));
+
+  /// Write one spec command to FFF1 and read its answer back, retrying while
+  /// the device reads back busy.
+  Future<List<int>> _foreoExchange(String commandName) async {
+    final bytes = await specCodec.encodeCommand(
+      specYaml: specYaml,
+      serviceUuid: _serviceFor(_foreoCommandChar),
+      charUuid: _foreoCommandChar,
+      commandName: commandName,
+      params: const {},
+    );
+    for (var attempt = 1; ; attempt++) {
+      await _writeRaw(_foreoCommandChar, bytes);
+      final reply = await _readRaw(_foreoCommandChar);
+      if (!iplCodec.replyBusy(reply)) return reply;
+      if (attempt >= _foreoBusyAttempts) {
+        throw const _IplError(
+          'The device stayed busy. Wait a moment and try again.',
+        );
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 150));
+    }
   }
 
   Future<void> _activateForeo() async {
@@ -149,10 +309,10 @@ class IplSetupSession extends ChangeNotifier {
       );
     }
     if (_state.wakeupEnabled == false) {
-      await _send('00000a30-0000-1000-8000-00805f9b34fb', 'set_wakeup');
+      await _writeRaw(_foreoWakeupChar, activation.wakeupWrite);
     }
     final status = await _readForeoStatus();
-    if (status.locked || !status.wakeupEnabled) {
+    if (status.locked || status.wakeupEnabled == false) {
       throw const _IplError(
         'The device did not confirm activation and wake-up.',
       );
@@ -160,15 +320,25 @@ class IplSetupSession extends ChangeNotifier {
     _update(
       phase: IplSetupPhase.ready,
       locked: false,
-      wakeupEnabled: true,
+      wakeupEnabled: status.wakeupEnabled,
       error: null,
-      notice: 'Device activated and wake-up enabled.',
+      notice: _foreoReadyText(status.wakeupEnabled),
     );
+    // A unit that was locked could not be asked its mode before.
+    if (_state.proModeSupported == true && _state.proMode == null) {
+      try {
+        _update(proMode: await _readRemovalMode());
+      } catch (_) {}
+    }
   }
 
+  /// 0A20, plus 0A30 only on firmware that exposes it — the spec's setup
+  /// step skips wake-up where the characteristic is absent.
   Future<ForeoStatusDto> _readForeoStatus() async {
     final activation = await _readRaw('00000a20-0000-1000-8000-00805f9b34fb');
-    final wakeup = await _readRaw('00000a30-0000-1000-8000-00805f9b34fb');
+    final wakeup = _exposes(_foreoWakeupChar)
+        ? await _readRaw(_foreoWakeupChar)
+        : null;
     return iplCodec.decodeStatus(activation: activation, wakeup: wakeup);
   }
 
@@ -387,6 +557,15 @@ class IplSetupSession extends ChangeNotifier {
     bytes: bytes,
   );
 
+  bool _exposes(String charUuid) {
+    final target = normalizeUuid(charUuid);
+    return discoveredServices.any(
+      (service) => service.characteristics.any(
+        (characteristic) => normalizeUuid(characteristic.uuid) == target,
+      ),
+    );
+  }
+
   String _serviceFor(String charUuid) {
     final target = normalizeUuid(charUuid);
     for (final service in discoveredServices) {
@@ -415,6 +594,10 @@ class IplSetupSession extends ChangeNotifier {
     IplSetupPhase? phase,
     bool? locked,
     bool? wakeupEnabled,
+    String? swRevision,
+    bool? proModeSupported,
+    Object? proMode = _unset,
+    Object? proModeError = _unset,
     int? operationState,
     int? skinTone,
     int? energyLevel,
@@ -428,6 +611,12 @@ class IplSetupSession extends ChangeNotifier {
       phase: phase ?? _state.phase,
       locked: locked ?? _state.locked,
       wakeupEnabled: wakeupEnabled ?? _state.wakeupEnabled,
+      swRevision: swRevision ?? _state.swRevision,
+      proModeSupported: proModeSupported ?? _state.proModeSupported,
+      proMode: identical(proMode, _unset) ? _state.proMode : proMode as bool?,
+      proModeError: identical(proModeError, _unset)
+          ? _state.proModeError
+          : proModeError as String?,
       operationState: operationState ?? _state.operationState,
       skinTone: skinTone ?? _state.skinTone,
       energyLevel: energyLevel ?? _state.energyLevel,
