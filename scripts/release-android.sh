@@ -11,6 +11,7 @@
 # Usage:
 #   ./scripts/release-android.sh                   # asks: new tag, or existing tag
 #   ./scripts/release-android.sh --new-tag         # cut pubspec.yaml's version on origin/main
+#   ./scripts/release-android.sh --new-tag 0.2.0   # bump pubspec.yaml + CHANGELOG.md to 0.2.0 via a PR, then cut it
 #   ./scripts/release-android.sh --from-tag v0.1.0 # build a tag that already exists
 #
 # Runs on Linux or macOS. Needs gh (signed in), the Flutter SDK from

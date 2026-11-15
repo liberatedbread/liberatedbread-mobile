@@ -7,7 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
-Nothing yet :p
+### Added
+
+- **The guided release scripts prepare the version bump themselves.**
+  `./scripts/release-android.sh --new-tag 0.2.0` (or `release-apple.sh`, or
+  answering "release a new version" when asked) sets `pubspec.yaml`'s version
+  and moves CHANGELOG.md's Unreleased entries under a dated `[0.2.0]` heading
+  on a `release/v0.2.0` branch off `origin/main`. It shows the diff, offers
+  `$EDITOR` for the notes, then pushes the branch and opens the PR. Once that
+  PR merges, the same run tags and builds 0.2.0. It also offers this whenever
+  `origin/main` is not ready to tag, instead of only listing what to do by
+  hand. It refuses a version that is not above every tag, and an empty
+  Unreleased section.
 
 
 ## [0.0.0] - 2026-11-13

@@ -14,9 +14,14 @@
 #
 # Two ways in, asked at the start (or given as a flag):
 #
-#   --new-tag          cut vX.Y.Z (pubspec.yaml's version) on the CI-green tip
-#                      of origin/main: tests, phone preflight, local tag,
-#                      build, static checks, THEN push the tag.
+#   --new-tag [X.Y.Z]  cut vX.Y.Z on the CI-green tip of origin/main: tests,
+#                      phone preflight, local tag, build, static checks, THEN
+#                      push the tag. With a version (or when main is not
+#                      ready), it first prepares the release commit itself:
+#                      pubspec.yaml's version bumped and CHANGELOG.md's
+#                      Unreleased entries moved under a dated [X.Y.Z]
+#                      heading, on a release/vX.Y.Z branch it pushes and
+#                      opens a PR for. Once that merges, the run carries on.
 #   --from-tag vX.Y.Z  build an existing tag (the other platform's script, or
 #                      an earlier run, already cut it). Pushes it if it is
 #                      only local.
@@ -35,6 +40,9 @@
 #   LB_RELEASE_HOME        record directory (default: above)
 #   LB_RELEASE_WORKTREE    release worktree (default:
 #                          ../liberatedbread-release-<version>, as the docs)
+#   LB_RELEASE_PREP_WORKTREE  where the release commit is prepared (default:
+#                          ../liberatedbread-release-prep-<version>; removed
+#                          once the branch is pushed)
 #
 # Hooks each entry script defines (all run inside the release worktree):
 #   platform_preflight     host tools, signing material — before anything slow
@@ -94,9 +102,12 @@ ask() {
 }
 
 # ask_required PROMPT — like ask, but repeats until the answer is non-empty.
+# The `|| return 1`s: ask's die only ends its $(...) subshell, so without
+# them end of input would re-prompt forever whenever a caller has disabled
+# errexit (any `x="$(ask_required ...)" || ...`).
 ask_required() {
   local answer=""
-  while [[ -z "$answer" ]]; do answer="$(ask "$1")"; done
+  while [[ -z "$answer" ]]; do answer="$(ask "$1")" || return 1; done
   printf '%s\n' "$answer"
 }
 
@@ -190,6 +201,90 @@ changelog_section() {
     }'
 }
 
+# version_valid VERSION — status 0 for X.Y.Z, optionally with a -prerelease.
+# No +build: the pubspec's +N is the build number, which release.sh sets.
+version_valid() {
+  [[ "$1" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]
+}
+
+# version_gt A B — status 0 when A is a later version than B. Numeric on
+# X.Y.Z; with equal cores a release beats a prerelease, and two prereleases
+# compare as strings (enough for -rc1 < -rc2; not full semver precedence).
+version_gt() {
+  local a="$1" b="$2" a_pre="" b_pre="" a1 a2 a3 b1 b2 b3
+  if [[ "$a" == *-* ]]; then a_pre="${a#*-}"; a="${a%%-*}"; fi
+  if [[ "$b" == *-* ]]; then b_pre="${b#*-}"; b="${b%%-*}"; fi
+  IFS=. read -r a1 a2 a3 <<<"$a"
+  IFS=. read -r b1 b2 b3 <<<"$b"
+  if ((10#$a1 != 10#$b1)); then ((10#$a1 > 10#$b1)); return; fi
+  if ((10#$a2 != 10#$b2)); then ((10#$a2 > 10#$b2)); return; fi
+  if ((10#$a3 != 10#$b3)); then ((10#$a3 > 10#$b3)); return; fi
+  [[ -z "$a_pre" && -n "$b_pre" ]] && return 0
+  [[ -n "$a_pre" && -n "$b_pre" && "$a_pre" > "$b_pre" ]]
+}
+
+# version_bump patch|minor|major VERSION — the next version of that kind
+# (a prerelease suffix is dropped).
+version_bump() {
+  local x y z
+  IFS=. read -r x y z <<<"${2%%-*}"
+  case "$1" in
+    major) printf '%d.0.0\n' "$((10#$x + 1))" ;;
+    minor) printf '%d.%d.0\n' "$((10#$x))" "$((10#$y + 1))" ;;
+    *)     printf '%d.%d.%d\n' "$((10#$x))" "$((10#$y))" "$((10#$z + 1))" ;;
+  esac
+}
+
+# pubspec_set_version VERSION < pubspec.yaml — the same file with the first
+# version: line's X.Y.Z replaced. Its +N (ignored by release.sh) and anything
+# after it are kept, so the diff is that one number.
+pubspec_set_version() {
+  NEW="$1" awk '
+    !done && /^version:/ {
+      sub(/^version:[[:space:]]*[^+[:space:]#]*/, "version: " ENVIRON["NEW"])
+      done = 1
+    }
+    { print }'
+}
+
+# changelog_cut VERSION DATE < CHANGELOG.md — the same file with the entries
+# under its Unreleased heading (`## Unreleased` or `## [Unreleased]`) moved
+# into a new `## [VERSION] - DATE` section right below it, and the Unreleased
+# heading left in place with nothing under it. Placeholder lines ("Nothing
+# yet") are dropped rather than released. Exit status, with nothing useful on
+# stdout: 2 the Unreleased section has no entries, 3 a [VERSION] section
+# already exists, 4 there is no Unreleased heading.
+changelog_cut() {
+  V="$1" D="$2" awk '
+    function flush(   first, last, i) {
+      first = 0; while (first < n && body[first] ~ /^[[:space:]]*$/) first++
+      last = n - 1; while (last >= first && body[last] ~ /^[[:space:]]*$/) last--
+      if (first > last) { bad = 2; exit 2 }
+      out[m++] = ""
+      out[m++] = "## [" ENVIRON["V"] "] - " ENVIRON["D"]
+      out[m++] = ""
+      for (i = first; i <= last; i++) out[m++] = body[i]
+      out[m++] = ""
+      state = 2
+    }
+    index($0, "## [" ENVIRON["V"] "]") == 1 { bad = 3; exit }
+    state == 0 && tolower($0) ~ /^## \[?unreleased\]?[[:space:]]*$/ {
+      out[m++] = $0; state = 1; next
+    }
+    state == 1 && (/^## / || /^\[[^]]+\]: /) { flush() }
+    state == 1 {
+      if (tolower($0) !~ /^[[:space:]]*_?nothing yet/) body[n++] = $0
+      next
+    }
+    { out[m++] = $0 }
+    END {
+      if (!bad && state == 1) { flush(); m-- }   # no blank line at EOF
+      if (!bad && state == 0) bad = 4
+      if (bad) exit bad
+      for (i = 0; i < m; i++) print out[i]
+    }'
+}
+
 # build_number_from_log — the --build-number release.sh logged.
 build_number_from_log() {
   sed -n 's/.*--build-number=\([0-9][0-9]*\).*/\1/p' | head -n 1
@@ -255,21 +350,37 @@ record_url() {
 
 usage() {
   cat >&2 <<EOF
-Usage: $(basename "$0") [--new-tag | --from-tag vX.Y.Z]
+Usage: $(basename "$0") [--new-tag [X.Y.Z] | --from-tag vX.Y.Z]
 
 Guided $PLATFORM_NAME store release (docs/RELEASE.md). Asks which of the two
 modes when neither flag is given:
   --new-tag          tag pubspec.yaml's version on CI-green $REMOTE/main,
                      build, check, then push the tag
+  --new-tag X.Y.Z    the same, releasing X.Y.Z: if $REMOTE/main is not there
+                     yet, bump pubspec.yaml, date CHANGELOG.md's Unreleased
+                     entries as [X.Y.Z], and open that commit as a PR first
   --from-tag vX.Y.Z  build an existing tag (pushing it first if only local)
 EOF
 }
 
 parse_args() {
-  MODE="" TAG=""
+  MODE="" TAG="" WANT_VERSION=""
   while (($#)); do
     case "$1" in
-      --new-tag) MODE=new ;;
+      --new-tag)
+        MODE=new
+        # An optional version: the next word, if it looks like one.
+        if [[ $# -ge 2 ]] && version_valid "${2#v}"; then
+          WANT_VERSION="${2#v}"
+          shift
+        fi
+        ;;
+      --new-tag=*)
+        MODE=new WANT_VERSION="${1#*=}"
+        WANT_VERSION="${WANT_VERSION#v}"
+        version_valid "$WANT_VERSION" ||
+          die "--new-tag=$WANT_VERSION: not an X.Y.Z version."
+        ;;
       --from-tag)
         [[ $# -ge 2 ]] || { usage; exit 1; }
         MODE=existing TAG="$2"
@@ -281,6 +392,9 @@ parse_args() {
     esac
     shift
   done
+  if [[ "$MODE" == existing && -n "$WANT_VERSION" ]]; then
+    die "--from-tag builds a tag as it is; a new version goes with --new-tag X.Y.Z."
+  fi
 }
 
 check_tools() {
@@ -295,9 +409,11 @@ check_tools() {
 
 choose_mode() {
   [[ -n "$MODE" ]] && return
-  case "$(choose "How is this release being made?" \
+  local pick
+  pick="$(choose "How is this release being made?" \
     "Cut a NEW tag from $REMOTE/main (tag is pushed after the build checks pass)" \
-    "Build from an EXISTING tag (already cut, e.g. by the other platform's script)")" in
+    "Build from an EXISTING tag (already cut, e.g. by the other platform's script)")" || exit 1
+  case "$pick" in
     1) MODE=new ;;
     2) MODE=existing ;;
   esac
@@ -342,6 +458,182 @@ resolve_existing_tag() {
   fi
 }
 
+# latest_tag_version — the highest vX.Y.Z tag's X.Y.Z by version_gt, or
+# nothing. Not git's --sort=v:refname: without versionsort.suffix it ranks
+# v1.0.0-rc1 above v1.0.0, which would let a release go out below a tag.
+latest_tag_version() {
+  local t v best=""
+  for t in $(git tag --list 'v*'); do
+    v="${t#v}"
+    version_valid "$v" || continue
+    if [[ -z "$best" ]] || version_gt "$v" "$best"; then best="$v"; fi
+  done
+  printf '%s\n' "$best"
+}
+
+# ask_version DEFAULT — prompt until the answer is an X.Y.Z (a leading v is
+# dropped). Prints it.
+ask_version() {
+  local answer
+  while true; do
+    answer="$(ask "New version (X.Y.Z)" "$1")" || return 1
+    answer="${answer#v}"
+    version_valid "$answer" && break
+    err "'$answer' is not an X.Y.Z version."
+  done
+  printf '%s\n' "$answer"
+}
+
+# suggest_version — what to offer when main is not ready: its own pubspec
+# version if that has never been tagged and is above every tag (the bump
+# landed, the CHANGELOG cut did not), else the next patch after the highest.
+suggest_version() {
+  local latest
+  latest="$(latest_tag_version)"
+  if [[ -z "$latest" ]] || version_gt "$VERSION" "$latest"; then
+    printf '%s\n' "$VERSION"
+  else
+    version_bump patch "$latest"
+  fi
+}
+
+# check_new_version NEW — die unless NEW can be released: a valid version,
+# not tagged already, and above the highest existing tag.
+check_new_version() {
+  local new="$1" latest
+  version_valid "$new" || die "'$new' is not an X.Y.Z version."
+  if git rev-parse -q --verify "refs/tags/v$new" >/dev/null; then
+    die "v$new already exists; tags are never reused. Pick a later version."
+  fi
+  latest="$(latest_tag_version)"
+  if [[ -n "$latest" ]] && ! version_gt "$new" "$latest"; then
+    die "$new is not above the latest tag, v$latest."
+  fi
+}
+
+# prepare_release_commit NEW — Step 1.1 done for the human: on a new branch
+# release/vNEW off RELEASE_SHA ($REMOTE/main), in a scratch worktree, set
+# pubspec.yaml's version to NEW and move CHANGELOG.md's Unreleased entries
+# under `## [NEW] - <today>`, then commit. The human's checkout is never
+# touched. Sets PREP_BRANCH and PREP_DIR; status 1 when there is nothing to
+# do because the branch is already on $REMOTE (its PR is just not merged).
+prepare_release_commit() {
+  local new="$1" today old rc tmp editor
+  today="$(date +%F)"
+  PREP_BRANCH="release/v$new"
+  PREP_DIR="${LB_RELEASE_PREP_WORKTREE:-$(dirname "$PROJECT_DIR")/liberatedbread-release-prep-$new}"
+  check_new_version "$new"
+
+  if [[ -n "$(git ls-remote --heads "$REMOTE" "refs/heads/$PREP_BRANCH")" ]]; then
+    local pr
+    pr="$(gh pr view "$PREP_BRANCH" --json url,state --jq '.url + " (" + .state + ")"' 2>/dev/null || true)"
+    warn "$PREP_BRANCH is already on $REMOTE${pr:+: $pr}."
+    warn "Get it merged into main (or delete the branch on $REMOTE to start over)."
+    return 1
+  fi
+  [[ ! -e "$PREP_DIR" ]] ||
+    die "$PREP_DIR already exists (an earlier, unfinished prep?)." \
+      "Inspect it, then: git worktree remove \"$PREP_DIR\" and re-run."
+  if git rev-parse -q --verify "refs/heads/$PREP_BRANCH" >/dev/null; then
+    die "A local branch $PREP_BRANCH already exists. Push it and open its PR," \
+      "or delete it (git branch -D $PREP_BRANCH) to start over."
+  fi
+
+  step "Prepare the $new release commit (docs/RELEASE.md Step 1.1)"
+  git worktree add --quiet -b "$PREP_BRANCH" "$PREP_DIR" "$RELEASE_SHA" ||
+    die "git worktree add $PREP_DIR failed."
+  cd "$PREP_DIR" || die "cd $PREP_DIR failed."
+
+  old="$(pubspec_version <pubspec.yaml)"
+  if [[ "$old" != "$new" ]]; then
+    tmp="$(mktemp pubspec.yaml.XXXXXX)"
+    pubspec_set_version "$new" <pubspec.yaml >"$tmp" && mv "$tmp" pubspec.yaml
+    [[ "$(pubspec_version <pubspec.yaml)" == "$new" ]] ||
+      discard_prep "Could not rewrite pubspec.yaml's version: line."
+    log "pubspec.yaml: $old → $new"
+  fi
+
+  editor="${VISUAL:-${EDITOR:-}}"
+  while true; do
+    tmp="$(mktemp CHANGELOG.md.XXXXXX)"
+    rc=0
+    changelog_cut "$new" "$today" <CHANGELOG.md >"$tmp" || rc=$?
+    if [[ "$rc" == 0 ]]; then mv "$tmp" CHANGELOG.md; break; fi
+    rm -f "$tmp"
+    case "$rc" in
+      3) discard_prep "CHANGELOG.md on $REMOTE/main already has a [$new] section;" \
+           "date it by hand (or pick another version)." ;;
+      4) discard_prep "CHANGELOG.md on $REMOTE/main has no '## Unreleased' heading to release." ;;
+    esac
+    # rc 2: nothing under Unreleased. Notes are normally written PR by PR,
+    # but they can be written here, as part of the release commit.
+    warn "CHANGELOG.md's Unreleased section has no entries, so there is nothing to"
+    warn "put under [$new] (or in the store and GitHub release notes)."
+    # $editor unquoted on purpose: EDITOR="code -w" is a command and a flag.
+    # shellcheck disable=SC2086
+    if [[ -n "$editor" ]] && confirm "Write them now in $editor ($PREP_DIR/CHANGELOG.md)?" y; then
+      $editor CHANGELOG.md || true
+    elif confirm "Write them under '## Unreleased' in $PREP_DIR/CHANGELOG.md yourself, then continue?" y; then
+      pause
+    else
+      discard_prep "Stopped: no CHANGELOG entries to release."
+    fi
+  done
+  log "CHANGELOG.md: Unreleased entries now under '## [$new] - $today'."
+
+  say "" "The release commit's changes:"
+  git --no-pager diff --stat >&2
+  changelog_section "$new" <CHANGELOG.md | head -n 30 | sed 's/^/   │ /' >&2
+  say "" "These notes become the GitHub Release and the start of the store notes."
+  # shellcheck disable=SC2086
+  if [[ -n "$editor" ]] && confirm "Edit CHANGELOG.md in $editor before committing?" n; then
+    $editor CHANGELOG.md || true
+    [[ -n "$(changelog_heading "$new" <CHANGELOG.md)" ]] ||
+      discard_prep "The edited CHANGELOG.md lost its '## [$new]' heading."
+  fi
+  confirm "Commit this on $PREP_BRANCH as 'Release $new'?" y ||
+    discard_prep "Stopped before committing; nothing was pushed."
+
+  git add pubspec.yaml CHANGELOG.md
+  git commit --quiet -m "Release $new" \
+    -m "Bump pubspec.yaml to $new and move CHANGELOG.md's Unreleased entries under [$new] - $today (docs/RELEASE.md Step 1.1)." ||
+    discard_prep "git commit failed."
+  require_clean "The prep worktree $PREP_DIR"
+  log "Committed $(git log -1 --format='%h %s') on $PREP_BRANCH."
+  cd "$PROJECT_DIR" || die "cd $PROJECT_DIR failed."
+}
+
+# discard_prep MESSAGE... — undo a prepare_release_commit that will not be
+# pushed (the worktree and branch it made, nothing else), then die.
+discard_prep() {
+  cd "$PROJECT_DIR" || true
+  git worktree remove --force "$PREP_DIR" 2>/dev/null || true
+  git branch -D "$PREP_BRANCH" >/dev/null 2>&1 || true
+  die "$@"
+}
+
+# open_release_pr NEW — push PREP_BRANCH and open its PR against main. The
+# merge itself stays with the human (and CI, and review), like any change.
+open_release_pr() {
+  local new="$1" url
+  step "Open the release PR"
+  if ! confirm "Push $PREP_BRANCH to $REMOTE and open a PR into main?" y; then
+    say "Left as local branch $PREP_BRANCH (worktree $PREP_DIR). Push it and" \
+      "open its PR yourself; this script waits for it on $REMOTE/main."
+    return
+  fi
+  git push --quiet -u "$REMOTE" "$PREP_BRANCH" || die "Pushing $PREP_BRANCH failed."
+  if url="$(gh pr create --base main --head "$PREP_BRANCH" --title "Release $new" \
+    --body "Bumps pubspec.yaml to $new and moves CHANGELOG.md's Unreleased entries under [$new], per docs/RELEASE.md Step 1.1. Prepared by scripts/$(basename "$0"); once this is on main with green CI, that run tags v$new.")"; then
+    log "PR: $url"
+    open_url "$url"
+  else
+    warn "gh pr create failed; open the PR for $PREP_BRANCH by hand."
+  fi
+  git worktree remove "$PREP_DIR" ||
+    warn "Could not remove $PREP_DIR; the branch is pushed, so it can go."
+}
+
 resolve_new_tag() {
   local local_main
   while true; do
@@ -360,31 +652,59 @@ resolve_new_tag() {
     fi
 
     local problems="" heading
-    heading="$(git show "$RELEASE_SHA:CHANGELOG.md" 2>/dev/null | changelog_heading "$VERSION")"
-    if [[ -z "$heading" ]]; then
-      problems+="CHANGELOG.md has no '## [$VERSION] - YYYY-MM-DD' section."$'\n'
-    elif ! [[ "$heading" =~ [0-9]{4}-[0-9]{2}-[0-9]{2} ]]; then
-      problems+="CHANGELOG.md's '$heading' heading carries no date."$'\n'
-    fi
-    if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
-      if [[ "$(git rev-parse "$TAG^{commit}")" != "$RELEASE_SHA" ]]; then
-        problems+="$TAG already exists on another commit. Bump pubspec.yaml's version; tags are never reused."$'\n'
+    if [[ -n "$WANT_VERSION" && "$WANT_VERSION" != "$VERSION" ]]; then
+      problems+="pubspec.yaml on $REMOTE/main says $VERSION, not $WANT_VERSION."$'\n'
+    else
+      heading="$(git show "$RELEASE_SHA:CHANGELOG.md" 2>/dev/null | changelog_heading "$VERSION")"
+      if [[ -z "$heading" ]]; then
+        problems+="CHANGELOG.md has no '## [$VERSION] - YYYY-MM-DD' section."$'\n'
+      elif ! [[ "$heading" =~ [0-9]{4}-[0-9]{2}-[0-9]{2} ]]; then
+        problems+="CHANGELOG.md's '$heading' heading carries no date."$'\n'
+      fi
+      if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
+        if [[ "$(git rev-parse "$TAG^{commit}")" != "$RELEASE_SHA" ]]; then
+          problems+="$TAG already exists on another commit. Bump pubspec.yaml's version; tags are never reused."$'\n'
+        fi
       fi
     fi
 
     if [[ -z "$problems" ]]; then
-      confirm "Release $REMOTE/main (${RELEASE_SHA:0:10}) as $TAG?" y ||
-        die "Stopped before doing anything."
-      break
+      if [[ -n "$WANT_VERSION" ]]; then
+        confirm "Release $REMOTE/main (${RELEASE_SHA:0:10}) as $TAG?" y ||
+          die "Stopped before doing anything."
+        break
+      fi
+      # Captured first: a die inside $(...) only ends the subshell, and a
+      # case on its empty output would carry on as if answered.
+      local pick
+      pick="$(choose "Release $REMOTE/main (${RELEASE_SHA:0:10}) as $TAG?" \
+        "Yes, release $TAG" \
+        "No, release a new version (bump pubspec.yaml and CHANGELOG.md first)" \
+        "Stop")" || exit 1
+      case "$pick" in
+        1) break ;;
+        2) WANT_VERSION="$(ask_version "$(version_bump patch "$VERSION")")" || exit 1
+           check_new_version "$WANT_VERSION"
+           continue ;;
+        3) die "Stopped before doing anything." ;;
+      esac
     fi
 
-    err "Not ready to cut $TAG from $REMOTE/main:"
+    err "Not ready to cut v${WANT_VERSION:-$VERSION} from $REMOTE/main:"
     printf '%s' "$problems" | sed 's/^/   - /' >&2
     say "" \
       "Step 1 of docs/RELEASE.md: bump pubspec.yaml's version if it is changing," \
       "move CHANGELOG.md's Unreleased entries under '## [X.Y.Z] - $(date +%F)'," \
       "leave a new empty Unreleased section, and get that commit onto $REMOTE/main" \
-      "(through a PR as usual). This script re-checks $REMOTE/main afterwards."
+      "(through a PR as usual). This script can make that commit and open the PR."
+    if confirm "Prepare the release commit and PR now?" y; then
+      if [[ -z "$WANT_VERSION" ]]; then
+        WANT_VERSION="$(ask_version "$(suggest_version)")" || exit 1
+      fi
+      if prepare_release_commit "$WANT_VERSION"; then open_release_pr "$WANT_VERSION"; fi
+      say "" "Merge it into main once CI and review pass. This script then re-checks" \
+        "$REMOTE/main and carries on with v$WANT_VERSION."
+    fi
     pause
     git fetch --quiet "$REMOTE" main --tags || die "git fetch $REMOTE failed."
   done
