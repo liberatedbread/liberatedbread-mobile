@@ -156,24 +156,29 @@ ensure_key_properties() {
 
 # Gradle's :app:signReleaseBundle fails with a bare NullPointerException, and
 # no message, when its signing config holds a null. That happens when
-# key.properties has no storePassword or keyPassword, or names a keyAlias the
-# keystore does not hold. A wrong password fails the same task minutes into
-# the build. So sign a throwaway jar with exactly these values first: it takes
-# seconds, and jarsigner says what is wrong. Passwords go through the
-# environment, never the command line.
+# key.properties has no storePassword, or names a keyAlias the keystore does
+# not hold. A wrong password fails the same task minutes into the build. So
+# sign a throwaway jar with exactly these values first: it takes seconds, and
+# jarsigner says what is wrong. Passwords go through the environment, never
+# the command line.
+#
+# keyPassword defaults to storePassword, as android/app/build.gradle does: in
+# a PKCS12 keystore (keytool's default since JDK 9) they are the same password.
 check_signing_key() {
-  local props="$1" key missing=() probe out rc=0
-  for key in storePassword keyPassword; do
-    [[ -n "$(key_prop "$props" "$key")" ]] || missing+=("$key")
-  done
-  (( ${#missing[@]} == 0 )) ||
-    die "$props has no ${missing[*]}. Gradle's signReleaseBundle fails on that with a bare NullPointerException."
+  local props="$1" store_pw key_pw probe out rc=0
+  store_pw="$(key_prop "$props" storePassword)"
+  [[ -n "$store_pw" ]] ||
+    die "$props has no storePassword. Gradle's signReleaseBundle fails on that with a bare NullPointerException."
+  key_pw="$(key_prop "$props" keyPassword)"
+  if [[ -z "$key_pw" ]]; then
+    key_pw="$store_pw"
+    log "$props has no keyPassword; using storePassword for the key, as the Gradle build does."
+  fi
   command -v jar &>/dev/null || die "jar not found: install a full JDK (it checks the upload key before the build)."
   probe="$(mktemp -d)" || die "mktemp failed."
   printf 'probe\n' >"$probe/probe.txt"
   (cd "$probe" && jar cf probe.jar probe.txt) || die "jar could not build the probe jar in $probe."
-  out="$(LB_STOREPASS="$(key_prop "$props" storePassword)" \
-    LB_KEYPASS="$(key_prop "$props" keyPassword)" \
+  out="$(LB_STOREPASS="$store_pw" LB_KEYPASS="$key_pw" \
     jarsigner -keystore "$KEYSTORE" -storepass:env LB_STOREPASS -keypass:env LB_KEYPASS \
     -signedjar "$probe/signed.jar" "$probe/probe.jar" "$KEY_ALIAS" 2>&1)" || rc=$?
   rm -f "$probe/probe.txt" "$probe/probe.jar" "$probe/signed.jar"
@@ -181,8 +186,8 @@ check_signing_key() {
   if (( rc != 0 )); then
     printf '%s\n' "$out" >&2
     die "The upload key in $props does not work (jarsigner, above): check keyAlias is in $KEYSTORE" \
-      "(keytool -list -keystore $KEYSTORE) and that storePassword and keyPassword are right." \
-      "For a PKCS12 keystore, keyPassword must equal storePassword."
+      "(keytool -list -keystore $KEYSTORE) and that storePassword (and keyPassword, if set) are right." \
+      "For a PKCS12 keystore, leave keyPassword out or set it equal to storePassword."
   fi
   log "Upload key '$KEY_ALIAS' opens with the passwords in $props."
 }
