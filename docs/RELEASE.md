@@ -100,6 +100,19 @@ CI-green tip of `origin/main`) or **build an existing tag**, for example one the
 other platform's script already cut. `--new-tag` and `--from-tag vX.Y.Z` answer
 that question up front. Then each script:
 
+- does Step 1.1 when you give it a new version (`--new-tag 0.2.0`, or the
+  "release a new version" answer when it asks), or when `origin/main` is not
+  ready to tag. In a scratch worktree of `origin/main`, on a new
+  `release/vX.Y.Z` branch, it sets `pubspec.yaml`'s version, moves every entry
+  under CHANGELOG.md's **Unreleased** heading into `## [X.Y.Z] - <today>`
+  (dropping a "Nothing yet" placeholder, leaving the Unreleased heading
+  empty), shows the diff, and offers `$EDITOR` to curate the notes. After you
+  confirm it commits, pushes the branch and opens a PR into `main`. Your own
+  checkout is never touched. The version must be above every existing tag. An
+  empty Unreleased section stops it until you write the entries. Merging
+  stays with you, after CI and review, as for any change. The script waits,
+  then re-checks `origin/main` and continues with the new version;
+
 - runs every step a shell can run: fetch, the CI gate (it watches a running
   CI run), the clean worktree, `test.sh` and the netdisco suites, the phone
   preflight, the local tag, `release.sh`, the artifact checks (`jarsigner`,
