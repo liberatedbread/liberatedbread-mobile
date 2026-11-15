@@ -32,6 +32,11 @@ trap 'rm -rf "$TMP"' EXIT
 expect "ask: empty line takes the default" "dflt" "$(ask q dflt <<<"" 2>/dev/null)"
 expect "ask: an answer wins" "mine" "$(ask q dflt <<<"mine" 2>/dev/null)"
 expect "ask_required: skips blank lines" "x" "$(printf '\n\nx\n' | ask_required q 2>/dev/null)"
+expect "ask_required: end of input fails, not loops" 1 \
+  "$( (x="$(ask_required q </dev/null 2>/dev/null)" || exit 1); echo $?)"
+expect "ask_version: re-asks on junk, drops a v" "1.2.3" "$(printf 'junk\nv1.2.3\n' | ask_version 0.0.1 2>/dev/null)"
+expect "ask_version: end of input fails, not loops" 1 \
+  "$( (x="$(ask_version 0.0.1 </dev/null 2>/dev/null)" || exit 1); echo $?)"
 confirm q y <<<"" 2>/dev/null && pass "confirm: default y" || fail "confirm: default y"
 confirm q <<<"" 2>/dev/null && fail "confirm: default n" || pass "confirm: default n"
 confirm q n <<<"YES" 2>/dev/null && pass "confirm: case-insensitive" || fail "confirm: case-insensitive"
@@ -193,6 +198,12 @@ gh() {
   if [[ "$1 $2" == "pr create" ]]; then echo https://example.invalid/pr/1; fi
 }
 
+# git's v:refname sort ranks v0.1.0-rc1 above v0.1.0; latest_tag_version must not.
+git_q tag v0.1.0-rc1 "$RELEASE_SHA"
+expect "latest_tag_version: a release outranks its rc" "0.1.0" "$(latest_tag_version)"
+expect "check_new_version: an rc below the release tag" 1 \
+  "$( (check_new_version 0.1.0-rc2 >/dev/null 2>&1); echo $?)"
+git_q tag -d v0.1.0-rc1
 expect "check_new_version: not above the latest tag" 1 \
   "$( (check_new_version 0.0.5 >/dev/null 2>&1); echo $?)"
 expect "check_new_version: an existing tag" 1 "$( (check_new_version 0.1.0 >/dev/null 2>&1); echo $?)"

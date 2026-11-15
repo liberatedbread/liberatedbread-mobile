@@ -102,9 +102,12 @@ ask() {
 }
 
 # ask_required PROMPT — like ask, but repeats until the answer is non-empty.
+# The `|| return 1`s: ask's die only ends its $(...) subshell, so without
+# them end of input would re-prompt forever whenever a caller has disabled
+# errexit (any `x="$(ask_required ...)" || ...`).
 ask_required() {
   local answer=""
-  while [[ -z "$answer" ]]; do answer="$(ask "$1")"; done
+  while [[ -z "$answer" ]]; do answer="$(ask "$1")" || return 1; done
   printf '%s\n' "$answer"
 }
 
@@ -455,11 +458,17 @@ resolve_existing_tag() {
   fi
 }
 
-# latest_tag_version — the highest vX.Y.Z tag's X.Y.Z, or nothing.
+# latest_tag_version — the highest vX.Y.Z tag's X.Y.Z by version_gt, or
+# nothing. Not git's --sort=v:refname: without versionsort.suffix it ranks
+# v1.0.0-rc1 above v1.0.0, which would let a release go out below a tag.
 latest_tag_version() {
-  local t
-  t="$(git tag --list 'v*' --sort=-v:refname | head -n 1)"
-  printf '%s\n' "${t#v}"
+  local t v best=""
+  for t in $(git tag --list 'v*'); do
+    v="${t#v}"
+    version_valid "$v" || continue
+    if [[ -z "$best" ]] || version_gt "$v" "$best"; then best="$v"; fi
+  done
+  printf '%s\n' "$best"
 }
 
 # ask_version DEFAULT — prompt until the answer is an X.Y.Z (a leading v is
@@ -467,7 +476,7 @@ latest_tag_version() {
 ask_version() {
   local answer
   while true; do
-    answer="$(ask "New version (X.Y.Z)" "$1")"
+    answer="$(ask "New version (X.Y.Z)" "$1")" || return 1
     answer="${answer#v}"
     version_valid "$answer" && break
     err "'$answer' is not an X.Y.Z version."
