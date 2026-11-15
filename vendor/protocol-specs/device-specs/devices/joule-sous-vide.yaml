@@ -70,7 +70,7 @@ device:
       button-press confirmation first), delayed start and holding temperature
       are documented but not declared, and firmware flashing is overview only.
       This project is not affiliated with ChefSteps or Breville.
-    advisory_url: "https://www.breville.com/content/dam/breville/us/assets/miscellaneous/instruction-manual/sous-vide/CS10001-instruction-manual.pdf"
+    advisory_url: "https://assets-dam.foodthinkers.com/ZKCA55LU/at/86nb9qsvmnppvffw5kn38v/CS20001-instruction-manual.pdf"
   notes: |
     The ChefSteps Joule (2016; Breville bought ChefSteps in 2019) is an
     1100 W immersion circulator with no manual controls: an app is the only
@@ -1515,7 +1515,7 @@ evidence:
       description: "Factory reset, LED states, owner model, temperature limits, Bluetooth-only pairing, firmware history."
     - type: "vendor_documentation"
       artifact: "Breville 'the Joule Sous Vide' instruction book, CS10001/CS20001"
-      url: "https://www.breville.com/content/dam/breville/us/assets/miscellaneous/instruction-manual/sous-vide/CS10001-instruction-manual.pdf"
+      url: "https://assets-dam.foodthinkers.com/ZKCA55LU/at/86nb9qsvmnppvffw5kn38v/CS20001-instruction-manual.pdf"
       obtained_via: "fetched 2026-09-28"
       description: "Water depth limits, radio bands, the in-app pairing instruction, the no-manual-controls statement."
 
@@ -1536,7 +1536,7 @@ remaining_unknowns:
 
 helpful_urls:
   - title: "Breville: the Joule Sous Vide instruction book, CS10001 / CS20001 (PDF)"
-    url: "https://www.breville.com/content/dam/breville/us/assets/miscellaneous/instruction-manual/sous-vide/CS10001-instruction-manual.pdf"
+    url: "https://assets-dam.foodthinkers.com/ZKCA55LU/at/86nb9qsvmnppvffw5kn38v/CS20001-instruction-manual.pdf"
     kind: "manual"
     description: >-
       Vendor-hosted instruction book for the original Joule, stainless

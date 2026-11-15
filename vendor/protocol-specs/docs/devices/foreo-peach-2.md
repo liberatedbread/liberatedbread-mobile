@@ -47,8 +47,10 @@ Three findings matter most, at different evidence levels:
    it considers the subscription inactive. Pro unlocks the app's "5 extra boost
    intensities" and is meant for non-sensitive areas and experienced users.
 3. **`0a 01` is the T-Sonic motor, not IPL intensity.** The app names the opcode a motor
-   level and shows it under a T-Sonic heading. IPL intensity is chosen only with the
-   handset's +/- buttons; no BLE command for it was found.
+   level and shows it under a T-Sonic heading. On hardware, the handset's IPL dots
+   moved from one to two on a `+` press while `0b 01` stayed at `02`, so the two are
+   independent. IPL intensity is chosen only with the handset's +/- buttons; no BLE
+   command for it was found.
 
 ## Initial setup
 

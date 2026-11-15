@@ -520,8 +520,9 @@ helpful_urls:
     kind: "manual"
     description: >
       Manual for the ID107-class band this spec covers; the ODM is unidentified and the app is abandoned.
-  - title: "ID107Plus HR user guide (PDF)"
-    url: "https://cdn.shopify.com/s/files/1/1919/3763/files/id107plus.pdf"
+  - title: "ID107Plus HR user guide (FCC exhibit PDF)"
+    url: "https://fccid.io/2AHFTID107PLUS/User-Manual/Users-Manual-3387049.pdf"
     kind: "manual"
     description: >
-      A retailer-hosted copy of the same guide, including the app-driven factory reset in this spec.
+      Manufacturer-submitted FCC exhibit for the ID107Plus HR, including the
+      app-driven factory-default restoration procedure in this spec.

@@ -162,5 +162,6 @@ def test_cooling_table_matches_hardware_and_tsonic_role() -> None:
     assert "set_intensity" not in commands
     assert commands["set_tsonic_level"]["template"] == [0x0A, 0x01, "{level}"]
     assert "not IPL output" in commands["set_tsonic_level"]["description"]
+    assert "0B01 still read 02" in commands["set_tsonic_level"]["description"]
     assert commands["set_removal_mode_pro"]["verification"] == "confirmed"
     assert commands["set_removal_mode_pro"]["advanced"] is True

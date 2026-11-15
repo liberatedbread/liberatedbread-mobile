@@ -314,11 +314,12 @@ helpful_urls:
   - title: "uc-intg-panasonicviera — Unfolded Circle integration (second open consumer of this protocol)"
     url: "https://github.com/mase1981/uc-intg-panasonicviera"
 
-  - title: "Panasonic Viera AS610 operating instructions (PDF, vendor-hosted)"
-    url: "http://panasonic.ae/en/manuals/TH-32AS610.pdf"
+  - title: "Panasonic Viera AS610 operating instructions (PDF, Internet Archive)"
+    url: "https://web.archive.org/web/20250316131624/http://www.panasonic.ae/EN/Manuals/TH-32AS610.pdf"
     kind: "manual"
     description: >
-      Vendor manual for the TH-32AS610, the model this spec's research used.
+      Archived vendor manual for TH-32AS610G and TH-32AS610M, the AS610 model
+      family this spec's research used.
   - title: "Panasonic Viera operating instructions"
     url: "https://www.manualslib.com/manual/857700/Panasonic-Viera.html"
     kind: "manual"
