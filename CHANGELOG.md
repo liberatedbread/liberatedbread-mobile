@@ -20,6 +20,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   hand. It refuses a version that is not above every tag, and an empty
   Unreleased section.
 
+### Changed
+
+- **A release after a release no longer stops at "tags are never reused".**
+  When `origin/main`'s pubspec version is already tagged on an earlier
+  commit, the guided release scripts pick the next version themselves and
+  prepare its release commit and PR (pubspec.yaml bump and CHANGELOG.md cut)
+  without asking first. The version is the next patch after the highest tag
+  (0.0.0 → 0.0.1); `--new-tag X.Y.Z` still picks a minor or major by hand.
+
 
 ## [0.0.0] - 2026-11-13
 

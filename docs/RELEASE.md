@@ -111,7 +111,11 @@ that question up front. Then each script:
   checkout is never touched. The version must be above every existing tag. An
   empty Unreleased section stops it until you write the entries. Merging
   stays with you, after CI and review, as for any change. The script waits,
-  then re-checks `origin/main` and continues with the new version;
+  then re-checks `origin/main` and continues with the new version.
+  When `origin/main`'s version is already tagged on an earlier commit (the
+  usual state between releases), it does not stop to ask: it takes the next
+  patch after the highest tag (0.0.0 → 0.0.1) and goes straight to preparing
+  that commit. `--new-tag X.Y.Z` overrides the pick;
 
 - runs every step a shell can run: fetch, the CI gate (it watches a running
   CI run), the clean worktree, `test.sh` and the netdisco suites, the phone

@@ -237,5 +237,20 @@ git rev-parse -q --verify refs/heads/release/v0.3.0 >/dev/null &&
 [[ ! -e "$TMP/prep" ]] && pass "prep declined: worktree discarded" ||
   fail "prep declined: worktree discarded"
 
+# main's version already tagged on an earlier commit (v0.1.0 is on "one",
+# main is "notes"): no "Not ready" error and no version prompt; it prepares
+# the next patch, 0.1.1, straight away. Answers: commit y, push y, then q at the
+# wait for the merge.
+: >"$TMP/gh.log"
+( WANT_VERSION=""; resolve_new_tag ) <<<$'y\ny\nq' >/dev/null 2>"$TMP/auto.err"
+expect "already tagged: release/v0.1.1 pushed without asking for a version" 1 \
+  "$(git ls-remote --heads origin refs/heads/release/v0.1.1 | wc -l | tr -d ' ')"
+expect "already tagged: pubspec bumped to the next patch" "0.1.1" \
+  "$(git show release/v0.1.1:pubspec.yaml | pubspec_version)"
+grep -q 'Not ready\|Prepare the release commit and PR now' "$TMP/auto.err" &&
+  fail "already tagged: no error, no extra question" || pass "already tagged: no error, no extra question"
+grep -q -- '--head release/v0.1.1' "$TMP/gh.log" && pass "already tagged: PR opened" ||
+  fail "already tagged: PR opened"
+
 if [[ "$status" == 0 ]]; then echo "release-lib selftest: all passed"; fi
 exit "$status"

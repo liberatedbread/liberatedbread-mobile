@@ -484,9 +484,10 @@ ask_version() {
   printf '%s\n' "$answer"
 }
 
-# suggest_version — what to offer when main is not ready: its own pubspec
+# suggest_version — the version to release from RELEASE_SHA: its own pubspec
 # version if that has never been tagged and is above every tag (the bump
-# landed, the CHANGELOG cut did not), else the next patch after the highest.
+# landed, the CHANGELOG cut did not), else the next patch after the highest
+# tag. A minor or major release is asked for with --new-tag X.Y.Z.
 suggest_version() {
   local latest
   latest="$(latest_tag_version)"
@@ -651,8 +652,19 @@ resolve_new_tag() {
       warn "from what is on $REMOTE/main, never from local commits."
     fi
 
-    local problems="" heading
-    if [[ -n "$WANT_VERSION" && "$WANT_VERSION" != "$VERSION" ]]; then
+    local problems="" heading released=0
+    if [[ -z "$WANT_VERSION" ]] && git rev-parse -q --verify "refs/tags/$TAG" >/dev/null &&
+      [[ "$(git rev-parse "$TAG^{commit}")" != "$RELEASE_SHA" ]]; then
+      # $TAG went out from an earlier commit and main has moved on: the usual
+      # state between releases, not a mistake. The next version is the next
+      # patch after the highest tag, and Step 1.1 is done for you.
+      released=1
+      WANT_VERSION="$(suggest_version)"
+      check_new_version "$WANT_VERSION"
+      log "$TAG is already released (on $(git rev-parse --short "$TAG^{commit}")); $REMOTE/main has moved on."
+      log "Next version: $WANT_VERSION, the next patch after the highest tag. --new-tag X.Y.Z picks another."
+      problems+="pubspec.yaml on $REMOTE/main says $VERSION, not $WANT_VERSION."$'\n'
+    elif [[ -n "$WANT_VERSION" && "$WANT_VERSION" != "$VERSION" ]]; then
       problems+="pubspec.yaml on $REMOTE/main says $VERSION, not $WANT_VERSION."$'\n'
     else
       heading="$(git show "$RELEASE_SHA:CHANGELOG.md" 2>/dev/null | changelog_heading "$VERSION")"
@@ -690,14 +702,19 @@ resolve_new_tag() {
       esac
     fi
 
-    err "Not ready to cut v${WANT_VERSION:-$VERSION} from $REMOTE/main:"
-    printf '%s' "$problems" | sed 's/^/   - /' >&2
-    say "" \
-      "Step 1 of docs/RELEASE.md: bump pubspec.yaml's version if it is changing," \
-      "move CHANGELOG.md's Unreleased entries under '## [X.Y.Z] - $(date +%F)'," \
-      "leave a new empty Unreleased section, and get that commit onto $REMOTE/main" \
-      "(through a PR as usual). This script can make that commit and open the PR."
-    if confirm "Prepare the release commit and PR now?" y; then
+    if [[ "$released" == 1 ]]; then
+      say "" "Preparing it: pubspec.yaml → $WANT_VERSION, CHANGELOG.md's Unreleased entries" \
+        "under '## [$WANT_VERSION] - $(date +%F)', on a release/v$WANT_VERSION PR into main."
+    else
+      err "Not ready to cut v${WANT_VERSION:-$VERSION} from $REMOTE/main:"
+      printf '%s' "$problems" | sed 's/^/   - /' >&2
+      say "" \
+        "Step 1 of docs/RELEASE.md: bump pubspec.yaml's version if it is changing," \
+        "move CHANGELOG.md's Unreleased entries under '## [X.Y.Z] - $(date +%F)'," \
+        "leave a new empty Unreleased section, and get that commit onto $REMOTE/main" \
+        "(through a PR as usual). This script can make that commit and open the PR."
+    fi
+    if [[ "$released" == 1 ]] || confirm "Prepare the release commit and PR now?" y; then
       if [[ -z "$WANT_VERSION" ]]; then
         WANT_VERSION="$(ask_version "$(suggest_version)")" || exit 1
       fi
