@@ -2867,6 +2867,56 @@
     "schema_version": "2020-12"
   },
   {
+    "name": "Brother Skitch PP1",
+    "path": "device-specs/devices/brother-skitch-pp1.yaml",
+    "protocol": "ble",
+    "category": "tool",
+    "manufacturer": "Brother Industries, Ltd.",
+    "manufacturer_status": "active",
+    "aliases": [
+      "Skitch"
+    ],
+    "companion_apps": [
+      {
+        "name": "Brother Artspira",
+        "package": "com.brother.ph.mobile.craftsewing",
+        "role": "primary",
+        "platform": "android",
+        "url": "https://play.google.com/store/apps/details?id=com.brother.ph.mobile.craftsewing",
+        "notes": "Android 2.9.10 (1150) was reviewed statically; the app is the manual's pairing, reset and firmware-update route."
+      }
+    ],
+    "openness": "undocumented",
+    "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "Brother Skitch PP1/PP1E Operation Manual (English, PDF)",
+        "url": "https://download.brother.com/welcome/doch102864/888r000_om03en.pdf",
+        "kind": "manual",
+        "description": "Vendor-hosted operation manual for PP1 and PP1E: Bluetooth-button pairing and re-pairing on page 13, connection recovery on page 33, app-mediated reset and firmware update on page 38, and BLE/GATT on page 39. PP1E protocol compatibility remains outside this spec.\n"
+      },
+      {
+        "title": "Brother Skitch PP1 product page",
+        "url": "https://www.brother-usa.com/p/sewing-embroidery/PP1",
+        "kind": "vendor_support",
+        "description": "Vendor's PP1-specific product and Artspira requirements page; distinguishes the Skitch PP1 from other Brother machines."
+      },
+      {
+        "title": "Brother Artspira for Android",
+        "url": "https://play.google.com/store/apps/details?id=com.brother.ph.mobile.craftsewing",
+        "kind": "vendor_support",
+        "description": "The companion app used for PP1 pairing, design workflows, reset and firmware updates; protocol facts here were reviewed at Android 2.9.10 (1150)."
+      },
+      {
+        "title": "Public PP1 firmware update manifest",
+        "url": "https://download.brother.com/pub/com/phc_pcs_oneclickupdate/frm/pp1/SewingMachine_upf.json",
+        "kind": "vendor_support",
+        "description": "PP1-specific public manifest naming model 61, OEM 1, version 1.04.00 and the image's download-integrity MD5; not a signature or recovery specification."
+      }
+    ],
+    "schema_version": "2020-12"
+  },
+  {
     "name": "BTHome v2 (BLE sensor broadcast format)",
     "path": "device-specs/devices/bthome-v2.yaml",
     "protocol": "ble",
@@ -2884,6 +2934,49 @@
         "title": "BTHome v2 — encryption",
         "url": "https://bthome.io/encryption/",
         "description": "The AES-CCM key/nonce/counter/MIC layout for encrypted BTHome."
+      }
+    ],
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "Canon Ivy 2 / Zoemini 2 / iNSPiC PV-223",
+    "path": "device-specs/devices/canon-ivy-zoemini.yaml",
+    "protocol": "bluetooth_classic",
+    "category": "printer",
+    "manufacturer": "Canon",
+    "manufacturer_status": "active",
+    "openness": "undocumented",
+    "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "m4mmon/canon_zoemini2: protocol, Linux client, CUPS and emulator (pinned revision)",
+        "url": "https://github.com/m4mmon/canon_zoemini2/tree/ccd2d7a4eed0255157a1a88b26ac5b535f917e75",
+        "kind": "implementation",
+        "description": "MIT-licensed public implementation from which this spec is derived. Reports Zoemini 2 hardware printing on BlueZ; those results are upstream's.\n"
+      },
+      {
+        "title": "Canon Zoemini 2 / Ivy 2 Bluetooth protocol (pinned protocol.md)",
+        "url": "https://github.com/m4mmon/canon_zoemini2/blob/ccd2d7a4eed0255157a1a88b26ac5b535f917e75/protocol.md",
+        "kind": "protocol_writeup",
+        "description": "Exact 34-byte layouts, SDP generation boundary, status/error tables, print sequence, JPEG recipe, worked frames and explicit uncertainties.\n"
+      },
+      {
+        "title": "Canon Mini Print app and support overview",
+        "url": "https://en.canon-cna.com/apps/canon-mini-print/",
+        "kind": "vendor_support",
+        "description": "Official regional overview for the companion app; not a protocol specification or a substitute for a model-matched manual."
+      },
+      {
+        "title": "Canon Mini Print on Google Play",
+        "url": "https://play.google.com/store/apps/details?id=com.canon.cebm.miniprint.android.us",
+        "kind": "vendor_support",
+        "description": "Official Android companion app used for model-scope research; local printing with the public client needs no Canon account."
+      },
+      {
+        "title": "Android Bluetooth HCI snoop logging",
+        "url": "https://source.android.com/docs/core/connect/bluetooth/verifying_debugging",
+        "kind": "other",
+        "description": "How an owner can capture SDP/RFCOMM evidence to move regional and uncertain facts from reported to confirmed without sharing unit identifiers."
       }
     ],
     "schema_version": "2020-12"
@@ -4263,6 +4356,55 @@
     "schema_version": "2020-12"
   },
   {
+    "name": "Eye-Fi X2 / Mobi / Mobi Pro Wi-Fi SD Cards",
+    "path": "device-specs/devices/eye-fi-cards.yaml",
+    "protocol": "wifi",
+    "category": "camera",
+    "manufacturer": "Eye-Fi (services discontinued)",
+    "manufacturer_status": "shutdown",
+    "aliases": [
+      "Eye-Fi X2",
+      "Eye-Fi Pro X2",
+      "Eye-Fi Mobi",
+      "Eye-Fi Mobi Pro",
+      "Keenai card"
+    ],
+    "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "Eye-Fi Mobi quick guide (Spanish PDF, Internet Archive)",
+        "url": "https://archive.org/download/manualzilla-id-6177979/6177979.pdf",
+        "kind": "manual",
+        "description": "Archived quick guide for Eye-Fi Mobi cards, covering the historical activation-code and direct phone/tablet reception flow. Spanish.\n"
+      },
+      {
+        "title": "Eye-Fi Pro X2 manual",
+        "url": "https://www.manualslib.com/manual/1565254/Eyefi-Pro-X2.html",
+        "kind": "manual",
+        "description": "Manual page for the Eye-Fi Pro X2 card and its historical setup options; scripted download may be blocked even when the page is readable.\n"
+      },
+      {
+        "title": "dgrant/eyefiserver2",
+        "url": "https://github.com/dgrant/eyefiserver2",
+        "kind": "implementation",
+        "description": "X2-era local receiver evidence; review its credential and archive limitations rather than deploying it unchanged."
+      },
+      {
+        "title": "michaelbrandt/node-eyefimobiserver",
+        "url": "https://github.com/michaelbrandt/node-eyefimobiserver",
+        "kind": "implementation",
+        "description": "Mobi receiver evidence for the session and upload paths; roll completion and security hardening need separate work."
+      },
+      {
+        "title": "hansendc/eyefi-config",
+        "url": "https://github.com/hansendc/eyefi-config",
+        "kind": "implementation",
+        "description": "Mounted-card configuration evidence, including read tokens and sequence records; back up before any owner-approved use."
+      }
+    ],
+    "schema_version": "2020-12"
+  },
+  {
     "name": "Fardriver ND-series Motor Controller",
     "path": "device-specs/devices/fardriver-controller.yaml",
     "protocol": "ble",
@@ -4443,14 +4585,14 @@
     "manufacturer": "FOREO AB",
     "manufacturer_status": "active",
     "protocol_handler": "ipl_foreo",
-    "testing_status": "untested",
-    "testing_detail": "capture-verified",
+    "testing_status": "verified",
+    "testing_detail": "minimally-verified",
     "helpful_urls": [
       {
         "title": "FOREO PEACH 2 full user manual",
         "url": "https://www.foreo.com/manuals/peach-2",
         "kind": "manual",
-        "description": "Vendor-hosted online manual for the Peach 2. Corroborates the ship-locked behaviour and the in-app registration requirement this spec's activation flow replaces, and the five hardware-button intensity levels vs the six app levels.\n"
+        "description": "Vendor-hosted online manual for the Peach 2. Corroborates the ship-locked behaviour and the in-app registration requirement this spec's activation flow replaces, and that IPL intensity is chosen on the handset's +/- buttons.\n"
       },
       {
         "title": "FOREO For You on Google Play",
@@ -4699,6 +4841,47 @@
         "url": "https://fccid.co/fcc/2AIBV-MINICAM",
         "kind": "other",
         "description": "Grant record with label, internal and external photo exhibits."
+      }
+    ],
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "Wave by Genki",
+    "path": "device-specs/devices/genki-wave.yaml",
+    "protocol": "ble",
+    "category": "wearable",
+    "manufacturer": "Genki Instruments",
+    "manufacturer_status": "active",
+    "aliases": [
+      "Genki Wave",
+      "Wave"
+    ],
+    "openness": "documented_api",
+    "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "Official Genki Wave API source (pinned commit)",
+        "url": "https://github.com/genkiinstruments/genki-wave/tree/08addce0ea5377bfa48bbb8debae20f19c4df725",
+        "kind": "implementation",
+        "description": "Authoritative COBS framing, API requests, GATT UUIDs, configurations and motion/battery/spectrogram layouts."
+      },
+      {
+        "title": "Official standalone BLE-MIDI example (pinned commit)",
+        "url": "https://github.com/genkiinstruments/genki-wave/blob/08addce0ea5377bfa48bbb8debae20f19c4df725/examples/run_midi.py",
+        "kind": "implementation",
+        "description": "Genki's standard-MIDI route and its pitch/yaw/roll CC example, separate from API mode."
+      },
+      {
+        "title": "genki-wave 0.5.3 source release",
+        "url": "https://pypi.org/project/genki-wave/0.5.3/",
+        "kind": "implementation",
+        "description": "Pinned official Python source release used to cross-check the API layouts."
+      },
+      {
+        "title": "Wave by Genki product page",
+        "url": "https://genki.is/wave",
+        "kind": "vendor_support",
+        "description": "Current vendor product identity and music-control overview for the Wave ring."
       }
     ],
     "schema_version": "2020-12"
@@ -7082,6 +7265,61 @@
     "schema_version": "2020-12"
   },
   {
+    "name": "KING JIM TEPRA Lite LR30",
+    "path": "device-specs/devices/king-jim-tepra-lite.yaml",
+    "protocol": "ble",
+    "category": "printer",
+    "manufacturer": "KING JIM CO., LTD.",
+    "manufacturer_status": "active",
+    "companion_apps": [
+      {
+        "name": "TEPRA Lite",
+        "package": "jp.co.kingjim.TEPRALite",
+        "role": "primary",
+        "platform": "android",
+        "url": "https://play.google.com/store/apps/details?id=jp.co.kingjim.TEPRALite",
+        "notes": "Vendor app reviewed at Android version 2.6.2 (334); no account is needed by the direct community clients."
+      }
+    ],
+    "protocol_handler": "king_jim_tepra_lite",
+    "openness": "undocumented",
+    "testing_status": "untested",
+    "testing_detail": "capture-verified",
+    "helpful_urls": [
+      {
+        "title": "ekspla/tepra-lite-bleak — direct LR30 client (pinned)",
+        "url": "https://github.com/ekspla/tepra-lite-bleak/tree/e794c799b20ec7b2a8673a1279f264048ffe6ad7",
+        "kind": "implementation",
+        "description": "Direct Bleak client and monochrome renderer used for the depth, raster, sequence and BlueZ details in this spec."
+      },
+      {
+        "title": "puhitaku/tepra-lite-esp32 — independent LR30 client (pinned)",
+        "url": "https://github.com/puhitaku/tepra-lite-esp32/tree/bfa7dd1d2d4e496319edaa43be32730f95c33905",
+        "kind": "implementation",
+        "description": "Independent MicroPython implementation, battery caveat, protocol note and public capture."
+      },
+      {
+        "title": "LR30 reverse-engineering note and capture pointer (pinned)",
+        "url": "https://github.com/puhitaku/tepra-lite-esp32/blob/bfa7dd1d2d4e496319edaa43be32730f95c33905/doc/reverse_engineering.md",
+        "kind": "protocol_writeup",
+        "description": "GATT layout and print-sequence note with a link to the public capture. This spec follows the capture's F1 5E poll replies where the note says F1 5D."
+      },
+      {
+        "title": "Public LR30 BLE packet capture (pinned pcapng)",
+        "url": "https://github.com/puhitaku/tepra-lite-esp32/blob/bfa7dd1d2d4e496319edaa43be32730f95c33905/doc/sniffed_packets.pcapng",
+        "kind": "other",
+        "description": "Third-party over-the-air evidence for F0 operations, six-write batch acknowledgements, final partial groups and F1 5E busy/completion replies."
+      },
+      {
+        "title": "TEPRA Lite on Google Play",
+        "url": "https://play.google.com/store/apps/details?id=jp.co.kingjim.TEPRALite",
+        "kind": "vendor_support",
+        "description": "Vendor companion app listing for the LR30; not required by either direct open client."
+      }
+    ],
+    "schema_version": "2020-12"
+  },
+  {
     "name": "KingSmith WalkingPad (A1 / R1 / R2 / C2 / X21 / MC21 / Z1 family)",
     "path": "device-specs/devices/kingsmith-walkingpad.yaml",
     "protocol": "ble",
@@ -7828,7 +8066,7 @@
     "schema_version": "2020-12"
   },
   {
-    "name": "LOY / LOYPRO Helmet LED Display",
+    "name": "LOY / LOYPRO Helmet and B3 Tail-Light LED Display",
     "path": "device-specs/devices/loypro-led-display.yaml",
     "protocol": "ble",
     "category": "display",
@@ -7840,8 +8078,10 @@
     ],
     "aliases": [
       "LOYPRO display",
+      "LOY B3",
+      "MTYB3BGR",
       "motorcycle helmet LED display",
-      "helmet LED matrix"
+      "motorcycle tail light LED matrix"
     ],
     "protocol_handler": "popled_json",
     "openness": "undocumented",
@@ -7858,7 +8098,7 @@
         "title": "ztrawhcs/yskj-led-sign",
         "url": "https://github.com/ztrawhcs/yskj-led-sign",
         "kind": "implementation",
-        "description": "Independent LOY PLAY / YSKJ AA55 client; family evidence, not verification of this LOY unit."
+        "description": "Independent LOY PLAY / YSKJ AA55 client; family evidence, not verification of this B3 unit."
       },
       {
         "title": "AUTOBABA LED Backpack protocol relative",
@@ -10076,6 +10316,52 @@
     "schema_version": "2020-12"
   },
   {
+    "name": "Root coding robot (RT0 / RT1)",
+    "path": "device-specs/devices/sam-root-robot.yaml",
+    "protocol": "ble",
+    "category": "robot",
+    "manufacturer": "Root Robotics (later iRobot)",
+    "manufacturer_status": "active",
+    "aliases": [
+      "Root RT0",
+      "Root RT1",
+      "Root coding robot"
+    ],
+    "distributors": [
+      {
+        "name": "SAM Labs",
+        "role": "brand",
+        "url": "https://www.samlabs.com/",
+        "notes": "Current steward of the successor app and the successor-hosted official protocol repository. This does not assert that new RT0/RT1 hardware is still being manufactured.\n"
+      }
+    ],
+    "companion_apps": [
+      {
+        "name": "SAM Root",
+        "role": "primary",
+        "platform": "cross_platform",
+        "notes": "Current successor app identified in the research store. A replacement BLE client needs neither this app nor a vendor account.\n"
+      }
+    ],
+    "openness": "documented_api",
+    "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "Official Root Robot BLE protocol (pinned successor repository)",
+        "url": "https://github.com/PoweredBySAM/sam-root-ble-protocol/blob/8bac987096e984cb472843f8180fef142171df70/README.md",
+        "kind": "protocol_writeup",
+        "description": "Authoritative source for the Root Identifier Service, Nordic UART, advertisements, packet framing and version/command layouts restated here.\n"
+      },
+      {
+        "title": "Official Root CRC-8 implementation (pinned)",
+        "url": "https://github.com/PoweredBySAM/sam-root-ble-protocol/blob/8bac987096e984cb472843f8180fef142171df70/crc/crc.c",
+        "kind": "implementation",
+        "description": "Reference for CRC-8 poly 0x07 over bytes 0–18, with zero init/final XOR and no reflection."
+      }
+    ],
+    "schema_version": "2020-12"
+  },
+  {
     "name": "Samsung Tizen Smart TV (2016+)",
     "path": "device-specs/devices/samsung-tizen-tv.yaml",
     "protocol": "wifi",
@@ -10267,6 +10553,134 @@
         "url": "https://www.manualslib.com/manual/3741920/Sengled-W11-N11.html",
         "kind": "manual",
         "description": "Aggregator copy of the manual for the W11-N11 A19 Wi-Fi bulb (2700 K and 5000 K editions), 18 pages: Sengled Home app setup and the 2.4 GHz-only requirement. Pages 10-18 of the bundle are a different product (a light strip). ManualsLib answers non-browser clients with 403, so link checkers report it as blocked, not dead. No vendor-hosted PDF could be verified from here; Sengled's Zendesk support site did not complete a TLS handshake when checked.\n"
+      }
+    ],
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "Sensirion SHT3x / SHT4x / MyCO2 BLE Gadgets",
+    "path": "device-specs/devices/sensirion-ble-gadgets.yaml",
+    "protocol": "ble",
+    "category": "sensor",
+    "manufacturer": "Sensirion AG",
+    "manufacturer_status": "active",
+    "category_hierarchy": [
+      "measurement",
+      "environmental"
+    ],
+    "aliases": [
+      "SHT40 Gadget",
+      "SHT4x Smart Gadget Reference Design",
+      "SHT43 DemoBoard",
+      "SHT43-DB",
+      "SCD4x CO2 Gadget",
+      "MyCO2 Gadget",
+      "CO2 Minion"
+    ],
+    "companion_apps": [
+      {
+        "name": "Sensirion MyAmbience",
+        "package": "com.sensirion.myam",
+        "role": "primary",
+        "platform": "android",
+        "url": "https://play.google.com/store/apps/details?id=com.sensirion.myam",
+        "notes": "Current app for the newer gadget family; not evidence for the legacy SHT31 Smart Humigadget protocol."
+      }
+    ],
+    "openness": "open_by_design",
+    "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "Sensirion BLE Services (current protocol)",
+        "url": "https://sensirion.github.io/ble-services/",
+        "kind": "vendor_support",
+        "description": "Official current interface definitions and the rule that advertising stops while a GATT connection is active."
+      },
+      {
+        "title": "Sensirion BLE Services source definitions",
+        "url": "https://github.com/Sensirion/ble-services/tree/423a74c7adb593e7880387a6f0f782734363c19c/sensirion-ble/src/resources",
+        "kind": "vendor_support",
+        "description": "Pinned official YAML for advertisement/download sample types and GATT service properties."
+      },
+      {
+        "title": "Arduino BLE Gadgets BLE Communication Protocol 1.0.1 (PDF)",
+        "url": "https://github.com/akx/sensirion-ble/blob/0c2c04b2c64690c7045c07e2a2dc8253ca1cb4be/reference/Sensirion_BLE_communication_protocol.pdf",
+        "kind": "manual",
+        "description": "Official August 2022 protocol manual for newer Arduino BLE gadgets, including type 04/06/08 and the 00008000-… logger; not the legacy SHT31 user guide."
+      },
+      {
+        "title": "Sensirion Arduino BLE Gadget implementation",
+        "url": "https://github.com/Sensirion/arduino-ble-gadget/tree/9c1660405aee63024f8decf38c8f9d4447e41f91",
+        "kind": "implementation",
+        "description": "Official 1.5.0 reference implementation used to resolve current logger framing and document source/PDF differences."
+      },
+      {
+        "title": "Independent Sensirion passive parser",
+        "url": "https://github.com/akx/sensirion-ble/tree/0c2c04b2c64690c7045c07e2a2dc8253ca1cb4be",
+        "kind": "implementation",
+        "description": "Community parser cross-check for types 04, 06, and 08; its SHT3x path is explicitly untested upstream."
+      }
+    ],
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "Sensirion SHT31 Smart Gadget (Smart Humigadget)",
+    "path": "device-specs/devices/sensirion-sht31-smart-gadget.yaml",
+    "protocol": "ble",
+    "category": "sensor",
+    "manufacturer": "Sensirion AG",
+    "manufacturer_status": "abandoned",
+    "category_hierarchy": [
+      "measurement",
+      "environmental"
+    ],
+    "aliases": [
+      "Smart Humigadget",
+      "SHT31 Smart Gadget Reference Design",
+      "SHT3x Smart Gadget"
+    ],
+    "companion_apps": [
+      {
+        "name": "Sensirion Smart Gadget",
+        "package": "com.sensirion.smartgadget",
+        "role": "historical",
+        "platform": "android",
+        "url": "https://github.com/Sensirion/SmartGadget-Android/tree/f1bfb86baf6154be4bd94258aab7f7bf6accb6d4",
+        "notes": "Official source for the deprecated legacy app; the research check found its former store listings unavailable."
+      }
+    ],
+    "openness": "open_by_design",
+    "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "SHT31 Smart Gadget User Guide (PDF)",
+        "url": "https://sensirion.com/media/documents/429F0DF6/61643DC1/Sensirion_Humidity_Sensors_SHT3x_Smart-Gadget_User-Guide_1.pdf",
+        "kind": "manual",
+        "description": "Official guide for the legacy SHT31 Smart Gadget / Smart Humigadget: button-enabled Bluetooth, display states, local logging, and historical app use."
+      },
+      {
+        "title": "Legacy Smart Gadget Profile (PDF)",
+        "url": "https://github.com/Sensirion/SmartGadget-Firmware/blob/0fca4bb74585b576a5d25e05ef89a22b69b701a8/Simple_BLE_Profile_Description.pdf",
+        "kind": "manual",
+        "description": "Official GATT UUID map for the SHT31 Smart Gadget's legacy f234 logger and separate humidity/temperature services."
+      },
+      {
+        "title": "Official legacy SHT31 firmware",
+        "url": "https://github.com/Sensirion/SmartGadget-Firmware/tree/0fca4bb74585b576a5d25e05ef89a22b69b701a8",
+        "kind": "implementation",
+        "description": "Pinned source for float32 live values, history framing/order, timestamp units, and destructive interval-write behavior."
+      },
+      {
+        "title": "Official legacy Smart Gadget Android app",
+        "url": "https://github.com/Sensirion/SmartGadget-Android/tree/f1bfb86baf6154be4bd94258aab7f7bf6accb6d4",
+        "kind": "implementation",
+        "description": "Deprecated official app source for the Smart Humigadget generation; useful for local live/history behavior, not the newer manufacturer-sample protocol."
+      },
+      {
+        "title": "Current Sensirion BLE Services definitions",
+        "url": "https://sensirion.github.io/ble-services/",
+        "kind": "vendor_support",
+        "description": "Current cross-family reference; its newer logger does not apply to Smart Humigadget, and its humidity type does not override the legacy firmware."
       }
     ],
     "schema_version": "2020-12"
@@ -10776,13 +11190,31 @@
         "title": "SPOTLED app: getting started",
         "url": "https://spotled.app/getting-started/",
         "kind": "vendor_support",
-        "description": "The vendor's own setup guide, including reading the model from the Bluetooth ID shown at power-on. There is no printed manual for these panels.\n"
+        "description": "Vendor setup guide for SPOTLED-family panels, including reading the model from the Bluetooth ID shown at power-on.\n"
+      },
+      {
+        "title": "PIXELY GLOW installation guidance for SPOTLED panels",
+        "url": "https://www.ravebeetle.com/pages/install-the-spotled-app",
+        "kind": "vendor_support",
+        "description": "Reseller guide for connecting SpotLED-named panels with SPOTLED or the PIXELY GLOW alternative on newer Android devices.\n"
       },
       {
         "title": "iwalton3/python-spotled",
         "url": "https://github.com/iwalton3/python-spotled",
         "kind": "implementation",
-        "description": "Working control library for the same displays.\n"
+        "description": "Independent Python client for the legacy SPOTLED display protocol.\n"
+      },
+      {
+        "title": "dpeckett/spotled-cli",
+        "url": "https://github.com/dpeckett/spotled-cli",
+        "kind": "implementation",
+        "description": "Independent Rust client for the legacy command, record and upload flow.\n"
+      },
+      {
+        "title": "nexzoic/esp32-spotled",
+        "url": "https://github.com/nexzoic/esp32-spotled",
+        "kind": "implementation",
+        "description": "ESP32/NimBLE implementation of the legacy panel protocol.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -10910,6 +11342,69 @@
         "url": "https://kb.synology.com/en-global/DSM/help",
         "kind": "vendor_support",
         "description": "Vendor documentation for DSM itself, which is where the API this spec uses is configured.\n"
+      }
+    ],
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "teenage engineering OP-Z",
+    "path": "device-specs/devices/teenage-engineering-op-z.yaml",
+    "protocol": "ble",
+    "category": "other",
+    "manufacturer": "teenage engineering",
+    "manufacturer_status": "active",
+    "aliases": [
+      "OP-Z",
+      "TE012"
+    ],
+    "companion_apps": [
+      {
+        "name": "OP-Z",
+        "package": "com.teenageengineering.te012",
+        "role": "primary",
+        "platform": "cross_platform",
+        "url": "https://play.google.com/store/apps/details?id=com.teenageengineering.te012",
+        "notes": "Official companion app for the TE012 family. Android 1.3.3 (601766) and iOS 1.3.1 were store-verified during research; feature parity between platforms is not assumed. Standard BLE-MIDI does not require this app.\n"
+      }
+    ],
+    "openness": "documented_api",
+    "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "teenage engineering OP-Z user guide",
+        "url": "https://teenage.engineering/guides/op-z",
+        "kind": "manual",
+        "description": "Official guide for the OP-Z TE012 family, with links to app pairing, USB content mode, upgrade mode, firmware update and destructive factory reset."
+      },
+      {
+        "title": "teenage engineering OP-Z MIDI guide",
+        "url": "https://teenage.engineering/guides/op-z/midi",
+        "kind": "manual",
+        "description": "Official OP-Z MIDI settings, midi.json keys/ranges and complete incoming MIDI implementation table."
+      },
+      {
+        "title": "OP-Z official app pairing guide",
+        "url": "https://teenage.engineering/guides/op-z/app#pairing",
+        "kind": "vendor_support",
+        "description": "Official rear pair-button and app device-list procedure for OP-Z."
+      },
+      {
+        "title": "OP-Z USB disk modes, firmware update and reset",
+        "url": "https://teenage.engineering/guides/op-z/disk-modes",
+        "kind": "vendor_support",
+        "description": "Official OP-Z content/upgrade mode entry, safe-eject, firmware-file and factory-reset instructions."
+      },
+      {
+        "title": "nbw/opz community MIDI parser (pinned commit)",
+        "url": "https://github.com/nbw/opz/tree/17b3f031c61d5f9ff9b7e7e8685083763cd7a6e4",
+        "kind": "implementation",
+        "description": "Community standard-MIDI event parser and output-enable caveats; not a replacement for the official app."
+      },
+      {
+        "title": "chrisdiana/OPZgo content backup (pinned commit)",
+        "url": "https://github.com/chrisdiana/OPZgo/tree/5f818fe729220eb7c26b667b5dc3090637925b9f",
+        "kind": "implementation",
+        "description": "Community USB content-mode backup implementation for OP-Z projects, samples, bounces and configuration."
       }
     ],
     "schema_version": "2020-12"
@@ -11149,6 +11644,83 @@
         "url": "https://www.manualslib.com/manual/1995488/Triumph-Tiger-900.html",
         "kind": "manual",
         "description": "Vendor handbook for the Tiger 900 range.\n"
+      }
+    ],
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "Truma iNet Box (legacy)",
+    "path": "device-specs/devices/truma-inet-box.yaml",
+    "protocol": "ble",
+    "category": "vehicle",
+    "manufacturer": "Truma Gerätetechnik GmbH & Co. KG",
+    "manufacturer_status": "unsupported",
+    "aliases": [
+      "Truma iNetBox",
+      "iNet Box Bluetooth interface",
+      "Truma App legacy"
+    ],
+    "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "Truma iNet Box operating instructions (FCC exhibit PDF)",
+        "url": "https://fccid.co/api/files/s1/2adpz_inetboxa_usersmanual_2609813_19ecf17cb3.pdf",
+        "kind": "manual",
+        "description": "Nineteen-page operating guide for the legacy Truma iNet Box, FCC ID 2ADPZ-INETBOXA, including installation and historical app operation.\n"
+      },
+      {
+        "title": "Truma iNet Box FCC record",
+        "url": "https://fccid.co/fcc/2ADPZ-INETBOXA",
+        "kind": "vendor_support",
+        "description": "Regulatory record for the legacy iNet Box Bluetooth interface."
+      }
+    ],
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "Truma iNet X / iNet X Pro Panel (strict read-only)",
+    "path": "device-specs/devices/truma-inet-x.yaml",
+    "protocol": "ble",
+    "category": "vehicle",
+    "manufacturer": "Truma Gerätetechnik GmbH & Co. KG",
+    "manufacturer_status": "active",
+    "aliases": [
+      "Truma iNetX",
+      "iNet X Panel",
+      "iNet X Pro",
+      "Truma Combi panel"
+    ],
+    "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "Truma iNet X / iNet X Pro operating instructions",
+        "url": "https://www.truma.com/download/inet-x-panel-inet-x-pro-panel-operating-instructions-3/?wpdmdl=51078",
+        "kind": "manual",
+        "description": "Official 22-page guide for first-generation iNet X and iNet X Pro panels, including BLE app control and software-update fallback behavior.\n"
+      },
+      {
+        "title": "Truma iNet X System product information (01/2025 PDF)",
+        "url": "https://portal.truma.com/wp-content/uploads/2025/01/truma-operating-systems-product-information-inet-x-system-panel-0125-oem-int.pdf",
+        "kind": "manual",
+        "description": "Official eight-page manual for the iNet X Panel 36414-01 and optional iNet X Connect 36450-01, including interfaces and system compatibility.\n"
+      },
+      {
+        "title": "Truma iNet X Panel",
+        "url": "https://www.truma.com/products/operating-systems/truma-inet-x-panel/",
+        "kind": "vendor_support",
+        "description": "Official panel page and links to the current Android/iOS apps."
+      },
+      {
+        "title": "node-red-contrib-truma-inetx at 004a8327",
+        "url": "https://github.com/node-red-contrib/node-red-contrib-truma-inetx/tree/004a83270721f1a89ed409e91a67e831ad04a98a",
+        "kind": "implementation",
+        "description": "MIT transport/frame reference used for UUIDs, CBOR envelopes and control exchange."
+      },
+      {
+        "title": "rpodgorny/hass-truma-inetx at 08daf61c",
+        "url": "https://github.com/rpodgorny/hass-truma-inetx/tree/08daf61c2845ab10a6b1e5b92b4308ee0812a156",
+        "kind": "implementation",
+        "description": "Independent vehicle behavior, pairing and connectivity reports; no unlicensed protocol code is copied."
       }
     ],
     "schema_version": "2020-12"

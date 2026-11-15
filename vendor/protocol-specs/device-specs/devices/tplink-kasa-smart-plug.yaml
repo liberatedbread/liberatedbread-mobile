@@ -48,9 +48,11 @@ device:
     TP-Link the company is alive, so manufacturer_status is `active`; what is
     endangered is this local protocol. HS100 hardware v4 on firmware 1.1.0
     (~2020) CLOSED port 9999 ("enhanced total encryption"), and newer hardware
-    (EP25, KP125M, the whole Tapo line) moved to the encrypted KLAP/AES
-    protocol with cloud-tied credentials — out of scope for this spec. Keep a
-    working unit offline from vendor firmware updates to preserve the API.
+    (EP25, KP125M, the whole Tapo line) moved to encrypted HTTP transports —
+    KLAP, securePassthrough ("AES") or, newest, TPAP — authenticated with the
+    bound account's credentials; out of scope for this spec (see
+    device.pairing.notes for how to recognise such a unit). Keep a working
+    unit offline from vendor firmware updates to preserve the API.
 
     SAFETY: the relay is mains-rated (13–16 A depending on region) and the
     protocol has NO authentication, so anything on the LAN can toggle the load.
@@ -225,16 +227,35 @@ device:
       discovery broadcast from KP200, HS300, KL430 and EP40 units. Owning a
       Kasa cloud account changes nothing on this path. Newer hardware and
       firmware (HS100 v4 on 1.1.0, EP25, KP125M, Tapo) is different: it
-      closes port 9999, answers discovery on UDP 20002, and speaks KLAP over
-      HTTP. A KLAP client must prove it knows the email and password of
+      closes port 9999 and answers TDP discovery on UDP 20002 (the Tapo app
+      also asks on 20004 in parallel). The TDP reply's
+      mgt_encrypt_schm.encrypt_type (AES, KLAP or TPAP) and an optional
+      `tpap` object pick the transport: the vendor app uses TPAP when `tpap`
+      is present, else KLAP when encrypt_type says so, else securePassthrough
+      over HTTP. The reply's `owner` is the MD5 of the bound account's
+      e-mail. A KLAP client must prove it knows the email and password of
       the TP-Link cloud account the device was bound to, as a hash in a
-      two-step seed handshake. python-kasa notes that never-bound devices
-      accept blank credentials, and it also tries a set of built-in setup
-      credentials. So such devices need the cloud account once, and keep
-      working locally with it afterwards. The newest firmware advertises a
-      further scheme, TPAP, which python-kasa does not yet support (fixture
-      markers, November 2026). None of this applies to the units this spec
-      describes.
+      two-step seed handshake (KLAP v1 hashes the credentials with MD5, v2
+      with SHA-1, selected by `new_klap`; both seed proofs are SHA-256).
+      python-kasa notes that never-bound devices accept blank credentials,
+      and it also tries a set of built-in setup credentials; the vendor app
+      does the same, substituting a fixed setup identity whenever `owner` is
+      empty (Kasa app 3.4.602 static analysis). So such devices need the
+      cloud account once, and keep working locally with it afterwards — with
+      the credentials current at the last cloud account sync: the app pushes
+      credential hashes to the device (cnCloud.account_sync) through the
+      cloud, so a password changed after the cloud is gone never reaches the
+      device. The newest firmware advertises a further scheme, TPAP, which
+      python-kasa does not yet support (fixture markers, November 2026). In
+      both the Kasa and Tapo apps TPAP is a local SPAKE2+ passcode login
+      (default, account-password or shared-token passcode) followed by an
+      AEAD channel; a cloud-issued operational certificate is fetched only
+      when the device advertises noc=1 and is not what the plug-class TPAP
+      login authenticates with, but that is app evidence for two app builds,
+      not a guarantee for every firmware. Legacy-JSON devices on recent
+      firmware also carry tpap.set_third_party_compatibility{tpap_preferred},
+      the switch that moves them onto TPAP. None of this applies to the units
+      this spec describes; those transports belong in their own spec.
 
   # The models this one spec covers. The plug models differ in exactly one
   # thing that changes the control surface: whether the plug has metering
@@ -265,7 +286,9 @@ device:
       notes: >
         The original plug: relay only, no metering hardware — get_emeter
         answers with an error. Hardware v4 on firmware 1.1.0 (~2020) closed
-        port 9999 entirely; such a unit speaks none of this spec.
+        port 9999 entirely; such a unit speaks none of this spec. The Kasa
+        app's device table labels hardware v2 a QCA4010 (Qualcomm Atheros)
+        Wi-Fi plug, which names its SoC (reported, app static analysis).
     - model: "HS103"
       identification:
         model_prefix: "HS103"
@@ -469,10 +492,19 @@ protocol_details:
       tcp: >
         Each message on the TCP stream is a 4-byte big-endian length prefix (the
         count of encrypted payload bytes, NOT including the prefix) followed by
-        the XOR-encrypted JSON. The reply uses the same framing.
+        the XOR-encrypted JSON. The reply uses the same framing. The Kasa
+        app's framer only reads and writes frames with 0 < length < 65535 and
+        drops anything larger; a big reply (an HS300's get_sysinfo, a schedule
+        dump) can exceed that, so a client should not copy the limit.
       udp: >
         Discovery and its replies are a single datagram of the XOR-encrypted
-        JSON with NO length prefix.
+        JSON with NO length prefix. The Kasa app can also send ordinary
+        control requests this way, unframed over UDP 9999 (and has a
+        TCP/UDP hybrid mode); TCP stays the documented control path here.
+      context_source: >
+        Requests may carry a top-level "context":{"source":"<client id>"}
+        alongside the module object, the same envelope context.child_ids
+        rides in. The app sends it; nothing indicates the device requires it.
     discovery:
       method: "udp_broadcast"
       destination: "255.255.255.255:9999"
@@ -483,6 +515,13 @@ protocol_details:
         full get_sysinfo object (see the get_sysinfo command's returns): alias,
         model, deviceId, hwId, mac, rssi and relay_state. deviceId is the stable
         identity; alias is the user-facing name.
+      vendor_app_behaviour: >
+        The Kasa app repeats the broadcast every second and bundles the cloud
+        modules' get_info (cnCloud, smartlife.iot.common.cloud and the camera
+        cloud module) into the same discovery query, so a reply can carry
+        those objects too; a module the device lacks answers with an error
+        object. It also broadcasts a camera-style variant to UDP 9998 that
+        carries an RSA public key, which is for cameras, not these plugs.
     command_tree:
       system.get_sysinfo: "Device info + current relay_state. The state poll and the discovery probe."
       system.set_relay_state: "Set the outlet relay: {state: 1} on, {state: 0} off."
@@ -500,6 +539,13 @@ protocol_details:
       count_down.get_rules: "Read the one-shot countdown rule before replacing or editing it."
       count_down.add_rule: "Create a one-shot delay in seconds with act 0 off / 1 on; some models allow only one armed rule."
       anti_theft.get_rules: "Read randomized away-mode windows, distinct from fixed clock schedules."
+      system.reboot: 'Reboot after {"delay": seconds}. Bound as the reboot command. python-kasa warns that delay 0 makes the device reboot without replying.'
+      system.reset: "Factory reset: Wi-Fi, alias and rules cleared, back to the setup AP. Bound as factory_reset (advanced). python-kasa notes it does not downgrade firmware."
+      system.download_firmware: 'Tell the device to fetch a firmware image from {"url": ...}. The vendor app sends this LOCALLY with the URL the cloud offered. Bound as download_firmware (advanced); see features.'
+      system.get_download_state: "Progress of a download_firmware fetch. Bound as get_download_state."
+      system.flash_firmware: "Flash the downloaded image. Bound as flash_firmware (advanced)."
+      cnCloud.account_sync: "KLAP-era firmware: store hashes of the account e-mail and password ({username_md5|username_sha1, pwd_md5|pwd_sha1}). The vendor app only sends it through the cloud; whether a device accepts it locally is untested. Not meaningful on the no-auth units this spec covers."
+      tpap.set_third_party_compatibility: "Recent firmware only: {tpap_preferred} switches a legacy-JSON device to prefer TPAP. Shape from the vendor app; not replayed."
     # The local face of the vendor cloud. Worth documenting in a local-protocol
     # spec because it is how an owner cuts the device off deliberately: it names
     # the host to block, and unbinding is the one step that has to happen BEFORE
@@ -578,6 +624,38 @@ evidence:
       - "The app's milli-unit code path divides voltage_mv/current_ma/power_mw/total_wh by 1000 to reach V/A/W/kWh, while the legacy path reads the plain float fields directly — so the plain fields already carry SI units, as the entity units below claim."
     confidence: "medium"
     confidence_notes: "Derived from app code, not replayed against plug hardware; python-kasa's hardware-tested EmeterStatus agrees with both code paths."
+  app_static_analysis_2026_09:
+    date: "2026-09-28"
+    source: "Kasa app 3.4.602 re-read, cross-checked against Tapo app 3.20.512 and python-kasa b7b41f2 (derived facts only)"
+    confirms:
+      - "Transport order for the app's legacy-JSON devices: TPAP if discovery advertised it, else KLAP, else TCP 9999 (or UDP 9999 / a TCP-UDP hybrid). Off-LAN requests go through the cloud."
+      - "TCP 9999 framing as documented here (big-endian u32 length, XOR autokey from 0xAB); the app's framer caps frames below 65535 bytes."
+      - "The system module carries reboot, reset and download_firmware{url}; the app runs updates through the local download_firmware call."
+      - "With an empty TDP owner the app substitutes a fixed setup identity for KLAP, the same pair as python-kasa's built-in defaults (values not reproduced)."
+      - "Credential hashes reach a KLAP device only through cnCloud.account_sync over the cloud."
+    confidence: "medium"
+    confidence_notes: "Static analysis only; no hardware or local capture was involved. Supersedes nothing in device.testing."
+  artifacts:
+    - type: "static_analysis"
+      artifact: "com.tplink.kasa_android 3.4.602 (versionCode 1392)"
+      obtained_via: "APKPure via apkeep (XAPK), 2026-08-23"
+      description: "Emeter field families (2026-08-14 pass); system/cnCloud/tpap module methods, discovery behaviour, frame limit, transport selection and the local firmware-download call (2026-09-28 pass)."
+    - type: "static_analysis"
+      artifact: "com.tplink.iot (Tapo) 3.20.512 (versionCode 6993)"
+      obtained_via: "APKPure via apkeep (XAPK), 2026-08-23"
+      description: "Cross-check for the newer transports named in device.pairing.notes: TDP 20002/20004, KLAP v2, securePassthrough, TPAP over HTTPS 4433 with SPAKE2+ and the noc=1 certificate fetch. Nothing in it changes the port-9999 protocol."
+    - type: "public_implementation"
+      artifact: "python-kasa/python-kasa at b7b41f2 (2026-09-18)"
+      description: "XOR transport, reboot/reset request shapes, cloud module and IoT fixtures; KLAP v1/v2 and default-credential roles. No TPAP."
+    - type: "public_research"
+      artifact: "softScheck/tplink-smartplug tplink-smarthome-commands.txt"
+      description: "Request JSON for the command tree, including reboot, reset, download_firmware, get_download_state and flash_firmware."
+    - type: "public_capture"
+      artifact: "Aalto IoT Sentinel dataset: 20 HS100 and 20 HS110 Wi-Fi setup captures"
+      description: "Device-to-cloud TLS to devs.tplinkcloud.com:50443 plus DNS/NTP; no local 9999 or 20002 traffic, so no protocol evidence beyond the cloud host."
+    - type: "vendor_documentation"
+      artifact: "https://www.tp-link.com/us/support/download/hs103/v1/ (checked 2026-11-11)"
+      description: "Offered documentation and app-update guidance but no downloadable firmware image for HS103 v1."
 
 http_endpoints:
   - method: "GET"
@@ -821,6 +899,86 @@ commands:
         type: "integer"
         description: "1 while the cloud link is up, 0 while it is down or blocked."
     verification: "reported"
+  # Maintenance and firmware. Request shapes from softScheck's
+  # tplink-smarthome-commands.txt; the Kasa app's system module carries the
+  # same reboot / reset / download_firmware methods (static analysis), and
+  # python-kasa sends reboot and reset. None replayed by this project.
+  reboot:
+    description: "Reboot the device after a delay. Settings and rules survive."
+    transport: "tcp-json"
+    body: '{"system":{"reboot":{"delay":{delay}}}}'
+    example_body: '{"system":{"reboot":{"delay":1}}}'
+    parameters:
+      delay:
+        type: "integer"
+        min: 0
+        unit: "s"
+        description: >
+          Seconds before the reboot. python-kasa sends 1 and warns that 0
+          makes the device reboot without answering, so the client waits on
+          a reply that never comes.
+    verification: "reported"
+  factory_reset:
+    description: >
+      Factory reset over the LAN: the same effect as the button hold in
+      device.setup.factory_reset. No authentication, so anything that can
+      reach port 9999 can do it.
+    transport: "tcp-json"
+    body: '{"system":{"reset":{"delay":1}}}'
+    example_body: '{"system":{"reset":{"delay":1}}}'
+    notes: >
+      softScheck documents the delay object; python-kasa sends an empty one
+      ({"system":{"reset":{}}}). Which firmware accepts which is not
+      established. python-kasa notes the reset does not downgrade firmware.
+    advanced: true
+    advanced_reason: >
+      Erases the Wi-Fi credentials, alias, schedules and cloud binding; the
+      device drops off the network and comes back as an open setup AP.
+      Recovery is the SoftAP provisioning in device.setup (set_stainfo); a
+      cloud binding has to be redone through the Kasa app.
+    verification: "reported"
+  download_firmware:
+    description: >
+      Tell the device to fetch a firmware image from a URL. This is how the
+      vendor app updates a legacy device: it asks the cloud which image is
+      offered (get_intl_fw_list) and then hands the URL to the device with
+      this LOCAL command.
+    transport: "tcp-json"
+    body: '{"system":{"download_firmware":{"url":"{url}"}}}'
+    example_body: '{"system":{"download_firmware":{"url":"http://download.tplinkcloud.com/firmware/<image>.bin"}}}'
+    parameters:
+      url:
+        type: "string"
+        required: true
+        description: >
+          Image URL the device downloads itself. Vendor offers are plain
+          HTTP on download.tplinkcloud.com.
+    advanced: true
+    advanced_reason: >
+      Starts a firmware change. A vendor update is how HS100 hardware v4
+      lost the port-9999 protocol this spec depends on, and there is no
+      known downgrade path; whether the device checks an image's signature
+      is unknown, so a wrong image may not be refused. Nothing is flashed
+      until flash_firmware; read get_download_state first.
+    verification: "reported"
+  get_download_state:
+    description: "Read the progress of a download_firmware fetch."
+    transport: "tcp-json"
+    body: '{"system":{"get_download_state":{}}}'
+    example_body: '{"system":{"get_download_state":{}}}'
+    verification: "reported"
+  flash_firmware:
+    description: "Flash the image fetched by download_firmware."
+    transport: "tcp-json"
+    body: '{"system":{"flash_firmware":{}}}'
+    example_body: '{"system":{"flash_firmware":{}}}'
+    advanced: true
+    advanced_reason: >
+      Replaces the running firmware with the downloaded image. A vendor
+      image may remove the port-9999 protocol (HS100 hw v4, 1.1.0) with no
+      known way back; an interrupted or wrong flash has no documented
+      recovery.
+    verification: "reported"
 
 # One control: the outlet, as an on/off switch. state_command polls
 # get_sysinfo; the reply's relay_state is the value, nonzero meaning on. This
@@ -996,6 +1154,41 @@ entities:
       does the switching and dimming (verified on a KL430); the bulb-class
       call is silently ignored on a strip. Brightness is 1-100.
 
+# The update path is a local command, which is why it is documented: the
+# vendor app relays the cloud's offer to the device over port 9999.
+features:
+  - type: "firmware_update"
+    dfu:
+      mechanisms: ["custom"]
+      transport: "http"
+      image:
+        signing: "unknown"
+        source: "device_pulls"
+        notes: >
+          The device downloads the image itself from the URL it is given.
+          Vendor offers (cnCloud.get_intl_fw_list, through the device, cloud
+          reachable) are plain-HTTP links on download.tplinkcloud.com. The
+          Kasa app bundles no firmware, and TP-Link's US HS103 v1 download
+          page offered no image when checked 2026-11-11. Whether the device
+          verifies a signature before flashing is unknown.
+      enter:
+        how: "command"
+        command: "download_firmware"
+        notes: >
+          No separate update mode: the running firmware fetches the image
+          (download_firmware, poll get_download_state) and then installs it
+          on flash_firmware.
+      dfu_mode:
+        notes: "No update-mode SSID, advertisement or port is recorded."
+      recovery:
+        interrupted: "unknown"
+      verification: "reported"
+      notes: >
+        Sequence from softScheck's command list; the vendor app's local
+        download_firmware{url} call is from Kasa app 3.4.602 static analysis.
+        Never replayed here. The consequence that matters for this spec is
+        that vendor firmware is what closed port 9999 on HS100 hw v4.
+
 # The plug works entirely on the LAN; this records what it phones anyway,
 # because a firmware update over that link is how HS100 hw v4 lost port 9999.
 # `egress` is what scripts/generate_blocklists.py renders into DNS lists.
@@ -1075,7 +1268,9 @@ cloud:
         The cloud host of 2016-era firmware: softScheck's HS110 network capture
         (TLS to devs.tplinkcloud.com:50443, retried even when configured
         "local only"), an HS105 capture showing the same port in 2017
-        (coverclock.blogspot.com, 2017-07), and the default value in
+        (coverclock.blogspot.com, 2017-07), the 40 HS100/HS110 setup captures
+        of the public Aalto IoT Sentinel dataset (43 lookups and 45 TLS SYNs
+        to this name on 50443, no other device-cloud host), and the default value in
         softScheck's set_server_url example. The "local only" app state is a
         Home Assistant user's report (community.home-assistant.io/t/244229).
     - host: "devs-gw.tplinkcloud.com"
@@ -1111,10 +1306,11 @@ cloud:
         impact: "none"
         effect: >
           No image can be fetched from here, so an update ordered through the
-          app or the cloud fails to download. The cloud hands the device the
-          URL, so an image served from any other host would get past this — no
-          source has tested the block itself, which is why the firewall rule
-          stays the recommendation.
+          app or the cloud fails to download. The cloud only supplies the URL:
+          the Kasa app passes it to the device with the local
+          system.download_firmware command, so an image served from any other
+          host would get past this — no source has tested the block itself,
+          which is why the firewall rule stays the recommendation.
       verification: "reported"
       basis: >
         Every fwUrl in python-kasa's IoT fixtures that answer
@@ -1220,6 +1416,13 @@ cloud:
     through the app, and some owners report HS100/HS110 firmware 1.1.0
     arriving unasked in 2020 on units they had not blocked.
 
+remaining_unknowns:
+  - "Whether a legacy device verifies a firmware image's signature before flash_firmware, and whether download_firmware accepts a non-vendor URL; the app's local call implies any LAN client can supply one."
+  - "Which firmware accepts system.reset with softScheck's {delay: 1} versus python-kasa's empty object."
+  - "Whether cnCloud.account_sync or tpap.set_third_party_compatibility is accepted over the local protocol, and on which firmware the latter exists."
+  - "The role of n-deventry.tplinkcloud.com, which the Kasa app's service config lists beside n-devs.tplinkcloud.com; it is not in cloud.egress because no capture shows a device looking it up."
+  - "Whether UDP 9999 control (no length prefix) is answered by every model, or only the ones the app sends it to."
+
 local_access:
   status: "native"
   summary: >
@@ -1232,9 +1435,10 @@ local_access:
     - "Bulb and light-strip on/off and brightness."
     - "Discovery by UDP broadcast, and Wi-Fi provisioning over the SoftAP."
     - "Setting the clock (time.set_timezone in the command tree), which keeps schedules right with NTP blocked."
+    - "Reboot and factory reset over port 9999 (reboot, factory_reset)."
   not_covered:
     - "Off-LAN control through the Kasa app, Alexa and Google Assistant: cloud-only."
-    - "Firmware updates, deliberately: keeping them out is the point of blocking."
+    - "Vendor firmware images, deliberately: keeping them out is the point of blocking. The update itself is a local command (download_firmware), but the offer and the image come from the cloud."
     - "Unbinding from a Kasa account, which needs the cloud reachable."
 
 helpful_urls:

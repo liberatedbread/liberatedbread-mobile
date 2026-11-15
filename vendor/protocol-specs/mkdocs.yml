@@ -191,7 +191,16 @@ nav:
           - "Meizu MYVU / Star Air AR Glasses": devices/meizu-myvu-glasses.md
           - "Pix Backpack / Pix Mini": devices/pix-backpack.md
           - "Weber iGrill Bluetooth Thermometers": devices/weber-igrill.md
+          - "Truma iNet X / iNet X Pro (strict read-only)": devices/truma-inet-x.md
+          - "Truma iNet Box (legacy)": devices/truma-inet-box.md
           - "LOY / LOYPRO LED Displays": devices/loypro-led-display.md
+          - "KING JIM TEPRA Lite LR30": devices/king-jim-tepra-lite.md
+          - "Root Coding Robot (RT0 / RT1)": devices/sam-root-robot.md
+          - "Brother Skitch PP1 (information and status)": devices/brother-skitch-pp1.md
+          - "Genki Wave": devices/genki-wave.md
+          - "Teenage Engineering OP-Z (BLE-MIDI)": devices/teenage-engineering-op-z.md
+          - "Sensirion BLE Gadgets": devices/sensirion-ble-gadgets.md
+          - "Sensirion SHT31 Smart Humigadget": devices/sensirion-sht31-smart-gadget.md
       - Bluetooth Classic Devices:
           - Quin / Daviky Smart Pill Boxes: devices/quin-pillcalendar.md
           - "94Fifty Smart Sensor Basketball": devices/94fifty-basketball.md
@@ -199,6 +208,7 @@ nav:
           - "Anker soundcore Earbuds, Headphones and Speakers": devices/anker-soundcore.md
           - "Beddit Sleep Tracker (Classic generation)": devices/beddit-2-sleep-tracker.md
           - "Brother P-touch Cube Label Printers": devices/brother-ptouch-cube.md
+          - "Canon Ivy 2 / Zoemini 2 / iNSPiC PV-223": devices/canon-ivy-zoemini.md
       - WiFi Devices:
           - Belkin Wemo Smart Devices: devices/wemo-devices.md
           - Anki Vector Robot: devices/vector-robot.md
@@ -287,6 +297,7 @@ nav:
           - "Big Ass Fans i6 / es6 / Haiku (firmware 3.x)": devices/big-ass-fans-i6.md
           - "Big Ass Fans Haiku with SenseME (legacy)": devices/big-ass-fans-senseme.md
           - "Furbo Dog Camera": devices/furbo-dog-camera.md
+          - "Eye-Fi X2 / Mobi Wi-Fi SD Cards (receiver)": devices/eye-fi-cards.md
       - Zigbee Devices:
           - Zigbee Soil Tester (TS0601 family): devices/zigbee-soil-tester.md
       - Z-Wave Devices:

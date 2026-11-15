@@ -1,6 +1,6 @@
 # FOREO Peach 2 (IPL hair removal)
 
-> **Status**: Capture verified (stock app; no replacement-client replay)
+> **Status**: Minimally verified (replacement-client replay 2026-11-14; locked-unit unlock untested)
 > **Protocol**: BLE
 > **Manufacturer**: FOREO AB (active; cloud not required for local control)
 
@@ -25,21 +25,30 @@ command dialects and app-side subscription enforcement.
 A 2026-11-07 Android HCI capture then recorded two stock-app connections to an
 already-activated PEACH2 running `PEACH2 F.REV.K`. It confirms the FFF0 GATT layout,
 security-access write, no-pairing session, 0A20 read, new-dialect intensity/mode writes,
-and seven-byte cooling profile. It does **not** show a locked-unit activation, Pro-mode
-write or replacement client implementing this spec.
+and seven-byte cooling profile.
 
-Two findings remain important but have different evidence levels:
+On **2026-11-14** a standalone BlueZ/bleak client written from the spec alone drove an
+already-active PEACH2 F.REV.K over seven connections. The live GATT table matched the
+spec exactly, every documented query and write-back behaved as written, and a direct
+Pro-mode write was accepted. Neither source shows a locked-unit activation.
+
+Three findings matter most, at different evidence levels:
 
 1. **Offline unlock is app-derived.** Static analysis shows that the activation bytes
    are a keyless permutation of the device BLE MAC, so the cloud registration call is
    not needed by the firmware. The captured unit already returned activation state 01,
    so the actual locked-unit write was not verified.
-2. **Pro mode is gated by the app, but direct firmware acceptance is unknown.** Normal
-   Pro selection requires an active eligible subscription; a separate testing flag
-   bypasses that UI branch. Once permitted, the app writes `0ad0 06`. The capture has
-   seven Basic writes (`0ad0 01`) and no Pro write, so it proves neither a downgrade nor
-   firmware behavior outside the entitlement path. Security access on 0A10 is not a Pro
-   unlock token.
+2. **Pro mode is gated only in the app; the firmware accepts it directly.** Normal Pro
+   selection in the stock app requires an active eligible subscription (a separate
+   testing flag bypasses that branch), after which the app writes `0ad0 06`. There is
+   no token or key. In the replay, a client with no FOREO account wrote `0ad0 06`, got
+   the usual `01` acknowledgement, read back `06`, and still read `06` after
+   reconnecting. Static analysis says the stock app writes Basic back on connect when
+   it considers the subscription inactive. Pro unlocks the app's "5 extra boost
+   intensities" and is meant for non-sensitive areas and experienced users.
+3. **`0a 01` is the T-Sonic motor, not IPL intensity.** The app names the opcode a motor
+   level and shows it under a T-Sonic heading. IPL intensity is chosen only with the
+   handset's +/- buttons; no BLE command for it was found.
 
 ## Initial setup
 
@@ -52,14 +61,17 @@ Two findings remain important but have different evidence levels:
 | Offline setup confidence | Security/read path capture-confirmed; activation write reported |
 
 1. Select the model and scan for its **exact** configured name. The app disables fuzzy
-   matching and uses a 30-second timeout. It also interprets an activation-state marker
-   from the raw advertisement; the specific flag in this capture is undecoded.
+   matching and uses a 30-second timeout. The advertisement carries manufacturer data
+   (company ID `0xffff`) of the form `ff ff <MAC m0…m5> ff 01`; the trailing `01` is the
+   likely activation flag on an active unit. A locked unit's value is unobserved.
 2. Connect without bonding and discover services. FFF0 contains FFF1, 0A10 and 0A20 on
-   the captured firmware.
+   the captured firmware. Under BlueZ the first attempt dropped during service discovery
+   in 4 of 7 sessions; retry the connect.
 3. Write security access `01 a1 <MAC[3]> <MAC[4]> <MAC[5]>` to 0A10. The live write
    matched this derivation exactly; the app retries up to three times. After the ATT
    Write Response, it waits **500 ms** and validates no challenge response. This is
-   connection setup, not Pro activation.
+   connection setup, not Pro activation. The active F.REV.K unit did **not** enforce it:
+   FFF1 queries and writes worked on a connection that skipped it. Send it anyway.
 4. Read SW revision 2A28. The captured suffix `K` selects the new dialect.
 5. Read 0A20. If it starts with `00`, static analysis says to write
    `01 02 <8-byte chipId>`. If it already starts with `01`, do not rewrite it.
@@ -98,7 +110,8 @@ security handshake from the new client. There is no bond to forget.
 
 FFF1 commands are raw `opcode || payload`, with `0a` for set and `0b` for query. Write
 the query, then **read FFF1 back**. `ff ff ff ff` means busy; the app retries up to
-five times. Observed settings writes returned an 18-byte value beginning `01`.
+five times. Observed settings writes returned an 18-byte value beginning `01`. Roughly one
+write in five returned busy in the replay; re-send the write itself, not just the read.
 
 ### Captured GATT structure
 
@@ -112,7 +125,7 @@ five times. Observed settings writes returned an 18-byte value beginning `01`.
 | `00000a0c-0000-1000-8000-00805f9b34fb` | Accelerometer input; 180 one-byte reads, axes/units unknown |
 | `00000a18-0000-1000-8000-00805f9b34fb` | Body NTC; 165 one-byte notifications, units unknown |
 | `00000a19-0000-1000-8000-00805f9b34fb` | Head NTC; 110 one-byte notifications, units unknown |
-| `00000a0d-0000-1000-8000-00805f9b34fb` | Vibrator setting; 15 one-byte notifications, vocabulary unknown |
+| `00000a0d-0000-1000-8000-00805f9b34fb` | Vibrator (T-Sonic) setting; 15 one-byte notifications, vocabulary unknown |
 | `0000181c-0000-1000-8000-00805f9b34fb` | Separate service containing 0A05 |
 | `0000180a-0000-1000-8000-00805f9b34fb` | Standard device information |
 
@@ -133,24 +146,48 @@ CoreBluetooth UUID must not substitute it.
 
 | Command | Meaning | Evidence |
 |---------|---------|----------|
-| `0a 01 <level>` | Set intensity 0–5 | Levels 3 and 5 captured |
-| `0b 01` | Read intensity, first byte | Returned 5 |
-| `0a d0 01` | Basic removal mode | Seven captured writes |
-| `0a d0 06` | Pro removal mode | App constant; not captured, direct acceptance unknown |
-| `0b d0` | Read mode; 01 Basic, ≥6 Pro | Basic captured |
+| `0a 01 <level>` | Set T-Sonic motor level 0–5 (not IPL output) | Levels 3 and 5 captured; replayed |
+| `0b 01` | Read T-Sonic level, first byte | Returned 5 |
+| `0a d0 01` | Basic removal mode | Seven captured writes; replayed |
+| `0a d0 06` | Pro removal mode | Replay: accepted with no subscription, persisted |
+| `0b d0` | Read mode; 01 Basic, ≥6 Pro | Basic captured; Pro (06) replayed |
 | `0a c0 0a` | Automatic fan | Accepted on new-dialect unit |
-| `0a c4 <7 bytes>` | New cooling profile | Several captured; mapping incomplete |
+| `0a c4 <7 bytes>` | New cooling profile, one per level | Levels 0, 1 and 5 seen on hardware |
 | `0b c4 00 07` | Read seven-byte cooling profile | Captured; 18-byte response |
 | `0a c0 <value>` | Old single-byte cooling write | Static analysis |
 | `0b c0` | Old cooling read | Static analysis |
 | `0a a2 <mode ×5>` | Old flash mode and separate Duo path | App constants; Duo Basic/Pro not captured |
 | `0b a2` | Old flash-mode read | Static analysis |
 
-The cooling profile is not a one-byte level. One wire example is
-`0a c4 14 0d 21 02 1c 14 14`; it is evidence of the seven-byte layout, not a universal
-recommended setting. Read the current profile first and do not send arbitrary values
-on an IPL device. A separate `0a b1 a5` write was accepted after calibration polling,
-but its semantics are unknown.
+The cooling profile is not a one-byte level, but the stock app does not compose it
+either. It picks one of six fixed profiles per SW revision from its bundled model
+config. On F.REV.I–K the first byte is the level as a percentage:
+
+| Level | F.REV.I–K profile |
+|-------|-------------------|
+| 0 | `22 1b 21 02 1c 14 14` |
+| 1 | `14 0d 21 02 1c 14 14` |
+| 2 | `28 0d 21 02 1c 14 14` |
+| 3 | `3c 0d 21 02 1c 14 14` |
+| 4 | `50 0d 21 02 1c 14 14` |
+| 5 | `64 0d 21 02 1c 14 14` |
+
+The full per-firmware table, including older and eight-byte F.REV.L rows, is in the
+spec's `protocol_details.cooling_profiles`. Send only the row for the unit's revision;
+do not send arbitrary values on an IPL device. A separate `0a b1 a5` write was accepted
+after calibration polling, but its semantics are unknown.
+
+**Flash energy is a vendor table, not a user setting.** `0b d1` reads the per-level flash
+voltage table. In Pro mode on F.REV.K it held ten entries, `06 0a 0f 15 19 18 1b 1d 20 23`,
+while the handset still offers five levels. The likely reading is that Pro's "boost
+intensities" make the same five levels use the upper five entries, but that is unconfirmed.
+The stock app rewrites this table, and the head/body NTC thresholds (`37 32`, `50 46`) and
+temperature-enable (`02`), from its server config on connect. The spec documents their read
+formats but deliberately gives no write templates: raising flash energy or moving a thermal
+cut-out on an IPL device can cause burns.
+
+The Pro MAX config also defines an "IPL speed" setting (Fast / Balanced) on opcode
+`0a a3`, read with `0b a3 0a`. Its bytes are undecoded and no Pro MAX was examined.
 
 Duo Basic is `0a a2 02 02 02 02 02`; Duo Pro is `0a a2 03 03 03 03 03`. These are
 model-specific app constants, not observed traffic. Duo's Pro switch is hidden in the
@@ -160,15 +197,17 @@ app.
 
 No cloud is needed for the captured local control path. FOREO's servers handle account
 registration and subscription entitlement. Offline locked-unit activation is
-implementable from static analysis but unverified. Pro's confirmed entitlement gate is
-in the app; direct firmware acceptance outside that path is unknown.
+implementable from static analysis but unverified. Pro's entitlement gate is only in
+the app: the firmware accepted a direct Pro write with no account.
 
 ## Open questions
 
-- Locked-unit activation and persistence, plus the exact advertisement activation flag.
+- Locked-unit activation and persistence, plus a locked unit's advertisement flag.
 - Registration-server behavior after the PEACH2/GO/Pro Max pre-connect API exception.
-- Direct Pro-mode acceptance, Duo command behavior and old-dialect suffix edge cases.
-- Cooling-profile fields, NTC/accelerometer/vibrator conversion, other notification
+- How Pro maps the five handset levels onto the ten-entry voltage table; Pro acceptance on other firmware, Pro MAX and
+  Duo; Duo command behavior and old-dialect suffix edge cases.
+- Whether any BLE command touches IPL intensity.
+- Fixed cooling-profile bytes, NTC/accelerometer/vibrator conversion, other notification
   streams and the 0AB1 write.
 - Temperature/NTC/voltage payload layouts and read-back formats.
 - OTA entry, image transfer, update-mode identity and recovery; 0A08 is not a verified

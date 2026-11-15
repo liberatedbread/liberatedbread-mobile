@@ -1,0 +1,600 @@
+# KING JIM TEPRA Lite LR30 — Device Specification
+# Status: source-derived, not driven by this project. Two pinned open
+# implementations and their public LR30 BLE capture were reviewed. The capture
+# corroborates the F0 command sequence and resolves the poll-reply id as F1 5E;
+# all protocol facts remain `reported` because the capture is third-party.
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+
+device:
+  name: "KING JIM TEPRA Lite LR30"
+  manufacturer: "KING JIM CO., LTD."
+  manufacturer_status: "active"
+  openness:
+    status: "undocumented"
+    reverse_engineered: true
+    source_code: "https://github.com/ekspla/tepra-lite-bleak/tree/e794c799b20ec7b2a8673a1279f264048ffe6ad7"
+    notes: >
+      No vendor protocol document was found. This spec derives the LR30
+      control surface from two independent open clients, static analysis of
+      the vendor app, and the public capture linked under evidence.
+  testing:
+    status: untested
+    detail: capture-verified
+    notes: >
+      No LR30 was driven by this project. The pinned public capture
+      repo/tepra-lite-esp32/doc/sniffed_packets.pcapng was decoded and checked
+      against both open clients. It corroborates F0 5A/5B/5C/5D/5E, six data
+      writes per batch acknowledgement, and F1 5E busy/completion replies.
+      The capture is public third-party evidence, not a capture made by this
+      project, so individual protocol facts stay `reported`.
+  protocol: "ble"
+  transport: "ble-gatt"
+  category: "printer"
+  type: "label-printer"
+  pictogram: "label-printer"
+  model: "LR30"
+  companion_apps:
+    - name: "TEPRA Lite"
+      package: "jp.co.kingjim.TEPRALite"
+      role: "primary"
+      platform: "android"
+      url: "https://play.google.com/store/apps/details?id=jp.co.kingjim.TEPRALite"
+      notes: "Vendor app reviewed at Android version 2.6.2 (334); no account is needed by the direct community clients."
+  notes: >
+    Phone-direct or computer-direct BLE label printer. The print path needs no
+    Wi-Fi, vendor account, cloud session, PIN, or application-layer key. The
+    optional ESP32 project is a user-hosted convenience bridge, not a printer
+    dependency.
+
+    SCOPE. LR30 only. The vendor app also accepts the name LR30SG, but no
+    LR30SG wire capture or client result establishes compatibility; an LR30
+    prefix match is therefore only a discovery candidate, not a compatibility
+    claim. LR5 is excluded. No firmware-update mechanism, firmware image, or
+    bootloader entry is established, so no update feature is declared.
+
+    TRANSPORT. Custom service 0000fff0-0000-1000-8000-00805f9b34fb carries
+    notifications on 0000fff1-0000-1000-8000-00805f9b34fb and Write Without
+    Response commands on 0000fff2-0000-1000-8000-00805f9b34fb. Subscribe to
+    FFF1 before the first FFF2 write. Host writes begin F0 and replies begin
+    F1. The recovered message layer has no checksum or length envelope.
+
+    PRINTING. Render a 64-pixel-high monochrome canvas, pad its feed-direction
+    width to at least 84 pixels and an even number, rotate clockwise 90
+    degrees, and pack each rotated row into eight bytes. Each F0 5C write
+    carries two reordered rows: 16 raster bytes in an 18-byte GATT write.
+    After every six data writes, wait for F1 5C. End with F0 5D 00, then poll
+    F0 5E until F1 5E reports that the printer is no longer busy. The older
+    written note says F1 5D for the poll reply, but its own public capture
+    consistently carries F1 5E; this spec follows the capture.
+
+  identification:
+    local_name_prefixes: ["LR30", "TepraBLE"]
+    notes: >
+      Both direct clients accept local names beginning LR30 or TepraBLE,
+      including LR30, LR30 #1 and TepraBLE Demo. No advertised service UUID is
+      asserted here: the sources establish FFF0 after connection, not that it
+      appears in every advertisement. LR30SG can match the LR30 prefix but is
+      not a verified variant.
+
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          local_name:
+            match: "prefix"
+            values: ["LR30", "TepraBLE"]
+        verification: "reported"
+        notes: >
+          Match either name prefix, then confirm the FFF0/FFF1/FFF2 GATT
+          layout after connecting. Do not extend the print sequence to an
+          LR30SG or LR5 on name evidence alone.
+    identity:
+      stable_keys: ["address"]
+      display: "local_name"
+      notes: "Address stability across units and firmware was not investigated; no serial-number identity is declared."
+    static_ip_required: false
+
+  setup:
+    required: false
+    confidence: "medium"
+    notes: >
+      No provisioning or account setup. Two independent clients scan, connect,
+      enable FFF1 notifications and print without pairing or credentials.
+      Confidence is medium because those are public implementations and a
+      public capture, not a flow replayed by this project.
+    methods:
+      - type: "ble_direct"
+        name: "Direct BLE connection, no account or bond"
+        role: "primary"
+        verified: false
+        description: >
+          Power the LR30, select an LR30- or TepraBLE-prefixed advertisement,
+          connect without pairing, and subscribe to FFF1 before printing.
+        ble:
+          advertised_name: "LR30"
+          advertised_name_match: "prefix"
+          service_uuid: "0000fff0-0000-1000-8000-00805f9b34fb"
+          write_characteristic: "0000fff2-0000-1000-8000-00805f9b34fb"
+          read_characteristic: "0000fff1-0000-1000-8000-00805f9b34fb"
+          pairing_required: false
+        steps:
+          - action: "Power on the LR30."
+            actor: "user"
+            expect: "An advertisement whose local name begins LR30 or TepraBLE."
+          - action: "Scan for either documented name prefix and connect to the LR30."
+            actor: "client"
+            expect: "A BLE GATT connection with FFF0, FFF1 and FFF2 present."
+            timeout_seconds: 30
+          - action: "Discover services and subscribe to notifications on 0000fff1-0000-1000-8000-00805f9b34fb."
+            actor: "client"
+            expect: "FFF1 notifications are enabled before any FFF2 command write."
+            notes: "On stock BlueZ this subscription can fail because the FFF1 descriptor is hidden; see device.host_compatibility."
+          - action: "Run the print sequence in protocol_details.job_sequence."
+            actor: "client"
+            expect: "The final F1 5E reply has busy byte 00."
+        troubleshooting:
+          - symptom: "FFF1 notification subscription is unavailable on Linux/BlueZ."
+            causes:
+              - "The direct client documents that bluetoothd hides the FFF1 descriptor. Use the documented alternate Bumble/HCI host path or Windows; do not send blind FFF2 writes without the reply channel."
+    factory_reset:
+      applicable: "unknown"
+      confidence: "low"
+      effect: >
+        No factory-reset procedure or settings-clearing effect is established.
+        No bond, network credential, account binding, or owner secret is
+        created by the documented direct flow, so changing hosts requires no
+        reset. A power cycle only ends the current connection; it is not
+        claimed to restore factory settings.
+      description: >
+        Do not infer a button sequence from another TEPRA model. The open
+        clients and public capture establish no reset command or gesture.
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        There is no Wi-Fi network or persistent bond to rejoin. Disconnect the
+        old central, then scan and connect from the new one. No reset is needed.
+    credentials:
+      wifi_passphrase_protection: "not_applicable"
+      stored_on_device: []
+      issued_to_client: []
+      notes: "BLE-only direct control with no application-layer credential or vendor account."
+
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "none"
+    bonding: "none"
+    enter_pairing_mode:
+      required: false
+      notes: "No pairing mode, button gesture, PIN, or bonding exchange is used by either direct client; the public capture contains no SMP exchange."
+    unpair:
+      supported: false
+      requires_factory_reset: false
+      clears: "Nothing: the documented flow creates no bond or per-client authorization record."
+      notes: "Disconnecting is sufficient. There is no device-side bond to revoke, and no factory reset is required to adopt another host."
+    exclusivity:
+      single_connection: "unknown"
+      single_bond: "unknown"
+      recovery: "If another central holds the connection, close that client or power-cycle the printer, then reconnect; simultaneous-central behavior was not established."
+    notes: >
+      Basis: both open clients use an unpaired GATT connection and no PIN or
+      application authentication, and the reviewed public capture has no SMP
+      packets. This project did not test whether a host-initiated optional bond
+      is accepted, so clients should not request one.
+
+  host_compatibility:
+    - stack: "bluez"
+      link: "ble"
+      status: "incompatible"
+      symptom: "other"
+      workaround: "raw_att"
+      verification: "reported"
+      basis: >
+        The pinned tepra-lite-bleak README reports that stock Linux
+        bluetoothd/BlueZ hides the FFF1 descriptor, so its ordinary Bleak
+        backend cannot enable notifications. Its authors report success using
+        a Bumble host stack over an HCI controller instead. Not reproduced by
+        this project.
+      notes: >
+        This is a host-stack descriptor-visibility problem, not evidence of
+        pairing or authentication. A client that owns its ATT/host path over
+        HCI can enable FFF1 notifications; use the cited Bumble/HCI route.
+        Do not treat Write Without Response success as a working print path:
+        replies and flow control still require FFF1.
+    - stack: "windows"
+      link: "ble"
+      status: "compatible"
+      verification: "reported"
+      basis: >
+        The pinned direct client README reports its ordinary Bleak path
+        working on Windows 10 and 11, and the public capture was made from a
+        Windows host. Not reproduced by this project.
+
+features:
+  - type: "image_upload"
+    max_width: 64
+    format: "1bit-bitmap"
+    max_palette_colors: 2
+    session_open: ["prepare", "set_print_depth"]
+    print_geometry:
+      bytes_per_row: 8
+      head_dots: 64
+      min_length_dots: 84
+    print_density:
+      allowed: [0x13, 0x12, 0x11, 0x00, 0x01, 0x02, 0x03]
+      labels: ["-3", "-2", "-1", "0", "+1", "+2", "+3"]
+      default: 0
+      command: "set_print_depth"
+    # The maximum feed-direction length, tape media table and DPI are not
+    # established, so no max_height, media or dpi values are invented.
+  - type: "raster_print"
+
+protocol_handler: "king_jim_tepra_lite"
+
+initialization:
+  - characteristic: "0000fff1-0000-1000-8000-00805f9b34fb"
+    subscribe: true
+    when: "connect"
+    description: "Enable printer-to-client notifications before any command or raster write."
+    notes: "Required for prepare/depth replies, six-write flow control, end acknowledgement and busy polling."
+
+services:
+  - uuid: "0000180f-0000-1000-8000-00805f9b34fb"
+    name: "Battery Service"
+    notes: >
+      Standard Battery Service documented by the public LR30 protocol note.
+      Only the percentage encoding of Battery Level is used; its calibration
+      on this printer is not established.
+    characteristics:
+      - uuid: "00002a19-0000-1000-8000-00805f9b34fb"
+        name: "Battery Level"
+        properties: ["read"]
+        format:
+          - offset: 0
+            length: 1
+            name: "battery_level"
+            type: "uint8"
+            unit: "%"
+            device_class: "battery"
+            notes: >
+              SIG Battery Level percentage. The ESP32 bridge author reports
+              that an LR30 returned 99 on every read, so this value is raw and
+              uncalibrated, not a trustworthy estimate of remaining charge.
+        notes: "Read-only access is established by the open bridge; notification support is not claimed."
+
+  - uuid: "0000fff0-0000-1000-8000-00805f9b34fb"
+    name: "TEPRA Lite Print Service"
+    notes: >
+      LR30-specific command channel. FFF1 notifies and FFF2 accepts Write
+      Without Response. Every operation is one GATT write, at most 18 bytes;
+      there is no additional fragmentation, length prefix, checksum, encryption
+      or pairing handshake in the recovered message layer.
+    characteristics:
+      - uuid: "0000fff1-0000-1000-8000-00805f9b34fb"
+        name: "Printer Notifications"
+        properties: ["notify"]
+        role: "notify"
+        notes: >
+          Replies begin F1. Prepare, depth, batch, end and poll replies share
+          this characteristic, so correlate them with the outstanding command
+          rather than treating every notification as a busy reply. Frame shapes
+          are in protocol_details.reply_frames. Subscribe before using FFF2.
+      - uuid: "0000fff2-0000-1000-8000-00805f9b34fb"
+        name: "Printer Commands"
+        properties: ["write_without_response"]
+        role: "command"
+        framing:
+          length_prefix: false
+          max_chunk_size: 18
+        notes: >
+          All five F0 operations are declared below. F0 5C carries exactly 16
+          raster bytes after F0 5C, making an 18-byte write. The public capture
+          observes each operation; `observed: true` refers to that third-party
+          capture and does not raise verification above `reported`.
+        commands:
+          prepare:
+            description: >
+              F0 5A — begin or prepare a print job; wait for the F1 5A reply
+              before setting depth. Captured reply: F1 5A 00 02 00 54 45 50 52
+              41 (the final five bytes are ASCII TEPRA). The meaning of the
+              earlier fields is not fully mapped.
+            value: [0xF0, 0x5A]
+            observed: true
+            verification: "reported"
+          set_print_depth:
+            description: >
+              F0 5B <depth> 06 — set print depth from -3 through +3 using the
+              raw sign/magnitude byte, then wait for F1 5B. The trailing 06 is
+              required by both clients; its meaning is unknown. Captured depth
+              +1 answers F1 5B 00 06. Do not generalize the last two reply
+              bytes into a status model.
+            template: [0xF0, 0x5B, "{depth}", 0x06]
+            parameters:
+              depth:
+                type: "uint8"
+                allowed: [0x13, 0x12, 0x11, 0x00, 0x01, 0x02, 0x03]
+                labels: ["-3", "-2", "-1", "0", "+1", "+2", "+3"]
+                default: 0
+                description: >
+                  Raw sign/magnitude depth code, not an int8. Positive values
+                  0..3 encode as 0x00..0x03; negative values -1..-3 encode as
+                  0x10 plus the magnitude (0x11..0x13). The labels expose the
+                  signed setting while the allowed values emit the right byte.
+            observed: true
+            verification: "reported"
+          write_raster_pair:
+            description: >
+              F0 5C <16 bytes> — send two encoded raster rows after the pair
+              permutation in protocol_details.raster_encoding. Send six such
+              writes, then wait for a six-byte F1 5C notification. A trailing
+              group of one through five writes is followed by end_raster_data
+              without a separate batch wait, matching the open clients and
+              capture.
+            template: [0xF0, 0x5C, "{raster_pair}"]
+            fixed_length: 18
+            parameters:
+              raster_pair:
+                type: "bytes"
+                min_length: 16
+                max_length: 16
+                description: "Sixteen wire-order raster bytes: source indexes 6,7,4,5,2,3,0,1,14,15,12,13,10,11,8,9 of the next two eight-byte rows."
+            observed: true
+            verification: "reported"
+          end_raster_data:
+            description: "F0 5D 00 — mark the end of raster data and wait for F1 5D 00 before polling."
+            value: [0xF0, 0x5D, 0x00]
+            observed: true
+            verification: "reported"
+          poll_print_status:
+            description: >
+              F0 5E — request print status; repeat while byte 2 of the
+              four-byte F1 5E reply is 01 (busy). Capture: F1 5E 01 00 while
+              busy and F1 5E 00 00 when complete. Treat other byte-2 values as
+              unknown rather than declaring success. The older prose's F1 5D
+              poll id is contradicted by its own capture.
+            value: [0xF0, 0x5E]
+            observed: true
+            verification: "reported"
+
+local_access:
+  status: "native"
+  summary: "Direct local BLE printing from a phone or computer, with no vendor cloud, account, bridge or credentials in the required path."
+  covers:
+    - "Monochrome 64-dot raster label printing"
+    - "Seven print-depth settings from -3 through +3"
+    - "Batch flow control and busy/completion polling"
+    - "Raw standard Battery Level reads, explicitly uncalibrated on LR30"
+  not_covered:
+    - "Firmware update: no update surface is established or declared"
+    - "LR30SG and LR5: no wire compatibility is claimed"
+  notes: "A user-hosted ESP32 REST bridge exists but is optional and is not the protocol documented here."
+
+entities:
+  - platform: "sensor"
+    name: "Battery Level"
+    device_class: "battery"
+    unit: "%"
+    state_characteristic: "00002a19-0000-1000-8000-00805f9b34fb"
+    state_mapping:
+      value: "battery_level"
+    notes: "Uncalibrated: a public bridge reports a persistent 99 percent reading. Display the raw value with this caveat rather than deriving charge health or runtime."
+
+protocol_details:
+  job_sequence:
+    description: >
+      One direct BLE print job. Subscribe to FFF1 on connection before entering
+      this sequence. All command writes go to FFF2 without response; all waits
+      read FFF1 notifications. Timeouts and the 20 ms data-write pause are the
+      open clients' pacing choices, not established firmware minima.
+    steps:
+      - {command: "prepare", write_hex: "F0 5A", wait_reply: "F1 5A", timeout_ms: 10000}
+      - {command: "set_print_depth", write_hex: "F0 5B <depth> 06", wait_reply: "F1 5B", timeout_ms: 10000}
+      - {command: "write_raster_pair", repeat: "once per 16-byte source block", write_bytes: 18, inter_write_delay_ms: 20}
+      - {wait_reply: "F1 5C", after_every_writes: 6, reply_bytes: 6, timeout_ms: 10000, note: "No separate batch wait after a final partial group of one through five writes."}
+      - {command: "end_raster_data", write_hex: "F0 5D 00", wait_reply: "F1 5D 00", timeout_ms: 10000}
+      - {command: "poll_print_status", write_hex: "F0 5E", wait_reply: "F1 5E", reply_bytes: 4, repeat_until: "reply byte 2 is 00", busy_when: "reply byte 2 is 01", timeout_ms: 10000}
+    verification: "reported"
+
+  print_depth:
+    description: >
+      Signed depth d in -3..3 maps to one sign/magnitude byte. For d >= 0 the
+      byte is d. For d < 0 it is 0x10 + abs(d), equivalently 0x10 - d. This is
+      not two's complement: -3 is 13, not FD. Byte 3 of the command is always
+      06; its purpose is not established.
+    signed_to_raw:
+      "-3": "0x13"
+      "-2": "0x12"
+      "-1": "0x11"
+      "0": "0x00"
+      "+1": "0x01"
+      "+2": "0x02"
+      "+3": "0x03"
+    verification: "reported"
+
+  raster_encoding:
+    description: >
+      Build an upright monochrome image whose height is 64 pixels (across the
+      print head) and whose width is the feed direction. One means black and
+      zero means white. The following transformation is exactly the open
+      renderer's rotate-and-pack operation; the equivalent direct formula
+      avoids requiring an imaging library.
+    canvas_height_pixels: 64
+    minimum_canvas_width_pixels: 84
+    canvas_width_rule: "width = max(84, source_width); if width is odd, add 1"
+    padding:
+      color: "white"
+      horizontal_placement: "left = padded_width // 2 - source_width // 2; paste the full 64-pixel-high source there"
+      odd_extra_pixel: "left"
+    rotation:
+      operation: "clockwise 90 degrees, expanding the canvas"
+      input_pixels: "source_width by 64"
+      output_pixels: "64 by padded_width"
+      row_order: "Rotated rows top to bottom correspond to source columns left to right."
+    row_packing:
+      source_rows_per_write: 2
+      bytes_per_row: 8
+      black_bit: 1
+      algorithm: >
+          For each rotated row, visit rotated x coordinates 63 down to 0. For
+          shift s = 0..63, set bit 1 << s when the visited pixel is black.
+          Serialize the resulting unsigned 64-bit integer big-endian. Directly
+          from the upright source, column x becomes one row: source pixel
+          (x, y) maps to output byte 7 - (y // 8), bit y % 8. Thus byte 0
+          covers source y = 56..63 and byte 7 covers y = 0..7; within each
+          byte the lower source y has the lower bit number.
+      encoded_length_rule: "padded_width * 8 bytes; even width makes this a multiple of 16"
+    wire_pair_permutation:
+      source_block: "A0 A1 A2 A3 A4 A5 A6 A7 B0 B1 B2 B3 B4 B5 B6 B7 (two consecutive encoded rows)"
+      source_indexes: [6, 7, 4, 5, 2, 3, 0, 1, 14, 15, 12, 13, 10, 11, 8, 9]
+      wire_block: "A6 A7 A4 A5 A2 A3 A0 A1 B6 B7 B4 B5 B2 B3 B0 B1"
+      write: "F0 5C followed by the 16-byte wire block, 18 bytes total"
+    verification: "reported"
+
+  reply_frames:
+    description: >
+      Multiplexed FFF1 notifications. Prefix and total length are stated so a
+      client does not confuse the three-byte end acknowledgement with the
+      four-byte poll reply. Unlisted payload semantics remain unknown.
+    prepare:
+      prefix_hex: "F1 5A"
+      captured_hex: "F1 5A 00 02 00 54 45 50 52 41"
+      captured_length_bytes: 10
+      note: "The ASCII TEPRA suffix is visible; other fields are not assigned meanings."
+    set_print_depth:
+      prefix_hex: "F1 5B"
+      captured_hex: "F1 5B 00 06"
+      captured_length_bytes: 4
+      note: "Observed after depth +1; no general status-byte semantics are claimed."
+    raster_batch:
+      prefix_hex: "F1 5C"
+      length_bytes: 6
+      layout: "F1 5C followed by four bytes"
+      note: "Wait after every six F0 5C writes. The four trailing bytes vary in the capture but their meaning is unknown; do not require one captured counter value."
+    end_raster_data:
+      prefix_hex: "F1 5D"
+      captured_hex: "F1 5D 00"
+      length_bytes: 3
+    poll_print_status:
+      prefix_hex: "F1 5E"
+      length_bytes: 4
+      fields:
+        - {offset: 0, length: 2, meaning: "F1 5E"}
+        - {offset: 2, length: 1, name: "busy", values: {"0x00": "complete in the public capture", "0x01": "busy; poll again"}}
+        - {offset: 3, length: 1, name: "unknown", observed: "00 in the public capture; no meaning assigned"}
+      busy_example_hex: "F1 5E 01 00"
+      complete_example_hex: "F1 5E 00 00"
+      note: "The repository's older written note calls these F1 5D; frames in its own capture are F1 5E. Follow the capture."
+    verification: "reported"
+
+  test_vectors:
+    description: >
+      Synthetic vectors independently rebuilt by
+      scripts/test_king_jim_tepra_lite.py using only the standard library for
+      the algorithms. They are not presented as captured samples.
+    depth:
+      - {signed: -3, depth_hex: "13", write_hex: "F0 5B 13 06"}
+      - {signed: -2, depth_hex: "12", write_hex: "F0 5B 12 06"}
+      - {signed: -1, depth_hex: "11", write_hex: "F0 5B 11 06"}
+      - {signed: 0, depth_hex: "00", write_hex: "F0 5B 00 06"}
+      - {signed: 1, depth_hex: "01", write_hex: "F0 5B 01 06"}
+      - {signed: 2, depth_hex: "02", write_hex: "F0 5B 02 06"}
+      - {signed: 3, depth_hex: "03", write_hex: "F0 5B 03 06"}
+    raster_pair:
+      note: "A two-column primitive isolates rotation and bit order; a real job first pads this canvas to 84 pixels."
+      canvas: {width_pixels: 2, height_pixels: 64, black: 1, white: 0}
+      black_pixels:
+        column_0_y: [56, 49, 42, 35, 28, 21, 14, 7]
+        column_1_y: [63, 54, 45, 36, 27, 18, 9, 0]
+      encoded_row_0_hex: "01 02 04 08 10 20 40 80"
+      encoded_row_1_hex: "80 40 20 10 08 04 02 01"
+      wire_write_hex: "F0 5C 40 80 10 20 04 08 01 02 02 01 08 04 20 10 80 40"
+    width_and_sequence:
+      - {source_width_pixels: 1, padded_width_pixels: 84, left_padding_pixels: 42, encoded_bytes: 672, data_writes: 42, batch_acks: 7, trailing_writes_without_batch_ack: 0}
+      - {source_width_pixels: 83, padded_width_pixels: 84, left_padding_pixels: 1, encoded_bytes: 672, data_writes: 42, batch_acks: 7, trailing_writes_without_batch_ack: 0}
+      - {source_width_pixels: 85, padded_width_pixels: 86, left_padding_pixels: 1, encoded_bytes: 688, data_writes: 43, batch_acks: 7, trailing_writes_without_batch_ack: 1}
+      - {source_width_pixels: 96, padded_width_pixels: 96, left_padding_pixels: 0, encoded_bytes: 768, data_writes: 48, batch_acks: 8, trailing_writes_without_batch_ack: 0}
+    verification: "reported"
+
+evidence:
+  artifacts:
+    - type: "public_implementation"
+      artifact: "ekspla/tepra-lite-bleak at e794c799b20ec7b2a8673a1279f264048ffe6ad7"
+      url: "https://github.com/ekspla/tepra-lite-bleak/tree/e794c799b20ec7b2a8673a1279f264048ffe6ad7"
+      description: >
+        Direct CPython/Bleak LR30 client: discovery, FFF1 subscription, F0
+        operations, depth mapping, pair permutation, six-write pacing and busy
+        loop; its companion renderer establishes the 64-pixel canvas, width
+        padding, clockwise rotation and row packing. Its README is the BlueZ
+        caveat and Windows compatibility source.
+    - type: "public_implementation"
+      artifact: "puhitaku/tepra-lite-esp32 at bfa7dd1d2d4e496319edaa43be32730f95c33905"
+      url: "https://github.com/puhitaku/tepra-lite-esp32/tree/bfa7dd1d2d4e496319edaa43be32730f95c33905"
+      description: >
+        Independent MicroPython LR30 client with the same GATT and print
+        sequence, standard Battery Level read, written protocol note and public
+        capture. Its REST bridge is user-hosted and is not presented as a
+        printer requirement. Its client README supplies the uncalibrated 99
+        percent battery report.
+    - type: "public_capture"
+      artifact: "tepra-lite-esp32 doc/sniffed_packets.pcapng"
+      sha256: "3893504f81280818efabdf089ed1e966ee1777446f2490510a8b8a8d586d5ca1"
+      url: "https://github.com/puhitaku/tepra-lite-esp32/blob/bfa7dd1d2d4e496319edaa43be32730f95c33905/doc/sniffed_packets.pcapng"
+      description: >
+        Public LR30 BLE capture reviewed locally. It contains F0 5A/5B/5C/5D/5E,
+        F1 5A/5B/5C/5D replies, and repeated F1 5E 01 00 polls ending in F1 5E
+        00 00. It also shows a final partial raster group followed directly by
+        F0 5D 00. No owner address or unit-specific identifier is copied into
+        this spec.
+    - type: "static_analysis"
+      artifact: "TEPRA Lite for Android, jp.co.kingjim.TEPRALite 2.6.2 (334)"
+      obtained_via: "Research-store package review, 2026-11-10"
+      description: >
+        Corroborates the FFF0/FFF1/FFF2 roles, operation opcodes, depth range
+        and name aliases. Vendor implementation symbols are deliberately not
+        reproduced. Static analysis remains reported evidence, not hardware
+        verification.
+  capture_review: >
+    The capture was read as ATT values, not inferred solely from the written
+    reverse-engineering note. That distinction matters for poll_print_status:
+    the note writes F1 5D 01 00 / F1 5D 00 00, while every corresponding
+    captured notification is F1 5E 01 00 / F1 5E 00 00. The command and reply
+    tables use F1 5E. No capture bytes are used to assign meanings to the four
+    variable F1 5C bytes or the last F1 5E byte.
+  open_questions:
+    - "An owner GATT/CCCD dump and a fresh print/status capture are still needed on current firmware."
+    - "LR30SG requires its own capture and client replay before becoming a variant; LR5 needs separate research."
+    - "Battery readings need comparison with known charge states before the raw percentage can be called calibrated."
+    - "The variable F1 5C payload, F1 5A/F1 5B fields, non-busy F1 5E values and the final F1 5E byte need status captures."
+
+remaining_unknowns:
+  - "No hardware reset procedure, settings-clearing behavior, optional bonding behavior or simultaneous-central limit is established."
+  - "The maximum feed-direction image width, physical DPI, supported tape-media table and behavior above the clients' 84-pixel minimum are not established."
+  - "The exact threshold behavior of arbitrary non-1-bit image input is a renderer choice; the protocol here accepts an already monochrome canvas."
+  - "The meaning of F1 5C's four variable bytes, F1 5A/F1 5B non-prefix fields, F1 5E byte 3 and poll values other than 00/01 is unknown."
+  - "Battery Level is a raw SIG percentage whose LR30 calibration is unresolved; one public client reports that it stays at 99 percent."
+  - "Whether stock BlueZ versions that hide FFF1 can be fixed by configuration alone is unknown; the established reported workaround is an alternate Bumble/HCI host path or Windows."
+  - "LR30SG is an unverified app alias and LR5 is excluded. No firmware-update, bootloader, credential or vendor-cloud control surface is claimed."
+
+helpful_urls:
+  - title: "ekspla/tepra-lite-bleak — direct LR30 client (pinned)"
+    url: "https://github.com/ekspla/tepra-lite-bleak/tree/e794c799b20ec7b2a8673a1279f264048ffe6ad7"
+    kind: "implementation"
+    description: "Direct Bleak client and monochrome renderer used for the depth, raster, sequence and BlueZ details in this spec."
+  - title: "puhitaku/tepra-lite-esp32 — independent LR30 client (pinned)"
+    url: "https://github.com/puhitaku/tepra-lite-esp32/tree/bfa7dd1d2d4e496319edaa43be32730f95c33905"
+    kind: "implementation"
+    description: "Independent MicroPython implementation, battery caveat, protocol note and public capture."
+  - title: "LR30 reverse-engineering note and capture pointer (pinned)"
+    url: "https://github.com/puhitaku/tepra-lite-esp32/blob/bfa7dd1d2d4e496319edaa43be32730f95c33905/doc/reverse_engineering.md"
+    kind: "protocol_writeup"
+    description: "GATT layout and print-sequence note with a link to the public capture. This spec follows the capture's F1 5E poll replies where the note says F1 5D."
+  - title: "Public LR30 BLE packet capture (pinned pcapng)"
+    url: "https://github.com/puhitaku/tepra-lite-esp32/blob/bfa7dd1d2d4e496319edaa43be32730f95c33905/doc/sniffed_packets.pcapng"
+    kind: "other"
+    description: "Third-party over-the-air evidence for F0 operations, six-write batch acknowledgements, final partial groups and F1 5E busy/completion replies."
+  - title: "TEPRA Lite on Google Play"
+    url: "https://play.google.com/store/apps/details?id=jp.co.kingjim.TEPRALite"
+    kind: "vendor_support"
+    description: "Vendor companion app listing for the LR30; not required by either direct open client."

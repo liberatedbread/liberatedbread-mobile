@@ -1,0 +1,549 @@
+# Wave by Genki — Device Specification
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Derived from Genki's official multi-language API source and release.
+# No hardware was driven and no frame below is presented as a new capture.
+
+device:
+  name: "Wave by Genki"
+  manufacturer: "Genki Instruments"
+  manufacturer_status: "active"
+  testing:
+    status: untested
+    notes: >
+      No device was connected or driven by this project. Protocol facts are
+      reported from the official API repository at
+      08addce0ea5377bfa48bbb8debae20f19c4df725 and the genki-wave 0.5.3
+      source release. All byte strings in fixed_write_vectors are synthetic
+      constructions from those layouts, independently checked by
+      scripts/test_genki_wave.py; they are not owner traffic.
+  protocol: "ble"
+  transport: "ble-gatt"
+  category: "wearable"
+  type: "gesture-controlled-midi-ring"
+  aliases: ["Genki Wave", "Wave"]
+  notes: >
+    A gesture-control ring with two separate local Bluetooth modes. Standalone
+    mode is standard BLE-MIDI. The vendor API mode instead uses Genki's GATT
+    service, COBS frames and motion/spectrogram payloads. Do not send API-mode
+    writes on the MIDI characteristic, and do not treat the API characteristic
+    as though it carried BLE-MIDI. Neither path needs a cloud account.
+  openness:
+    status: "documented_api"
+    reverse_engineered: false
+    source_code: "https://github.com/genkiinstruments/genki-wave/tree/08addce0ea5377bfa48bbb8debae20f19c4df725"
+    license: "MIT"
+    upstream_docs:
+      - url: "https://github.com/genkiinstruments/genki-wave/tree/08addce0ea5377bfa48bbb8debae20f19c4df725"
+        title: "Official Wave API source, pinned commit"
+        covers: "GATT UUIDs, connection order, COBS framing, configurations and payload layouts."
+      - url: "https://github.com/genkiinstruments/genki-wave/blob/08addce0ea5377bfa48bbb8debae20f19c4df725/examples/run_midi.py"
+        title: "Official standalone BLE-MIDI example"
+        covers: "Standalone MIDI use and the example pitch/yaw/roll CC assignments."
+    notes: >
+      Genki publishes the API and adapters for third-party use. This document
+      restates their wire format; it does not claim compatibility with any
+      firmware other than the source's compatibility target, and it does not
+      identify a latest firmware release.
+  identification:
+    notes: >
+      The official API scanner selects advertisements whose local name contains
+      the case-sensitive substring Wave. That is a reported heuristic, not a
+      unique product identifier. Confirm the expected service after connection
+      and let the user resolve similarly named peripherals. The vendor API and
+      standard MIDI service UUIDs are not asserted to appear in advertisements.
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          local_name:
+            match: "contains"
+            value: "Wave"
+        notes: >
+          Source-derived substring match used by the official API scanner. No
+          service-only matcher is declared: the API service's advertisement
+          presence is unverified and the standard BLE-MIDI service is shared by
+          unrelated instruments. User confirmation is required when the name
+          is ambiguous.
+    identity:
+      stable_keys: ["address"]
+      display: "local_name"
+    static_ip_required: false
+  setup:
+    required: false
+    confidence: "medium"
+    notes: >
+      Both routes are local and account-free. Choose standalone BLE-MIDI for
+      ordinary MIDI performance, or the API route for structured motion data.
+      The API route must enter API mode before selecting exactly one suitable
+      configuration. The two configuration widths are not interchangeable.
+    methods:
+      - type: "ble_direct"
+        name: "Standalone standard BLE-MIDI"
+        role: "primary"
+        verified: false
+        basis: "Official API README and standalone MIDI example at the pinned commit; not replayed against hardware."
+        description: >
+          Use the host's normal MIDI stack. This route does not use Genki's API
+          characteristic, API-mode request or COBS framing.
+        steps:
+          - action: "Press the middle button to turn on Wave and close other clients connected to it."
+            actor: "user"
+          - action: "Select the intended Wave peripheral in the host MIDI interface; do not identify it by the generic MIDI service alone."
+            actor: "user"
+          - action: "Connect to the standard BLE-MIDI service and enable notifications on 7772e5db-3868-4112-a1a9-f2669d106bf3."
+            actor: "client"
+          - action: "Decode standard BLE-MIDI messages; make no Genki API writes in this mode."
+            actor: "client"
+      - type: "ble_direct"
+        name: "Genki motion-data API"
+        role: "alternative"
+        verified: false
+        basis: "Official Python, Android and C++ API implementations at the pinned commit; not replayed against hardware."
+        description: >
+          Connect directly to Genki's API service, subscribe, enter API mode,
+          then send either an 8-byte configuration or the distinct extended
+          12-byte configuration. Use the complete COBS writes declared below.
+        steps:
+          - action: "Press the middle button to turn on Wave. Disconnect the OS or any other client that already holds the ring."
+            actor: "user"
+          - action: "Connect to the peripheral the user confirmed and locate the Genki API service 65e9296c-8dfb-11ea-bc55-0242ac130003."
+            actor: "client"
+          - action: "Enable notifications on 65e92bb1-8dfb-11ea-bc55-0242ac130003."
+            actor: "client"
+          - action: "Write the enter_api_mode command, then write one API configuration command; do not send both 8-byte and 12-byte configurations."
+            actor: "client"
+          - action: "Buffer notifications across arbitrary BLE boundaries, split complete COBS frames at zero bytes, and validate the four-byte header before decoding a payload."
+            actor: "client"
+          - action: "On shutdown, stop notifications and disconnect cleanly rather than killing the session."
+            actor: "client"
+    factory_reset:
+      applicable: "unknown"
+      confidence: low
+      effect: >
+        No factory-reset effect or procedure is established. Holding the top
+        and bottom buttons for one second is documented as power-off, not as a
+        factory reset.
+      description: >
+        The pinned official API documentation gives power on/off instructions
+        but no factory-reset procedure. Do not substitute power cycling or an
+        API configuration write for a reset.
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        There is no Wi-Fi membership to migrate. Close the previous central,
+        then reconnect and repeat the selected mode's connection sequence.
+    credentials:
+      wifi_passphrase_protection: not_applicable
+      notes: >
+        No Wi-Fi passphrase, API key or account credential is used by either
+        documented local route. Persistent OS-level bond state is not asserted.
+  pairing:
+    required: "unknown"
+    confidence: low
+    security_mode: "unknown"
+    bonding: "unknown"
+    exclusivity:
+      single_connection: "unknown"
+      single_bond: "unknown"
+      recovery: >
+        Close the other MIDI/API client. On Linux, the official README notes
+        that the OS may auto-connect after pairing; disconnect that OS
+        connection before opening the direct API client.
+    enter_pairing_mode:
+      required: "unknown"
+      notes: >
+        The official API connects directly and documents no PIN, but it also
+        discusses an OS-paired Linux host. That is insufficient to make a
+        universal claim about bonding requirements on every host or firmware.
+    notes: >
+      No universal pairing or single-central claim is made. The API's direct
+      connection sequence and the standalone host MIDI flow are reported facts;
+      link-layer bonding remains to be checked on hardware.
+
+services:
+  - uuid: "65e9296c-8dfb-11ea-bc55-0242ac130003"
+    name: "Genki Wave API service"
+    notes: >
+      Vendor API mode only. COBS/zero-delimited packets share one characteristic
+      for requests and notifications. The standard BLE-MIDI service below is a
+      separate operating mode, not an alias for this service.
+    initialization:
+      - characteristic: "65e92bb1-8dfb-11ea-bc55-0242ac130003"
+        subscribe: true
+        when: "connect"
+        notes: >
+          Subscribe before writing enter_api_mode and a configuration. This
+          initialization step is scoped to the API service; never run it as a
+          reason to send API writes to the MIDI service.
+    characteristics:
+      - uuid: "65e92bb1-8dfb-11ea-bc55-0242ac130003"
+        name: "Genki API request and stream"
+        properties: ["write", "write_without_response", "notify"]
+        role: "command"
+        notes: >
+          Every command value below is a complete GATT write: COBS body plus
+          its trailing 00 delimiter. Do not COBS-encode it a second time and do
+          not add a BLE-MIDI header. Incoming notifications are an arbitrary
+          byte stream, not one-frame-per-notification messages. The official
+          clients use both write-with-response and write-without-response
+          adapters; actual per-unit GATT permissions have not been dumped.
+        commands:
+          enter_api_mode:
+            description: >
+              Request device mode 103 (API). Send after subscribing and before
+              any API configuration. Unframed payload is type 1, id 5,
+              payload_size 1, payload 67.
+            value: [0x04, 0x01, 0x05, 0x01, 0x02, 0x67, 0x00]
+            verification: "reported"
+          configure_motion_8_byte:
+            description: >
+              Select the original 8-byte API configuration: motion stream 1,
+              spectrogram disabled, sample rate 400.0 Hz. This payload has no
+              tap-sensitivity field; it is not the extended configuration.
+            value: [0x04, 0x01, 0x0B, 0x08, 0x02, 0x01, 0x01, 0x01, 0x01, 0x01, 0x03, 0xC8, 0x43, 0x00]
+            verification: "reported"
+          configure_spectrogram_8_byte:
+            description: >
+              Select the original 8-byte API configuration: datastream 0,
+              spectrogram enabled, sample rate 2000.0 Hz. No tap-sensitivity
+              field is present.
+            value: [0x04, 0x01, 0x0B, 0x08, 0x01, 0x02, 0x01, 0x01, 0x01, 0x01, 0x03, 0xFA, 0x44, 0x00]
+            verification: "reported"
+          configure_motion_extended_12_byte:
+            description: >
+              Synthetic extended 12-byte configuration based on the official
+              C++ layout: motion stream 1, spectrogram disabled, 400.0 Hz,
+              tap sensitivity 0.7. This is a separate payload width, not the
+              original 8-byte command with four implicit bytes appended.
+            value: [0x04, 0x01, 0x0B, 0x0C, 0x02, 0x01, 0x01, 0x01, 0x01, 0x01, 0x07, 0xC8, 0x43, 0x33, 0x33, 0x33, 0x3F, 0x00]
+            verification: "reported"
+          request_battery_status:
+            description: "Request a BatteryStatus payload (type 1, id 2, zero payload bytes), after entering API mode."
+            value: [0x03, 0x01, 0x02, 0x01, 0x01, 0x00]
+            verification: "reported"
+          request_device_info:
+            description: "Request a DeviceInfo payload (type 1, id 3, zero payload bytes), after entering API mode."
+            value: [0x03, 0x01, 0x03, 0x01, 0x01, 0x00]
+            verification: "reported"
+
+  - uuid: "03b80e5a-ede8-4b33-a751-6ce34ec4c700"
+    name: "Standard BLE-MIDI service (standalone mode)"
+    notes: >
+      Standard MIDI path documented by Genki's standalone example. It is not
+      unique to Wave and is deliberately absent from automatic identification.
+      No Genki API command is valid on this service.
+    initialization:
+      - characteristic: "7772e5db-3868-4112-a1a9-f2669d106bf3"
+        subscribe: true
+        when: "connect"
+        notes: "Standard BLE-MIDI input; use a normal BLE-MIDI packet parser."
+    characteristics:
+      - uuid: "7772e5db-3868-4112-a1a9-f2669d106bf3"
+        name: "Standard BLE-MIDI I/O"
+        properties: ["write", "write_without_response", "notify"]
+        notes: >
+          Standard BLE-MIDI packets only. The official example receives MIDI
+          CC status B0 and maps controller 16 to pitch, 17 to yaw and 18 to
+          roll. Those assignments describe the example's standalone mapping,
+          not the Genki API motion payload and not a universal user remapping.
+
+payload_formats:
+  ApiHeader:
+    description: >
+      Four-byte header before COBS encoding. The package id is ONE unsigned
+      byte. Only payload_size is a 16-bit little-endian value; it counts payload
+      bytes only, excluding this header, COBS expansion and the zero delimiter.
+    fields:
+      - {name: "type", offset: 0, length: 1, type: "uint8", values: {"1": "request", "2": "response", "3": "stream"}}
+      - {name: "id", offset: 1, length: 1, type: "uint8", description: "Package id u8, not u16le; see protocol_details.api_framing.package_ids."}
+      - {name: "payload_size", offset: 2, length: 2, type: "uint16", endianness: "little", description: "Exact number of bytes following the four-byte header."}
+    parse_rules:
+      - "COBS-decode one complete nonzero-delimited frame before reading this header."
+      - "Require at least four decoded bytes, then require len(frame) == 4 + payload_size."
+      - "Reject an unknown id or a payload size/layout mismatch rather than decoding a plausible prefix."
+    example: "01 05 01 00 67"
+
+  ApiConfig8:
+    description: >
+      Original eight-byte configuration payload for package id 11. It ends after
+      sample_rate and carries no tap-sensitivity float.
+    fields:
+      - {name: "datastream_type", offset: 0, length: 1, type: "uint8", values: {"0": "none", "1": "motion", "2": "raw accelerometer/gyro"}}
+      - {name: "spectrogram_enabled", offset: 1, length: 1, type: "bool"}
+      - {name: "reserved", offset: 2, length: 2, type: "bytes", description: "Two zero padding bytes in the official packed layout."}
+      - {name: "sample_rate", offset: 4, length: 4, type: "float32", endianness: "little", unit: "Hz"}
+    parse_rules:
+      - "Require exactly eight payload bytes and header payload_size 8."
+      - "Do not read tap_sensitivity from this form and do not silently widen it to ApiConfig12."
+    example: "01 00 00 00 00 00 c8 43"
+
+  ApiConfig12:
+    description: >
+      Extended twelve-byte configuration payload for package id 11, represented
+      by the official C++ API. The final float exists only in this form.
+    fields:
+      - {name: "datastream_type", offset: 0, length: 1, type: "uint8", values: {"0": "none", "1": "motion", "2": "raw accelerometer/gyro"}}
+      - {name: "spectrogram_enabled", offset: 1, length: 1, type: "bool"}
+      - {name: "reserved", offset: 2, length: 2, type: "bytes", description: "Two zero padding bytes before the first float."}
+      - {name: "sample_rate", offset: 4, length: 4, type: "float32", endianness: "little", unit: "Hz"}
+      - {name: "tap_sensitivity", offset: 8, length: 4, type: "float32", endianness: "little", description: "Official example UI ranges from 0.0 to 1.0; physical calibration is not established."}
+    parse_rules:
+      - "Require exactly twelve payload bytes and header payload_size 12."
+      - "Keep this extended layout distinct from ApiConfig8 in encoders, logs and tests."
+    example: "01 00 00 00 00 00 c8 43 33 33 33 3f"
+
+  MotionData:
+    description: >
+      A 105-byte motion payload (package id 1). Every float is IEEE-754 binary32
+      little-endian and every offset is packed; there is no alignment padding
+      before peak_norm_velocity or timestamp_us. Quaternion component order is
+      w, x, y, z. Euler component order is roll, pitch, yaw.
+    fields:
+      - {name: "gyro_x", offset: 0, length: 4, type: "float32", endianness: "little"}
+      - {name: "gyro_y", offset: 4, length: 4, type: "float32", endianness: "little"}
+      - {name: "gyro_z", offset: 8, length: 4, type: "float32", endianness: "little"}
+      - {name: "acc_x", offset: 12, length: 4, type: "float32", endianness: "little"}
+      - {name: "acc_y", offset: 16, length: 4, type: "float32", endianness: "little"}
+      - {name: "acc_z", offset: 20, length: 4, type: "float32", endianness: "little"}
+      - {name: "mag_x", offset: 24, length: 4, type: "float32", endianness: "little"}
+      - {name: "mag_y", offset: 28, length: 4, type: "float32", endianness: "little"}
+      - {name: "mag_z", offset: 32, length: 4, type: "float32", endianness: "little"}
+      - {name: "raw_pose_w", offset: 36, length: 4, type: "float32", endianness: "little"}
+      - {name: "raw_pose_x", offset: 40, length: 4, type: "float32", endianness: "little"}
+      - {name: "raw_pose_y", offset: 44, length: 4, type: "float32", endianness: "little"}
+      - {name: "raw_pose_z", offset: 48, length: 4, type: "float32", endianness: "little"}
+      - {name: "current_pose_w", offset: 52, length: 4, type: "float32", endianness: "little"}
+      - {name: "current_pose_x", offset: 56, length: 4, type: "float32", endianness: "little"}
+      - {name: "current_pose_y", offset: 60, length: 4, type: "float32", endianness: "little"}
+      - {name: "current_pose_z", offset: 64, length: 4, type: "float32", endianness: "little"}
+      - {name: "euler_roll", offset: 68, length: 4, type: "float32", endianness: "little"}
+      - {name: "euler_pitch", offset: 72, length: 4, type: "float32", endianness: "little"}
+      - {name: "euler_yaw", offset: 76, length: 4, type: "float32", endianness: "little"}
+      - {name: "linear_acc_x", offset: 80, length: 4, type: "float32", endianness: "little"}
+      - {name: "linear_acc_y", offset: 84, length: 4, type: "float32", endianness: "little"}
+      - {name: "linear_acc_z", offset: 88, length: 4, type: "float32", endianness: "little"}
+      - {name: "peak", offset: 92, length: 1, type: "bool"}
+      - {name: "peak_norm_velocity", offset: 93, length: 4, type: "float32", endianness: "little"}
+      - {name: "timestamp_us", offset: 97, length: 8, type: "uint64", endianness: "little", unit: "us"}
+    parse_rules:
+      - "Require exactly 105 bytes; offsets 92, 93 and 97 are intentionally unaligned."
+      - "Physical units and calibration for gyro, acceleration, magnetometer, Euler angles, linear acceleration and peak_norm_velocity are not established by the cited parser; leave them raw and do not infer degrees, radians, g, m/s² or µT."
+      - "Quaternion values are dimensionless. timestamp_us is the device stream's microsecond counter; its epoch and wrap behavior are not established."
+      - "The API derives gravity as acc minus linear_acc and can rotate acc/linear_acc by current_pose; those are client-side derived values, not extra wire fields."
+
+  RawMotionData:
+    description: "A 32-byte raw accelerometer/gyro payload (package id 9), with the same unresolved sensor units as MotionData."
+    fields:
+      - {name: "gyro_x", offset: 0, length: 4, type: "float32", endianness: "little"}
+      - {name: "gyro_y", offset: 4, length: 4, type: "float32", endianness: "little"}
+      - {name: "gyro_z", offset: 8, length: 4, type: "float32", endianness: "little"}
+      - {name: "acc_x", offset: 12, length: 4, type: "float32", endianness: "little"}
+      - {name: "acc_y", offset: 16, length: 4, type: "float32", endianness: "little"}
+      - {name: "acc_z", offset: 20, length: 4, type: "float32", endianness: "little"}
+      - {name: "timestamp_us", offset: 24, length: 8, type: "uint64", endianness: "little", unit: "us"}
+    parse_rules:
+      - "Require exactly 32 bytes. Do not infer physical sensor units from the float representation."
+
+  BatteryStatus:
+    description: >
+      Nine meaningful battery field bytes (package id 2). The Android decoder
+      reads these fields without checking the total length. The official C++
+      value type is naturally aligned and commonly occupies twelve bytes,
+      adding three trailing ABI padding bytes; actual on-wire length and
+      trailing-byte values have not been captured.
+    fields:
+      - {name: "voltage", offset: 0, length: 4, type: "float32", endianness: "little", unit: "V", device_class: "voltage"}
+      - {name: "percentage", offset: 4, length: 4, type: "float32", endianness: "little", unit: "%", device_class: "battery"}
+      - {name: "is_charging", offset: 8, length: 1, type: "bool"}
+    parse_rules:
+      - "Require at least the nine field bytes and honor the header payload_size; is_charging is zero for false and nonzero for true in the official Android decoder."
+      - "Accept the nine-byte field-only form. Also tolerate a twelve-byte native-layout candidate by preserving, not decoding, its three trailing bytes. Do not claim either wire width is confirmed without a capture."
+    meaningful_field_bytes: 9
+    native_layout_candidate:
+      total_bytes: 12
+      trailing_padding_bytes: 3
+      wire_size_verified: false
+    example: "00 00 80 40 00 00 af 42 01"
+
+  SpectrogramData:
+    description: >
+      A 392-byte spectrogram column (package id 10): 96 little-endian float32
+      values followed by a microsecond counter. Each channel has 16 consecutive
+      bins. Bin frequencies, FFT/window parameters, magnitude/power units and
+      calibration are unknown; the floats are not labeled Hz, dB or physical
+      sensor units.
+    fields:
+      - {name: "acc_x_bins", offset: 0, length: 64, type: "float32", endianness: "little", count: 16, description: "Sixteen consecutive float32 values, bin 0 through bin 15."}
+      - {name: "acc_y_bins", offset: 64, length: 64, type: "float32", endianness: "little", count: 16, description: "Sixteen consecutive float32 values."}
+      - {name: "acc_z_bins", offset: 128, length: 64, type: "float32", endianness: "little", count: 16, description: "Sixteen consecutive float32 values."}
+      - {name: "gyro_x_bins", offset: 192, length: 64, type: "float32", endianness: "little", count: 16, description: "Sixteen consecutive float32 values."}
+      - {name: "gyro_y_bins", offset: 256, length: 64, type: "float32", endianness: "little", count: 16, description: "Sixteen consecutive float32 values."}
+      - {name: "gyro_z_bins", offset: 320, length: 64, type: "float32", endianness: "little", count: 16, description: "Sixteen consecutive float32 values."}
+      - {name: "timestamp_us", offset: 384, length: 8, type: "uint64", endianness: "little", unit: "us"}
+    parse_rules:
+      - "Require exactly 392 bytes: 96 * 4 data bytes plus 8 timestamp bytes."
+      - "Channel index c selects floats [16*c .. 16*c+15] in the order acc x/y/z then gyro x/y/z."
+      - "Do not assign bin-center frequencies, dB scaling or physical units without new evidence."
+
+  DeviceInfo:
+    description: >
+      A 35-byte device-information response (package id 3). This describes the
+      layout only; no owner address or serial is included in this spec.
+    fields:
+      - {name: "firmware_major", offset: 0, length: 1, type: "uint8"}
+      - {name: "firmware_minor", offset: 1, length: 1, type: "uint8"}
+      - {name: "firmware_patch", offset: 2, length: 1, type: "uint8"}
+      - {name: "board_version", offset: 3, length: 9, type: "bytes", description: "UTF-8 text with trailing NUL bytes trimmed; fixed nine-byte field."}
+      - {name: "bluetooth_address", offset: 12, length: 6, type: "bytes", description: "Per-unit address bytes; display order differs between official adapters and must not be used as an identity matcher."}
+      - {name: "serial_number", offset: 18, length: 17, type: "bytes", description: "Per-unit UTF-8 text with trailing NUL bytes trimmed; fixed seventeen-byte field."}
+    parse_rules:
+      - "Require exactly 35 bytes and render firmware as major.minor.patch."
+      - "Treat address and serial as private per-unit values. Do not publish them in captures or use them as product-wide facts."
+      - "The Python adapter displays address bytes in forward order while the C++ example reverses them; canonical display order remains unresolved."
+
+entities: []
+
+protocol_details:
+  api_framing:
+    verification: "reported"
+    package_ids:
+      "1": "motion datastream"
+      "2": "battery status"
+      "3": "device info"
+      "4": "button event"
+      "5": "device mode"
+      "6": "identify (not implemented as a command here)"
+      "7": "recenter (not implemented as a command here)"
+      "8": "display frame (not implemented as a command here)"
+      "9": "raw motion data"
+      "10": "spectrogram data"
+      "11": "modify API configuration"
+    device_modes:
+      "100": "preset/standalone"
+      "101": "Softwave"
+      "102": "Wavefront"
+      "103": "API"
+    cobs_rules:
+      - "Construct type:u8 | id:u8 | payload_size:u16le | payload, then COBS-encode the entire sequence and append one 00 delimiter."
+      - "COBS body bytes never include 00. The delimiter is not passed to the COBS decoder and is not counted by payload_size."
+      - "The id is one byte at decoded offset 1; do not pack it as u16le and do not move payload_size."
+    receive_reassembly:
+      - "Maintain a byte buffer across notifications. Append each notification in order; BLE may fragment one COBS frame or coalesce several frames and a trailing partial frame."
+      - "At each 00 byte, remove and COBS-decode the preceding nonempty body. Empty bodies between adjacent delimiters carry no package."
+      - "Retain a final nonempty fragment without a delimiter for the next notification. Never decode a partial fragment early."
+      - "After COBS decode, validate the four-byte header and exact payload_size before selecting a payload layout. Drop an invalid encoded frame and resume at the next delimiter."
+      - "Reset the reassembly buffer on disconnect. No extra fragment header or BLE-MIDI timestamp is present on the API characteristic."
+    command_order:
+      - "Subscribe to the API characteristic."
+      - "Send enter_api_mode exactly once for the API session."
+      - "Choose one configuration. The two fixed 8-byte examples and the extended 12-byte example document alternatives, not a sequence to send together."
+      - "Issue battery/device-info requests only in API mode, and cleanly stop notifications and disconnect at session end."
+
+  standalone_ble_midi:
+    verification: "reported"
+    service: "03b80e5a-ede8-4b33-a751-6ce34ec4c700"
+    characteristic: "7772e5db-3868-4112-a1a9-f2669d106bf3"
+    notes: >
+      Standalone mode uses the standard BLE-MIDI packet format and ordinary MIDI
+      tooling. It shares no COBS framing or package ids with API mode. Genki's
+      example maps B0 CC 16/17/18 to pitch/yaw/roll; no claim is made that these
+      assignments cannot be changed by standalone configuration software.
+
+  fixed_write_vectors:
+    synthetic: true
+    description: >
+      Constructed solely from the official layouts. raw_hex is the complete
+      pre-COBS header and payload; write_hex is the exact synthetic GATT write.
+      These vectors contain no owner identifiers and are not captured traffic.
+    enter_api_mode:
+      raw_hex: "01 05 01 00 67"
+      write_hex: "04 01 05 01 02 67 00"
+    configure_motion_8_byte:
+      raw_hex: "01 0b 08 00 01 00 00 00 00 00 c8 43"
+      write_hex: "04 01 0b 08 02 01 01 01 01 01 03 c8 43 00"
+    configure_spectrogram_8_byte:
+      raw_hex: "01 0b 08 00 00 01 00 00 00 00 fa 44"
+      write_hex: "04 01 0b 08 01 02 01 01 01 01 03 fa 44 00"
+    configure_motion_extended_12_byte:
+      raw_hex: "01 0b 0c 00 01 00 00 00 00 00 c8 43 33 33 33 3f"
+      write_hex: "04 01 0b 0c 02 01 01 01 01 01 07 c8 43 33 33 33 3f 00"
+    request_battery_status:
+      raw_hex: "01 02 00 00"
+      write_hex: "03 01 02 01 01 00"
+    request_device_info:
+      raw_hex: "01 03 00 00"
+      write_hex: "03 01 03 01 01 00"
+
+  firmware_scope:
+    source_compatibility_constant: "1.7.4"
+    verification: "reported"
+    notes: >
+      The pinned API source contains a compatibility constant 1.7.4. It is not
+      evidence that this is the latest firmware, not a minimum/maximum claim for
+      every unit, and not a firmware-update procedure. No update was attempted
+      and no DFU mechanism is asserted by this spec.
+
+evidence:
+  official_source_review: >
+    Reviewed the official Python, Android and C++ adapters and examples at
+    08addce0ea5377bfa48bbb8debae20f19c4df725 (2025-04-10). The Python header
+    format is <BBH, establishing type u8, id u8 and payload_size u16le. The
+    original Python configuration is eight bytes; the C++ structure adds a
+    final float and is twelve bytes with the same two reserved bytes. The
+    source's reassembly and layout facts are reported, not hardware-confirmed.
+  documentation_review: >
+    The official README distinguishes standalone BLE-MIDI from direct API use,
+    documents power on/off and describes clean-disconnect and Linux auto-connect
+    issues. No factory reset or universal host bonding rule was found.
+  artifacts:
+    - type: "public_implementation"
+      artifact: "genkiinstruments/genki-wave at 08addce0ea5377bfa48bbb8debae20f19c4df725"
+      url: "https://github.com/genkiinstruments/genki-wave/tree/08addce0ea5377bfa48bbb8debae20f19c4df725"
+      description: "Official API framing, fixed request construction, configurations, payload structures, service UUIDs and standalone example."
+    - type: "source_release"
+      artifact: "genki-wave 0.5.3 source archive"
+      sha256: "995ffb1ed88612875281be2e116c44983cb61eac6955ce7a14bc1317aa59f2ab"
+      obtained_via: "Official PyPI file URL and metadata, 2026-11-10"
+      url: "https://pypi.org/project/genki-wave/0.5.3/"
+      description: "Pinned source-release cross-check for the official API; no binary or vendor asset is included in this repository."
+    - type: "vendor_documentation"
+      artifact: "Wave product page and official API README"
+      url: "https://genki.is/wave"
+      description: "Product identity and local music-control purpose. The README supplies standalone mode and connection caveats."
+  open_questions: >
+    No owner GATT dump or short motion/device-info capture has been checked.
+    Sensor/spectrogram units and calibration, bin frequencies, timestamp epoch,
+    battery wire padding, address display order, exact GATT permissions,
+    standalone mapping on the target firmware, factory reset and host bonding
+    behavior remain open.
+
+remaining_unknowns:
+  - "Physical units/calibration for gyro, acceleration, magnetometer, Euler angles, linear acceleration and peak_norm_velocity are not established; retain raw float32 values."
+  - "Battery has nine meaningful field bytes, but the actual wire payload_size and any three-byte native trailing padding need a capture."
+  - "Spectrogram bin-center frequencies, FFT/window details and magnitude/power units are unknown."
+  - "Timestamp epoch/wrap behavior and canonical DeviceInfo address display order need hardware evidence."
+  - "No factory-reset procedure or universal OS pairing/bonding behavior is established."
+  - "The exact advertised name across modes/firmware and whether each service UUID is advertised need an owner scan/GATT dump."
+  - "No latest-firmware claim or firmware-update path is established; 1.7.4 is only the pinned source compatibility constant."
+  - "Button payload timestamp semantics and commands outside the minimal documented set are intentionally not exposed here."
+
+helpful_urls:
+  - title: "Official Genki Wave API source (pinned commit)"
+    url: "https://github.com/genkiinstruments/genki-wave/tree/08addce0ea5377bfa48bbb8debae20f19c4df725"
+    kind: "implementation"
+    description: "Authoritative COBS framing, API requests, GATT UUIDs, configurations and motion/battery/spectrogram layouts."
+  - title: "Official standalone BLE-MIDI example (pinned commit)"
+    url: "https://github.com/genkiinstruments/genki-wave/blob/08addce0ea5377bfa48bbb8debae20f19c4df725/examples/run_midi.py"
+    kind: "implementation"
+    description: "Genki's standard-MIDI route and its pitch/yaw/roll CC example, separate from API mode."
+  - title: "genki-wave 0.5.3 source release"
+    url: "https://pypi.org/project/genki-wave/0.5.3/"
+    kind: "implementation"
+    description: "Pinned official Python source release used to cross-check the API layouts."
+  - title: "Wave by Genki product page"
+    url: "https://genki.is/wave"
+    kind: "vendor_support"
+    description: "Current vendor product identity and music-control overview for the Wave ring."

@@ -1,0 +1,303 @@
+# Truma iNet Box (legacy TRBT ASCII over Nordic UART) — Device Specification
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+
+device:
+  name: "Truma iNet Box (legacy)"
+  manufacturer: "Truma Gerätetechnik GmbH & Co. KG"
+  manufacturer_status: "unsupported"
+  aliases: ["Truma iNetBox", "iNet Box Bluetooth interface", "Truma App legacy"]
+  testing:
+    status: untested
+    notes: >
+      No box, vehicle, LIN bus or firmware operation was exercised by this
+      project. Protocol facts derive from the legacy app's readable JavaScript
+      and public manuals. The retired inet.truma.com cloud was checked on
+      2026-09-01 and did not resolve/respond; the local BLE protocol is
+      independent of that cloud, but no live replay was performed.
+  protocol: "ble"
+  transport: "ble-gatt"
+  category: "vehicle"
+  type: "rv-lin-bluetooth-gateway"
+  integration: "identify_only"
+  notes: >
+    Legacy Bluetooth-to-vehicle interface using ASCII TRBT: frames over a
+    Nordic UART BLE link. The local protocol can outlive the legacy app/cloud.
+    identify_only remains until a consumer implements the ASCII message
+    transport and validates it without actuating vehicle systems.
+
+    DO NOT MIX PROTOCOLS: iNet X / iNet X Pro uses framed CBOR on the
+    fc314000-… service, specified separately in truma-inet-x.yaml. Never send
+    these TRBT frames to iNet X or CBOR to this legacy box.
+
+    The app also has a phone-as-peripheral mode and older BT hardware UUIDs;
+    they are not evidence that every box exposes the same layout. The confirmed
+    source-derived client path here is Nordic UART 6e400001-… with 6e400002-…
+    write and 6e400003-… notify. The standalone LevelControl ultrasonic sensor
+    is a separate follow-up, not silently included in this box profile.
+
+    SCOPE: status reads are described. Heating/cooling controls, switches,
+    configuration, pairing changes, SMS/USSD and firmware are not offered as
+    ordinary commands. Message IDs are a vocabulary, not permission to send
+    every message to a vehicle.
+
+  identification:
+    service_uuids:
+      - "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
+    notes: >
+      No dependable advertised-name prefix was established. Match the Nordic
+      UART service only as a candidate and confirm the TRBT dialect read-only;
+      the same service is widely reused by unrelated serial modules.
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          service_uuids:
+            - "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
+        verification: "reported"
+        notes: "Candidate only: confirm the write/notify layout and TRBT responses; do not assume every Nordic UART device is a Truma box."
+    identity:
+      stable_keys: ["address"]
+      display: "local_name"
+    static_ip_required: false
+
+  setup:
+    required: false
+    confidence: "low"
+    notes: >
+      No Wi-Fi provisioning is involved. The app's local connection flow was
+      recovered statically, but link-layer bonding and first-run requirements
+      were not established on hardware.
+    methods:
+      - type: "ble_direct"
+        name: "Read-only Nordic UART confirmation"
+        role: "primary"
+        verified: false
+        basis: "Legacy app protocol analysis; no box was connected by this project."
+        description: >
+          Connect, subscribe to 6e400003-… and use only a documented status
+          request after confirming the family. Do not run configuration,
+          pairing, switch or firmware messages during identification.
+        steps:
+          - action: "Connect and confirm 6e400002-… write plus 6e400003-… notify."
+            actor: "client"
+          - action: "Subscribe to notifications and, only after family confirmation, issue the documented vehicle-status request."
+            actor: "client"
+            request:
+              protocol: "ble_gatt"
+              action: "query_vehicle_status"
+            expect: "A TRBT response with message ID 0017 and response flag 0004; stop on another dialect."
+    factory_reset:
+      applicable: "unknown"
+      confidence: "low"
+      effect: >
+        No factory-reset or bond-clear procedure is established. Message IDs
+        for pairing/unpairing are not a safe substitute for a documented reset.
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        There is no Wi-Fi network to rejoin. Close the old central and reconnect;
+        whether a persisted bond is required remains unknown, so do not clear
+        owner pairing state as a first-line remedy.
+    credentials:
+      wifi_passphrase_protection: "not_applicable"
+      stored_on_device: []
+      issued_to_client: []
+      notes: "No application credential requirement is established for local status reads."
+
+  pairing:
+    required: "unknown"
+    confidence: "low"
+    security_mode: "unknown"
+    bonding: "unknown"
+    enter_pairing_mode:
+      required: "unknown"
+    exclusivity:
+      single_connection: "unknown"
+      single_bond: "unknown"
+      recovery: "Close the legacy app/other central and retry without changing pairing state; hardware behavior is unverified."
+    unpair:
+      supported: "unknown"
+      notes: "The protocol has pair/unpair message IDs, but no safe hardware-verified procedure is established."
+    notes: "Static analysis alone does not establish whether a bond is required, optional or absent."
+
+local_access:
+  status: "native"
+  summary: >
+    The stock box exchanges ASCII TRBT messages locally over Nordic UART.
+    Status and configuration messages share one transport; this spec exposes
+    the read-side structure only.
+  covers:
+    - "TRBT header/body framing and reassembly"
+    - "Vehicle-status request 0x0017 and response field decoding"
+    - "Message-ID vocabulary for future read-only extensions"
+  not_covered:
+    - "Appliance actuation, switches, configuration, pairing changes and SMS/USSD remote control"
+    - "Firmware/sub-device update delivery and standalone LevelControl provisioning"
+
+initialization:
+  - characteristic: "6e400003-b5a3-f393-e0a9-e50e24dcca9e"
+    subscribe: true
+    notes: "Reassemble ASCII notifications into one 20-byte header plus the declared payload length before parsing."
+
+services:
+  - uuid: "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
+    name: "Nordic UART Service"
+    verification: "reported"
+    characteristics:
+      - uuid: "6e400002-b5a3-f393-e0a9-e50e24dcca9e"
+        name: "TRBT Write"
+        properties: ["write"]
+        verification: "reported"
+        commands:
+          query_vehicle_status:
+            description: "Source-derived vehicle-status request: 13-segment zero template with MORE flag; expect ID 0017 with RESPONSE flag 0004."
+            value: [0x54, 0x52, 0x42, 0x54, 0x3A, 0x30, 0x30, 0x33, 0x45, 0x3A, 0x30, 0x30, 0x31, 0x37, 0x3A, 0x30, 0x30, 0x30, 0x32, 0x3A, 0x30, 0x44, 0x3A, 0x30, 0x30, 0x30, 0x30, 0x3A, 0x30, 0x30, 0x30, 0x30, 0x3A, 0x30, 0x30, 0x30, 0x30, 0x3A, 0x30, 0x30, 0x30, 0x30, 0x3A, 0x30, 0x30, 0x30, 0x30, 0x3A, 0x30, 0x30, 0x30, 0x30, 0x3A, 0x30, 0x30, 0x30, 0x30, 0x3A, 0x30, 0x30, 0x3A, 0x30, 0x30, 0x3A, 0x30, 0x30, 0x3A, 0x30, 0x30, 0x3A, 0x30, 0x30, 0x3A, 0x30, 0x30, 0x3A, 0x30, 0x30, 0x3A, 0x30, 0x30, 0x3A]
+            verification: "reported"
+        notes: >
+          The header's LEN is the ASCII PAYLOAD byte count, excluding the
+          20-byte header. This request has a 62-byte payload and therefore LEN
+          003E. Do not compute LEN over the complete 82-byte frame.
+      - uuid: "6e400003-b5a3-f393-e0a9-e50e24dcca9e"
+        name: "TRBT Notify"
+        properties: ["notify"]
+        verification: "reported"
+        notes: "Responses and unsolicited status messages. Concatenate notifications before parsing; multiple messages can share one notification."
+
+payload_formats:
+  VehicleStatus:
+    description: "ASCII payload for message 0x0017. Split on colon, preserve the trailing empty field, and parse each token as uppercase hexadecimal."
+    delimiter: ":"
+    fields:
+      - { index: 0, name: "segment_count", type: "uint8", description: "Number of segments; the request template uses 13." }
+      - { index: 1, name: "switching_capabilities", type: "uint16", description: "Bit field of switchable values; capability, not permission to actuate." }
+      - { index: 2, name: "inside_temperature", type: "uint16", scale: 0.1, value_offset: -273.15, unit: "temperature_c", description: "Raw unsigned value in 0.1 K steps; apply sentinel checks before scaling." }
+      - { index: 3, name: "outside_temperature", type: "uint16", scale: 0.1, value_offset: -273.15, unit: "temperature_c", description: "Raw unsigned value in 0.1 K steps." }
+      - { index: 4, name: "water_temperature", type: "uint16", scale: 0.1, value_offset: -273.15, unit: "temperature_c", description: "Raw unsigned value in 0.1 K steps." }
+      - { index: 5, name: "starter_battery_voltage", type: "uint16", scale: 0.1, unit: "voltage_v" }
+      - { index: 6, name: "leisure_battery_voltage", type: "uint16", scale: 0.1, unit: "voltage_v" }
+      - { index: 7, name: "leisure_battery_current", type: "uint16", scale: 0.01, unit: "current_a" }
+      - { index: 8, name: "leisure_battery_soc", type: "uint8", scale: 0.5, unit: "%" }
+      - { index: 9, name: "mains_available", type: "uint8", description: "Bit 0 is present/on; preserve other bits and sentinels." }
+      - { index: 10, name: "eis_ex_on", type: "uint8", description: "Bit 0 is on." }
+      - { index: 11, name: "gas_reserve_on", type: "uint8", description: "Bit 0 is on." }
+      - { index: 12, name: "twelve_volt_on", type: "uint8", description: "Bit 0 is on." }
+      - { index: 13, name: "pump_on", type: "uint8", description: "Bit 0 is on; status only, never a pump command." }
+      - { index: 14, name: "fresh_water_raw", type: "uint8", description: "Tank level; engineering unit is not established in the reviewed source." }
+      - { index: 15, name: "waste_water_raw", type: "uint8", description: "Tank level; engineering unit is not established in the reviewed source." }
+      - { index: 16, name: "ambient_light_raw", type: "uint8", description: "Present only in the newer 17-field format; older replies end at index 15." }
+    parse_rules:
+      - "Check the complete message ID and flags before using this layout; expect ID 0017 and RESPONSE flag 0004 for the query."
+      - "Old format has indices 0..15 plus the trailing delimiter; new format adds ambient light at index 16."
+      - "For every numeric/switch field, low byte FD means invalid, FE no value, FF device unavailable; FB/FC are reserved. Do not scale a sentinel into a plausible reading."
+      - "Tank and ambient-light units remain unknown; keep those values raw."
+
+protocol_details:
+  trbt:
+    verification: "reported"
+    encoding: "ASCII, uppercase zero-padded hexadecimal fields"
+    header: "TRBT:<LEN>:<MSGID>:<FLAGS>:"
+    header_bytes: 20
+    length: "Four hex digits: payload byte count only, excluding the 20-byte header"
+    payload: "Colon-separated fixed-width hexadecimal fields with a trailing colon"
+    reassembly: "Append notifications; parse a header only with at least 20 bytes, wait for LEN payload bytes, then continue with the next message"
+    flags:
+      "0x0001": "REQUEST: empty request for MSGID with zero payload"
+      "0x0002": "MORE: additional messages of this type follow / array transfer"
+      "0x0004": "RESPONSE"
+      "0x0008": "ACCEPT"
+      "0x0010": "REJECT"
+      "0x0020": "INFO"
+    query_note: "The vehicle-status query uses a 62-byte zero-value 13-segment template with MORE (0002), not an empty REQUEST frame; the successful answer uses RESPONSE (0004)."
+    message_ids:
+      "0x0001": "bring-up configuration"
+      "0x0002": "system configuration"
+      "0x0003": "device status"
+      "0x0004": "box status"
+      "0x0005": "USSD"
+      "0x0006": "SMS"
+      "0x0007": "admin configuration"
+      "0x0008": "firmware start"
+      "0x0009": "firmware data"
+      "0x000a": "firmware end"
+      "0x000b": "heartbeat"
+      "0x000c": "update request"
+      "0x000d": "device error"
+      "0x000e": "Schaudt power-system status"
+      "0x000f": "Bluetooth device scan/update"
+      "0x0010": "Bluetooth pair"
+      "0x0011": "LevelControl configuration"
+      "0x0012": "LevelControl status"
+      "0x0013": "Bluetooth unpair"
+      "0x0014": "Bluetooth device list"
+      "0x0015": "LevelControl beacon"
+      "0x0016": "Alde heater"
+      "0x0017": "consolidated vehicle status"
+      "0x0018": "Alde night-mode settings"
+      "0x001a": "consolidated switches"
+      "0x001b": "production data / iNet Box details"
+    firmware_start_payload: "vvMa:vvMi:vvPa:TOTAL(8 hex):btlMa:btlMi:btlPa:hwMa:hwMi:hwPa:"
+    test_vectors:
+      vehicle_status_request: "TRBT:003E:0017:0002:0D:0000:0000:0000:0000:0000:0000:0000:00:00:00:00:00:00:00:00:"
+      expected: { header_bytes: 20, payload_bytes: 62, total_bytes: 82, message_id: "0x0017", flags: "0x0002" }
+
+cloud:
+  required: false
+  vendor_service: "Legacy iNet cloud (dead when checked 2026-09-01)"
+  hosts: ["https://inet.truma.com"]
+  failure_mode: >
+    Firmware/database downloads, fresh vendor-app services and remote cloud
+    paths are unavailable. Local TRBT BLE status traffic does not require them.
+  endpoints:
+    - path: "/inet/firmware/json/default/inetbox-fw-info.json"
+      method: "GET"
+      name: "legacy_firmware_manifest"
+      returns: "Historical version, image URL and checksum; host dead"
+      verification: "reported"
+    - path: "/inet/database/json/inetbox-db-info.json"
+      method: "GET"
+      name: "legacy_bottle_database_manifest"
+      returns: "Historical LevelControl bottle database metadata; host dead"
+      verification: "reported"
+  data_leaves_device: []
+  notes: "The legacy app also contained telemetry and SMS/USSD paths; no vendor credential is reproduced and neither is needed for local status reads."
+
+features:
+  - type: "firmware_update"
+    dfu:
+      mechanisms: ["vendor_ble"]
+      transport: "ble"
+      services: ["6e400001-b5a3-f393-e0a9-e50e24dcca9e"]
+      image:
+        signing: "unknown"
+        source: "vendor_cloud"
+        format: "TRBT firmware START (0x0008), DATA (0x0009), END (0x000a) messages over Nordic UART"
+        notes: "The historical manifest/image host is dead. No image is supplied and sub-device update message 0x000f is a separate advanced path."
+      enter:
+        how: "in_place"
+        notes: "The running box accepts START/DATA/END; no safe entry or bootloader probe is declared."
+      dfu_mode:
+        notes: "No separate update-mode identity or recovery advertisement is established."
+      recovery:
+        interrupted: "unknown"
+      verification: "reported"
+      notes: "Advanced documentary capability only; wrong/interrupted images and exact hardware-version checks are unverified."
+
+remaining_unknowns:
+  - "Advertised name, bonding, first-run behavior and live confirmation of the Nordic UART service and vehicle-status request."
+  - "Tank/ambient-light units, all remaining message layouts and safe read-only behavior across box/vehicle firmware generations."
+  - "Factory reset, standalone unpairing, firmware image/signature validation and interrupted-update recovery."
+  - "Standalone LevelControl protocol and older Bluetooth hardware generations; they are not covered by this Nordic UART profile."
+
+helpful_urls:
+  - title: "Truma iNet Box operating instructions (FCC exhibit PDF)"
+    url: "https://fccid.co/api/files/s1/2adpz_inetboxa_usersmanual_2609813_19ecf17cb3.pdf"
+    kind: "manual"
+    description: >
+      Nineteen-page operating guide for the legacy Truma iNet Box, FCC ID
+      2ADPZ-INETBOXA, including installation and historical app operation.
+  - title: "Truma iNet Box FCC record"
+    url: "https://fccid.co/fcc/2ADPZ-INETBOXA"
+    kind: "vendor_support"
+    description: "Regulatory record for the legacy iNet Box Bluetooth interface."

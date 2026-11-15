@@ -204,8 +204,11 @@ After flashing, these devices move into category 1 or 4 permanently.
   from a Chrome browser over BLE (TelinkMiFlasher, no soldering); the sensor
   then broadcasts unencrypted ATC/BTHome advertisements any BLE monitor can
   read. The same hardware converts to **Zigbee** via pvvx/ZigbeeTLc (Z03MMC).
-  ⚠ Units sold since 2025-03 with newer PCB marks are not flashable — check
-  before buying. Spec: `device-specs/devices/xiaomi-lywsd03mmc.yaml`.
+  ⚠ Units sold since 2025-03 (PCB marks B1.5/B1.6) can be flashed but are
+  not recommended: they draw more power and use weaker display and sensor
+  parts. New B1.6 units on stock firmware 2.1.1_0159 also need Mi Home
+  registration before their first OTA. Check the PCB mark before buying.
+  Spec: `device-specs/devices/xiaomi-lywsd03mmc.yaml`.
 - **Chamberlain/LiftMaster garage openers (Security+)** — the vendor cloud
   (myQ) is actively hostile: Home Assistant removed its MyQ integration in
   2023 after Chamberlain blocked third-party access. The community answer is

@@ -2,8 +2,9 @@
 # SPDX-License-Identifier: Apache-2.0
 """Holds the Instant Pot Smart spec's frames to its own checksum rule.
 
-`device-specs/devices/instant-pot-smart-bluetooth.yaml` says every frame is
-20 bytes and its last byte makes the whole frame sum to 0 mod 256. This
+`device-specs/devices/instant-pot-smart-bluetooth.yaml` says every command
+frame is 20 bytes and its last byte makes the whole frame sum to 0 mod 256
+(telemetry is assumed to follow, but no source validates it). This
 transcribes that rule with the standard library alone and checks the fixed
 frames, the templates rendered with the spec's own worked examples, and the
 clock encoding the spec spells out.

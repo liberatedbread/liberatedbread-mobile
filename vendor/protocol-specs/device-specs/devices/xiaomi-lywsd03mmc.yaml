@@ -30,9 +30,19 @@ device:
     6 hardware versions: B1.4, B1.5, B1.6, B1.7, B1.9, B2.0.
 
     STOCK FIRMWARE: broadcasts Xiaomi MiBeacon format (service UUID 0xFE95)
-    with encrypted payload. Requires Xiaomi cloud account and Mi Home app
-    to decrypt. The encryption bindkey can be extracted from the Mi Home
-    app for use with third-party integrations.
+    with encrypted payload, decryptable only with the unit's bindkey. Two
+    routes to that key: extract the one Mi Home's cloud issued, or set a
+    NEW one with the pvvx Telink Flasher's activation, keeping the stock
+    firmware. Home Assistant's Xiaomi BLE documentation names exactly five
+    models for the pvvx route (LYWSD03MMC, MJWSD05MMC, MHO-C401, CGG1,
+    CGDK2) and the atc1441 flasher as an alternative for an unstated wider
+    set. After a flasher activation Mi Home no longer recognises the
+    sensor; to use Mi Home again, remove and re-add it there. Key length
+    follows the MiBeacon version: v2/v3 take a 12-byte key (24 hex
+    characters), v4/v5 a 16-byte key (32 hex characters) with
+    authenticated encryption — a key of the wrong length for the beacon
+    version is the usual import mistake. REPORTED from that documentation;
+    no activation or key write was performed by this project.
 
     CUSTOM FIRMWARE (recommended for local control): the pvvx/ATC_MiThermometer
     project provides OTA-flashable firmware (via web browser at
@@ -63,8 +73,11 @@ device:
       byte 14: trigger/status flags
     (custom_beacon.h adv_atc1441_t / adv_custom_t)
 
-    ENCRYPTED ATC/Custom BEACONS: AES-CCM with bindkey, nonce = MAC+header(5
-    bytes), auth data = 0x11, MAC len = 4. The decrypted plaintexts are the
+    ENCRYPTED ATC/Custom BEACONS: AES-CCM with bindkey (16 bytes), nonce =
+    MAC (6 bytes) + header (5 bytes), auth data = 0x11, MAC len = 4. The
+    5-byte header is the advertisement's own AD-structure head: length,
+    AD type 0x16 (Service Data), UUID16 0x181A as its little-endian bytes
+    1a 18, then the frame counter (pvvx/ATC_MiThermometer; reported). The decrypted plaintexts are the
     compact 3-byte (temp=(v/2)-40 °C, hum=v/2 %, battery bits 6-0 + trigger
     bit 7) and 6-byte (temp int16 LE 0.01 °C, humi uint16 LE 0.01 %, battery
     %, flags) layouts in payload_formats below — those two layouts do NOT
@@ -85,11 +98,23 @@ device:
     via pvvx/ZigbeeTLc (Z03MMC). Units sold since 2025-03 with PCB marks
     B1.5*/B1.6* use SPI LCD controllers and cheaper clone sensors, drawing
     more current with a low-contrast display — pvvx currently advises
-    against buying LYWSD03MMC (ATC_MiThermometer issue #664).
+    against buying LYWSD03MMC (ATC_MiThermometer issue #664). Those boards
+    are still supported by the custom firmware (under the internal number
+    B1.1, to tell them from the older B1.6), but new B1.6 units ship an
+    original firmware (2.1.1_0159) that is incompatible with every older
+    hardware version, and their first OTA needs Mi Home registration
+    (issue #602). Upstream counts only B1.4, B1.7, B1.9 and B2.0 as normal
+    hardware.
+
+    LATEST RELEASE (checked 2026-11-11): pvvx release 5.9 (firmware.json at
+    commit b02b5137, 2026-11-02), which fixes an error in the initial OTA
+    download at address 0x40000. The hardware-tested unit ran 5.8; whether
+    5.9 changes any default was not checked.
 
     STOCK FIRMWARE DISCOVERY: name "LYWSD03MMC", service UUID 0xFE95
-    (MiBeacon). Data is encrypted; decryption requires bindkey obtained
-    from Xiaomi cloud or the Mi Home app.
+    (MiBeacon), random address (custom firmware uses the public address;
+    pvvx, reported). Data is encrypted; decryption requires the bindkey —
+    the Mi Home-issued one, or one set by Telink Flasher activation.
 
     MI HOME APP EVIDENCE (static-analysis audit, 2026-08): the app contains
     NO device-specific code for this model — Mi Home device plugins are
@@ -119,7 +144,9 @@ device:
     github.com/pvvx/ATC_MiThermometer and confirmed by Home Assistant
     Passive BLE Monitor, BTHome, and other integrations. Stock firmware
     MiBeacon format documented by Xiaomi but encrypted payload requires
-    cloud-derived bindkey. Firmware is OTA-flashable and reversible.
+    a bindkey (cloud-issued, or set by the Telink Flasher). Firmware is
+    OTA-flashable and reversible, provided the original image matches the
+    hardware generation (see features.firmware_update).
 
   identification:
     local_name_prefix: "ATC"
@@ -152,14 +179,26 @@ device:
     required: true
     confidence: "high"
     notes: >
-      STOCK FIRMWARE requires Xiaomi cloud account and Mi Home app for
-      initial pairing and bindkey extraction. CUSTOM FIRMWARE eliminates
-      this requirement — flash via web browser OTA from
+      STOCK FIRMWARE needs a bindkey: either the one Mi Home's cloud issues
+      at pairing (extracted afterwards), or a new one set by the pvvx
+      Telink Flasher's activation, which Home Assistant documents as an
+      alternative to cloud extraction. It leaves Mi Home unable to
+      recognise the sensor until it is removed and re-added there, and it
+      is not evidence that every hardware revision is account-free: the
+      2.1.1_0159 units need Mi Home registration before their first OTA
+      (below). CUSTOM FIRMWARE eliminates
+      the key entirely — flash via web browser OTA from
       https://pvvx.github.io/ATC_MiThermometer/TelinkMiFlasher.html
       (Chrome/Edge/Opera with Experimental Web Platform features enabled).
-      Firmware change is reversible (original firmware images available).
-      After flashing, device advertises as "ATC_XXXXXX" with unencrypted
-      data.
+      Firmware change is reversible (original firmware images available),
+      but only with the original image for the unit's hardware generation:
+      1.0.0_0130 covers the older B1.4-B2.0 boards, and new B1.6 units use
+      the 2.1.1_0159 line, which is incompatible with older hardware. Let
+      the flasher's hardware detection choose, not a filename. The first
+      flash from stock firmware always goes through TelinkMiFlasher's
+      activation; later updates of a unit already on custom firmware can
+      use any Telink OTA client. After flashing, device advertises as
+      "ATC_XXXXXX" with unencrypted data.
 
       Battery must be >40% for reliable OTA flashing on LYWSD03MMC.
 
@@ -185,11 +224,38 @@ device:
             actor: "client"
           - action: "Click 'Connect' and select LYWSD03MMC from the browser BLE chooser."
             actor: "client"
-          - action: "Click 'Do Activation' to extract decryption key."
+          - action: "Click 'Do Activation' to run the activation and decryption-key step; the first flash from stock firmware cannot skip it."
             actor: "client"
           - action: "Click 'Custom Firmware' and then 'Start Flashing'."
             actor: "client"
-            expect: "Device reboots and advertises as ATC_XXXXXX."
+            expect: "Device reboots and advertises as ATC_XXXXXX. A transfer takes about four minutes; if it is interrupted the device keeps its old firmware (upstream README)."
+      - type: "ble_provisioning"
+        name: "Keep stock firmware, set your own bindkey with the Telink Flasher"
+        role: "alternative"
+        verified: false
+        description: >
+          Keep the stock MiBeacon firmware but replace its bindkey with a new
+          one from the pvvx Telink Flasher's activation, instead of
+          extracting the Mi Home-issued key. Home Assistant's Xiaomi BLE
+          documentation names this route for LYWSD03MMC, MJWSD05MMC,
+          MHO-C401, CGG1 and CGDK2, and the atc1441 flasher as an
+          alternative for an unstated wider set (which does not extend the
+          explicit five-model list). Reported from that
+          documentation; not exercised by this project, and the
+          2.1.1_0159 / new-B1.6 case is unconfirmed (remaining_unknowns).
+        ble:
+          pairing_required: false
+        steps:
+          - action: "Open TelinkMiFlasher.html in Chrome/Edge/Opera, click 'Connect' and choose the LYWSD03MMC."
+            actor: "client"
+          - action: "Click 'Do Activation'; record the bindkey the flasher reports, and do not flash any firmware."
+            actor: "client"
+            expect: "The sensor keeps broadcasting encrypted MiBeacon frames, now under the new key."
+          - action: "Enter the key into the decoding client, matching its length to the MiBeacon version (12 bytes for v2/v3, 16 bytes for v4/v5)."
+            actor: "user"
+          - action: "If Mi Home will be used again, remove the sensor from Mi Home and add it back; the decoding client's key may then need updating."
+            actor: "user"
+            expect: "Mi Home recognises the sensor again only after it is re-added."
       - type: "cloud_account"
         name: "Keep stock firmware, take the bindkey from Mi Home"
         role: "alternative"
@@ -226,11 +292,15 @@ device:
     credentials:
       wifi_passphrase_protection: "not_applicable"
       stored_on_device:
-        - "Bindkey (stock firmware, for MiBeacon encryption)"
+        - "Bindkey (stock firmware, for MiBeacon encryption; 12 bytes for MiBeacon v2/v3, 16 bytes for v4/v5)"
         - "PIN code (custom firmware, optional)"
       issued_to_client:
-        - "Bindkey (stock firmware, obtained from Xiaomi cloud)"
-      notes: "Custom firmware stores no cloud credentials. Optional PIN for GATT access control."
+        - "Bindkey (stock firmware, obtained from Xiaomi cloud via Mi Home, or set by Telink Flasher activation)"
+      notes: >
+        Custom firmware stores no cloud credentials. Optional PIN for GATT
+        access control. A bindkey set by the Telink Flasher replaces the Mi
+        Home one, and re-adding the sensor to Mi Home afterwards may replace
+        it again (reported, not tested here).
 
   pairing:
     required: false
@@ -241,9 +311,10 @@ device:
       source: "vendor_app"
       notes: >
         Stock firmware only, and not a PIN: the MiBeacon bindkey that decrypts
-        the broadcast payload, extracted once from the Mi Home app. Per-unit,
-        so no value appears here. Custom firmware removes the need for it
-        entirely.
+        the broadcast payload, extracted once from the Mi Home app — or,
+        instead, a new one written by the pvvx Telink Flasher's activation
+        (setup.methods). Per-unit, so no value appears here. Custom firmware
+        removes the need for it entirely.
     unpair:
       supported: true
       requires_factory_reset: false
@@ -260,7 +331,8 @@ device:
       client ever pairs with it at the link layer. What the stock firmware
       requires is a key, not a pairing: its MiBeacon payload is encrypted, and
       the bindkey comes from the Mi Home account the thermometer is registered
-      to. The recommended path here is the pvvx/ATC custom firmware, which
+      to, or from a Telink Flasher activation that sets a new one. The
+      recommended path here is the pvvx/ATC custom firmware, which
       broadcasts unencrypted and has no account, no key and no pairing of any
       kind; the flash is reversible.
   variants:
@@ -546,6 +618,18 @@ features:
           Stock firmware 2.1.1_0159 gates the OTA session instead — Mi Home
           registration and an extracted Mi token/bindkey first (ATC_MiThermometer
           issue #602).
+
+          The original image must match the hardware generation: upstream
+          ships 1.0.0_0130 for the older B1.4-B2.0 boards and a separate
+          2.1.1_0159 line for new B1.6 units, incompatible with older
+          hardware. The flasher's manifest (firmware.json, release 5.9) also
+          carries a "signed" list naming a 2.1.1_0159c original image; what
+          that signature is and whether new-B1.6 stock firmware checks it
+          before accepting an image is not established (remaining_unknowns),
+          so `signing: unsigned` is asserted for the custom-firmware path,
+          not for every stock bootloader. Images larger than 128 KB
+          (Ext.OTA) are not supported. Pinned digests of the four public
+          images are in evidence.artifacts.
       enter:
         how: "in_place"
         notes: >
@@ -556,8 +640,11 @@ features:
         interrupted: "keeps_old_image"
         notes: >
           The Telink stack default (the new image goes to the other flash
-          bank and the boot flag switches only on success), not checked on a
-          unit here. Keep the battery above 40 % for a reliable flash.
+          bank and the boot flag switches only on success), and now also
+          stated by the upstream README for this firmware: an interrupted
+          transfer (about four minutes) leaves the old firmware running. Not
+          checked on a unit here. Keep the battery above 40 % for a reliable
+          flash.
       verification: "reported"
       notes: >
         From the pvvx/ATC_MiThermometer project and its TelinkMiFlasher page;
@@ -565,7 +652,13 @@ features:
         already ran v5.8). The Telink OTA service UUID the flasher uses is in
         registries/dfu-signatures.tsv; it is not recorded in this spec's
         GATT table, so it is not listed under `services`. After flashing the
-        device advertises as "ATC_XXXXXX".
+        device advertises as "ATC_XXXXXX". A unit already running the
+        custom firmware can also be updated without a browser by the
+        project's utils/ble_ota.py (Python, bleak), which reads the hardware
+        and firmware version and flashes the firmware.json release image for
+        that hardware only when the unit is older; the first flash from
+        stock firmware still needs TelinkMiFlasher's activation (upstream
+        README at commit b02b5137).
 
 entities:
   - platform: "sensor"
@@ -599,3 +692,85 @@ helpful_urls:
     kind: "manual"
     description: >
       Vendor manual for the stock thermometer — the firmware this spec recommends replacing.
+
+remaining_unknowns:
+  - "Whether the pvvx Telink Flasher can set a new bindkey on a stock 2.1.1_0159 / new-B1.6 unit without Mi Home registration first; issue #602 says that firmware's first OTA needs Mi Home registration and IDs, and the bindkey-only route was not tested."
+  - "Whether a decoding client's bindkey has to be re-entered after the sensor is removed from and re-added to Mi Home following a flasher activation (Home Assistant's documentation implies the Mi Home re-add; the key consequence was not tested)."
+  - "Which models the atc1441 alternative flasher can re-key; the Home Assistant documentation calls the set broader than the pvvx five but does not list it."
+  - "What the 'signed' list in the flasher's firmware.json (the 2.1.1_0159c original image) means — whose signature, and whether new-B1.6 stock firmware refuses an image without it."
+  - "Whether release 5.9 changes any default (advertising format, interval) relative to the hardware-tested 5.8."
+
+evidence:
+  documentation_review: >
+    2026-11-11: the Home Assistant Xiaomi BLE encryption documentation, the
+    pvvx/ATC_MiThermometer README and firmware.json at commit b02b5137 and
+    issue #602 were read for the bindkey-provisioning route, the key-length
+    rule, the hardware-generation warnings and the 5.9 release. Four public
+    BLE images were downloaded and hashed; none was flashed, and no
+    activation, bindkey write or Mi Home login was performed. Everything
+    taken from these sources is reported, not confirmed. The earlier
+    hardware session (2026-08-22, pvvx 5.8) is described under
+    device.testing.
+  artifacts:
+    - type: "public_documentation"
+      artifact: "Home Assistant Xiaomi BLE integration documentation, encryption section (source at home-assistant.io commit aac51cb72cd87c1c8df215b7dfe8651759b756f0)"
+      url: "https://github.com/home-assistant/home-assistant.io/blob/aac51cb72cd87c1c8df215b7dfe8651759b756f0/source/_integrations/xiaomi_ble.markdown"
+      obtained_via: "Public documentation, checked 2026-11-11"
+      description: >
+        States that the pvvx Telink Flasher can set a new bindkey for
+        LYWSD03MMC, MJWSD05MMC, MHO-C401, CGG1 and CGDK2, names the atc1441
+        flasher as an alternative for a broader unstated set, gives the
+        MiBeacon key lengths (v2/v3 24 hex characters, v4/v5 32), and warns
+        that Mi Home stops recognising the sensor after flasher activation
+        until it is removed and re-added.
+    - type: "public_implementation"
+      artifact: "pvvx/ATC_MiThermometer, commit b02b5137c14461daa7db1615e4fd9739b7a20ddd (2026-11-02): README.md, firmware.json, utils/ble_ota.py; issue #602"
+      url: "https://github.com/pvvx/ATC_MiThermometer/tree/b02b5137c14461daa7db1615e4fd9739b7a20ddd"
+      obtained_via: "Public git clone, 2026-11-11"
+      description: >
+        Release 5.9 and its 0x40000 initial-OTA fix; new B1.6 units ship an
+        original firmware incompatible with older hardware and their first
+        OTA needs Mi Home registration (#602); only B1.4/B1.7/B1.9/B2.0
+        counted as normal hardware; an interrupted OTA keeps the old
+        firmware; images over 128 KB unsupported; the firmware.json
+        "custom", "original" and "signed" image lists. The README's 'HA BLE'
+        format is the pre-4.5 name of BTHome v1, since replaced by BTHome
+        v2, so it is not a fifth current advertisement format. No code was
+        copied.
+    - type: "public_implementation"
+      artifact: "atc1441 alternative Telink flasher page (Temp_universal_mi_activate.html)"
+      url: "https://atc1441.github.io/Temp_universal_mi_activate.html"
+      obtained_via: "Linked from the Home Assistant documentation, checked 2026-11-11"
+      description: >
+        Recorded only as the alternative flasher Home Assistant names; no
+        model list is inferred from it.
+    - type: "firmware_image"
+      artifact: "ATC_v59.bin (pvvx custom firmware 5.9, LYWSD03MMC)"
+      sha256: "85c4104071174535c162a8eb72781f3f52cb776998119fb2cba6c24ca5758994"
+      url: "https://raw.githubusercontent.com/pvvx/ATC_MiThermometer/b02b5137c14461daa7db1615e4fd9739b7a20ddd/bin/ATC_v59.bin"
+      obtained_via: "Commit-pinned raw download, 2026-11-11; digest re-checked locally"
+      description: "Custom BLE 5.9 image. Archived and hashed, not flashed."
+    - type: "firmware_image"
+      artifact: "Original_OTA_Xiaomi_LYWSD03MMC_v1.0.0_0130.bin (stock 1.0.0_0130)"
+      sha256: "d8ca0eb3d660a76d02e33fefa5d8b5186e1f2ccaa91ffb3584486822d18e4340"
+      url: "https://raw.githubusercontent.com/pvvx/ATC_MiThermometer/b02b5137c14461daa7db1615e4fd9739b7a20ddd/bin/Original/Original_OTA_Xiaomi_LYWSD03MMC_v1.0.0_0130.bin"
+      obtained_via: "Commit-pinned raw download, 2026-11-11; digest re-checked locally"
+      description: >
+        The original image firmware.json offers for the older B1.4-B2.0
+        boards; not for new B1.6 units. Not flashed.
+    - type: "firmware_image"
+      artifact: "Original_OTA_Xiaomi_LYWSD03MMC_v2.1.1_0159_B1.6.bin (stock 2.1.1_0159, B1.6)"
+      sha256: "3104f046cc0856c327a30c4297aac61030258c5a5acc0288cc461d58c59c043e"
+      url: "https://raw.githubusercontent.com/pvvx/ATC_MiThermometer/b02b5137c14461daa7db1615e4fd9739b7a20ddd/bin/Original/Original_OTA_Xiaomi_LYWSD03MMC_v2.1.1_0159_B1.6.bin"
+      obtained_via: "Commit-pinned raw download, 2026-11-11; digest re-checked locally"
+      description: >
+        B1.6-named original image from firmware.json's "original" list, the
+        recovery image for new B1.6 hardware. Not flashed.
+    - type: "firmware_image"
+      artifact: "Original_OTA_Xiaomi_LYWSD03MMC_v2.1.1_0159c.bin (stock 2.1.1_0159c)"
+      sha256: "dae96dacf0ddeb29a02a7ef5ede7ce7b7c76e84eeb89fe53b4603515fbd4381b"
+      url: "https://raw.githubusercontent.com/pvvx/ATC_MiThermometer/b02b5137c14461daa7db1615e4fd9739b7a20ddd/bin/Original/Original_OTA_Xiaomi_LYWSD03MMC_v2.1.1_0159c.bin"
+      obtained_via: "Commit-pinned raw download, 2026-11-11; digest re-checked locally"
+      description: >
+        The image in firmware.json's "signed" list. Its signature and how a
+        stock unit treats it were not examined. Not flashed.

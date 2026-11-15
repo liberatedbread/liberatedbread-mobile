@@ -45,7 +45,7 @@ capture:
     - FFF0 contains FFF1, 0A10 and 0A20
     - security-access value matches the documented MAC derivation
     - serial read from 0A02 (14 ASCII bytes; value not retained here)
-    - intensity writes 3 and 5; intensity query 0B01
+    - T-Sonic motor-level writes 3 and 5; query 0B01 (earlier mislabelled as intensity)
     - seven Basic writes 0AD0 01 and one query 0BD0 returning Basic
     - automatic fan 0AC0 0A
     - 0AC4 accepts a seven-byte cooling profile; 0BC4 0007 reads it
@@ -55,6 +55,29 @@ capture:
     - 0A08 is read + notify, not a verified OTA-trigger write
     - new cooling payload is seven bytes, not one byte
   unobserved: [locked-unit activation, Pro mode, 0A30 wake-up, OTA]
+
+replay_2026_11_14:
+  client: standalone BlueZ + bleak, written from the spec; no vendor code
+  unit: already-active PEACH2, H.REV.C, SW PEACH2 F.REV.K; seven connections
+  confirmed:
+    - live GATT table identical to the spec, properties included
+    - advertisement mfr data, company 0xFFFF, payload FF FF <MAC m0..m5> FF 01
+    - no pairing or bonding
+    - 0A10 handshake acknowledged; read-back 01 00 00 00 00
+    - 0A20 first byte 01 (17-byte value); no activation write sent
+    - queries 0B01 -> 05, 0BD0 -> 01, 0BC4 0007 -> 64 0D 21 02 1C 14 14
+    - write-backs 0A01 05 and 0AD0 01 acknowledged 01
+    - 0AD0 06 acknowledged 01; 0BD0 -> 06, persisted across reconnect; no account
+  negative_findings:
+    - 0A10 handshake not enforced for FFF1 queries/writes or the 0A20 read
+    - first connect attempt dropped during service discovery in 4 of 7 sessions
+  left_state: Pro mode (owner's request)
+  not_retained: MAC, serial, 0A20 trailing bytes
+
+static_reread_2026_11_14:
+  - 0A01/0B01 is the T-Sonic vibration-motor level, not IPL intensity; IPL intensity is handset-only
+  - 0AC4 cooling profiles are fixed per SW-revision group in the app's bundled config; first byte is level % on F.REV.I-K
+  - Pro MAX defines IPL speed (Fast/Balanced) on 0AA3, read 0BA3 0A; bytes undecoded
 
 services:
   - uuid16: "0xFFF0"
@@ -81,13 +104,13 @@ protocol:
   framing: raw opcode || payload on FFF1; 0A=set / 0B=query; read FFF1 after every write
   write_ack: observed 18-byte read-back beginning 01
   new_dialect:
-    intensity_set: "0A01 <level 0..5>"
-    intensity_get: "0B01"
+    tsonic_set: "0A01 <level 0..5> (T-Sonic motor, not IPL output)"
+    tsonic_get: "0B01"
     removal_basic: "0AD0 01"
-    removal_pro: "0AD0 06 (app constant; direct firmware acceptance unknown)"
+    removal_pro: "0AD0 06 (firmware accepts directly; replay 2026-11-14)"
     removal_get: "0BD0"
     auto_fan: "0AC0 0A"
-    cooling_set: "0AC4 <7-byte profile>"
+    cooling_set: "0AC4 <7-byte profile; fixed row per level, see spec cooling_profiles>"
     cooling_get: "0BC4 0007"
   duo_mode:
     basic: "0AA2 02 02 02 02 02 (app constant; not captured)"
@@ -101,9 +124,9 @@ activation:
 
 paywall:
   mechanism: active server-side subscription normally required; testing == 1 is a separate exception
-  enforcement: app gate before settings write; independent firmware enforcement unknown
+  enforcement: app gate before settings write only; firmware accepted Pro with no account (replay 2026-11-14)
   downgrade: Basic write on Pro with inactive subscription is app-derived; capture does not prove it ran
-  observed: seven Basic writes and no Pro write; account subscription state unknown
+  observed: capture had seven Basic writes and no Pro write; replay wrote Pro directly and it persisted
 
 references:
   authoritative_spec: device-specs/devices/foreo-peach-2.yaml

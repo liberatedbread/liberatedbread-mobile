@@ -1,0 +1,705 @@
+# Brother Skitch PP1 — narrow BLE identification, information and status spec.
+# Static analysis plus vendor manual only; no hardware or packet capture.
+# Command opcodes are u16 BIG-endian. Transfer lengths, offsets and additive
+# checksums are little-endian; an earlier research-summary opcode claim was wrong.
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+
+device:
+  name: "Brother Skitch PP1"
+  manufacturer: "Brother Industries, Ltd."
+  manufacturer_status: "active"
+  testing:
+    status: untested
+    notes: >
+      No PP1 was driven and no over-the-air capture was reviewed by this
+      project. Protocol facts come from static analysis of the public Android
+      companion app and Brother's PP1/PP1E operation manual. Every protocol
+      fact is reported, not confirmed. Test vectors are synthetic and are
+      independently rebuilt by scripts/test_brother_skitch_pp1.py.
+  protocol: "ble"
+  transport: "ble-gatt"
+  category: "tool"
+  type: "embroidery-machine"
+  model: "PP1"
+  aliases: ["Skitch"]
+  companion_apps:
+    - name: "Brother Artspira"
+      package: "com.brother.ph.mobile.craftsewing"
+      role: "primary"
+      platform: "android"
+      url: "https://play.google.com/store/apps/details?id=com.brother.ph.mobile.craftsewing"
+      notes: "Android 2.9.10 (1150) was reviewed statically; the app is the manual's pairing, reset and firmware-update route."
+  openness:
+    status: "undocumented"
+    reverse_engineered: true
+    notes: >
+      Brother documents GATT and the user workflows but not this command
+      protocol. No public third-party PP1 client or live capture was found.
+      Derived facts come from the companion app's public implementation and
+      remain reported until checked against hardware.
+  identification:
+    local_name_prefix: "Brother PP1-"
+    notes: >
+      Identification requires BOTH the manual's advertised-name shape,
+      Brother PP1- followed by four decimal digits, and service
+      a76eb9e0-f3ac-4990-84cf-3a94d2426b2b. The service is shared with other
+      Brother products and is deliberately not an independent scan signal:
+      the scan schema ORs name and service matchers. Require the full name
+      match first, then confirm the service and both characteristics after
+      connecting before issuing any command. PP1E is not claimed by this
+      prefix or this spec.
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          local_name:
+            match: "regex"
+            value: "^Brother PP1-[0-9]{4}$"
+        verification: "reported"
+        notes: >
+          Brother's manual illustrates Brother PP1-**** and says the suffix is
+          four digits from the unit serial. The companion app accepts names
+          beginning Brother PP1, but this spec deliberately requires the
+          narrower manual shape and does not extend that acceptance to PP1E.
+          Do not add the shared service as an OR-ed scan matcher. Confirm it
+          during GATT discovery before the information handshake.
+    identity:
+      stable_keys: ["local_name"]
+      display: "local_name"
+      notes: >
+        The documented name carries a four-digit serial suffix. BLE address
+        type and stability are unknown, so address is not promoted to stable
+        identity. The suffix is not asserted globally unique.
+    static_ip_required: false
+  setup:
+    required: false
+    confidence: "medium"
+    notes: >
+      There is no Wi-Fi provisioning or credential payload in the narrow
+      information/status surface. The manual nevertheless requires its app
+      pairing workflow for normal product operation, and the official app's
+      UI treats connection plus an OS bond as paired. Whether the GATT
+      commands themselves require a bond is unresolved; see device.pairing.
+      This method is manual- and source-derived, not replayed.
+    methods:
+      - type: "ble_direct"
+        name: "Bluetooth-button pairing and information handshake"
+        role: "primary"
+        verified: false
+        description: >
+          Use the manual's Bluetooth-button pairing flow, require the PP1
+          name and shared service, then issue information with a
+          write-with-response and an explicit read. Service-count and status
+          use the same transaction shape. No design or motion operation is
+          part of setup.
+        ble:
+          advertised_name: "Brother PP1-"
+          advertised_name_match: "prefix"
+          service_uuid: "a76eb9e0-f3ac-4990-84cf-3a94d2426b2b"
+          write_characteristic: "a76eb9e2-f3ac-4990-84cf-3a94d2426b2b"
+          read_characteristic: "a76eb9e1-f3ac-4990-84cf-3a94d2426b2b"
+        steps:
+          - action: "Power the machine on and hold its Bluetooth button until it beeps and the adjacent LED blinks at 1.5-second intervals."
+            actor: "user"
+            expect: "The machine is in the manual's pairing mode."
+          - action: "Select only an advertisement matching ^Brother PP1-[0-9]{4}$ and carrying a76eb9e0-f3ac-4990-84cf-3a94d2426b2b, then connect."
+            actor: "client"
+            timeout_seconds: 30
+          - action: "Discover the service and require read characteristic a76eb9e1-f3ac-4990-84cf-3a94d2426b2b and write characteristic a76eb9e2-f3ac-4990-84cf-3a94d2426b2b before any write."
+            actor: "client"
+            expect: "The explicit-read and write-with-response command channel is present; do not substitute a notification-only flow."
+            notes: "The vendor app requests MTU 512. Its padding-based write-size probe is reported under protocol_details.connection, not required for these short requests."
+          - action: "Write 00 00 with response, then explicitly read the response characteristic."
+            actor: "client"
+            expect: "An information response beginning 00 00; model_id 61 is the reported PP1 value. Decode only fields with established semantics."
+            timeout_seconds: 10
+          - action: "When counters are wanted, write 01 00 with response and explicitly read; when machine state is wanted, write 00 01 with response and explicitly read."
+            actor: "client"
+            expect: "Matching response opcodes 01 00 or 00 01. Status is byte 2 and the optional error code is byte 4, not byte 3."
+            timeout_seconds: 10
+        troubleshooting:
+          - symptom: "The manual's app cannot keep a connection."
+            fix: "Check power, proximity, interference and Bluetooth on the host. Delete the machine in the app and in the host's Bluetooth settings, then repeat the Bluetooth-button pairing flow; do not factory-reset merely to rebind."
+    factory_reset:
+      applicable: true
+      confidence: "medium"
+      effect: "Deletes all saved data, customized settings and connection information."
+      description: >
+        The manual documents an app-mediated Reset to default operation, not
+        a button-only factory reset. It warns not to power off while the app
+        communicates with the machine. Static analysis separately reports
+        opcode 0c 00 for this reset; that command is advanced and unverified
+        and is not presented as a tested substitute for the manual flow.
+      procedures:
+        - name: "App: Reset to default"
+          verified: false
+          basis: "Brother PP1/PP1E Operation Manual, Before Lending or Disposing of the Machine, page 38; not run by this project."
+          power_state: "on"
+          indicator: "The app communicates with the machine and deletes its information; the manual gives no separate reset-complete LED pattern."
+          steps:
+            - action: "In the vendor app's home screen, open the connected machine's settings."
+              actor: "user"
+            - action: "Choose Reset to default and acknowledge that saved data, customized settings and connection information will be deleted."
+              actor: "user"
+              expect: "The app communicates with the machine to perform the reset."
+            - action: "Leave the machine powered until the app finishes, then pair again before further use."
+              actor: "user"
+              notes: "The manual explicitly warns not to turn the machine off during this process."
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        BLE-only: there is no router to rejoin. To move hosts, hold the
+        Bluetooth button again and run pairing from the new host. The manual
+        says the app pairs with one embroidery machine at a time; that is an
+        app-side selection limit, not proof of a one-bond device limit.
+      steps:
+        - action: "Delete the old app selection and the old host's Bluetooth connection entry if they are stale."
+          actor: "user"
+        - action: "Hold the machine's Bluetooth button until the pairing beep and slow LED blink, then select the PP1-named peripheral from the new host."
+          actor: "user"
+          expect: "The Bluetooth LED becomes steady after pairing."
+    credentials:
+      wifi_passphrase_protection: "not_applicable"
+      stored_on_device:
+        - "Connection information; its format, bond count and link-layer semantics are not established"
+      issued_to_client: []
+      notes: "No Wi-Fi credential, PIN or application-layer key is established for the narrow GATT surface."
+  pairing:
+    required: "unknown"
+    confidence: "low"
+    security_mode: "unknown"
+    bonding: "unknown"
+    exclusivity:
+      single_connection: "unknown"
+      single_bond: "unknown"
+      recovery: >
+        Delete the machine from the app and from the host's Bluetooth
+        settings, hold the Bluetooth button to re-enter pairing mode, and
+        pair again. A full factory reset is not required by the manual's
+        connection-error procedure.
+      notes: >
+        The app supports selecting only one embroidery machine at a time.
+        That does not establish how many centrals or bonds the machine itself
+        supports.
+    enter_pairing_mode:
+      required: true
+      advertised_name: "Brother PP1-"
+      advertised_name_match: "prefix"
+      indicator: "A beep, then the Bluetooth LED blinks at 1.5-second intervals; it becomes steady when pairing finishes."
+      procedures:
+        - name: "Hold the Bluetooth button"
+          verified: false
+          basis: "Brother PP1/PP1E Operation Manual, Connecting the machine and app, page 13; not run by this project."
+          power_state: "on"
+          indicator: "Pairing beep and Bluetooth LED blinking at 1.5-second intervals."
+          steps:
+            - action: "Hold the Bluetooth button until the machine beeps and its Bluetooth LED blinks at 1.5-second intervals."
+              actor: "user"
+            - action: "Select the machine whose name matches Brother PP1- plus four decimal digits in the host's pairing UI."
+              actor: "user"
+              expect: "The Bluetooth LED becomes steady when pairing completes."
+      notes: "The manual documents this flow for both first pairing and pairing with a different host; no timeout window is stated."
+    unpair:
+      supported: true
+      requires_factory_reset: false
+      clears: "The app selection and the host's stored Bluetooth connection information; exact device-side bond removal is not established."
+      procedures:
+        - name: "Delete the app and host-OS connection entries"
+          verified: false
+          basis: "Brother PP1/PP1E Operation Manual, If a communication error occurs, page 33; not run by this project."
+          steps:
+            - action: "Open the paired machine's settings in the app and delete it."
+              actor: "user"
+            - action: "Delete the machine's connection information in the host's Bluetooth settings."
+              actor: "user"
+            - action: "Repeat the Bluetooth-button pairing procedure when reconnecting."
+              actor: "user"
+      notes: "This is the manual's re-pairing recovery, not a factory reset and not proof that no device-side bond remains."
+    notes: >
+      Pairing is the manual's term for app association. Static analysis finds
+      an OS-bond check in the app's status UI but does not establish which
+      GATT operation, if any, enforces bonding, which security mode is used,
+      or whether a third-party information client can connect unbonded.
+initialization:
+  - characteristic: "a76eb9e2-f3ac-4990-84cf-3a94d2426b2b"
+    write: [0x00, 0x00]
+    when: "connect"
+    notes: "Information request, written with response. The next step is a separate explicit GATT read, not a notification subscription."
+  - characteristic: "a76eb9e1-f3ac-4990-84cf-3a94d2426b2b"
+    read: true
+    when: "connect"
+    notes: "Read the information response and require its 00 00 echo before treating the connection as usable."
+
+services:
+  - uuid: "a76eb9e0-f3ac-4990-84cf-3a94d2426b2b"
+    name: "Brother shared command service"
+    notes: >
+      Reported from the companion app. This service and its characteristics
+      are also used by other Brother products, so the UUIDs are not a PP1
+      identity signal by themselves. The properties below describe operations
+      the app performs, not a complete hardware GATT dump.
+    characteristics:
+      - uuid: "a76eb9e1-f3ac-4990-84cf-3a94d2426b2b"
+        name: "Command response (explicit read)"
+        properties: ["read"]
+        verification: "reported"
+        notes: >
+          After each ordinary request write, explicitly read this
+          characteristic. Responses are multiplexed by their big-endian
+          opcode echo; layouts are under protocol_details.response_layouts.
+          No notification or indication property is asserted.
+      - uuid: "a76eb9e2-f3ac-4990-84cf-3a94d2426b2b"
+        name: "Command write (with response)"
+        properties: ["write"]
+        role: "command"
+        verification: "reported"
+        notes: >
+          Every request starts with a two-byte BIG-endian opcode followed by
+          its payload. Use write-with-response and then explicitly read the
+          response characteristic. Serialize one request/read transaction at
+          a time. Transfer chunks are the exception only in the reported
+          documentary flow: their writes are followed by reads after the
+          final chunk, not after every chunk.
+        commands:
+          get_information:
+            description: >
+              Request machine information with opcode 0x0000 encoded
+              big-endian. Write with response, then explicitly read and
+              require a 00 00 response echo. Established response fields are
+              in protocol_details.response_layouts.information.
+            value: [0x00, 0x00]
+            verification: "reported"
+          get_service_count:
+            description: >
+              Request the two little-endian 32-bit service counters with
+              opcode 0x0100 encoded big-endian (not 00 01). Write with
+              response, then explicitly read and require a 01 00 response
+              echo. What each counter measures remains open.
+            value: [0x01, 0x00]
+            verification: "reported"
+          get_status:
+            description: >
+              Request machine state with opcode 0x0001 encoded big-endian.
+              Machine state is response byte 2; when present, the error code
+              is response byte 4. Byte 3 is unmapped. See
+              protocol_details.response_layouts.status.
+            value: [0x00, 0x01]
+            verification: "reported"
+          reset_to_defaults:
+            description: >
+              Reported reset-settings request with opcode 0x0c00 encoded
+              big-endian, corresponding to the manual's app-mediated deletion
+              of saved data, settings and connection information. A three-byte
+              response with result 00 at byte 2 is reported as success; other
+              values and failure behavior are unknown. Prefer the documented
+              app procedure until verified.
+            value: [0x0C, 0x00]
+            advanced: true
+            advanced_reason: "Deletes all saved data, customized settings and connection information. Re-pairing is required afterward; there is no undo and the command has not been hardware-tested."
+            verification: "reported"
+          begin_firmware_update:
+            description: >
+              Reported final begin command with opcode 0x0b00 encoded
+              big-endian after a complete firmware image transfer, not a
+              command to run before uploading an image. A three-byte response
+              with result 00 at byte 2 is reported as acceptance. The manual
+              says the machine later reboots; no bootloader identification or
+              recovery claim is made.
+            template: [0x0B, 0x00, "{update_target}"]
+            parameters:
+              update_target:
+                type: "uint8"
+                min: 1
+                max: 3
+                labels: ["main controller image", "Bluetooth image", "all reported image targets"]
+                description: "Target selected from the uploaded image's metadata: 1 main controller, 2 Bluetooth module, or 3 when both are present. A fourth container-level value exists in the app vocabulary but is not emitted by this selection flow and is not accepted here."
+            advanced: true
+            advanced_reason: "Starts firmware installation after transfer. A wrong image or interrupted update may leave the machine unusable; signature acceptance, interruption behavior and recovery are unknown."
+            verification: "reported"
+
+features:
+  - type: "firmware_update"
+    dfu:
+      mechanisms: ["vendor_ble"]
+      transport: "ble"
+      image:
+        signing: "unknown"
+        algorithm: "unknown"
+        source: "public_url"
+        format: "Brother .upf container; its complete structure and installation validation are not established"
+        notes: >
+          The public PP1 manifest names the image URL, model 61, OEM 1 and an
+          MD5 used by the app to check the downloaded file. That MD5 is a
+          download-integrity check, not evidence of a device-enforced
+          signature. Do not infer signature acceptance from the additive
+          transfer checksum either.
+      enter:
+        how: "command"
+        command: "begin_firmware_update"
+        notes: >
+          This is the FINAL begin step after the image has already been sent
+          to the normal GATT service, not a bootloader-entry write performed
+          before transfer. The reported data-info/chunk envelope uses data
+          type 4; no executable chunk commands are declared.
+      dfu_mode:
+        notes: >
+          The manual says the machine automatically reboots near the end of
+          the update and then reconnects to the app. Advertised name,
+          address, service set and any distinct bootloader mode during that
+          reboot are unknown. Do not match a generic bootloader to a PP1.
+      services: ["a76eb9e0-f3ac-4990-84cf-3a94d2426b2b"]
+      recovery:
+        interrupted: "unknown"
+        notes: "No interrupted-update, rollback, bootloader-retention or wired-recovery behavior is claimed. The manual only warns not to power off during update."
+      verification: "reported"
+      notes: >
+        Static analysis reports type-4 data-info, little-endian lengths and
+        additive checksums, followed by the advanced begin command declared
+        above. The public manifest and image were inspected by the research
+        archive, but no image was sent to a machine and no signature or
+        installation validation was independently tested.
+
+cloud:
+  required: false
+  vendor_service: "Brother Artspira account, content and telemetry services"
+  failure_mode: >
+    Account sign-in, downloadable content and the vendor app's telemetry are
+    cloud-linked. The recovered BLE information/status requests carry no
+    cloud token and are locally framed, but offline behavior has not been
+    tested on hardware. Design acquisition and conversion must not be
+    inferred to work offline from this narrow local surface.
+  data_leaves_device:
+    - "The vendor app can send machine communication/setup telemetry and machine information to its service; this is app traffic, not a separate PP1 network interface."
+  notes: "No direct device-to-cloud connection is claimed; the manual lists Bluetooth LE/GATT only."
+
+local_access:
+  status: "native"
+  summary: >
+    Reported local BLE identification, connection, information, service
+    counters and machine status. Nothing beyond that narrow read-oriented
+    surface is presented as an implementable local design client.
+  covers:
+    - "PP1 name-plus-service identification and GATT connection"
+    - "Information and service-count requests with explicit-read responses"
+    - "Machine status and optional error-byte reads"
+    - "Advanced, reported reset and firmware-begin declarations with explicit warnings"
+  not_covered:
+    - "Design conversion or upload as a usable feature"
+    - "Any embroidery motion or job-start control"
+    - "A production firmware uploader, signature verdict or recovery workflow"
+    - "General compatibility with external design-file formats or PP1E"
+
+entities: []
+
+protocol_details:
+  scope: >
+    The initial usable surface is identification, connection, information,
+    service count and status. Design transfer is documentary only because
+    its stream conversion is unavailable and the app deletes the current
+    design before upload. Reset and firmware-begin are advanced reported
+    declarations, not hardware-verified workflows. No motion/start command
+    is declared.
+
+  connection:
+    verification: "reported"
+    request_mtu_bytes: 512
+    initial_application_payload_limit_bytes: 500
+    mtu_payload_adjustment: "After MTU negotiation, if current payload limit + 12 exceeds the negotiated MTU, reduce the payload limit to negotiated MTU - 12."
+    write_size_probe: >
+      During its connection routine the vendor app writes the information
+      opcode with a zero-filled payload of current payload limit + 10 bytes,
+      reducing the limit by 50 on write failure and retrying. It restores
+      500 if the limit reaches zero. This is reported app behavior, not a
+      recommended or hardware-verified requirement. A narrow client issuing
+      only short information/status requests need not reproduce the padded
+      probe.
+    timeouts:
+      read_write_seconds: 10
+      connect_seconds: 30
+      notes: "App choices, not established firmware minima."
+    status_poll_interval_ms: 3000
+    polling_note: "The vendor monitor polls about every three seconds; this is its pacing, not a required device interval."
+
+  transaction_semantics:
+    verification: "reported"
+    request_frame: "<opcode:u16 BIG-endian><payload>"
+    ordinary_request: "Write the complete request with response to a76eb9e2-f3ac-4990-84cf-3a94d2426b2b, then explicitly read a76eb9e1-f3ac-4990-84cf-3a94d2426b2b and require the matching opcode echo."
+    concurrency: "Serialize one ordinary request/read transaction at a time. Do not treat GATT write completion as the command result."
+    transfer_exception: "In the documentary bulk flow, data-info uses an ordinary request/read, chunks are write-with-response without per-chunk reads, and completion is polled with explicit reads after the last chunk."
+
+  response_layouts:
+    information:
+      minimum_length_bytes: 52
+      verification: "reported"
+      fields:
+        - {offset: 0, length: 2, name: "opcode", type: "uint16", endianness: "big", values: {0: "information response"}}
+        - {offset: 2, length: 2, name: "software_version_base", type: "int16", endianness: "big", scale: 0.01, notes: "The app divides this signed value by 100 for the leading version number; raw 104 represents 1.04. It appends software_version_suffix separately."}
+        - {offset: 26, length: 2, name: "bluetooth_version_raw", type: "int16", endianness: "big", notes: "Raw reported field; unit, scaling and component mapping are unresolved."}
+        - {offset: 28, length: 1, name: "model_id", type: "uint8", values: {61: "PP1 (reported)"}}
+        - {offset: 29, length: 1, name: "oem_id", type: "uint8", notes: "The public PP1 firmware manifest uses OEM 1; no broader OEM registry is claimed."}
+        - {offset: 30, length: 1, name: "monitor_support_raw", type: "uint8", notes: "Raw capability field; valid values and boolean semantics are not established."}
+        - {offset: 31, length: 2, name: "maximum_width_raw", type: "int16", endianness: "little", notes: "Signed little-endian raw value. Its physical unit and scaling are unresolved; do not label it mm."}
+        - {offset: 33, length: 2, name: "maximum_height_raw", type: "int16", endianness: "little", notes: "Signed little-endian raw value. Its physical unit and scaling are unresolved; do not label it mm."}
+        - {offset: 37, length: 2, name: "software_version_suffix", type: "int16", endianness: "big", notes: "The app appends this number after the leading x.yy version. Padding and component semantics remain open."}
+        - {offset: 41, length: 11, name: "model_code", type: "string", notes: "Eleven ASCII bytes reported by the app parser; padding and valid-character rules are not established."}
+      unmapped_fields: "All other offsets are intentionally left opaque here. Unit-specific serial, address and product identifiers are not needed for this narrow surface and are not decoded or exemplified."
+    service_count:
+      minimum_length_bytes: 10
+      verification: "reported"
+      fields:
+        - {offset: 0, length: 2, name: "opcode", type: "uint16", endianness: "big", values: {256: "service-count response"}}
+        - {offset: 2, length: 4, name: "service_count", type: "uint32", endianness: "little", unit: "count", notes: "Little-endian counter. What event or maintenance unit it counts is unresolved."}
+        - {offset: 6, length: 4, name: "total_count", type: "uint32", endianness: "little", unit: "count", notes: "Second little-endian counter; its relationship to service_count is unresolved."}
+    status:
+      minimum_length_bytes: 3
+      length_rule: "Bytes 0-2 are required. Error code byte 4 is decoded only when the response is longer than four bytes; byte 3 has no established meaning."
+      verification: "reported"
+      fields:
+        - {offset: 0, length: 2, name: "opcode", type: "uint16", endianness: "big", values: {1: "status response"}}
+        - offset: 2
+          length: 1
+          name: "machine_status"
+          type: "uint8"
+          values:
+            0: "initial"
+            1: "lower thread"
+            16: "waiting; no design data"
+            17: "waiting with design data"
+            18: "receiving design data"
+            32: "mask-trace lock wait"
+            33: "mask tracing"
+            34: "mask trace finished"
+            48: "embroidering"
+            49: "embroidery finished"
+            50: "embroidery interrupted"
+            64: "thread change"
+            65: "paused"
+            66: "stopped"
+            80: "hoop avoidance"
+            81: "hoop avoidance in progress"
+            96: "update data receiving"
+            97: "update data received"
+          notes: "Reported device-state labels. App-only connection placeholders are not added to this wire enum; unknown numeric states must remain unknown rather than being coerced to idle."
+        - offset: 4
+          length: 1
+          name: "error_code"
+          type: "uint8"
+          values:
+            0: "needle position"
+            1: "safety"
+            2: "lower-thread safety"
+            3: "lower-thread free"
+            16: "restart reason 0x10"
+            17: "restart reason 0x11"
+            18: "restart reason 0x12"
+            19: "restart reason 0x13"
+            20: "restart reason 0x14"
+            21: "restart reason 0x15"
+            22: "restart reason 0x16"
+            23: "restart reason 0x17"
+            24: "restart reason 0x18"
+            25: "restart reason 0x19"
+            26: "restart reason 0x1a"
+            27: "restart reason 0x1b"
+            28: "restart reason 0x1c"
+            32: "needle plate"
+            33: "thread lever"
+            96: "upper thread"
+            97: "lower thread"
+            98: "upper thread at embroidery start"
+            99: "wiper"
+            112: "hoop"
+            113: "no hoop"
+            114: "initial hoop"
+            128: "regular inspection"
+            152: "setting"
+            221: "none"
+            255: "other"
+          notes: "Optional at absolute response offset 4. These are reported app labels, not the manual's #1001-style display numbers. The app also substitutes 221 when byte 4 is absent, so a short response and an explicit 221 can look alike; preserve the length distinction. Value 238 is an app-side unknown placeholder and is not asserted on the wire."
+    reset_result:
+      minimum_length_bytes: 3
+      verification: "reported"
+      fields:
+        - {offset: 0, length: 2, name: "opcode", type: "uint16", endianness: "big", values: {3072: "reset result"}}
+        - {offset: 2, length: 1, name: "result", type: "uint8", values: {0: "accepted/success (reported)"}, notes: "Other results and post-reset connection behavior are unknown."}
+    firmware_begin_result:
+      minimum_length_bytes: 3
+      verification: "reported"
+      fields:
+        - {offset: 0, length: 2, name: "opcode", type: "uint16", endianness: "big", values: {2816: "firmware-begin result"}}
+        - {offset: 2, length: 1, name: "result", type: "uint8", values: {0: "accepted (reported)"}, notes: "Other results and subsequent reboot states are unknown."}
+
+  design_transfer:
+    verification: "reported"
+    implementable_feature: false
+    destructive_delete_before_upload:
+      opcode: 0x0708
+      frame_hex: "07 08"
+      warning: "The reported app flow deletes the current embroidery data BEFORE data-info and every upload. Deletion is destructive, is not an identification/status operation, and is not declared as an executable command."
+    conversion_boundary: >
+      The app converts its own intermediate representation into a
+      PP1-specific design stream with a proprietary converter. This spec
+      neither supplies that converter nor claims compatibility with generic
+      design containers. Envelope knowledge alone is not enough to upload a
+      user design.
+    data_info:
+      opcode: 0x1200
+      data_type: 3
+      frame: "12 00 | data_type:u8 = 03 | total_length:u32 little | sum16:u16 little"
+      total_length: "Number of design-stream bytes only; excludes this command envelope and all chunks."
+      checksum: "Sum of every design-stream byte, reduced modulo 65536, serialized little-endian. This is an additive checksum, not a CRC or signature."
+      response: "Ordinary write-with-response then explicit read; byte 2 = 00 is reported as acceptance. Short or other responses are not mapped."
+    chunks:
+      opcode: 0x1201
+      frame: "12 01 | offset:u32 little | chunk bytes | sum8:u8"
+      offset: "Zero-based byte offset into the complete design stream, little-endian."
+      checksum: "Sum of this chunk's payload bytes only, reduced modulo 256. Opcode and offset are excluded."
+      sizing: "Chunk payload is bounded by the negotiated application payload behavior in connection; no fixed safe PP1 chunk size is hardware-confirmed."
+      response: "Each chunk uses write-with-response but no immediate application read. After the final chunk, explicitly read and poll: byte 2 = 00 complete, 01 error, 02 busy. The app waits one second on busy; other values and timeout policy remain open."
+    why_not_a_feature: "No image_upload feature is declared: conversion is missing, delete-before-upload is destructive, and no live transfer or completion state machine has been verified."
+
+  firmware_transfer:
+    verification: "reported"
+    advanced: true
+    data_type: 4
+    envelope: "Uses the reported 12 00 data-info and 12 01 chunk layouts with type 04 instead of 03."
+    begin: "After successful transfer completion, issue begin_firmware_update with the target derived from the image metadata. Do not issue it before transfer."
+    limits: "The target-selection metadata parser, complete container format, signature validation, safe interruption behavior and recovery are not specified. No production upload procedure is claimed."
+
+  test_vectors:
+    description: >
+      Synthetic documentation vectors, not captures and not tied to a real
+      unit. scripts/test_brother_skitch_pp1.py independently rebuilds command
+      frames and design envelopes using only the Python standard library for
+      the algorithms, then decodes the response examples against these
+      layouts.
+    command_frames:
+      - {name: "information", opcode: 0x0000, frame_hex: "00 00"}
+      - {name: "status", opcode: 0x0001, frame_hex: "00 01"}
+      - {name: "service_count", opcode: 0x0100, frame_hex: "01 00"}
+      - {name: "design_data_info", opcode: 0x1200, frame_hex: "12 00"}
+      - {name: "design_chunk", opcode: 0x1201, frame_hex: "12 01"}
+      - {name: "reset", opcode: 0x0c00, frame_hex: "0c 00"}
+      - {name: "firmware_begin", opcode: 0x0b00, frame_hex: "0b 00"}
+      - {name: "delete_before_upload", opcode: 0x0708, frame_hex: "07 08"}
+    design_envelopes:
+      - name: "eight_bytes_two_chunks"
+        data_hex: "01 02 03 04 05 06 07 08"
+        data_type: 3
+        chunk_size: 5
+        expected_sum16: 0x0024
+        info_hex: "12 00 03 08 00 00 00 24 00"
+        chunks_hex:
+          - "12 01 00 00 00 00 01 02 03 04 05 0f"
+          - "12 01 05 00 00 00 06 07 08 15"
+      - name: "wrapping_additive_checksums"
+        data_hex: "ff 01 80 7f"
+        data_type: 3
+        chunk_size: 2
+        expected_sum16: 0x01ff
+        info_hex: "12 00 03 04 00 00 00 ff 01"
+        firmware_info_hex: "12 00 04 04 00 00 00 ff 01"
+        chunks_hex:
+          - "12 01 00 00 00 00 ff 01 00"
+          - "12 01 02 00 00 00 80 7f ff"
+    responses:
+      - name: "synthetic_information"
+        layout: "information"
+        frame_hex: "00 00 00 68 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 3d 01 00 64 00 64 00 00 00 00 00 00 00 50 50 31 00 00 00 00 00 00 00 00"
+        expected:
+          opcode: 0
+          software_version_base: 104
+          bluetooth_version_raw: 0
+          model_id: 61
+          oem_id: 1
+          monitor_support_raw: 0
+          maximum_width_raw: 100
+          maximum_height_raw: 100
+          software_version_suffix: 0
+          model_code: "PP1"
+      - name: "synthetic_service_count"
+        layout: "service_count"
+        frame_hex: "01 00 39 30 00 00 10 00 00 00"
+        expected: {opcode: 256, service_count: 12345, total_count: 16}
+      - name: "synthetic_status"
+        layout: "status"
+        frame_hex: "00 01 11 00 dd"
+        expected: {opcode: 1, machine_status: 17, error_code: 221}
+
+evidence:
+  artifacts:
+    - type: "vendor_documentation"
+      artifact: "Brother PP1/PP1E Operation Manual, product code 888-R00, English edition 03"
+      url: "https://download.brother.com/welcome/doch102864/888r000_om03en.pdf"
+      description: >
+        Page 13 gives the Bluetooth-button pairing flow and Brother PP1-
+        four-digit name; page 33 gives delete-and-repair recovery; page 38
+        gives app-mediated reset and firmware update; page 39 lists
+        Bluetooth LE/GATT. The manual names PP1 and PP1E, but this spec
+        claims only PP1 protocol coverage.
+    - type: "static_analysis"
+      artifact: "Brother Artspira for Android, package com.brother.ph.mobile.craftsewing, version 2.9.10 (versionCode 1150)"
+      obtained_via: "Public third-party APK mirror, preserved and analyzed in the research archive on 2026-11-10"
+      description: >
+        Source of the shared GATT UUIDs, service scan, MTU behavior,
+        write-with-response/explicit-read transaction, big-endian command
+        serialization, information/status/service-count layouts, reported
+        design envelope and firmware flow. The command serializer's default
+        is big-endian, correcting the research summary's little-endian
+        opcode statement. No vendor internal symbol names are reproduced in
+        this spec.
+    - type: "vendor_documentation"
+      artifact: "Public PP1 firmware update manifest, read 2026-11-10"
+      url: "https://download.brother.com/pub/com/phc_pcs_oneclickupdate/frm/pp1/SewingMachine_upf.json"
+      description: >
+        Names model 61, OEM 1, version 1.04.00, the public .upf URL and an
+        MD5 used for download integrity. It supplies no evidence of a
+        device-enforced signature, rollback or recovery path.
+  documentation_review: >
+    Manual instructions and protocol implementation evidence are separate.
+    Manual procedures are marked verified false with their page basis;
+    byte-level app-derived facts are verification reported throughout.
+  app_static_analysis: >
+    No hardware, packet capture, firmware installation or motion operation
+    was used. Public implementation facts describe what the app does, not
+    what this project observed a PP1 accept.
+  open_questions:
+    - "PP1E advertised naming and protocol compatibility are unproven."
+    - "Actual GATT property bits, bond/security requirement, address stability and non-Android host behavior need a benign hardware check."
+    - "Information counter/dimension units, unmapped fields and less common status/error values need real responses."
+    - "MTU fallback and response state machines need a capture before a production client relies on them."
+    - "The PP1 design-stream converter and a non-destructive transfer workflow remain unavailable."
+    - "Firmware container validation, device-enforced signing and interruption recovery remain unknown."
+
+remaining_unknowns:
+  - "PP1E is named by the manual but is not covered: advertised name, model id and wire compatibility need separate evidence."
+  - "Whether the service UUID appears in every advertisement, the exact GATT property bits, bonding/security mode, central/bond limits and BLE address stability."
+  - "Units and scaling of Bluetooth-version and maximum-dimension fields; semantics of both service counters, monitor capability, version suffix and unmapped information bytes."
+  - "Live response lengths, result/error variants, completion timeouts and the reported MTU fallback's behavior across hosts and firmware."
+  - "A clean-room PP1 design-stream converter, accepted design constraints and a way to avoid or safely confirm destructive delete-before-upload."
+  - "Firmware container details, target-selection edge cases, device-enforced signature rules, interrupted-update behavior and recovery."
+  - "Compatibility with external design formats is not claimed or established."
+
+helpful_urls:
+  - title: "Brother Skitch PP1/PP1E Operation Manual (English, PDF)"
+    url: "https://download.brother.com/welcome/doch102864/888r000_om03en.pdf"
+    kind: "manual"
+    description: >
+      Vendor-hosted operation manual for PP1 and PP1E: Bluetooth-button
+      pairing and re-pairing on page 13, connection recovery on page 33,
+      app-mediated reset and firmware update on page 38, and BLE/GATT on
+      page 39. PP1E protocol compatibility remains outside this spec.
+  - title: "Brother Skitch PP1 product page"
+    url: "https://www.brother-usa.com/p/sewing-embroidery/PP1"
+    kind: "vendor_support"
+    description: "Vendor's PP1-specific product and Artspira requirements page; distinguishes the Skitch PP1 from other Brother machines."
+  - title: "Brother Artspira for Android"
+    url: "https://play.google.com/store/apps/details?id=com.brother.ph.mobile.craftsewing"
+    kind: "vendor_support"
+    description: "The companion app used for PP1 pairing, design workflows, reset and firmware updates; protocol facts here were reviewed at Android 2.9.10 (1150)."
+  - title: "Public PP1 firmware update manifest"
+    url: "https://download.brother.com/pub/com/phc_pcs_oneclickupdate/frm/pp1/SewingMachine_upf.json"
+    kind: "vendor_support"
+    description: "PP1-specific public manifest naming model 61, OEM 1, version 1.04.00 and the image's download-integrity MD5; not a signature or recovery specification."

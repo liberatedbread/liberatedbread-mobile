@@ -117,8 +117,8 @@ def test_known_addresses_resolve_to_their_vendor() -> None:
 
 def test_an_oui_names_the_chip_vendor_not_the_product_vendor() -> None:
     # The captured Lutron Caseta bridge advertises b8:94:d9:aa:bb:cc, and that
-    # block belongs to Texas Instruments -- it is the bridge's radio module, not
-    # Lutron. This is why lutron-caseta-smart-bridge.yaml deliberately carries no
+    # block belongs to Texas Instruments -- TI silicon inside the bridge (its
+    # AM335x host SoC, per community teardowns), not Lutron. This is why lutron-caseta-smart-bridge.yaml deliberately carries no
     # mac_prefixes, and why an OUI can never identify a product.
     assert "Texas Instruments" in _longest_prefix_lookup("B894D9AABBCC")
 

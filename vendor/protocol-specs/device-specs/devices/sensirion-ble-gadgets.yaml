@@ -1,0 +1,640 @@
+device:
+  name: "Sensirion SHT3x / SHT4x / MyCO2 BLE Gadgets"
+  manufacturer: "Sensirion AG"
+  manufacturer_status: "active"
+  testing:
+    status: "untested"
+    notes: >
+      No physical scan, GATT connection, logger download, pairing, reset, or
+      firmware operation was performed for this spec on 2026-11-11. The
+      advertisement layouts come from Sensirion's protocol document and current
+      public protocol definitions; logger differences are scoped to the cited
+      official generations. The independent tests use invented packets only.
+  protocol: "ble"
+  transport: "ble-gatt"
+  category: "sensor"
+  category_hierarchy: ["measurement", "environmental"]
+  type: "environmental-sensor-family"
+  openness:
+    status: "open_by_design"
+    reverse_engineered: false
+    source_code: "https://github.com/Sensirion/arduino-ble-gadget"
+    license: "BSD-3-Clause"
+    upstream_docs:
+      - url: "https://sensirion.github.io/ble-services/"
+        title: "Sensirion BLE Services"
+        covers: "Current advertisement and GATT interface definitions, including the advertising-while-connected rule."
+      - url: "https://github.com/akx/sensirion-ble/blob/0c2c04b2c64690c7045c07e2a2dc8253ca1cb4be/reference/Sensirion_BLE_communication_protocol.pdf"
+        title: "Arduino BLE Gadgets BLE Communication Protocol 1.0.1"
+        covers: "August 2022 company ID, sample layouts, conversions, and the original data-logger service."
+    notes: >
+      Sensirion publishes the protocol and reference implementations. Where the
+      current web tables, older PDF, and current Arduino implementation differ,
+      this spec keeps the generation and its evidence visible rather than
+      selecting one silently.
+  aliases:
+    - "SHT40 Gadget"
+    - "SHT4x Smart Gadget Reference Design"
+    - "SHT43 DemoBoard"
+    - "SHT43-DB"
+    - "SCD4x CO2 Gadget"
+    - "MyCO2 Gadget"
+    - "CO2 Minion"
+  companion_apps:
+    - name: "Sensirion MyAmbience"
+      package: "com.sensirion.myam"
+      role: "primary"
+      platform: "android"
+      url: "https://play.google.com/store/apps/details?id=com.sensirion.myam"
+      notes: "Current app for the newer gadget family; not evidence for the legacy SHT31 Smart Humigadget protocol."
+  variants:
+    - model: "SHT3x-based gadget (type 4)"
+      notes: >
+        Newer SHT3x-based gadgets emitting advertisement 00 04. This variant
+        does NOT include the legacy SHT31 Smart Gadget / Smart Humigadget,
+        whose connected-only float32 protocol has its own spec.
+    - model: "SHT40 Gadget"
+      notes: "Temperature and humidity using advertisement 00 06."
+    - model: "SHT43 DemoBoard"
+      notes: "Temperature and humidity using advertisement 00 06; also known as SHT43-DB."
+    - model: "SCD4x CO2 Gadget"
+      notes: >
+        MyCO2 / CO2 Minion temperature, humidity, and CO2 using the deprecated
+        but still documented advertisement 00 08. Current definitions prefer
+        type 10 for new designs; type 10 is outside this spec's claimed scope.
+  notes: >
+    Passive manufacturer-specific advertisements under Bluetooth company ID
+    0x06D5 carry current measurements without a connection, account, Wi-Fi, or
+    cloud. The two type bytes are advertisement type 00 followed by sample
+    type 04, 06, or 08. All tick and CO2 fields are unsigned 16-bit
+    little-endian values. The two bytes at offset 2 are an opaque device ID,
+    not a model number, proof of identity, or value to byte-swap for display.
+
+    This is deliberately not the legacy SHT31 Smart Gadget / Smart Humigadget
+    spec. That older design uses separate float32 GATT characteristics and the
+    f234 logger; no newer manufacturer-sample format is attributed to it.
+
+    While a gadget is connected to one GATT client, Sensirion's current public
+    specification says it sends no advertisements and is invisible to other
+    clients. A passive reader must therefore tolerate gaps while another
+    client is connected and resume decoding after disconnect; it must not fill
+    a gap with a zero measurement.
+
+  identification:
+    manufacturer_data:
+      company_id: 1749
+      company_id_hex: "0x06D5"
+      description: >
+        Sensirion AG. Match the payload prefix as well as the company ID:
+        00 04 and 00 06 require eight payload bytes after the company ID;
+        00 08 accepts ten bytes (current, reserved omitted) or twelve bytes
+        (PDF-compatible, reserved present). Other Sensirion sample types are
+        not claimed here.
+    notes: >
+      A complete local name is documented, but exact retail names were not
+      physically captured for this spec. Do not infer a model from the opaque
+      two-byte device ID or match the legacy name Smart Humigadget to this file.
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          manufacturer_data:
+            company_id: 1749
+            match: "prefix"
+            pattern: "0004"
+            description: "SHT3x advertisement; require the complete eight-byte payload and decode protocol_details.advertisement_formats.type_4."
+      - type: "ble_scan"
+        ble:
+          manufacturer_data:
+            company_id: 1749
+            match: "prefix"
+            pattern: "0006"
+            description: "SHT4x advertisement; require the complete eight-byte payload and decode protocol_details.advertisement_formats.type_6."
+      - type: "ble_scan"
+        ble:
+          manufacturer_data:
+            company_id: 1749
+            match: "prefix"
+            pattern: "0008"
+            description: "Deprecated MyCO2 advertisement; accept exactly ten or twelve payload bytes and decode protocol_details.advertisement_formats.type_8."
+    identity:
+      stable_keys: ["address"]
+      display: "local_name"
+    static_ip_required: false
+  setup:
+    required: false
+    confidence: "medium"
+    notes: >
+      Passive readings need no provisioning or pairing. Logger access is an
+      optional connected operation, not onboarding. Confidence is medium
+      because the flow comes from official public protocol material, not a
+      hardware run here.
+    methods:
+      - type: "ble_direct"
+        name: "Passive manufacturer-data readings"
+        role: "primary"
+        verified: false
+        description: "Scan for company 0x06D5 and one of the three declared type prefixes; no connection is made."
+        ble:
+          pairing_required: false
+        steps:
+          - action: "Passively scan manufacturer-specific advertisement data for company ID 0x06D5."
+            actor: "client"
+            expect: "A payload beginning 00 04, 00 06, or 00 08."
+          - action: "Require the exact accepted length for that type, retain the device ID as two opaque bytes, and decode all multibyte measurement fields little-endian."
+            actor: "client"
+            expect: "Temperature, humidity, and (type 08 only) CO2 values follow the exact rational conversions in protocol_details."
+          - action: "Continue across advertisement gaps without substituting values; a connected gadget stops advertising until its client disconnects."
+            actor: "client"
+    factory_reset:
+      applicable: "unknown"
+      confidence: "low"
+      effect: >
+        No family-wide factory-reset procedure or effect is established.
+        Changing a supported logger interval erases logged samples, but that is
+        a destructive settings write, not a factory reset.
+      description: >
+        Do not generalize a board-specific reboot, OTA, settings, or history
+        operation into a reset. No candidate physical reset is published here.
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        These gadgets join no Wi-Fi network and passive clients hold no bond.
+        Resume scanning with a new phone. For connected history, disconnect the
+        previous central first; any product-specific bond requirement remains
+        unestablished below.
+    credentials:
+      wifi_passphrase_protection: "not_applicable"
+      stored_on_device: []
+      issued_to_client: []
+      notes: "No credential is needed for the documented passive path; no family-wide GATT credential is claimed."
+  pairing:
+    required: "unknown"
+    confidence: "low"
+    security_mode: "unknown"
+    bonding: "unknown"
+    exclusivity:
+      single_connection: true
+      single_bond: "unknown"
+      recovery: >
+        Close or disconnect the other GATT client and scan again after the
+        gadget resumes advertising. Do not perform an OTA/reboot write to make
+        a device reappear.
+    enter_pairing_mode:
+      required: "unknown"
+      notes: "No family-wide pairing-mode procedure is established; passive reception does not enter pairing at all."
+    unpair:
+      supported: "unknown"
+      notes: "No family-wide bond-clearing procedure is established."
+    notes: >
+      Pairing is definitely unnecessary for passive advertisements. It is not
+      honest to extend that answer to every product's GATT, settings, or OTA
+      surface: current app behavior is product/firmware-specific and no
+      pairing operation was attempted. One connected central at a time is the
+      documented family behavior.
+
+services:
+  - uuid: "0000180a-0000-1000-8000-00805f9b34fb"
+    name: "Device Information (generation-dependent)"
+    notes: >
+      Published for the newer gadget generations, but optional in practice:
+      the current Arduino library's setup path does not create this service.
+      Discover characteristics instead of assuming their presence. Strings are
+      device-specific; no serial or address from a research unit is recorded.
+    characteristics:
+      - uuid: "00002a29-0000-1000-8000-00805f9b34fb"
+        name: "Manufacturer Name"
+        properties: ["read"]
+        notes: "String; Sensirion identifies the manufacturer as Sensirion."
+      - uuid: "00002a24-0000-1000-8000-00805f9b34fb"
+        name: "Model Number"
+        properties: ["read"]
+        notes: "Device-specific string; use this rather than the opaque advertisement ID when available."
+      - uuid: "00002a25-0000-1000-8000-00805f9b34fb"
+        name: "Serial Number"
+        properties: ["read"]
+        notes: "String on generations that implement it; current documentation derives it from the last two address bytes."
+      - uuid: "00002a26-0000-1000-8000-00805f9b34fb"
+        name: "Firmware Revision"
+        properties: ["read"]
+        notes: "Device-specific major.minor.patch string on current implementations."
+      - uuid: "00002a23-0000-1000-8000-00805f9b34fb"
+        name: "System ID"
+        properties: ["read"]
+        format:
+          - offset: 0
+            length: 6
+            name: "system_id_bytes"
+            type: "bytes"
+            notes: "Six address-derived bytes; display only, never publish an owner's value as an example."
+  - uuid: "0000180f-0000-1000-8000-00805f9b34fb"
+    name: "Battery (generation-dependent)"
+    notes: >
+      Optional: the Arduino library creates it only when the gadget enables it.
+      The common denominator is a read; current web definitions also list
+      notifications on some products.
+    characteristics:
+      - uuid: "00002a19-0000-1000-8000-00805f9b34fb"
+        name: "Battery Level"
+        properties: ["read"]
+        format:
+          - offset: 0
+            length: 1
+            name: "battery_percent"
+            type: "uint8"
+            unit: "%"
+            device_class: "battery"
+  - uuid: "00008000-b38d-4985-720e-0f993a68ee41"
+    name: "Data Logger (newer generation only)"
+    notes: >
+      Present only on newer gadgets that expose it. The current public table
+      explicitly excludes the Smart Humigadget / SHT3x legacy gadget despite a
+      broad 'all devices' label on individual rows. Do not offer this service
+      for the separate SHT31 Smart Gadget spec.
+
+      Full-history download needs no requested-count write: read metadata as
+      needed, subscribe to 00008004-…, and accept a header followed by sample
+      packets. The 2022 PDF says notifications; the current Arduino source
+      sends indications. The exact Arduino header/sample framing is under
+      protocol_details.logger_generations.
+    characteristics:
+      - uuid: "00008001-b38d-4985-720e-0f993a68ee41"
+        name: "Logging Interval"
+        properties: ["read", "write"]
+        notes: >
+          uint32 little-endian milliseconds. The 2022 PDF exposed read only;
+          current definitions and Arduino source expose read/write. Check the
+          discovered properties. A successful current-generation write erases
+          all logged samples.
+        format:
+          - offset: 0
+            length: 4
+            name: "logging_interval_ms"
+            type: "uint32"
+            endianness: "little"
+            unit: "ms"
+        commands:
+          set_logging_interval_ms:
+            description: "Set the logging interval on a generation whose discovered characteristic is writable; current implementations erase history on change."
+            verification: "reported"
+            advanced: true
+            advanced_reason: "Changes the sampling cadence and erases all locally buffered history on current implementations. Download wanted history first; PDF-generation devices may reject the write."
+            template: ["{interval_ms}"]
+            parameters:
+              interval_ms:
+                type: "uint32"
+                endianness: "little"
+                min: 0
+                max: 4294967295
+                unit: "ms"
+                description: "Requested interval in milliseconds. No family-wide valid range or zero-value behavior is established; read back the accepted value."
+      - uuid: "00008002-b38d-4985-720e-0f993a68ee41"
+        name: "Available Samples"
+        properties: ["read"]
+        format:
+          - offset: 0
+            length: 2
+            name: "available_sample_count"
+            type: "uint16"
+            endianness: "little"
+            unit: "samples"
+      - uuid: "00008003-b38d-4985-720e-0f993a68ee41"
+        name: "Requested Samples (generation-specific width)"
+        properties: ["write"]
+        notes: >
+          OPTIONAL partial-download control; no command is declared because
+          there is no safe universal write. The 2022 PDF specifies a write-only
+          uint16. The current web table says read/write uint16. The current
+          Arduino write handler instead consumes four little-endian bytes.
+          Omitting this write downloads all available samples. If a bounded
+          download is needed, establish the exact generation first; newer
+          counts select the most recent samples and omit older ones. Do not
+          rely on a read-back: it is not common to all generations.
+      - uuid: "00008004-b38d-4985-720e-0f993a68ee41"
+        name: "Data Transfer"
+        properties: ["notify", "indicate"]
+        role: "notify"
+        notes: >
+          Twenty-byte transfer frames. Subscribing starts the download; there
+          is no separate universal start write. The PDF and current source
+          agree on this UUID. The current web table accidentally repeats 8003
+          for Data Transfer; that duplicate is a publication defect, not an
+          alias to write. Select the delivery exposed by the discovered
+          generation: notifications (CCCD 01 00) where offered, and indications
+          (CCCD 02 00) on current Arduino firmware, which delivers indications
+          even though the PDF describes notifications.
+
+payload_formats:
+  SensirionPassiveAdvertisement:
+    description: >
+      Manufacturer-data VALUE after the two-byte company ID. The first two
+      payload bytes are advertisement type 00 and the sample type. See
+      protocol_details.advertisement_formats for the executable offsets,
+      lengths, endianness, and exact rational conversions.
+    fields:
+      - index: 0
+        name: "advertisement_type"
+        description: "Must be 0x00 for all three formats."
+      - index: 1
+        name: "sample_type"
+        description: "0x04 SHT3x, 0x06 SHT4x, or 0x08 MyCO2."
+      - index: 2
+        name: "device_id"
+        description: "Two opaque bytes; retain as hex, never as a model or a numeric tick field."
+      - index: 4
+        name: "temperature_ticks"
+        description: "uint16 LE; T(C) = -45 + 175 * ticks / 65535."
+      - index: 6
+        name: "humidity_ticks"
+        description: "uint16 LE; types 04/08 use 100 * ticks / 65535 percent, type 06 uses -6 + 125 * ticks / 65535 percent."
+      - index: 8
+        name: "co2_ppm"
+        description: "Type 08 only: uint16 LE directly in ppm, with no scaling."
+    parse_rules:
+      - "Types 04 and 06 require exactly 8 bytes after the company ID; type 08 accepts exactly 10 or 12 bytes."
+      - "For type 08, bytes 10-11 are reserved and ignored when present; current definitions permit omitting them, while the 2022 PDF shows them."
+      - "Do not round or clamp as part of wire decoding. Display rounding and physical validity are separate decisions."
+      - "Do not use the two-byte ID to select a model or to join readings across changing addresses."
+    example: "00 08 10 32 00 60 55 55 f4 01 00 00"
+  ArduinoLoggerHeader:
+    description: "The first 20-byte transfer frame in the current Arduino generation; offsets are source-derived, not claimed for every PDF device."
+    fields:
+      - index: 4
+        name: "download_sample_type"
+        description: "uint16 LE; 0 SHT3x, 5 SHT4x, 7 legacy MyCO2 with reserved word, or 9 current MyCO2."
+      - index: 6
+        name: "interval_ms"
+        description: "uint32 LE milliseconds between samples."
+      - index: 10
+        name: "age_of_latest_sample_ms"
+        description: "uint32 LE milliseconds from the latest stored sample to header construction."
+      - index: 14
+        name: "download_sample_count"
+        description: "uint16 LE number of samples in this transfer."
+    parse_rules:
+      - "The first frame is the header. Current source zero-initializes bytes 0-3 and 16-19; treat them as reserved."
+      - "Subsequent frames carry int16 LE sequence at offset 0 (starting at 1) and sample bytes at offset 2, padded to 20 bytes."
+      - "Samples are emitted oldest-to-newest within the selected range. For zero-based sample i of download_sample_count N, timestamp_ms = header_received_epoch_ms - age_of_latest_sample_ms - (N - 1 - i) * interval_ms. Host reception time is an approximation that omits radio latency."
+    example: "00 00 00 00 09 00 60 ea 00 00 30 75 00 00 03 00 00 00 00 00"
+
+protocol_details:
+  company_id: 1749
+  company_id_hex: "0x06D5"
+  advertisement_offsets_exclude_company_id: true
+  connection_behavior:
+    advertising_during_gatt_connection: false
+    visible_to_other_clients_while_connected: false
+    passive_reader_rule: "Tolerate the connection gap, retain the last measurement as stale rather than zero, and resume after disconnect."
+    verification: "reported"
+  generation_exclusions:
+    smart_humigadget:
+      newer_logger_service_supported: false
+      separate_spec: "sensirion-sht31-smart-gadget"
+  advertisement_formats:
+    type_4:
+      family: "SHT3x-based newer gadgets; not the SHT31 Smart Humigadget"
+      prefix_hex: "00 04"
+      lengths: [8]
+      fields:
+        - {name: "device_id", offset: 2, length: 2, encoding: "opaque_hex", verification: "reported"}
+        - {name: "temperature_ticks", offset: 4, length: 2, type: "uint16", endianness: "little"}
+        - {name: "humidity_ticks", offset: 6, length: 2, type: "uint16", endianness: "little"}
+      conversions:
+        temperature_c: "-45 + 175 * temperature_ticks / 65535"
+        humidity_percent: "100 * humidity_ticks / 65535"
+    type_6:
+      family: "SHT40 Gadget and SHT43 DemoBoard"
+      prefix_hex: "00 06"
+      lengths: [8]
+      fields:
+        - {name: "device_id", offset: 2, length: 2, encoding: "opaque_hex", verification: "reported"}
+        - {name: "temperature_ticks", offset: 4, length: 2, type: "uint16", endianness: "little"}
+        - {name: "humidity_ticks", offset: 6, length: 2, type: "uint16", endianness: "little"}
+      conversions:
+        temperature_c: "-45 + 175 * temperature_ticks / 65535"
+        humidity_percent: "-6 + 125 * humidity_ticks / 65535"
+    type_8:
+      family: "MyCO2 / SCD4x CO2 Gadget"
+      status: "Deprecated by current definitions, which recommend type 10 for new designs; retained for existing units."
+      prefix_hex: "00 08"
+      lengths: [10, 12]
+      fields:
+        - {name: "device_id", offset: 2, length: 2, encoding: "opaque_hex", verification: "reported"}
+        - {name: "temperature_ticks", offset: 4, length: 2, type: "uint16", endianness: "little"}
+        - {name: "humidity_ticks", offset: 6, length: 2, type: "uint16", endianness: "little"}
+        - {name: "co2_ppm", offset: 8, length: 2, type: "uint16", endianness: "little", unit: "ppm", scale: 1}
+        - {name: "reserved", offset: 10, length: 2, required: false, ignore: true}
+      conversions:
+        temperature_c: "-45 + 175 * temperature_ticks / 65535"
+        humidity_percent: "100 * humidity_ticks / 65535"
+        co2_ppm: "co2_ppm"
+  logger_generations:
+    pdf_2022_v1_0_1:
+      service: "00008000-b38d-4985-720e-0f993a68ee41"
+      interval: {access: "read", type: "uint32", endianness: "little", unit: "ms"}
+      available_samples: {access: "read", type: "uint16", endianness: "little", unit: "samples"}
+      requested_samples: {access: "write", type: "uint16", endianness: "little", unit: "samples"}
+      data_transfer: {uuid: "00008004-b38d-4985-720e-0f993a68ee41", access: "notify", frame_bytes: 20}
+      requested_count_omitted: "Download all samples; no requested-count write is needed."
+    current_web_2026_04:
+      source_commit: "423a74c7adb593e7880387a6f0f782734363c19c"
+      interval: {access: "read/write", side_effect: "Changing it removes logged samples."}
+      requested_samples: {access: "read/write", declared_type: "uint16"}
+      publication_defects:
+        - "Data Transfer is printed with the Requested Samples UUID 8003; the PDF and Arduino implementation use 8004."
+        - "The Data Logger rows say all devices while the service application note excludes Smart Humigadget; the exclusion wins."
+        - "The relative-humidity row's uint8 label does not describe the legacy float32 firmware; use the separate SHT31 spec."
+      type_8_status: "Deprecated in favor of advertisement type 10; its reserved two bytes may be omitted."
+    arduino_1_5_0:
+      source_commit: "9c1660405aee63024f8decf38c8f9d4447e41f91"
+      interval: {access: "read/write", type: "uint32", endianness: "little", unit: "ms", write_clears_history: true}
+      requested_samples: {access: "write", handler_width_bytes: 4, handler_endianness: "little", note: "Differs from the uint16 document tables; deliberately no universal command."}
+      data_transfer: {uuid: "00008004-b38d-4985-720e-0f993a68ee41", delivery: "indicate", frame_bytes: 20}
+      header:
+        length: 20
+        fields:
+          - {name: "reserved_0", offset: 0, length: 4, source_value: 0}
+          - {name: "download_sample_type", offset: 4, type: "uint16", endianness: "little"}
+          - {name: "interval_ms", offset: 6, type: "uint32", endianness: "little", unit: "ms"}
+          - {name: "age_of_latest_sample_ms", offset: 10, type: "uint32", endianness: "little", unit: "ms"}
+          - {name: "download_sample_count", offset: 14, type: "uint16", endianness: "little", unit: "samples"}
+          - {name: "reserved_16", offset: 16, length: 4, source_value: 0}
+      sample_packet:
+        length: 20
+        sequence: {offset: 0, type: "int16", endianness: "little", first_value: 1}
+        sample_data_offset: 2
+        sample_data_capacity_bytes: 18
+        unused_bytes: "zero padding"
+      ordering: "oldest_to_newest"
+      timestamp_rule: "For zero-based transferred sample i of N, timestamp_ms = header_received_epoch_ms - age_of_latest_sample_ms - (N - 1 - i) * interval_ms."
+      download_samples:
+        type_0:
+          family: "SHT3x"
+          wire_type_hex: "00 00"
+          sample_bytes: 4
+          samples_per_packet: 4
+          fields:
+            - {name: "temperature_ticks", offset: 0, type: "uint16", endianness: "little"}
+            - {name: "humidity_ticks", offset: 2, type: "uint16", endianness: "little"}
+          conversions: {temperature_c: "-45 + 175 * temperature_ticks / 65535", humidity_percent: "100 * humidity_ticks / 65535"}
+        type_5:
+          family: "SHT4x"
+          wire_type_hex: "05 00"
+          sample_bytes: 4
+          samples_per_packet: 4
+          fields:
+            - {name: "temperature_ticks", offset: 0, type: "uint16", endianness: "little"}
+            - {name: "humidity_ticks", offset: 2, type: "uint16", endianness: "little"}
+          conversions: {temperature_c: "-45 + 175 * temperature_ticks / 65535", humidity_percent: "-6 + 125 * humidity_ticks / 65535"}
+        type_7:
+          family: "MyCO2, deprecated"
+          wire_type_hex: "07 00"
+          sample_bytes: 8
+          samples_per_packet: 2
+          fields:
+            - {name: "temperature_ticks", offset: 0, type: "uint16", endianness: "little"}
+            - {name: "humidity_ticks", offset: 2, type: "uint16", endianness: "little"}
+            - {name: "co2_ppm", offset: 4, type: "uint16", endianness: "little", unit: "ppm"}
+            - {name: "reserved", offset: 6, length: 2, ignore: true}
+          conversions: {temperature_c: "-45 + 175 * temperature_ticks / 65535", humidity_percent: "100 * humidity_ticks / 65535", co2_ppm: "co2_ppm"}
+        type_9:
+          family: "MyCO2, current"
+          wire_type_hex: "09 00"
+          sample_bytes: 6
+          samples_per_packet: 3
+          fields:
+            - {name: "temperature_ticks", offset: 0, type: "uint16", endianness: "little"}
+            - {name: "humidity_ticks", offset: 2, type: "uint16", endianness: "little"}
+            - {name: "co2_ppm", offset: 4, type: "uint16", endianness: "little", unit: "ppm"}
+          conversions: {temperature_c: "-45 + 175 * temperature_ticks / 65535", humidity_percent: "100 * humidity_ticks / 65535", co2_ppm: "co2_ppm"}
+          publication_note: "The 2022 PDF's type-9 diagram misprints 0x0002; the current public type table confirms 0x0009."
+  test_vectors:
+    provenance: "All IDs and packets are invented for this spec. Expected temperature/humidity strings are exact rational values, not rounded display values."
+    passive:
+      - name: "type_4_invented"
+        payload_hex: "00 04 a5 5a 34 12 cd ab"
+        device_id_hex: "a55a"
+        temperature_ticks: 4660
+        humidity_ticks: 43981
+        temperature_c: "-426715/13107"
+        temperature_c_approx: -32.55626764324407
+        humidity_percent: "879620/13107"
+        humidity_percent_approx: 67.11070420386054
+      - name: "type_6_invented"
+        payload_hex: "00 06 5a a5 ef be 57 13"
+        device_id_hex: "5aa5"
+        temperature_ticks: 48879
+        humidity_ticks: 4951
+        temperature_c: "373650/4369"
+        temperature_c_approx: 85.52300297550927
+        humidity_percent: "45133/13107"
+        humidity_percent_approx: 3.443427176317998
+      - name: "type_8_invented"
+        payload_hex: "00 08 10 32 00 60 55 55 f4 01 00 00"
+        device_id_hex: "1032"
+        temperature_ticks: 24576
+        humidity_ticks: 21845
+        co2_ppm: 500
+        temperature_c: "90115/4369"
+        temperature_c_approx: 20.626001373311972
+        humidity_percent: "100/3"
+        humidity_percent_approx: 33.333333333333336
+    arduino_timestamp:
+      header_received_epoch_ms: 1700001233456
+      age_of_latest_sample_ms: 2500
+      interval_ms: 60000
+      download_sample_count: 3
+      sample_index: 0
+      expected_timestamp_ms: 1700001110956
+
+entities:
+  - platform: "sensor"
+    name: "Temperature"
+    device_class: "temperature"
+    unit: "C"
+    notes: "Passive type 04, 06, or 08 temperature ticks using the exact type-specific conversion; not a legacy GATT value."
+  - platform: "sensor"
+    name: "Humidity"
+    device_class: "humidity"
+    unit: "%"
+    notes: "Passive relative humidity. Type 06 uses the SHT4x -6 + 125/65535 transfer function; do not substitute the SHT3x formula."
+  - platform: "sensor"
+    name: "CO2"
+    device_class: "carbon_dioxide"
+    unit: "ppm"
+    variants: ["SCD4x CO2 Gadget"]
+    notes: "Type 08 uint16 LE directly in ppm, or logger types 07/09 when that generation is implemented."
+
+local_access:
+  status: "native"
+  summary: "Current readings are phone-direct passive BLE; documented newer logger history is direct GATT with no cloud account."
+  covers:
+    - "Company 0x06D5 passive types 00 04, 00 06, and 00 08"
+    - "Generation-scoped 00008000-… logger metadata and full-history transfer"
+    - "Temperature, relative humidity, and MyCO2 CO2"
+  not_covered:
+    - "The legacy SHT31 Smart Humigadget float32/f234 protocol, which has its own spec"
+    - "Advertisement type 10 and every other Sensirion sample type not explicitly listed"
+    - "A universal requested-count write, product-specific pairing/reset, OTA/DFU, calibration, Wi-Fi settings, or cloud export"
+
+cloud:
+  required: false
+  notes: "No cloud service is needed for the documented passive or direct-GATT paths."
+
+evidence:
+  documentation_review: >
+    Reviewed 2026-11-11: Sensirion's August 2022 BLE Communication Protocol
+    1.0.1, current public BLE Services definitions at commit 423a74c7, and
+    official Arduino implementation 1.5.0 at commit 9c166040. Facts are
+    reported from those sources; none is hardware-confirmed here.
+  artifacts:
+    - type: "vendor_documentation"
+      artifact: "Arduino BLE Gadgets BLE Communication Protocol, version 1.0.1, August 2022"
+      url: "https://github.com/akx/sensirion-ble/blob/0c2c04b2c64690c7045c07e2a2dc8253ca1cb4be/reference/Sensirion_BLE_communication_protocol.pdf"
+      description: "Company ID, passive layouts and conversions, original 00008000-… logger, and 20-byte transfer framing."
+    - type: "vendor_documentation"
+      artifact: "Sensirion BLE Services definitions, commit 423a74c7adb593e7880387a6f0f782734363c19c"
+      url: "https://github.com/Sensirion/ble-services/tree/423a74c7adb593e7880387a6f0f782734363c19c/sensirion-ble/src/resources"
+      description: "Current per-type applicability, type-8 deprecation/reserved-byte change, logger side effects, and publication discrepancies."
+    - type: "public_implementation"
+      artifact: "Sensirion arduino-ble-gadget 1.5.0, commit 9c1660405aee63024f8decf38c8f9d4447e41f91"
+      url: "https://github.com/Sensirion/arduino-ble-gadget/tree/9c1660405aee63024f8decf38c8f9d4447e41f91"
+      description: "Company ID emission, current logger header/packet offsets, oldest-first readout, history-clearing interval write, and four-byte requested-count handler."
+    - type: "public_implementation"
+      artifact: "akx/sensirion-ble, commit 0c2c04b2c64690c7045c07e2a2dc8253ca1cb4be"
+      url: "https://github.com/akx/sensirion-ble/tree/0c2c04b2c64690c7045c07e2a2dc8253ca1cb4be"
+      description: "Independent passive parser cross-check and preserved copy of the official PDF; not treated as hardware verification."
+  open_questions: >
+    Exact advertised names and firmware per retail board, physical type-4/6/8
+    captures, per-product GATT security, requested-count behavior on shipping
+    units, and recovery from product-specific OTA modes remain unverified.
+
+remaining_unknowns:
+  - "No hardware was scanned or driven; all protocol behavior is reported from official documents/source and fixture-tested only."
+  - "Exact local names and firmware-to-model mapping must be captured per board; the opaque two-byte ID cannot provide them."
+  - "The current web/PDF/Arduino logger discrepancies need per-generation hardware checks, especially requested-count width and notification versus indication delivery."
+  - "Product-specific pairing, bonding, factory reset, unpairing, and OTA/DFU entry/recovery are not established; no DFU capability is declared."
+  - "Type 10, newer sample families, calibration, and settings/Wi-Fi services are outside the claimed protocol scope."
+
+helpful_urls:
+  - title: "Sensirion BLE Services (current protocol)"
+    url: "https://sensirion.github.io/ble-services/"
+    kind: "vendor_support"
+    description: "Official current interface definitions and the rule that advertising stops while a GATT connection is active."
+  - title: "Sensirion BLE Services source definitions"
+    url: "https://github.com/Sensirion/ble-services/tree/423a74c7adb593e7880387a6f0f782734363c19c/sensirion-ble/src/resources"
+    kind: "vendor_support"
+    description: "Pinned official YAML for advertisement/download sample types and GATT service properties."
+  - title: "Arduino BLE Gadgets BLE Communication Protocol 1.0.1 (PDF)"
+    url: "https://github.com/akx/sensirion-ble/blob/0c2c04b2c64690c7045c07e2a2dc8253ca1cb4be/reference/Sensirion_BLE_communication_protocol.pdf"
+    kind: "manual"
+    description: "Official August 2022 protocol manual for newer Arduino BLE gadgets, including type 04/06/08 and the 00008000-… logger; not the legacy SHT31 user guide."
+  - title: "Sensirion Arduino BLE Gadget implementation"
+    url: "https://github.com/Sensirion/arduino-ble-gadget/tree/9c1660405aee63024f8decf38c8f9d4447e41f91"
+    kind: "implementation"
+    description: "Official 1.5.0 reference implementation used to resolve current logger framing and document source/PDF differences."
+  - title: "Independent Sensirion passive parser"
+    url: "https://github.com/akx/sensirion-ble/tree/0c2c04b2c64690c7045c07e2a2dc8253ca1cb4be"
+    kind: "implementation"
+    description: "Community parser cross-check for types 04, 06, and 08; its SHT3x path is explicitly untested upstream."

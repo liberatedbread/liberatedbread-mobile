@@ -62,7 +62,8 @@ device:
     FAMILY BOUNDARY — do not conflate. Two older/other "LED helmet display"
     ecosystems exist: (1) the LOY family (the LOY PLAY / LOY EYES apps from
     Shenzhen Yanse, BLE service FFF0, popled.cn cloud) —
-    a different OEM with a different protocol; (2) the Shining Mask /
+    a different OEM with a different protocol, whose B3 tail-light/helmet-mount
+    capture is specified separately in loypro-led-display.yaml; (2) the Shining Mask /
     Shining Glasses / Magic Display family (Quintic QPP platform,
     AES-128-ECB encrypted 16-byte ASCII commands; see shining-mask.yaml,
     shining-glasses.yaml, magic-display.yaml) — also different despite the

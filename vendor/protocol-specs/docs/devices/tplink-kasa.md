@@ -30,8 +30,9 @@ operations are not covered by that manual confirmation.
     TP-Link the company is alive, so this is `manufacturer_status: active`;
     what is endangered is the protocol. HS100 hardware v4 on firmware 1.1.0
     (~2020) **closed port 9999**, and newer hardware (EP25, KP125M, the whole
-    Tapo line) moved to the encrypted KLAP/AES protocol with cloud-tied
-    credentials — out of scope here. Keep a working unit offline from vendor
+    Tapo line) moved to encrypted HTTP transports — KLAP, securePassthrough
+    ("AES") or, newest, TPAP — authenticated with the bound account's
+    credentials; out of scope here. Keep a working unit offline from vendor
     firmware updates to preserve the API.
 
 !!! danger "No authentication on a mains relay"
@@ -85,6 +86,12 @@ what a client matches to decide which entities this unit actually has (see
 | `{"system":{"set_relay_state":{"state":0}}}` | Turn the outlet **off**. |
 | `{"emeter":{"get_realtime":null}}` | Metering models only (HS110, KP115) — instantaneous voltage/current/power/total. The state poll for the energy sensors below. |
 | `netif.set_stainfo` | Provisioning: join the plug to a Wi-Fi network. |
+| `{"system":{"reboot":{"delay":1}}}` | Reboot after the delay (seconds). |
+| `{"system":{"reset":{"delay":1}}}` | **Factory reset** over the LAN — no authentication, so anything on the network can do it. Advanced in the spec. |
+| `{"system":{"download_firmware":{"url":"…"}}}`, then `get_download_state` and `flash_firmware` | **Firmware update.** The Kasa app runs updates through this local call, handing over the URL the cloud offered. Advanced in the spec: a vendor image is what closed port 9999 on HS100 hw v4. |
+
+Large replies (an HS300's `get_sysinfo`, a schedule dump) can exceed 64 KiB;
+the Kasa app's own framer drops those, so don't copy its limit.
 
 ## Energy monitoring (HS110, KP115)
 
@@ -149,6 +156,9 @@ costs:
 
 - **Update images** come from `download.tplinkcloud.com` over plain HTTP —
   block it to stop updates while keeping off-LAN control through the app.
+  The cloud only supplies the URL; the app passes it to the plug with the
+  local `download_firmware` command, so the firewall rule is still the
+  stronger block.
 - **The cloud link** is `n-devs.tplinkcloud.com` on current firmware
   (`devs.tplinkcloud.com`, TCP 50443, on 2016-era units). Ask the unit which:
   `{"cnCloud":{"get_info":null}}` returns it as `server` (bulbs: the

@@ -6,6 +6,9 @@
 #   - Fusseldieb/ttlock-reverse-engineering (community RE of the BLE frame/crypto).
 #   - nv1t "The weird BLE-Lock" (cloud-side security research).
 #   - ttlock/Android_SDK_Demo (the official closed SDK, for the feature surface).
+#   - roquerodrigo/ha-ttlock-ble @ 06c2a85 (maintained local-BLE Home Assistant
+#     integration: per-lock credential set, frame-header defaults, advert state).
+#   - kind3r/hass-addons @ 46a4be3 (legacy local pair/reset add-on; unmaintained).
 
 device:
   name: "TTLock / Sciener BLE Locks (rebadged smart deadbolts, padlocks, cabinet locks)"
@@ -17,8 +20,12 @@ device:
       Not driven against hardware by this project. The GATT UUIDs, frame layout
       (magic 7F 5A, CRC-8/MAXIM, CRLF), and AES-CBC/PKCS5 crypto are from
       Fusseldieb/ttlock-reverse-engineering; the cloud-side vulnerabilities from
-      nv1t's teardown. The community RE authors report the AES key-exchange is
-      not fully solved (residual padding errors), so treat control as partial.
+      nv1t's teardown. The Fusseldieb RE authors report their AES key-exchange
+      is not fully solved (residual padding errors), but two open-source
+      implementations report working local control: kind3r/ttlock-sdk-js
+      (init/lock/unlock of V3 locks) and roquerodrigo/ha-ttlock-ble
+      (lock/unlock, state, battery and push events from provisioned keys).
+      Those are third-party success reports, not runs by this project.
   protocol: "ble"
   category: "lock"
   notes: >
@@ -27,8 +34,20 @@ device:
     active and ships a closed Android/iOS SDK and a cloud, but does NOT publish
     the BLE wire protocol; the community has partially reverse-engineered it.
     Local control is possible: the cloud is only for key/passcode issuance, and
-    once a client holds the lock's per-lock AES key (obtained after pairing) it
-    can unlock over BLE offline.
+    once a client holds the lock's per-lock credential set it can lock and
+    unlock over BLE offline. That set is more than the AES key (reported, from
+    roquerodrigo/ha-ttlock-ble's account-free manual-key path): the lock MAC,
+    the 16-byte AES key, the numeric unlock key (as issued at initialisation,
+    not the obfuscated form the vendor cloud returns), an optional numeric
+    admin passcode, and the five frame-header values below. Lock/unlock needs
+    no admin passcode, but passcode management and the sound setting do, and a
+    hand-entered key often lacks it -- so basic actuation working is not proof
+    that admin features will. The cloud's other per-key fields (user id,
+    validity window) never reach the wire: that integration sends its
+    user-time check with a zeroed user id and the firmware's permanent-key
+    date values. The same integration offers Schlage Breeze accounts as a
+    second TTLock-platform app at sign-in; that does not establish that every
+    Breeze lock works on the manual-key path.
 
     GATT: command writes on characteristic 0000fff2 (write-without-response),
     status notifications on 0000fff4; battery is the standard 0x2A19 under 0x180F.
@@ -41,7 +60,13 @@ device:
     the fixed magic 7F 5A; byte 2 protocol type, byte 3 sub-version, byte 4
     scene, bytes 5-6 groupId, bytes 7-8 orgId, byte 9 command id, byte 10
     encryption flag, byte 11 data length. Tail = 1 byte CRC-8/MAXIM over
-    header+payload, then CRLF (0D 0A) terminating every packet.
+    header+payload, then CRLF (0D 0A) terminating every packet. The header
+    values are per lock: ha-ttlock-ble defaults to protocol type 5,
+    sub-version 3, scene 2, groupId 1, orgId 1 and describes those as right
+    for most V3 locks, not for every TTLock variant (reported). The lock
+    advertises its own protocol type, sub-version and scene, so a client can
+    read those three from a scan and check them before connecting; a wrong
+    value shows up as a lock that never answers.
 
     CRYPTO: data is AES/CBC/PKCS5, 16-byte blocks, with the IV equal to the key
     (16 bytes). A pre-AES XOR obfuscation is applied per byte using a 256-entry
@@ -88,6 +113,21 @@ device:
         REVERSED byte order (e.g. a name ending "_abcdef" corresponds to MAC
         ...ef:cd:ab). Many rebadged models advertise an "S2xx" style name.
 
+        Manufacturer data carries lock state, so status can be tracked
+        passively with no connection (reported, roquerodrigo/ha-ttlock-ble):
+        protocol type, sub-version and scene (the first three frame-header
+        values), the bolt position and battery level, an indication that
+        unsynced operation-log records are waiting, and the lock's own MAC,
+        which that integration checks against the advertiser address before
+        trusting a payload. A dormant lock advertises without a usable bolt
+        position (battery only). The lock stops advertising while a session
+        is held open. The byte offsets live in that project's separate
+        ttlock-ble SDK and are not recorded here yet. Its Bluetooth matcher
+        keys on manufacturer ID 773 (0x0305); hypothesis, not checked: that
+        is not a SIG company assignment but protocol type 5 / sub-version 3
+        sitting in the company-ID slot (05 03 on the wire), so it would miss
+        locks on other protocol versions -- do not use it as a sole matcher.
+
   discovery:
     methods:
       - type: "ble_scan"
@@ -111,7 +151,11 @@ device:
       Pairing is done through the TTLock app, which registers the lock to a cloud
       account and provisions the per-lock AES key material; passcodes/eKeys are
       issued through the cloud but can be used offline. A third-party client needs
-      the lock's aesKeyArray (from a successful pairing) to drive it locally.
+      the lock's aesKeyArray and unlock key (from a successful pairing; plus the
+      admin passcode for admin operations) to drive it locally. A lock that was
+      initialised locally can be driven with those values alone and no TTLock
+      account (ha-ttlock-ble's manual-key path, reported); that path accepts
+      the output of an initialisation, it does not perform one.
     methods:
       - type: "ble_direct"
         verified: false
@@ -194,9 +238,14 @@ device:
         - "Issued passcodes / eKeys"
       issued_to_client:
         - "The per-lock AES key (after successful pairing)"
+        - "The numeric unlock key, needed for lock/unlock"
+        - "The numeric admin passcode (admin key holders only), needed for passcode/fingerprint/card management and settings"
       notes: >
         The per-lock AES key gates control; it is provisioned at pairing (not a
-        global constant). There is no Wi-Fi on the lock itself (a separate TTLock
+        global constant). Lock/unlock also needs the unlock key, and admin
+        operations the admin passcode (ha-ttlock-ble's manual-key form,
+        reported). All three are live per-lock secrets: keep them out of logs,
+        diagnostics and examples. There is no Wi-Fi on the lock itself (a separate TTLock
         Wi-Fi gateway exists). See the security_advisory: the cloud that issues
         keys/passcodes has had severe public flaws.
 
@@ -264,7 +313,13 @@ device:
       that key. No cloud is needed for this: ttlock-sdk-js (the basis of a
       Home Assistant add-on) initialises, locks and unlocks V3-protocol
       locks entirely over BLE, though its author reports initialisation
-      sometimes fails and has to be repeated. The vendor cloud matters only in the stock app's world, where it
+      sometimes fails and has to be repeated. Treat that add-on
+      (kind3r/hass-addons) as historical evidence, not a maintained base: its
+      README says the author cannot maintain it, citing differently-behaving
+      TTLock variants and unstable BLE, and its last commit is 2022-07-26.
+      The maintained roquerodrigo/ha-ttlock-ble does not initialise locks; it
+      consumes keys from the vendor cloud or from a prior local
+      initialisation. The vendor cloud matters only in the stock app's world, where it
       stores the lock data after pairing and issues eKeys and passcodes to
       other users. Possession of the lock is the authorisation — whoever
       initialises it first owns it — which is why a reset lock should not
@@ -277,8 +332,18 @@ features:
       transport: "ble"
       image:
         signing: "unknown"
-        source: "unknown"
-        notes: "A stock legacy Nordic bootloader takes unsigned images with a CRC-16 init packet; whether Sciener changed that is not established."
+        source: "vendor_cloud"
+        notes: >
+          A stock legacy Nordic bootloader takes unsigned images with a CRC-16
+          init packet; whether Sciener changed that is not established. Images
+          are served per lock (reported, static analysis of the official app
+          9.9.260902): its update screen asks the vendor cloud for update
+          metadata keyed by the lock ID plus the lock's model, hardware and
+          firmware revisions, then downloads whatever URL comes back for that
+          lock. No owner-independent public image or image URL has been
+          located -- neither the vendor SDK demo nor either open-source
+          integration ships one -- and a generic "TTLock firmware" file would
+          be unsafe across the platform's many model and hardware revisions.
       enter:
         how: "unknown"
         notes: >
@@ -375,3 +440,61 @@ helpful_urls:
     kind: "manual"
     description: >
       A sibling model, useful because the rebadges vary in which controls they expose.
+  - title: "roquerodrigo/ha-ttlock-ble"
+    url: "https://github.com/roquerodrigo/ha-ttlock-ble"
+    description: "Maintained Home Assistant integration: local BLE lock/unlock, state, battery and push events from cloud-downloaded or hand-entered per-lock keys."
+
+remaining_unknowns:
+  - "Account-free initialisation of an arbitrary factory-state lock by a maintained tool: ttlock-sdk-js reports it for V3 locks, but the add-on built on it says it is unmaintained; ha-ttlock-ble only consumes keys from a prior initialisation."
+  - "Byte offsets of the advertised state (bolt position, battery, records-pending, protocol header values, MAC); they live in the ttlock-ble SDK, which was not inspected."
+  - "Whether manufacturer ID 773 (0x0305) is really protocol type 5 / sub-version 3 in the company-ID slot, and what non-V3 locks advertise there."
+  - "Which locks the V3 frame-header defaults (5, 3, 2, 1, 1) do not fit, and what they use instead."
+  - "Whether Schlage Breeze locks accept the manual-key path; they are known only as a second TTLock-platform account type."
+  - "A safe, generic factory-reset procedure across rebrands; the two procedures above are model-specific and unexecuted."
+  - "Certificate pinning in the current official app (not dynamically tested), and whether the cloud flaws in the security advisory are patched."
+  - "An owner-independent firmware image: none located (not proven not to exist); lock-side image signing is unknown."
+
+evidence:
+  artifacts:
+    - type: "community_repo"
+      url: "https://github.com/Fusseldieb/ttlock-reverse-engineering"
+      description: "Community RE: GATT UUIDs and gatttool dump, the 7F 5A frame, CRC-8/MAXIM + CRLF tail, AES-CBC (IV = key) crypto. Its authors report the key exchange is not fully solved."
+    - type: "public_research"
+      url: "https://nv1t.github.io/blog/the-weired-ble-lock/"
+      description: "Cloud-side teardown behind the security_advisory."
+    - type: "vendor_documentation"
+      url: "https://github.com/ttlock/Android_SDK_Demo/blob/master/README.en.md"
+      description: "Official closed-core SDK demo: confirms lock, gateway and DFU client APIs exist; publishes no wire format and no firmware image."
+    - type: "public_implementation"
+      artifact: "roquerodrigo/ha-ttlock-ble @ 06c2a8548342092ac1bc76b3d6ce0d8eabf3e660 (2026-11-09)"
+      url: "https://github.com/roquerodrigo/ha-ttlock-ble/tree/06c2a8548342092ac1bc76b3d6ce0d8eabf3e660"
+      description: >
+        Source review 2026-11-11 (custom_components/ttlock_ble/manual_key.py,
+        config_flow.py, advertisement.py, README). Established in code: the
+        cloud-vs-manual setup choice, the manual-key credential set (MAC,
+        16-byte AES key, numeric unlock key, optional admin passcode, five
+        frame-header values with V3 defaults 5/3/2/1/1), the advertisement
+        cross-check of protocol type/version/scene, and that admin-only
+        features need the admin passcode. Upstream-reported only: real
+        lock/event/battery behaviour and the coverage of the V3 defaults. No
+        lock was driven and no key entered; the upstream test suite could not
+        be run offline (a Home Assistant transitive dependency was missing).
+    - type: "community_repo"
+      artifact: "kind3r/hass-addons @ 46a4be3a55afbb23cb06cecd66af78afe89ec0ab (2022-07-26)"
+      url: "https://github.com/kind3r/hass-addons/tree/46a4be3a55afbb23cb06cecd66af78afe89ec0ab"
+      description: >
+        Legacy local pair/reset, credential-management and lock/unlock add-on
+        built on ttlock-sdk-js. Its README says the author cannot maintain it
+        (TTLock variants behave differently; BLE is unstable). The repository
+        is not archived; "unmaintained" is the README's own statement.
+        Historical evidence only; no pair or reset was run.
+    - type: "static_analysis"
+      artifact: "com.tongtongsuo.app 9.9.260902 (TTLock, Hangzhou Sciener Smart Technology)"
+      sha256: "e7fcf00aa7c37f80d24e992f6a532090eb357802c686e4c7cbac6a4bd5764f41"
+      obtained_via: "third-party APK mirror (XAPK), 2026-09"
+      description: >
+        Official app, read 2026-11-11 for the firmware path only: update
+        metadata is requested per lock (lock ID plus model, hardware and
+        firmware revisions) and the image is downloaded from the URL returned,
+        so there is no reusable public image link. No update metadata was
+        requested and no DFU command sent. The sha256 is of the XAPK bundle.

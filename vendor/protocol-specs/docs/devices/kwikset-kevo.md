@@ -40,6 +40,7 @@ characteristic" client pattern does not apply.
 | Model Number | Lock (gen-1): 925-GED1500-MK1; gateway: 924-GED1900-RPU |
 | Chipset | UniKey in-house "HHI BLE MODULE 450-00022-001" (SoC unidentified; 2013-era, TI CC254x / Nordic nRF51822 class) |
 | Radio | BLE single-mode 2402–2480 MHz (lock); gateway adds wired Ethernet — **no WiFi anywhere in the system** |
+| Power | 4 × AA (2nd-gen guide: new non-rechargeable alkalines); light ring shows top two LEDs solid red for low AA cells, bottom LED solid red for a low fob CR2025, side LEDs flashing red for a jammed bolt |
 | FCC ID | Lock: [NUL-MK1](https://fccid.io/NUL-MK1); Kevo Plus gateway ("Router Plugin Unit"): [NUL-924](https://fcc.report/FCC-ID/nul924) |
 
 The lock has two chip antennas ("Latch Side" / "Key Side") implementing the
@@ -266,7 +267,10 @@ and are the most interesting unexplored local surface.
 - Historical cloud-API clients: pykevoplus / aiokevoplus, kevo_ex (GitHub)
 - Verification APK: `com.unikey.kevo` v3.1.1.33967p, md5
   `cbf31ab2a5beb9918d3e246c0855ad2a`, signer cert SHA1
-  `04505561AF11DF80B14BE85B1E13B7593D2A95AB` (genuine UniKey cert)
+  `04505561AF11DF80B14BE85B1E13B7593D2A95AB` (genuine UniKey cert);
+  cross-checked against v2.9.1.21765p (the build NCC Group tested) — protocol
+  constants identical
+- [Kevo 2nd generation installation and user guide (PDF)](https://s7d5.scene7.com/is/content/BDHHI/Kwikset/Tech-Docs/5064452.pdf) — reset, power and light-ring indications
 
 ## Contributors
 

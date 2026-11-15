@@ -6,15 +6,17 @@ smart plugs, ~2015-2018. Same protocol family covers HS103/HS105, KP115 and
 early Kasa bulbs. TP-Link the company is alive, but this plaintext local
 protocol was **abandoned in newer firmware**: HS100 hw v4 with fw 1.1.0
 (~2020) closed port 9999 ("Enhanced total encryption and security"), and newer
-hardware moved to AES/KLAP with cloud-tied credentials.
+hardware moved to encrypted HTTP transports (securePassthrough "AES", KLAP,
+and on the newest firmware TPAP/SPAKE2+), authenticated with the bound
+account's credentials; see the spec's `device.pairing.notes`.
 
 ## Local protocol — fully documented, confirmed
 Reverse engineered by softScheck (blog 2016-07-29, repo
 [softScheck/tplink-smartplug](https://github.com/softScheck/tplink-smartplug)):
 
 - **TCP port 9999**, JSON commands, trivial XOR autokey "encryption"
-  (initial key 0xAB = 171; each ciphertext byte XORed with previous plaintext
-  byte). No authentication at all — commands accepted in any device state.
+  (initial key 0xAB = 171; each plaintext byte is XORed with the previous
+  *ciphertext* byte, the first with 0xAB). No authentication at all — commands accepted in any device state.
 - **Discovery**: XOR-encoded JSON broadcast to UDP 9999; reply contains full
   sysinfo (alias, MAC, model, relay state, RSSI).
 - **Commands** (JSON, nestable): `{"system":{"set_relay_state":{"state":1}}}`,

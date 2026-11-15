@@ -8,8 +8,12 @@
 #     settings (UI defaults, program-to-builder mapping) and settings screen
 #     (clock sync, timer presets, the 12/24-hour flag) — the only public
 #     reverse-engineering of this protocol that could be found
-#   - Instant Pot Smart-60 user manual (manualslib) — pairing, buttons,
-#     one-phone limit
+#   - Instant Pot Smart-60 user manual (manualslib, and a retailer-hosted
+#     PDF re-read 2026-11-01) — pairing, buttons, one-phone limit, BLE 4.0
+#     and its range, electrical rating
+#   - A 2026-11-01 attempt to recover the original app: the one candidate
+#     package id returned nothing from an APK mirror, so no vendor app was
+#     analysed
 #   - News coverage of the Instant Brands Chapter 11 (June 2023)
 #
 # OpenPot's README and its own code disagree in several places (listed in
@@ -45,8 +49,15 @@ device:
       started empty, with the valve set wrong or with the lid off is a burn
       and scald hazard. A client should only offer start commands when the
       user confirms they are at the cooker, and should always offer Cancel.
-      The cooker's own lid and pressure interlocks still apply; nothing here
-      bypasses them.
+      Cancel is the ordinary end-program command, not an emergency stop,
+      and it is untested; in an emergency use the cooker's own controls,
+      pressure release and power as the manual describes. The protocol
+      has no lid-release or pressure-release command, and the lid and
+      pressure readings are monitoring data, not proof that an interlock is
+      satisfied. The cooker's own lid and pressure interlocks still apply;
+      nothing here bypasses them. Do not automate delayed pressure cooking:
+      the only public implementation of a delayed pressure program has a
+      byte-layout bug (remaining_unknowns).
   notes: >
     The Instant Pot Smart (model Smart-60, 6 quart) was Instant Pot's first
     Bluetooth cooker. Its companion app, "Instant Pot Smart Cooker", is
@@ -58,6 +69,11 @@ device:
     the phone with no account or cloud: 20-byte frames on a control
     characteristic start a program, and the cooker notifies its state,
     remaining time, pressure and temperature on another.
+
+    The radio is Bluetooth 4.0 Low Energy with a stated range of 10-15 m
+    (30-45 ft); there is no Wi-Fi. The cooker is rated 120 V, 60 Hz, 1000 W.
+    Instant Brands' later "Instant Connect" / Smart WiFi app and its Wi-Fi
+    cookers are different products and are no evidence for this protocol.
 
     The phone must bond with the cooker first (hold Adjust about 3 s, then
     accept the operating system's pairing prompt), and only one phone can be
@@ -195,9 +211,13 @@ services:
     name: "Cooker control service"
     notes: >
       Command frames go to 0xdab1, state comes back on 0xdab2. Every frame in
-      both directions is 20 bytes, and its last byte makes the sum of all 20
-      bytes 0 modulo 256 (the two's complement of the sum of bytes 0-18).
-      Commands start aa 55 5a 01; telemetry starts aa 55 40 02.
+      both directions is 20 bytes. On a command, the last byte makes the sum
+      of all 20 bytes 0 modulo 256 (the two's complement of the sum of bytes
+      0-18). Telemetry is assumed to carry the same check, but OpenPot never
+      validates it on received frames, so that is unconfirmed: a client
+      should check it and log mismatches rather than drop frames until a
+      capture settles it. Commands start aa 55 5a 01; telemetry starts
+      aa 55 40 02.
 
       COMMAND LAYOUT (OpenPot's code): byte 4 program, byte 5 start mode
       (0x20 now, 0x11 after delay timer 1, 0x12 after delay timer 2), byte 6
@@ -220,7 +240,7 @@ services:
         notes: "OpenPot writes without response. 20-byte command frames; see the service notes for the layout."
         commands:
           cancel:
-            description: "Stop whatever program is running (program 0x0e, every other field zero)."
+            description: "Stop whatever program is running (program 0x0e, every other field zero). The ordinary end-program command, untested; not an emergency stop."
             encoding: "bytes"
             value: [0xaa, 0x55, 0x5a, 0x01, 0x0e, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x98]
             verification: "hypothesis"
@@ -310,7 +330,11 @@ services:
           Temperature is a raw sensor count, converted to degrees through a
           non-linear table that OpenPot publishes in TEMPERATURE.md (about
           25 C at 24, 104 C at 153, saturating at 210 C from 241); it is
-          cited rather than copied.
+          cited rather than copied. The table is not monotonic everywhere;
+          use it as published rather than smoothing it. Fahrenheit is the
+          client's own conversion of the Celsius value; the cooker reports
+          no other unit. The low nibble of the pressure byte (offset 11) is
+          not interpreted by OpenPot; its meaning is unknown.
         format_match:
           offset: 2
           value: 0x40
@@ -430,19 +454,41 @@ entities:
 evidence:
   documentation_review: >
     OpenPot's README, TEMPERATURE.md and its BLE service and activity code
-    were read on 2026-10-11, alongside the Smart-60 manual. No other public
-    reverse-engineering of the cooker was found.
+    were read on 2026-10-11, alongside the Smart-60 manual, and re-read on
+    2026-11-01 at the pinned commit below with a retailer-hosted copy of the
+    manual. No other public reverse-engineering of the cooker was found.
+    The original vendor app was not recovered (see artifacts), so nothing
+    here comes from it.
   open_questions: >
     Everything listed in remaining_unknowns: OpenPot's README and code
     disagree, and no captured frame from a real cooker has been published.
+  artifacts:
+    - type: "public_implementation"
+      artifact: "lizardlab/openpot @ 9c49a3fcf3322e6cf9732ee5cfcc68ff7522c171 (GPL-3.0, 2026-05-20)"
+      url: "https://github.com/lizardlab/openpot"
+      obtained_via: "shallow git clone, 2026-11-01"
+      description: "README, TEMPERATURE.md and the BLE service and main activity code: GATT map, command builders, cancel frame, telemetry offsets, temperature table. Negative findings: received telemetry is never checksum-checked, recipe mode is a stub that is never sent, and the clock is only ever written, never read back."
+    - type: "vendor_documentation"
+      artifact: "Instant Pot Programmable Smartcooker user manual, model Smart-60 (24-page PDF, 3,797,462 bytes)"
+      sha256: "303f59b5b07420e148fac5cc4ee4acccdb5ce7e4dc9570e777f15d4ce059db40"
+      url: "https://images.thdstatic.com/catalog/pdfImages/48/48881aac-b9d8-45f2-8adc-02298ecc7266.pdf"
+      obtained_via: "retailer-hosted PDF, 2026-11-01"
+      description: "Pairing (hold Adjust about 3 s, accept the phone prompt), one phone connected at a time, Pressure 10 s erases all pairings, Adjust 10 s toggles Bluetooth, Bluetooth 4.0 LE at 10-15 m, 120 V / 1000 W / 6 qt. The PDF's metadata title says IP-DUO, but the cover and content are the Smart-60."
+    - type: "static_analysis"
+      artifact: "Original 'Instant Pot Smart Cooker' Android app: not recovered"
+      obtained_via: "APK mirror lookups for the candidate package id com.instantpot.smart, 2026-11-01"
+      description: "Negative finding: the mirror had no version of the candidate id and its direct download URLs returned 404, so the real package id is not established from a manifest and no vendor app was decompiled. The newer Instant Connect app was deliberately not substituted."
 
 remaining_unknowns:
   - "Mode-byte values: README says f0 / b0 / 70; the code uses e0 / 60 / a0 plus 0x10 for high pressure. This spec follows the code."
   - "Time fields: README says BCD; the code uses plain binary for cook time, delay, remaining time and timer presets. This spec follows the code."
-  - "Command byte offsets: README puts the delay at bytes 8-9 and the duration at 10; the code uses delay 7-8 and duration 9-10 (and one code path overwrites the mode byte with a delay, a bug)."
+  - "Command byte offsets: README puts the delay at bytes 8-9 and the duration at 10; the code uses delay 7-8 and duration 9-10. The code's builder for the pressure programs (multigrain, porridge, steam, poultry, chili, meat/stew, soup) writes the delay hours into byte 6 when timer 1 or 2 is selected, overwriting the mode byte it just set; a bug, so delayed pressure programs have no trustworthy layout."
   - "Telemetry offsets: the README diagram puts work mode and remaining time one byte later than the parser reads them, and omits the pressure byte; temperature and heating level agree. This spec follows the parser."
   - "Program 0x06 is unassigned in both sources; Slow Cook is the likely missing program."
-  - "12/24-hour flag polarity."
+  - "12/24-hour flag polarity: the README says 1 = 24-hour; OpenPot's setter writes 0 for 24-hour and its main screen agrees, while its preference reader treats 1 as 24-hour."
+  - "Clock byte order: the README says big-endian; OpenPot writes little-endian and never reads the clock back. This spec's little-endian choice rests on that and on the README example decoding only that way; no capture."
+  - "Whether telemetry frames carry the same check byte as commands (OpenPot never validates it), and what bytes 5-8 and 14-18 of a telemetry frame and the pressure byte's low nibble mean. No error codes are known."
+  - "The original app's package id and any capture of it: no copy of the app was found, so recipe mode (0xdac1) has no working reference."
   - "Characteristic properties come from the README, not a GATT dump; the pairing security mode is inferred."
 
 helpful_urls:
@@ -452,6 +498,14 @@ helpful_urls:
   - title: "Instant Pot standalone company after bankruptcy (Retail Dive)"
     url: "https://www.retaildive.com/news/instant-pot-standalone-company-new-leadership-post-bankruptcy/711981/"
     description: "The appliance business re-emerging as Instant Pot Brands after the 2023 Chapter 11."
+  - title: "Instant Pot Smart-60 user manual (retailer-hosted PDF)"
+    url: "https://images.thdstatic.com/catalog/pdfImages/48/48881aac-b9d8-45f2-8adc-02298ecc7266.pdf"
+    kind: "manual"
+    description: >-
+      The Smart-60 (Instant Pot Smart Bluetooth, 6 qt) user manual as a
+      24-page PDF on a retailer's CDN; its metadata title says IP-DUO but
+      the cover reads Smart-60. Pairing, the one-phone limit, the
+      Pressure/Adjust ten-second holds and the Bluetooth 4.0 range.
   - title: "Instant Pot Smart-60 user manual"
     url: "https://www.manualslib.com/manual/2251041/Instant-Pot-Smart-60.html"
     kind: "manual"

@@ -120,7 +120,7 @@ spec's `device.setup` block; the patterns are explained in
 | [Rabbit Air Purifiers](rabbit-air-purifier.md) | WiFi (UDP 9009) | Complete | BLE-assisted / SoftAP via vendor app (medium) | Rabbit Air (vendor publishes the LAN library) |
 | [Beurer PO60 Pulse Oximeter](beurer-po60-pulse-oximeter.md) | BLE | Spec Available | BLE passkey bonding (medium) | Beurer |
 | [Beurer Series 800 (BM92) Blood Pressure Monitor](beurer-series800-blood-pressure.md) | BLE (standard BP profile) | Spec Available | BLE bonding (medium) | Beurer |
-| [FOREO Peach 2 IPL](foreo-peach-2.md) | BLE | Capture verified (stock app) | None — offline MAC-derived unlock (reported) | FOREO |
+| [FOREO Peach 2 IPL](foreo-peach-2.md) | BLE | Minimally verified (replay; unlock untested) | None — offline MAC-derived unlock (reported); Pro is app-gated only | FOREO |
 | [Braun Silk-expert Pro 5 IPL](braun-silk-expert-pro5.md) | BLE | Spec Available | BLE bonding (medium) | Braun / P&G |
 | [Silk'n Infinity / Silk'n 7 IPL](silkn-infinity.md) | BLE | Spec Available | None needed | Silk'n (Home Skinovations) |
 | [Hyperice Hypervolt Plus](hyperice-hypervolt-plus.md) | BLE | Spec Available | None needed | Hyperice |
@@ -226,6 +226,9 @@ spec's `device.setup` block; the patterns are explained in
 | [Quicklynks BM2 Battery Monitor](quicklynks-bm2.md) | BLE GATT + passive advertisements | Spec Available | None needed (read-only) | Quicklynks |
 | [WaterRower ComModule / SmartRow](waterrower-smartrow.md) | BLE FTMS + SmartRow ASCII | Spec Available | None needed (local telemetry) | WaterRower |
 | [Oral-B iO Smart Brush and iO Sense Charger](oral-b-io-smartbrush.md) | BLE GATT + manufacturer advertisements | Spec Available | None needed for brush reads; charger provisioning unresolved | Procter & Gamble |
+| [Eye-Fi X2 / Mobi / Mobi Pro Wi-Fi SD Cards](eye-fi-cards.md) | WiFi (card-initiated HTTP/SOAP 59278) | Spec Available (untested) | Existing card configuration required; reset-card activation unsolved | Eye-Fi (services discontinued) |
+| [Truma iNet X / iNet X Pro](truma-inet-x.md) | BLE (CBOR; strict read-only) | Spec Available (untested) | Add-device Just Works bond (medium) | Truma |
+| [Truma iNet Box (legacy)](truma-inet-box.md) | BLE Nordic UART (ASCII TRBT) | Spec Available (untested) | Pairing unknown; read-only confirmation (low) | Truma |
 | [94Fifty Smart Sensor Basketball](94fifty-basketball.md) | Bluetooth Classic | Spec Available (untested) | none (medium) | InfoMotion Sports Technologies Inc. |
 | [AB Shutter 3 and generic Bluetooth HID shutter remotes](ab-shutter-3.md) | Bluetooth Classic | Spec Available (untested) | bt_classic_pairing (medium) | Various OEMs |
 | [Acaia Coffee Scales (Pearl / Lunar / Pyxis)](acaia-coffee-scale.md) | BLE | Spec Available (untested) | ble_direct (medium) | Acaia |
@@ -263,6 +266,14 @@ spec's `device.setup` block; the patterns are explained in
 | [Pix Backpack / Pix Mini](pix-backpack.md) | BLE | Spec Available (untested) | ble_direct (medium) | Pix Inc. |
 | [Weber iGrill Bluetooth Thermometers](weber-igrill.md) | BLE | Spec Available (untested) | ble_direct (medium) | Weber-Stephen Products (formerly iDevices) |
 | [LOY / LOYPRO Helmet LED Displays](loypro-led-display.md) | BLE | Minimally verified (information query) | Read-only confirmation (high) | LOY / YSKJ OEM family |
+| [Canon Ivy 2 / Zoemini 2 / iNSPiC PV-223](canon-ivy-zoemini.md) | Bluetooth Classic (RFCOMM/SPP) | Spec Available (untested) | bt_classic_pairing (medium) | Canon |
+| [KING JIM TEPRA Lite LR30](king-jim-tepra-lite.md) | BLE | Spec Available (untested) | ble_direct (medium) | KING JIM |
+| [Root Coding Robot (RT0 / RT1)](sam-root-robot.md) | BLE | Spec Available (untested) | ble_direct (medium) | Root Robotics / SAM Labs |
+| [Brother Skitch PP1](brother-skitch-pp1.md) | BLE | Spec Available (untested; information/status) | Pairing unknown (low) | Brother |
+| [Genki Wave](genki-wave.md) | BLE + BLE-MIDI | Spec Available (untested) | Manual selection (low) | Genki |
+| [Teenage Engineering OP-Z](teenage-engineering-op-z.md) | BLE-MIDI + USB | Spec Available (untested) | Manual BLE-MIDI selection (low) | teenage engineering |
+| [Sensirion BLE Gadgets](sensirion-ble-gadgets.md) | BLE (passive + GATT logger) | Spec Available (untested) | Model-specific (low) | Sensirion |
+| [Sensirion SHT31 Smart Humigadget](sensirion-sht31-smart-gadget.md) | BLE | Spec Available (untested) | ble_direct (medium) | Sensirion |
 
 ## Not everything here was liberated
 

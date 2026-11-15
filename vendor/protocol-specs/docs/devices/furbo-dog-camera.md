@@ -19,7 +19,11 @@ camera's subnet finds it
 by UDP broadcast and gets a LAN-mode session. Otherwise the session goes direct
 P2P through NAT, or through a Kalay relay. The catch is the credential: a
 client must log in to the Furbo cloud to get one. The cloud issues a new key on
-every fetch, and each new key stops the previous one working.
+every fetch, and each new key stops the previous one working. Opening live view
+in the vendor app is a fetch, so it breaks a bridge's key. LAN mode keeps the
+audio and video in the house, but the SDK still looks the camera's UID up on
+ThroughTek's master servers at startup. Nobody has shown a session with those
+blocked.
 
 Setup is a BLE flow in the vendor app. It is not just a Wi-Fi handover: once
 the camera is on the network it asks for registration data and registers
@@ -65,8 +69,8 @@ treat-toss endpoint, AI, alert and Nanny features, and OTA updates.
 
 | Property | Value |
 |----------|-------|
-| Model Number | Sticker models (vendor table): `Furbo2`, `Furbo2.5` (Furbo Dog Camera), `Furbo3` (Dog Camera 360), `FurboCat` (Cat Camera 360), `FurboMini`. Cloud ProductIds: FB001, FB002, FB0025, FB0030, FB0035, FBC0030, FBC0035, MC0010, MC0020, MC0030. Only FB0030 = Furbo 360 is established; every other mapping is a hypothesis |
-| Chipset | Furbo 2: Ambarella S2Lm. Furbo Mini: Augentix. Both from Somerset Recon's teardowns, not checked here. Furbo 360: not identified |
+| Model Number | Sticker models (vendor table): `Furbo2`, `Furbo2.5` (Furbo Dog Camera), `Furbo3` (Dog Camera 360), `FurboCat` (Cat Camera 360), `FurboMini`. Cloud ProductIds: FB001, FB002, FB0025, FB0030, FB0035, FBC0030, FBC0035, MC0010, MC0020, MC0030. Reported mappings: FB0030 = Furbo 360 (ha-furbo), FB0035 = a later Furbo 360 firmware line (NVD's 2025 CVE scope), MC0010 = original Furbo Mini (Somerset's `MC0010_IMG_120.0.swu` image), MC0020 = a Furbo Mini (NVD), MC0030 = Furbo Mini 360 (offleash). The rest are hypotheses |
+| Chipset | Furbo 2: Ambarella S2Lm (Somerset Recon); furbo-local's inventory of one Furbo 2 adds an AR0237 image sensor, RT5670 audio codec, Wi-Fi on the Cypress `cywdhd` driver and Linux 3.10.73+. Furbo Mini: Augentix (Somerset Recon). Newer units: Winbond W25N02KV NAND (Software Secured). None checked here. Furbo 360: SoC not identified |
 | Radio | 2.4 GHz Wi-Fi (802.11b/g/n, US channels 1–11) and BLE. The Mini shares one dipole antenna between them (FCC leaflet) |
 | Power | 5 V 2 A (Furbo2.5T label) |
 | FCC ID | [`2AIBVTFFBV3`](https://fccid.co/fcc/2AIBVTFFBV3) (Furbo Dog Camera, model Furbo2.5T, granted 2020-07-30); [`2AIBV-MINICAM`](https://fccid.co/fcc/2AIBV-MINICAM) (Furbo Mini, granted 2020-09-15). No grant is indexed for the original 2016 Furbo or the 360 models |
@@ -183,11 +187,32 @@ per-owner secrets.
 
 **Offline recovery is a candidate, not a promise.** Owner-exported account
 fields and the on-camera `p2p_auth.json` state are two plausible ways to
-preserve an existing credential across reboots. Reset or regeneration
-invalidates it. Nobody has yet shown a session with both the Furbo cloud and
-TUTK relays blocked, so this is not cloud-free first-time adoption. Furbo 2
-RTSP uses different credentials again: do not substitute the TUTK key for its
-Digest password.
+preserve an existing credential. Neither is permanent. The key lasts until
+something fetches a new one, and the vendor app does that every time it opens
+live view. A legacy FB002's `P2PAccessToken` rotates too (the phone app
+signing in is enough), and the camera then refuses the old one with `-90`
+until the client re-reads the device record. Reset, re-registration and
+regeneration also invalidate it. offleash saw the AuthKey and account id
+unchanged across two harvests on one MC0030; that is one data point. Nobody
+has yet shown a session with both the Furbo cloud and ThroughTek's servers
+blocked, so this is not cloud-free first-time adoption. Test the layers one
+at a time: Furbo cloud down, then TUTK down, then a credential refresh, then
+reboot and re-registration. Furbo 2 RTSP uses different credentials again: do
+not substitute the TUTK key for its Digest password.
+
+Do not copy a whole flash or config as a "backup" to share. Advisories report
+the owner's Wi-Fi passphrase in plain files on the camera, and logs can hold
+account and P2P secrets.
+
+**Independent clients.** [ha-furbo](https://github.com/willbeeching/ha-furbo)
+has hardware results on an FB0030 and on the FB002 legacy path, and
+[offleash](https://github.com/felipeadeildo/offleash) on an MC0030 (1440p
+H.264 at 15 fps; one video session, which the vendor app competes for). Both
+use the stock TUTK stack. The only fully local stack is
+[furbo-local](https://github.com/Slyke/Furbo-Feeder-Firmware), which replaces
+the vendor cloud manager on a Furbo 2 that **already** has root SSH. It keeps
+the factory media services, and it ships no root exploit, flash image or
+partition restore. Do not try it as a first rescue.
 
 ### IOCTRL messages (V3: Furbo 360, 360 Cat, Mini 2/3)
 
@@ -284,19 +309,38 @@ byte-exact example exists.
 
 ## Security
 
-Somerset Recon published root exploits against older models, 2021–2022. None
-has been checked here, and the Furbo 360 is not named in any of them.
+Somerset Recon published root exploits against older models, 2021–2022. A
+2025 CVE set (Software Secured's research, recorded by NVD) covers Furbo 360
+firmware through `FB0035_FW_036` and Mini firmware through `MC0020_FW_074`.
+None of it has been checked here. The FB0030 on firmware 108 that the P2P
+half of the spec rests on is not named in any of it.
 
 - **Furbo 2:** RTSP on TCP 554 with an authentication-parser overflow
   ([CVE-2020-24918](https://nvd.nist.gov/vuln/detail/cve-2020-24918)).
 - **Furbo 2.5T:** a root command injection behind its web server.
 - **Furbo Mini:** unsigned firmware fetched without certificate checks.
+- **Furbo 360 and Mini, 2025:** cleartext BLE provisioning and BLE disclosure
+  of the UID and DeviceToken (which do not reveal the AV key). Also an
+  account-endpoint SSRF, one MQTT client certificate shared by every unit,
+  and UART/root-password findings that need physical access
+  ([CVE-2025-11640](https://nvd.nist.gov/vuln/detail/CVE-2025-11640) and
+  siblings).
+- **TWCERT TVN-202305006 (CVE-2023-28704):** a BLE device-log command
+  injection on firmware 542, model not stated.
+- **ThroughTek Kalay advisories:** these depend on the SDK build and its
+  configuration, and no Furbo firmware is publicly mapped to them. The
+  FB002's legacy AV channel runs with no AuthKey and no DTLS, which matches
+  their conditions, so keep that model isolated.
 
 The spec carries these as a `reported` security advisory. Somerset's Furbo 2
 research establishes RTSP at `/stream` on TCP 554, with Digest authentication
 after an update/reset; an early unmodified unit allowed unauthenticated
-viewing. This does not establish RTSP on Furbo 3/4 or Mini, so the spec does
-not expose a generic camera stream. No exploit or owner credential was used
+viewing. On the Furbo 2 furbo-local inspected, the factory RTSP server
+listened on loopback only. Software Secured found no default-open ports on
+newer units. A 2026 guide that "enables" RTSP on a 2.5T does it with
+CVE-2021-32452 and a patched RTSP library that accepts any password. That is
+a bypass, so do not follow it. None of this establishes RTSP on Furbo 3/4 or
+Mini, so the spec does not expose a generic camera stream. No exploit or owner credential was used
 for this research.
 
 ## Tools Used
@@ -304,7 +348,13 @@ for this research.
 - [x] Static analysis of the Furbo Android app 7.83.1 (BLE onboarding, opcode
   cross-check)
 - [x] Published sources: ha-furbo (code, DOCS.md, HARDWARE_VERIFICATION.md,
-  issue 3), go2rtc `pkg/tutk`, Somerset Recon's posts
+  issue 3, CHANGELOG), go2rtc `pkg/tutk`, offleash, furbo-local,
+  cuboai-tutk, Somerset Recon's and Software Secured's posts, NVD and TWCERT
+  records
+- [x] Static read of the app's TLS configuration: no certificate pinning in
+  the vendor package; bundled IOTC SDK 4.3.8.1
+- [ ] A firmware image: **none is publicly retrievable** (the old bucket is
+  gone)
 - [x] Vendor help centre and FCC exhibits
 - [ ] nRF Connect against a setup-mode camera, to find the GATT service and
   confirm the flow: **still needed**
@@ -326,10 +376,15 @@ for this research.
 - [ha-furbo: HARDWARE_VERIFICATION.md](https://github.com/willbeeching/ha-furbo/blob/main/HARDWARE_VERIFICATION.md)
 - [ha-furbo: furbo_p2p.py (pinned)](https://github.com/willbeeching/ha-furbo/blob/b2a65be1c73862c7799d8403be084109bab66547/furbo-bridge/src/furbo_p2p.py)
 - [ha-furbo issue 3: FB002 legacy authentication](https://github.com/willbeeching/ha-furbo/issues/3)
+- [ha-furbo CHANGELOG (1.3.7, the rotating FB002 token)](https://github.com/willbeeching/ha-furbo/blob/27117e5ff12939e4001e834345296acf3fac421c/furbo-bridge/CHANGELOG.md)
+- [felipeadeildo/offleash](https://github.com/felipeadeildo/offleash)
+- [Slyke/Furbo-Feeder-Firmware (furbo-local)](https://github.com/Slyke/Furbo-Feeder-Firmware)
 - [go2rtc pkg/tutk](https://pkg.go.dev/github.com/AlexxIT/go2rtc/pkg/tutk)
 - [Somerset Recon: Hacking the Furbo, Part I](https://www.somersetrecon.com/blog/2021/hacking-the-furbo-part-1)
 - [Somerset Recon: Part II](https://www.somersetrecon.com/blog/2021/hacking-the-furbo-dog-camera-part-ii)
 - [Somerset Recon: Part III](https://www.somersetrecon.com/blog/2022/hacking-the-furbo-dog-camera-part-iii)
+- [Software Secured: Hacking Furbo, part 3](https://www.softwaresecured.com/post/hacking-furbo-a-hardware-research-project-part-3-chip-off-and-persistence) · [part 6](https://www.softwaresecured.com/post/hacking-furbo-a-hardware-research-project-part-6-the-finale)
+- [NVD: CVE-2025-11640](https://nvd.nist.gov/vuln/detail/CVE-2025-11640)
 - [FCC ID 2AIBVTFFBV3](https://fccid.co/fcc/2AIBVTFFBV3) · [FCC ID 2AIBV-MINICAM](https://fccid.co/fcc/2AIBV-MINICAM)
 - [Pairing, Bonding and Unpairing](../protocols/pairing.md) · [Initial Device Setup](../protocols/device-setup.md)
 

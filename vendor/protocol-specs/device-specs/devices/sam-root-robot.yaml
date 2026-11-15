@@ -1,0 +1,776 @@
+# Root RT0/RT1 coding robot — source-derived device specification
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+
+device:
+  name: "Root coding robot (RT0 / RT1)"
+  manufacturer: "Root Robotics (later iRobot)"
+  manufacturer_status: "active"
+  type: "educational-coding-robot"
+  category: "robot"
+  protocol: "ble"
+  transport: "ble-gatt"
+  aliases:
+    - "Root RT0"
+    - "Root RT1"
+    - "Root coding robot"
+  distributors:
+    - name: "SAM Labs"
+      role: "brand"
+      url: "https://www.samlabs.com/"
+      notes: >
+        Current steward of the successor app and the successor-hosted official
+        protocol repository. This does not assert that new RT0/RT1 hardware is
+        still being manufactured.
+  companion_apps:
+    - name: "SAM Root"
+      role: "primary"
+      platform: "cross_platform"
+      notes: >
+        Current successor app identified in the research store. A replacement
+        BLE client needs neither this app nor a vendor account.
+  testing:
+    status: "untested"
+    notes: >
+      No RT0/RT1 hardware, advertisement dump, GATT dump, packet capture or
+      on-device replay was used by this project. All protocol facts are
+      reported from the official successor-hosted protocol repository at
+      8bac987096e984cb472843f8180fef142171df70. The packet vectors are
+      constructed from those published rules, not captured from a robot.
+  openness:
+    status: "documented_api"
+    reverse_engineered: false
+    source_code: "https://github.com/PoweredBySAM/sam-root-ble-protocol/tree/8bac987096e984cb472843f8180fef142171df70"
+    license: "MIT AND CC-BY-4.0"
+    upstream_docs:
+      - url: "https://github.com/PoweredBySAM/sam-root-ble-protocol/blob/8bac987096e984cb472843f8180fef142171df70/README.md"
+        title: "Root Robot Bluetooth Low Energy Protocol Documentation"
+        covers: "GATT profile, advertisements, Root protocol versions, packet layout and the safe commands declared here."
+      - url: "https://github.com/PoweredBySAM/sam-root-ble-protocol/blob/8bac987096e984cb472843f8180fef142171df70/crc/crc.c"
+        title: "Official CRC-8 reference implementation"
+        covers: "CRC-8 polynomial, initial value, input processing and absence of reflection/final XOR."
+    notes: >
+      The protocol was published for third-party clients. This spec is a
+      deliberately narrow restatement for Root RT0/RT1, not a reconstruction
+      from vendor internals. The current app was used only as evidence of
+      successor continuity, not as the source of packet claims.
+  notes: >
+    Phone/direct-computer BLE coding robot. No cloud account, bridge or Wi-Fi
+    provisioning is needed for the surface documented here.
+
+    SCOPE: only advertisements whose manufacturer payload identifies RT0 or
+    RT1, and Root BLE protocol versions 1.0 through 1.3. The source calls 1.3
+    the current Root version and 1.4 planned, at the pinned 2024 snapshot.
+    Create 3 / Ci3, protocol 1.5, and commands introduced only after Root 1.3
+    are not covered. Do not treat the shared Root Identifier Service alone as
+    proof that a robot is in scope; check the manufacturer robot type too.
+
+    This spec intentionally declares only Device Information reads, Robot
+    State, main-board versions, advertising name, battery state and the
+    stop-and-reset command. It declares no movement, actuator, rename,
+    bootloader, firmware-upload or firmware-activation operation.
+
+  identification:
+    service_uuids:
+      - "48c5d828-ac2a-442d-97a3-0c9822b04979"
+    manufacturer_data:
+      company_id: 1536
+      company_id_hex: "0x0600"
+      description: >
+        Manufacturer-specific advertising data uses company ID 0x0600 (wire
+        bytes 00 06). The payload begins with the ASCII robot type RT0 or RT1
+        for this spec. Ci3 is documented by upstream but deliberately excluded.
+    notes: >
+      Require the Root Identifier Service and an RT0/RT1 manufacturer type as
+      a narrowing pair. The service is the preferred scan filter because the
+      local name is owner-renamable, but the same service family also covers
+      robots outside this spec. Nordic UART is not an identification signal.
+
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          service_uuids:
+            - "48c5d828-ac2a-442d-97a3-0c9822b04979"
+          manufacturer_data:
+            company_id: 1536
+            match: "prefix"
+            pattern: "525430"
+            description: >
+              RT0: manufacturer payload after the two company-ID bytes starts
+              with ASCII "RT0" (52 54 30). Require the Root Identifier Service
+              as well; do not accept the service alone as proof of RT0.
+        notes: >
+          Root RT0 candidate. The published protocol does not say whether any
+          bytes follow the three-byte robot type, hence a prefix rather than an
+          exact whole-payload match.
+      - type: "ble_scan"
+        ble:
+          service_uuids:
+            - "48c5d828-ac2a-442d-97a3-0c9822b04979"
+          manufacturer_data:
+            company_id: 1536
+            match: "prefix"
+            pattern: "525431"
+            description: >
+              RT1: manufacturer payload after the two company-ID bytes starts
+              with ASCII "RT1" (52 54 31). Require the Root Identifier Service
+              as well; do not accept the service alone as proof of RT1.
+        notes: >
+          Root RT1 candidate. Ci3 and every other robot-type string are out of
+          scope until separately established for this protocol revision.
+    identity:
+      stable_keys: ["address"]
+      display: "local_name"
+      notes: >
+        The local name is display data only because it can be changed by the
+        robot's owner. The Device Information serial number is per-unit data;
+        do not publish it in research notes or examples.
+    static_ip_required: false
+
+  variants:
+    - model: "RT0"
+      notes: >
+        Identified by manufacturer robot type ASCII RT0. Upstream says the
+        color-sensor logical device is absent on RT0; no color-sensor command
+        is declared here.
+    - model: "RT1"
+      notes: "Identified by manufacturer robot type ASCII RT1."
+
+  setup:
+    required: false
+    confidence: "medium"
+    notes: >
+      Nothing is provisioned. Power on, discover an RT0/RT1, connect without
+      bonding, subscribe to the robot's TX characteristic, then issue safe
+      queries. Medium confidence means this is the published flow, not one
+      replayed by this project.
+    methods:
+      - type: "ble_direct"
+        name: "Direct BLE: identify, connect, subscribe"
+        role: "primary"
+        verified: false
+        description: >
+          No account or credentials. Use the Root Identifier Service to find
+          candidates, accept only RT0/RT1 manufacturer types, connect, and
+          subscribe before writing. Start with main-board versions to confirm
+          that the unit speaks Root protocol 1.0–1.3.
+        ble:
+          protocol: "Root BLE protocol 1.0–1.3 over Nordic UART"
+          service_uuid: "48c5d828-ac2a-442d-97a3-0c9822b04979"
+          write_characteristic: "6e400002-b5a3-f393-e0a9-e50e24dcca9e"
+          read_characteristic: "6e400003-b5a3-f393-e0a9-e50e24dcca9e"
+          pairing_required: false
+        steps:
+          - action: "Power on the Root robot and keep it stationary for the initial read-only checks."
+            actor: "user"
+          - action: "Scan for the Root Identifier Service and accept only an RT0 or RT1 manufacturer robot type."
+            actor: "client"
+            request:
+              protocol: "ble_gatt"
+              service: "48c5d828-ac2a-442d-97a3-0c9822b04979"
+              action: "Scan and inspect manufacturer data for company ID 0x0600"
+            expect: "Root Identifier Service plus manufacturer payload beginning RT0 or RT1; no Ci3 match."
+          - action: "Connect and discover GATT services without starting OS pairing."
+            actor: "client"
+            expect: "Root Identifier, Device Information and Nordic UART services are present."
+          - action: "Subscribe to robot TX and wait for the subscription to complete before any write."
+            actor: "client"
+            request:
+              protocol: "ble_gatt"
+              service: "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
+              action: "Subscribe to 6e400003-b5a3-f393-e0a9-e50e24dcca9e"
+            expect: "Notifications and/or indications are enabled on robot TX."
+          - action: "Request main-board versions and check the returned BLE protocol version."
+            actor: "client"
+            request:
+              protocol: "ble_gatt"
+              service: "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
+              action: "get_main_board_versions"
+            expect: "A matching response reports protocol 1.0, 1.1, 1.2 or 1.3. Do not infer support for a newer version."
+    factory_reset:
+      applicable: "unknown"
+      confidence: "low"
+      effect: >
+        No owner-facing factory reset or list of cleared persistent state is
+        established. Stop-and-reset (device 0, command 3) cancels pending
+        actions and resets position; it is not proven to restore factory
+        settings or clear the advertising name.
+      description: >
+        Do not present stop-and-reset, disconnecting BLE, or power-cycling as a
+        factory reset. A new client does not need a reset because no bond or
+        owner credential is documented. The physical reset procedure, if any,
+        remains an open research question.
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        BLE-only: there is no Wi-Fi network or stored bond to rejoin. After the
+        previous central disconnects, scan for RT0/RT1, connect and subscribe
+        again. Whether two centrals can connect simultaneously is unknown.
+      steps:
+        - action: "Disconnect the previous BLE central, including closing any app that is holding the connection."
+          actor: "user"
+        - action: "Scan for the Root Identifier Service and the same RT0/RT1 manufacturer type, then connect."
+          actor: "client"
+        - action: "Subscribe to robot TX before issuing another request; no factory reset is needed."
+          actor: "client"
+    credentials:
+      wifi_passphrase_protection: "not_applicable"
+      stored_on_device: []
+      issued_to_client: []
+      notes: >
+        No Wi-Fi passphrase, account token, pairing key or application-layer
+        credential is used by this spec. An owner-chosen advertising name is
+        configuration, not an authentication secret.
+
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "none"
+    bonding: "none"
+    exclusivity:
+      single_connection: "unknown"
+      single_bond: false
+      recovery: >
+        If another client is holding the robot, disconnect it or close its app,
+        then reconnect and subscribe. No bond needs to be forgotten. A
+        power-cycle may drop a stale connection, but it is not a documented
+        factory reset and its effect on persistent settings is unestablished.
+    enter_pairing_mode:
+      required: false
+      notes: >
+        No pairing-mode button sequence, PIN or confirmation is described by
+        the official protocol or its bare-GATT reference client.
+    unpair:
+      supported: false
+      requires_factory_reset: false
+      notes: >
+        Nothing to unpair: no bond is created. Host-side disconnect ends the
+        session; general device 0 command 6 can request an immediate disconnect
+        but is not needed for rebinding and is not declared as a command here.
+    notes: >
+      The published connection flow uses ordinary GATT without bonding or an
+      application authentication exchange. This is reported from public source,
+      not tested against a previously owned robot.
+
+initialization:
+  - characteristic: "6e400003-b5a3-f393-e0a9-e50e24dcca9e"
+    subscribe: true
+    when: "connect"
+    notes: >
+      Robot TX must be subscribed before any request is written to robot RX.
+      Enable every delivery mode the host supports and the characteristic
+      exposes (notify and/or indicate), then wait for CCCD completion.
+
+services:
+  - uuid: "48c5d828-ac2a-442d-97a3-0c9822b04979"
+    name: "Root Identifier Service"
+    notes: >
+      Empty by design: upstream specifies no characteristics. Advertise-filter
+      on this vendor-specific UUID to find Root candidates, then apply the
+      RT0/RT1 manufacturer-type restriction in device.identification.
+
+  - uuid: "0000180a-0000-1000-8000-00805f9b34fb"
+    name: "Device Information"
+    characteristics:
+      - uuid: "00002a25-0000-1000-8000-00805f9b34fb"
+        name: "Serial Number"
+        properties: ["read"]
+        notes: >
+          Upstream reports a 12-byte serial string. This is owner/unit
+          identifying data: read it only when needed and never commit a real
+          value to examples or research notes.
+      - uuid: "00002a26-0000-1000-8000-00805f9b34fb"
+        name: "Firmware Revision"
+        properties: ["read"]
+        notes: "Firmware version string, up to 12 bytes. This read-only GATT alternative does not replace the detailed main-board version query."
+      - uuid: "00002a27-0000-1000-8000-00805f9b34fb"
+        name: "Hardware Revision"
+        properties: ["read"]
+        notes: "Hardware version string, up to 12 bytes."
+      - uuid: "00002a29-0000-1000-8000-00805f9b34fb"
+        name: "Manufacturer Name"
+        properties: ["read"]
+        notes: "Manufacturer name string; upstream reports a 13-byte field. Do not infer the robot type from this string; use manufacturer advertising data."
+      - uuid: "00008bb6-0000-1000-8000-00805f9b34fb"
+        name: "Robot State"
+        properties: ["read"]
+        format:
+          - offset: 0
+            length: 1
+            name: "state_flags"
+            type: "uint8"
+            notes: >
+              Bump, touch and cliff flags. The pinned source's binary diagram
+              has two leading zeroes plus seven flag labels, which cannot fit
+              one byte; individual masks are therefore not asserted here.
+          - offset: 1
+            length: 1
+            name: "battery_percent"
+            type: "uint8"
+            mask: 0x7F
+            unit: "%"
+            device_class: "battery"
+            notes: "Low seven bits carry battery percent; bit 7 is outside the documented value."
+        notes: >
+          Two-byte value also carried in advertising, allowing a scanner to
+          distinguish a robot being touched before connecting. Read exactly two
+          bytes. The advertising structure's outer encoding is not specified by
+          the pinned source and is not guessed here.
+
+  - uuid: "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
+    name: "Nordic UART Service"
+    notes: >
+      Standard Nordic UART transport carrying Root's fixed-size binary packets.
+      RX/TX names are from the ROBOT's perspective, not the host's. This generic
+      service is never sufficient for discovery by itself.
+    characteristics:
+      - uuid: "6e400002-b5a3-f393-e0a9-e50e24dcca9e"
+        name: "Robot RX (host writes)"
+        properties: ["write", "write_without_response"]
+        role: "command"
+        notes: >
+          Accepts exactly one 20-byte Root packet per write. Prefer write with
+          response. Write without response is also documented, but then the
+          host must pace packets itself; upstream gives no safe numeric pacing
+          interval. Every template below includes its packet ID and final CRC.
+        commands:
+          get_main_board_versions:
+            description: >
+              General device 0, command 0: read main-board firmware, hardware,
+              bootloader and BLE protocol versions. Board selector 0xA5 is main
+              board. The response uses the same device/command/ID triple and is
+              decoded with protocol_details.root_ble.response_layouts.get_versions_response.
+            verification: "reported"
+            command_id: 0
+            fixed_length: 20
+            template: [0x00, 0x00, "{packet_id}", 0xA5, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, "{crc}"]
+            parameters:
+              packet_id:
+                type: "uint8"
+                auto: "sequence"
+                min: 0
+                max: 255
+                description: "Host-owned request counter, modulo 256. Zero is always accepted and resets sequence tracking."
+              crc:
+                type: "uint8"
+                auto: "crc8"
+                checksum_start: 0
+                description: "CRC-8 poly 0x07, init/final XOR 0, no reflection, over packet bytes 0–18."
+          get_name:
+            description: >
+              General device 0, command 2: read the current BLE advertising
+              name. The response echoes device/command/ID and carries a UTF-8,
+              NUL-terminated name in the 16-byte payload. This is a query, not
+              the persistent rename operation (which is deliberately omitted).
+            verification: "reported"
+            command_id: 2
+            fixed_length: 20
+            template: [0x00, 0x02, "{packet_id}", 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, "{crc}"]
+            parameters:
+              packet_id:
+                type: "uint8"
+                auto: "sequence"
+                min: 0
+                max: 255
+                description: "Host-owned request counter, modulo 256. Zero is always accepted and resets sequence tracking."
+              crc:
+                type: "uint8"
+                auto: "crc8"
+                checksum_start: 0
+                description: "CRC-8 poly 0x07, init/final XOR 0, no reflection, over packet bytes 0–18."
+          stop_and_reset:
+            description: >
+              General device 0, command 3: immediately stop the robot, cancel
+              pending actions and reset its estimated position. This is a
+              safety/recovery action, NOT a factory reset. No response packet is
+              documented. Movement commands that would make this necessary are
+              outside this spec.
+            verification: "reported"
+            command_id: 3
+            fixed_length: 20
+            template: [0x00, 0x03, "{packet_id}", 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, "{crc}"]
+            parameters:
+              packet_id:
+                type: "uint8"
+                auto: "sequence"
+                min: 0
+                max: 255
+                description: "Host-owned request counter, modulo 256. Zero is always accepted and resets sequence tracking."
+              crc:
+                type: "uint8"
+                auto: "crc8"
+                checksum_start: 0
+                description: "CRC-8 poly 0x07, init/final XOR 0, no reflection, over packet bytes 0–18."
+          get_battery_level:
+            description: >
+              Battery logical device 14, command 1: query uptime, battery
+              voltage and percentage. The matching response and unsolicited
+              battery events share protocol_details.root_ble.response_layouts.battery_level
+              but have command bytes 1 and 0 respectively.
+            verification: "reported"
+            command_id: 1
+            fixed_length: 20
+            template: [0x0E, 0x01, "{packet_id}", 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, "{crc}"]
+            parameters:
+              packet_id:
+                type: "uint8"
+                auto: "sequence"
+                min: 0
+                max: 255
+                description: "Host-owned request counter, modulo 256. Zero is always accepted and resets sequence tracking."
+              crc:
+                type: "uint8"
+                auto: "crc8"
+                checksum_start: 0
+                description: "CRC-8 poly 0x07, init/final XOR 0, no reflection, over packet bytes 0–18."
+
+      - uuid: "6e400003-b5a3-f393-e0a9-e50e24dcca9e"
+        name: "Robot TX (host subscribes)"
+        properties: ["notify", "indicate"]
+        role: "notify"
+        format_match:
+          offset: 0
+          value: 14
+          notes: >
+            Decode the fields below only for logical device 14. Command 1 is a
+            query response; command 0 is an unsolicited event. Other logical
+            devices use protocol_details.root_ble.response_layouts instead.
+        format:
+          - offset: 3
+            length: 4
+            name: "timestamp_ms"
+            type: "uint32"
+            endianness: "big"
+            unit: "ms"
+            notes: "Milliseconds since the robot powered on."
+          - offset: 7
+            length: 2
+            name: "battery_mv"
+            type: "uint16"
+            endianness: "big"
+            unit: "mV"
+            device_class: "voltage"
+          - offset: 9
+            length: 1
+            name: "battery_percent"
+            type: "uint8"
+            unit: "%"
+            device_class: "battery"
+        notes: >
+          Sends exactly one 20-byte packet per notification/indication. Validate
+          length and CRC before decoding. A response repeats the request's first
+          three bytes; an unsolicited event uses the robot's own independent
+          event counter, so never correlate solely on packet ID. Subscribe
+          before the first write to robot RX.
+
+protocol_details:
+  root_ble:
+    scope:
+      robot_types: ["RT0", "RT1"]
+      protocol_versions: ["1.0", "1.1", "1.2", "1.3"]
+      latest_root_version_in_source: "1.3"
+      excluded: >
+        Create 3 / Ci3 and the separate Create 3 version table (including its
+        1.4/1.5 behavior); any Root protocol newer than 1.3 until separately
+        proven. Upstream said 1.4 was planned, not released, at this snapshot.
+      firmware_protocol_map:
+        - { main_board_firmware: "1.0", ble_protocol: "1.0" }
+        - { main_board_firmware: "1.1", ble_protocol: "1.0" }
+        - { main_board_firmware: "1.2", ble_protocol: "1.0" }
+        - { main_board_firmware: "1.3", ble_protocol: "1.0" }
+        - { main_board_firmware: "1.4", ble_protocol: "1.0" }
+        - { main_board_firmware: "1.5", ble_protocol: "1.1" }
+        - { main_board_firmware: "1.8", ble_protocol: "1.1" }
+        - { main_board_firmware: "1.10", ble_protocol: "1.1" }
+        - { main_board_firmware: "1.11", ble_protocol: "1.2" }
+        - { main_board_firmware: "2.0", ble_protocol: "1.2" }
+        - { main_board_firmware: "2.1", ble_protocol: "1.2" }
+        - { main_board_firmware: "2.3", ble_protocol: "1.3" }
+        - { main_board_firmware: "2.7", ble_protocol: "1.3" }
+    packet:
+      length: 20
+      payload_offset: 3
+      payload_length: 16
+      payload_endianness: "big"
+      payload_alignment: "left_justified_on_8_bit_boundaries"
+      unused_payload_byte: 0
+      fields:
+        - { name: "device", offset: 0, length: 1, type: "uint8" }
+        - { name: "command", offset: 1, length: 1, type: "uint8" }
+        - { name: "packet_id", offset: 2, length: 1, type: "uint8" }
+        - { name: "payload", offset: 3, length: 16, type: "bytes", min_length: 16, max_length: 16 }
+        - { name: "crc", offset: 19, length: 1, type: "uint8" }
+      crc:
+        algorithm: "CRC-8/SMBUS"
+        width: 8
+        polynomial: "0x07"
+        initial: "0x00"
+        reflect_input: false
+        reflect_output: false
+        final_xor: "0x00"
+        covered_offset: 0
+        covered_length: 19
+        output_offset: 19
+      packet_ids:
+        requests: >
+          The host owns an unsigned 8-bit incremental counter, wrapping 255 to
+          0. An incremental ID of zero is always accepted and resets tracking;
+          it is useful for stateless examples and recovery.
+        responses: >
+          A response copies the requesting packet's ID, so device, command and
+          packet ID (bytes 0–2) all match the request.
+        events: >
+          Robot-initiated events use a separate unsigned 8-bit counter owned by
+          the robot, also wrapping modulo 256. Never share a counter between
+          host requests and robot events, and never assume an event with a
+          numerically matching ID answers the current request.
+    response_layouts:
+      get_versions_response:
+        device: 0
+        command: 0
+        id_rule: "same_as_request"
+        fields:
+          - { name: "board", offset: 3, length: 1, type: "uint8", values: { 165: "main_board", 198: "color_board" } }
+          - { name: "firmware_major", offset: 4, length: 1, type: "uint8" }
+          - { name: "firmware_minor", offset: 5, length: 1, type: "uint8" }
+          - { name: "hardware_major", offset: 6, length: 1, type: "uint8" }
+          - { name: "hardware_minor", offset: 7, length: 1, type: "uint8" }
+          - { name: "bootloader_major", offset: 8, length: 1, type: "uint8" }
+          - { name: "bootloader_minor", offset: 9, length: 1, type: "uint8" }
+          - { name: "protocol_major", offset: 10, length: 1, type: "uint8" }
+          - { name: "protocol_minor", offset: 11, length: 1, type: "uint8" }
+          - { name: "firmware_patch", offset: 12, length: 1, type: "uint8" }
+      get_name_response:
+        device: 0
+        command: 2
+        id_rule: "same_as_request"
+        fields:
+          - name: "name"
+            offset: 3
+            length: 16
+            type: "string"
+            encoding: "utf-8"
+            terminator: "nul"
+            notes: "Decode through the first NUL; a full 16-byte name need not contain one. Unused response bytes are zero."
+      battery_level:
+        response_device: 14
+        response_command: 1
+        response_id_rule: "same_as_request"
+        event_device: 14
+        event_command: 0
+        event_id_rule: "independent_robot_event_counter"
+        fields:
+          - { name: "timestamp_ms", offset: 3, length: 4, type: "uint32", endianness: "big", unit: "ms" }
+          - { name: "battery_mv", offset: 7, length: 2, type: "uint16", endianness: "big", unit: "mV" }
+          - { name: "battery_percent", offset: 9, length: 1, type: "uint8", unit: "%" }
+    test_vectors:
+      provenance: >
+        Constructed from the published packet rules. Names and values are
+        invented for documentation; no frame identifies or was captured from a
+        real unit. payload_hex contains only significant bytes; the encoder
+        left-justifies them and zero-fills the rest of the 16-byte payload.
+      vectors:
+        - name: "get_name_zero"
+          direction: "request"
+          command: "get_name"
+          device: 0
+          opcode: 2
+          packet_id: 0
+          payload_hex: ""
+          frame: "00 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 54"
+        - name: "get_main_board_versions_zero"
+          direction: "request"
+          command: "get_main_board_versions"
+          device: 0
+          opcode: 0
+          packet_id: 0
+          payload_hex: "a5"
+          frame: "00 00 00 a5 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 4d"
+        - name: "get_main_board_versions_42"
+          direction: "request"
+          command: "get_main_board_versions"
+          device: 0
+          opcode: 0
+          packet_id: 42
+          payload_hex: "a5"
+          frame: "00 00 2a a5 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 e6"
+        - name: "get_battery_level_7"
+          direction: "request"
+          command: "get_battery_level"
+          device: 14
+          opcode: 1
+          packet_id: 7
+          payload_hex: ""
+          frame: "0e 01 07 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 58"
+        - name: "stop_and_reset_zero"
+          direction: "request"
+          command: "stop_and_reset"
+          device: 0
+          opcode: 3
+          packet_id: 0
+          payload_hex: ""
+          frame: "00 03 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 7e"
+        - name: "get_name_255"
+          direction: "request"
+          command: "get_name"
+          device: 0
+          opcode: 2
+          packet_id: 255
+          payload_hex: ""
+          frame: "00 02 ff 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 b5"
+        - name: "main_board_versions_42"
+          direction: "response"
+          layout: "get_versions_response"
+          device: 0
+          opcode: 0
+          packet_id: 42
+          payload_hex: "a5 02 07 01 00 01 00 01 03 00"
+          frame: "00 00 2a a5 02 07 01 00 01 00 01 03 00 00 00 00 00 00 00 f9"
+          expected:
+            board: 165
+            firmware_major: 2
+            firmware_minor: 7
+            hardware_major: 1
+            hardware_minor: 0
+            bootloader_major: 1
+            bootloader_minor: 0
+            protocol_major: 1
+            protocol_minor: 3
+            firmware_patch: 0
+        - name: "name_zero"
+          direction: "response"
+          layout: "get_name_response"
+          device: 0
+          opcode: 2
+          packet_id: 0
+          payload_hex: "52 6f 6f 74 20 64 65 6d 6f 00"
+          frame: "00 02 00 52 6f 6f 74 20 64 65 6d 6f 00 00 00 00 00 00 00 d3"
+          expected:
+            name: "Root demo"
+        - name: "battery_level_7"
+          direction: "response"
+          layout: "battery_level"
+          device: 14
+          opcode: 1
+          packet_id: 7
+          payload_hex: "01 02 03 04 0f a0 4b"
+          frame: "0e 01 07 01 02 03 04 0f a0 4b 00 00 00 00 00 00 00 00 00 c0"
+          expected:
+            timestamp_ms: 16909060
+            battery_mv: 4000
+            battery_percent: 75
+        - name: "battery_event_231"
+          direction: "event"
+          layout: "battery_level"
+          device: 14
+          opcode: 0
+          packet_id: 231
+          payload_hex: "01 02 03 04 0f 9c 4a"
+          frame: "0e 00 e7 01 02 03 04 0f 9c 4a 00 00 00 00 00 00 00 00 00 43"
+          expected:
+            timestamp_ms: 16909060
+            battery_mv: 3996
+            battery_percent: 74
+
+entities:
+  - platform: "sensor"
+    name: "Battery"
+    device_class: "battery"
+    unit: "%"
+    state_characteristic: "6e400003-b5a3-f393-e0a9-e50e24dcca9e"
+    state_mapping:
+      value: "battery_percent"
+    commands:
+      poll: "get_battery_level"
+    notes: >
+      Query replies and battery events share the same field offsets. Reject
+      other logical devices and require a valid packet CRC before updating.
+  - platform: "sensor"
+    name: "Battery voltage"
+    device_class: "voltage"
+    unit: "mV"
+    state_characteristic: "6e400003-b5a3-f393-e0a9-e50e24dcca9e"
+    state_mapping:
+      value: "battery_mv"
+    commands:
+      poll: "get_battery_level"
+  - platform: "button"
+    name: "Stop and reset activity"
+    key: "stop"
+    command_characteristic: "6e400002-b5a3-f393-e0a9-e50e24dcca9e"
+    commands:
+      press: "stop_and_reset"
+    notes: >
+      Cancels pending actions and stops the robot. It does not factory-reset
+      the robot or clear its advertising name.
+
+local_access:
+  status: "native"
+  summary: >
+    Direct BLE from a phone or computer, with no cloud, account or bridge.
+    Subscribe to robot TX before writing to robot RX.
+  covers:
+    - "Root/RT0/RT1 identification and Device Information reads"
+    - "Main-board firmware, hardware, bootloader and BLE protocol version query"
+    - "Advertising-name query and battery voltage/percentage state"
+    - "Stop-and-reset as a safety action"
+  not_covered:
+    - "Movement, drive, actuator, rename and broader sensor commands are deliberately not declared"
+    - "Firmware update, bootloader entry and firmware activation are deliberately not declared"
+    - "Create 3 / Ci3 and protocol versions newer than Root 1.3"
+
+remaining_unknowns:
+  - "No owner advertisement/GATT dump or read-only packet exchange on current RT0/RT1 firmware exists here. All wire facts remain reported, and device.testing remains untested."
+  - "The pinned source is from 2024 and calls Root protocol 1.3 current and 1.4 planned. Whether current SAM-supported firmware changed the Root protocol is unknown; query versions rather than assuming continuity."
+  - "No factory-reset procedure, persistent-state clearing list or maximum simultaneous-central count is established. Stop-and-reset is not a factory reset."
+  - "The Robot State source diagram over-counts one bit while naming bump/touch/cliff flags, so this spec exposes only the low-seven-bit battery field and leaves individual flag masks undecoded."
+  - "Upstream does not specify whether manufacturer data contains bytes after the three-character robot type; discovery therefore uses an RT0/RT1 prefix, not a whole-payload equality claim."
+  - "Write-without-response requires host pacing but no interval is published. Use write with response until a safe interval is measured."
+
+evidence:
+  documentation_review: >
+    The official successor-hosted Root BLE protocol README, CRC implementation
+    and example connection code at commit 8bac987096e984cb472843f8180fef142171df70
+    were read directly. The README is authoritative for UUID direction and
+    packet semantics; the example's local UART variable labels are not used.
+    The CRC's generated parameter block and bitwise update loop agree on poly
+    0x07, init/final XOR zero and no reflection.
+  app_static_analysis: >
+    Research also checked the public SAM Root 3.1.0 app for successor
+    continuity. No app-internal symbol, UI copy, firmware operation or new
+    packet claim is imported into this spec. There was no hardware session or
+    new capture.
+  open_questions: >
+    Current firmware/protocol support, physical reset behavior, Robot State
+    flag masks, central exclusivity and write-without-response timing need an
+    RT0/RT1 owner with hardware. A safe next experiment needs only an
+    advertisement/GATT dump and version/name/battery exchanges.
+  artifacts:
+    - type: "vendor_documentation"
+      artifact: "PoweredBySAM/sam-root-ble-protocol README at 8bac987096e984cb472843f8180fef142171df70"
+      url: "https://github.com/PoweredBySAM/sam-root-ble-protocol/blob/8bac987096e984cb472843f8180fef142171df70/README.md"
+      obtained_via: "Official successor-hosted public repository"
+      description: "Source for discovery, GATT, Root protocol versions, framing, IDs and the four declared operations. Create 3 and motion/update behavior were reviewed only to exclude them."
+    - type: "public_implementation"
+      artifact: "Root CRC reference and BLE example code at 8bac987096e984cb472843f8180fef142171df70"
+      url: "https://github.com/PoweredBySAM/sam-root-ble-protocol/tree/8bac987096e984cb472843f8180fef142171df70"
+      obtained_via: "Official successor-hosted public repository"
+      description: "CRC parameters and bare-GATT subscribe-first flow. No motor packet from the examples is copied or declared."
+    - type: "static_analysis"
+      artifact: "SAM Root 3.1.0 (93)"
+      obtained_via: "Public Android app research, 2026-11-10"
+      description: "Successor continuity only. No hardware verification and no vendor-internal names or owner identifiers carried into this spec."
+
+helpful_urls:
+  - title: "Official Root Robot BLE protocol (pinned successor repository)"
+    url: "https://github.com/PoweredBySAM/sam-root-ble-protocol/blob/8bac987096e984cb472843f8180fef142171df70/README.md"
+    kind: "protocol_writeup"
+    description: >
+      Authoritative source for the Root Identifier Service, Nordic UART,
+      advertisements, packet framing and version/command layouts restated here.
+  - title: "Official Root CRC-8 implementation (pinned)"
+    url: "https://github.com/PoweredBySAM/sam-root-ble-protocol/blob/8bac987096e984cb472843f8180fef142171df70/crc/crc.c"
+    kind: "implementation"
+    description: "Reference for CRC-8 poly 0x07 over bytes 0–18, with zero init/final XOR and no reflection."

@@ -1,0 +1,1059 @@
+# Canon Ivy 2 / Zoemini 2 / iNSPiC PV-223 — Device Specification
+# Status: Spec Available, untested by this project. Derived from the pinned
+#         public m4mmon/canon_zoemini2 protocol, client and emulator at commit
+#         ccd2d7a4eed0255157a1a88b26ac5b535f917e75, plus the reviewed research
+#         summary's model-scope findings. Upstream's hardware results are
+#         reported here, not claimed as this project's verification.
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+
+device:
+  name: "Canon Ivy 2 / Zoemini 2 / iNSPiC PV-223"
+  manufacturer: "Canon"
+  manufacturer_status: "active"
+  openness:
+    status: "undocumented"
+    reverse_engineered: true
+    upstream_docs:
+      - url: "https://github.com/m4mmon/canon_zoemini2/blob/ccd2d7a4eed0255157a1a88b26ac5b535f917e75/protocol.md"
+        title: "Canon Zoemini 2 / Ivy 2 Bluetooth protocol (pinned public revision)"
+        covers: >
+          Classic inquiry and SDP services, Just Works pairing, 34-byte frame
+          layout, session/status/info/settings commands, JPEG transfer and
+          completion polling, image preparation, error codes and uncertainties.
+    source_code: "https://github.com/m4mmon/canon_zoemini2/tree/ccd2d7a4eed0255157a1a88b26ac5b535f917e75"
+    license: "MIT"
+    notes: >
+      Canon does not publish this local protocol. The pinned public project
+      supplies an independent Python client, CUPS path, emulator and written
+      protocol. Its author reports printing on Zoemini 2 hardware; this
+      project has not repeated those tests.
+  testing:
+    status: untested
+    notes: >
+      No printer was available to this project and no new capture was made.
+      The pinned public implementation reports successful printing and
+      emulator use on Zoemini 2 units; those are upstream results, not tests
+      performed from this specification.
+  protocol: "bluetooth_classic"
+  transport: "rfcomm"
+  category: "printer"
+  type: "zink-photo-printer"
+  notes: >
+    Second-generation 2 x 3 inch ZINK photo printers sold as Ivy 2 in the US,
+    Zoemini 2 in Europe and iNSPiC PV-223 in Japan. The device reports model
+    string PV223. Control is local over Bluetooth Classic BR/EDR, not BLE:
+    pair with Secure Simple Pairing Just Works, open RFCOMM channel 1 (SPP),
+    then exchange strict request/response frames. No Canon account or cloud is
+    needed by the public client.
+
+    SCOPE. This specification is ONLY for Ivy 2, Zoemini 2 and iNSPiC PV-223.
+    PV-123, ZV-123 and ZV-223 are explicitly out of scope. In particular, an
+    SPP-only advertisement denotes a first-generation printer with a different
+    protocol; do not send this frame map to it. The second-generation name
+    match must be combined with the SDP service set in device.discovery.
+
+    STREAM. Commands are 34 bytes beginning 43 0F; replies are 34 bytes
+    beginning 43 F0. Both have an 8-byte header and a 26-byte zero-padded
+    payload. All multi-byte integers are big-endian. There is no application
+    checksum. Reassemble across RFCOMM reads and synchronise on 43 F0. After
+    PRINT_READY succeeds, the announced number of raw JPEG bytes is sent with
+    no frame envelope. The later 0x0302 acknowledgement means image receipt,
+    not mechanical completion; poll STATUS until the queue returns to READY.
+
+    SAFETY. No firmware-update command or procedure is specified. The public
+    protocol leaves opcodes 0x0201-0x0203 undocumented and warns against
+    sending them. They are deliberately absent from commands and no
+    firmware_update feature is declared.
+  identification:
+    notes: >
+      This is a Classic-only control surface, so the inquiry name belongs to
+      device.discovery.methods, not to BLE local-name fields. The advertised
+      form is Canon (XX:XX) Mini Printer, where XX:XX is the last two bytes of
+      the printer's Bluetooth address. Name alone is not a generation check:
+      require the second-generation SDP services as well.
+  discovery:
+    methods:
+      - type: "bt_classic_inquiry"
+        bt_classic:
+          name:
+            match: "regex"
+            value: '^Canon \([0-9A-Fa-f]{2}:[0-9A-Fa-f]{2}\) Mini Printer$'
+          service_uuids:
+            - "00001101-0000-1000-8000-00805f9b34fb"
+            - "00000000-deca-fade-deca-deafdecacaff"
+            - "e5b152ed-6b46-09e9-4678-665e9a972cbc"
+            - "00500056-0223-0000-0000-000000000000"
+          class_of_device:
+            value: "0x100680"
+            notes: "Imaging / printer, as reported by the public protocol."
+          requires_discoverable_mode: "unknown"
+        verification: "reported"
+        notes: >
+          Match the exact Mini Printer name shape AND all four SDP services.
+          The vendor app's broader expression also recognises Instant Camera;
+          that shape is intentionally excluded here because the camera-printer
+          generations are not established by this evidence. SPP alone is the
+          first-generation boundary and must not select this spec. The inquiry
+          response can also carry the channel-22 vendor UUID, sometimes shown
+          byte-reversed by host tooling; that display reversal is not another
+          service. The duration of discoverability after power-on is unknown.
+    identity:
+      stable_keys: ["address"]
+      display: "local_name"
+  setup:
+    required: true
+    confidence: "medium"
+    notes: >
+      There is no Wi-Fi, account or cloud provisioning, but a Classic
+      pairing/bond is the documented route before opening the control socket.
+      Confidence is medium because the flow comes from the pinned public
+      protocol and its hardware-tested client, not from a test by this project.
+    methods:
+      - type: "bt_classic_pairing"
+        name: "Pair in the host Bluetooth settings and open second-generation SPP"
+        role: "primary"
+        verified: false
+        description: >
+          Power on, close any other client, identify the printer by its exact
+          name and four-service SDP set, pair with Just Works (no PIN), then
+          open SPP channel 1 and start a session. Basis: the pinned public
+          protocol and client README; not replayed by this project.
+        steps:
+          - action: "Switch the printer on and close Canon Mini Print or any other client connected to it."
+            actor: "user"
+            expect: "The printer is idle and available to one new host."
+          - action: "Run a Bluetooth Classic inquiry and select Canon (XX:XX) Mini Printer only when its SDP record contains all four services declared in device.discovery."
+            actor: "client"
+            expect: "A second-generation PV-223 candidate, not an SPP-only first-generation printer or an Instant Camera."
+            timeout_seconds: 15
+          - action: "Pair using Secure Simple Pairing Just Works; do not enter a PIN."
+            actor: "client"
+            expect: "The host completes pairing without user input and may trust/store the bond for later use."
+          - action: "Open RFCOMM channel 1 for SPP UUID 00001101-0000-1000-8000-00805f9b34fb."
+            actor: "client"
+            timeout_seconds: 10
+            notes: "Resolve the SPP record with SDP where the host requires it; the public protocol reports fixed channel 1."
+          - action: "Send start_session and wait for its 34-byte reply, then send get_status before any print."
+            actor: "client"
+            expect: "START_SESSION reports battery and image chunk size; STATUS is READY with no error and queue-flag bits 0-4 clear (wait if calibration bit 3 is set)."
+            timeout_seconds: 5
+        troubleshooting:
+          - symptom: "The printer is absent or the connection times out."
+            fix: >
+              Only one host can connect. Close the vendor app and other
+              clients, power-cycle if necessary, and repeat inquiry/pairing.
+              A printer already remembered by the host can be selected from
+              bonded devices without a new inquiry.
+          - symptom: "The result has the right name but is identified as a first-generation printer."
+            fix: >
+              Inspect SDP rather than overriding generation selection. An
+              SPP-only record is outside this spec. The second-generation set
+              includes the vendor service on channel 22 and the FSK service on
+              channel 25 in addition to SPP and the channel-23 service.
+          - symptom: "A previously paired host is refused."
+            fix: >
+              Remove the stale printer entry in that host's Bluetooth settings
+              and pair again. The public client reports that a printer can
+              forget a host after other pairings; bond capacity is unknown.
+    factory_reset:
+      applicable: "unknown"
+      confidence: "low"
+      effect: >
+        No factory-reset procedure or reset command is established. Whether
+        any physical reset clears the auto-off setting, pairing records or
+        other persistent state is unknown; a power cycle or host-side unpair
+        is not a factory reset.
+      description: >
+        Basis: the pinned public protocol documents no factory reset, and the
+        reviewed research supplies no model-matched owner procedure. Do not
+        borrow a reset sequence from another Canon generation. Rebinding does
+        not require one: remove the host-side bond if needed and pair again.
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        There is no network to rejoin. A new host pairs directly. Disconnect
+        the old host first; if either side has a stale bond, remove the
+        printer from that host's Bluetooth settings and pair again.
+      steps:
+        - action: "Close the old client or disable its Bluetooth connection to the printer."
+          actor: "user"
+          expect: "The single available connection is released."
+        - action: "On the new host, select the printer from bonded devices or repeat the generation-checked inquiry, pair with Just Works, open SPP channel 1 and send start_session."
+          actor: "client"
+          expect: "A valid START_SESSION reply establishes the new local session without a factory reset or cloud account."
+    credentials:
+      wifi_passphrase_protection: "not_applicable"
+      stored_on_device: ["bluetooth_link_key"]
+      issued_to_client: []
+      notes: >
+        No Wi-Fi credential, application key or account token exists in this
+        protocol. Just Works pairing creates a Bluetooth link key but provides
+        no PIN and no man-in-the-middle authentication. Bond storage capacity
+        and eviction behaviour are unknown.
+  pairing:
+    required: true
+    confidence: "medium"
+    security_mode: "just_works"
+    bonding: "required"
+    exclusivity:
+      single_connection: true
+      single_bond: "unknown"
+      recovery: >
+        Close the vendor app or other host, then reconnect. If pairing was
+        forgotten on either side, remove the host's stale entry and pair
+        again; no printer-side selective unpair procedure is documented.
+    enter_pairing_mode:
+      required: false
+      advertised_name: "Canon (XX:XX) Mini Printer"
+      advertised_name_match: "exact"
+      notes: >
+        The public client powers the printer on and pairs from the host; it
+        documents no separate pairing button or hold. The exact discovery
+        window and LED indication are not established. XX:XX is a placeholder
+        for the final two Bluetooth-address bytes, not a literal advertised
+        string.
+    unpair:
+      supported: true
+      requires_factory_reset: false
+      clears: "The bond on the host where the printer entry is removed; no printer-side selective deletion is documented."
+      notes: >
+        Remove the printer in the host OS Bluetooth settings and pair again
+        when needed. This does not clear printer settings and is not a factory
+        reset. How to delete one bond on the printer itself is unknown.
+    notes: >
+      Basis: the pinned protocol states Secure Simple Pairing Just Works, no
+      PIN, one host at a time, and the public client's pair-once workflow.
+      Pairing is required by that documented flow; acceptance of an unbonded
+      insecure socket has not been investigated and is not claimed.
+  host_compatibility:
+    - stack: "android"
+      link: "br_edr"
+      status: "compatible"
+      verification: "reported"
+      basis: >
+        The official Android app and the public protocol use the Classic
+        RFCOMM/SPP path with Just Works pairing. Static app analysis was used
+        only for model scope, not to assert a different transport.
+    - stack: "bluez"
+      link: "br_edr"
+      status: "compatible"
+      verification: "reported"
+      basis: >
+        The pinned public client uses Linux RFCOMM sockets and its author
+        reports successful Zoemini 2 printing on BlueZ 5.82. This is upstream
+        hardware evidence, not a result reproduced by this project.
+    - stack: "corebluetooth"
+      link: "br_edr"
+      status: "incompatible"
+      symptom: "no_transport"
+      cause:
+        missing_api: "rfcomm"
+      workaround: "none_known"
+      verification: "reported"
+      basis: >
+        CoreBluetooth exposes no RFCOMM API, so a third-party iOS client
+        cannot open the SPP control channel described here. Canon ships an
+        iOS app and the printer advertises a vendor service named Apple Inc.
+        on channel 22, but neither fact establishes an iAP2/MFi route or that
+        the same frames are carried there. No vendor-MFi claim is made.
+      notes: >
+        macOS is outside this verdict; its Classic stack is IOBluetooth. The
+        iOS app's actual transport remains an open question, not a reason to
+        mark this RFCOMM surface compatible.
+  variants:
+    - model: "Ivy 2"
+      notes: >
+        US retail name in the PV-223 family. The public implementation
+        identifies this family by GET_INFO model PV223; no Ivy-2-specific
+        hardware capture was made for this spec.
+    - model: "Zoemini 2"
+      notes: >
+        European retail name and the variant on which the public implementation
+        reports hardware tests. Its replies use product code 0x21.
+    - model: "iNSPiC PV-223"
+      notes: >
+        Japanese retail name in the same PV-223 family according to the pinned
+        public implementation. Regional behaviour has not been independently
+        captured by this project.
+
+bluetooth_classic:
+  dual_mode: false
+  ble_role: "none"
+  wake_required: false
+  profiles:
+    - profile: "spp"
+      uuid: "00001101-0000-1000-8000-00805f9b34fb"
+      channel: 1
+      role: "control"
+      secure: true
+      verification: "reported"
+      notes: >
+        The only printing/status channel. Pair first with Just Works, then
+        open the authenticated SPP socket. Commands below are never sent to
+        the three vendor SDP channels.
+    - profile: "vendor"
+      uuid: "00000000-deca-fade-deca-deafdecacaff"
+      channel: 22
+      role: "undocumented"
+      secure: "unknown"
+      verification: "reported"
+      notes: >
+        SDP service name Apple Inc. Required by the official app's
+        second-generation identification and by a faithful emulator. Its
+        payload protocol is not specified here and it is not the print path.
+        The same UUID can appear in inquiry data, sometimes byte-reversed by
+        the host as ffcacade-afde-cade-defa-cade00000000.
+    - profile: "vendor"
+      uuid: "e5b152ed-6b46-09e9-4678-665e9a972cbc"
+      channel: 23
+      role: "undocumented"
+      secure: "unknown"
+      verification: "reported"
+      notes: "SDP service name WeChat. Present in the second-generation service set; no command protocol is claimed."
+    - profile: "vendor"
+      uuid: "00500056-0223-0000-0000-000000000000"
+      channel: 25
+      role: "undocumented"
+      secure: "unknown"
+      verification: "reported"
+      notes: >
+        SDP service name FSK. Its 0223 UUID segment is part of the
+        second-generation identification evidence. It is not a print channel
+        and no firmware or other use is inferred from it.
+  serial:
+    profile_uuid: "00001101-0000-1000-8000-00805f9b34fb"
+    encoding: "binary"
+    correlation: "prefix"
+    max_in_flight: 1
+    framing:
+      length_prefix: false
+      checksum: "none"
+      tx_start_bytes: "43 0F"
+      rx_start_bytes: ["43 F0"]
+      resync: "scan_to_start_bytes"
+      max_frame_bytes: 34
+      notes: >
+        Command and reply frames are exactly 34 bytes: an 8-byte header plus
+        a 26-byte payload, with no length field or checksum. Accumulate the
+        RFCOMM stream, discard to the next 43 F0, retain a trailing 43 while
+        waiting for F0, and emit a reply only when all 34 bytes are present.
+        Match the echoed command at bytes 5-6 and check error status at byte
+        7. The exception is the raw JPEG byte stream after a successful
+        PRINT_READY: exactly the announced byte count is sent with no 43 0F
+        envelope, then one 34-byte 0x0302 acknowledgement is read.
+    read_chunk_bytes: 1024
+    response_timeout_ms: 5000
+    connect_timeout_ms: 10000
+    unsolicited:
+      - name: "print_receive_ack"
+        prefix: "43 F0 00 01 ?? 03 02"
+        length: 34
+        format:
+          - {offset: 4, length: 1, name: "product_code", type: "uint8", values: {32: "PV-223 family revision 0x20", 33: "Zoemini 2 / PV-223 family revision 0x21", 34: "PV-223 family revision 0x22"}}
+          - {offset: 7, length: 1, name: "response_status", type: "uint8", values: {0: "image accepted", 33: "print data error", 34: "cover opened during print", 35: "paper exhausted during print", 36: "wrong Smart Sheet during print"}}
+          - {offset: 8, length: 1, name: "battery_voltage_raw", type: "uint8", notes: "High byte of the big-endian power word; raw unit and exact meaning uncertain."}
+          - {offset: 9, length: 1, name: "battery_percent", type: "uint8", mask: 127, unit: "%", device_class: "battery"}
+          - {offset: 9, length: 1, name: "on_mains", type: "uint8", mask: 128, values: {0: "battery", 1: "mains / charging"}}
+          - {offset: 10, length: 1, name: "error_code", type: "uint8", notes: "Same error-code table as get_status.error_code."}
+          - {offset: 11, length: 1, name: "queue_status", type: "uint8", notes: "Same queue-state table as get_status.queue_status; this acknowledgement is not a completion event."}
+          - {offset: 12, length: 2, name: "queue_flags", type: "uint16", endianness: "big", notes: "Same bit assignments as get_status.queue_flags."}
+          - {offset: 14, length: 1, name: "print_progress", type: "int8", unit: "%"}
+        notes: >
+          Sent once after the last announced JPEG byte arrives. Byte 7 = 0
+          acknowledges receipt only. It does NOT say paper has finished
+          printing. Poll get_status every 2-5 seconds until READY after print
+          activity, or treat a disconnect after observed progress 100 as
+          finished. No per-chunk acknowledgements exist.
+        verification: "reported"
+    verification: "reported"
+    notes: >
+      Strict request/response: send one 34-byte command and wait for its
+      response before the next command. Responses typically take 0.1-0.7 s;
+      five seconds is the public client's per-command timeout. The printer
+      closes the link about 20 seconds after a print, so reconnect and run
+      START_SESSION before the next operation. Multiple prints in one session
+      are untested.
+  verification: "reported"
+  notes: >
+    Classic BR/EDR only on this evidence. No BLE GATT control surface is
+    declared. A BLE-only scanner cannot discover or drive this printer.
+
+initialization:
+  - command: "start_session"
+    expect_response: true
+    notes: "Must be the first application frame on every new RFCOMM connection. Retain the reported image chunk size and battery state."
+  - command: "get_status"
+    expect_response: true
+    notes: "Required before printing. READY, response/payload error zero and queue-flag bits 0-4 clear are the gate; poll while Smart Sheet calibration bit 3 is set."
+
+commands:
+  start_session:
+    description: "START_SESSION (0x0000): open a session and return protocol byte, power word and maximum image chunk size."
+    transport: "rfcomm"
+    value: [0x43, 0x0F, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+    response:
+      prefix: "43 F0 00 01 ?? 00 00"
+      length: 34
+      timeout_ms: 5000
+      format:
+        - {offset: 4, length: 1, name: "product_code", type: "uint8", values: {32: "PV-223 family revision 0x20", 33: "Zoemini 2 / PV-223 family revision 0x21", 34: "PV-223 family revision 0x22"}}
+        - {offset: 7, length: 1, name: "response_status", type: "uint8", values: {0: "no error"}}
+        - {offset: 8, length: 1, name: "session_unknown", type: "uint8", values: {1: "observed value; possibly protocol version, meaning unknown"}}
+        - {offset: 9, length: 1, name: "battery_voltage_raw", type: "uint8", notes: "High byte of power word p[1-2]; raw unit and exact meaning uncertain."}
+        - {offset: 10, length: 1, name: "battery_percent", type: "uint8", mask: 127, unit: "%", device_class: "battery"}
+        - {offset: 10, length: 1, name: "on_mains", type: "uint8", mask: 128, values: {0: "battery", 1: "mains / charging"}}
+        - {offset: 11, length: 2, name: "image_chunk_size", type: "uint16", endianness: "big", unit: "B", notes: "Maximum raw JPEG chunk. Zoemini 2 reports 0xFFFF; whether that means unlimited is unknown. The public client caps writes at 4096 B for progress, or uses 650 B when no MTU is known."}
+      verification: "reported"
+    notes: >
+      Unlike every other request, this uses device type FFFF and device code
+      FF. The response power word is big-endian at frame bytes 9-10 (payload
+      p[1-2]); low-seven-bit battery and mains bit are decoded from its low
+      byte. Worked response in protocol_details.test_vectors.
+    verification: "reported"
+  get_status:
+    description: "STATUS (0x0101): read battery, error, queue state, paper/cover/calibration flags and print progress."
+    transport: "rfcomm"
+    value: [0x43, 0x0F, 0x00, 0x01, 0x20, 0x01, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+    response:
+      prefix: "43 F0 00 01 ?? 01 01"
+      length: 34
+      timeout_ms: 5000
+      format:
+        - {offset: 4, length: 1, name: "product_code", type: "uint8", values: {32: "PV-223 family revision 0x20", 33: "Zoemini 2 / PV-223 family revision 0x21", 34: "PV-223 family revision 0x22"}}
+        - {offset: 7, length: 1, name: "response_status", type: "uint8", values: {0: "no error", 17: "busy", 18: "high temperature", 19: "low temperature", 20: "battery too low", 21: "cover open", 22: "paper empty", 23: "wrong Smart Sheet", 33: "print data error", 34: "cover opened during print", 35: "paper exhausted during print", 36: "wrong Smart Sheet during print"}}
+        - {offset: 8, length: 1, name: "battery_voltage_raw", type: "uint8", notes: "High byte of big-endian power word; assumed raw battery-voltage unit, unconfirmed."}
+        - {offset: 9, length: 1, name: "battery_percent", type: "uint8", mask: 127, unit: "%", device_class: "battery", notes: "Power-word bits 0-6; no additional scale."}
+        - {offset: 9, length: 1, name: "on_mains", type: "uint8", mask: 128, values: {0: "battery", 1: "mains / charging"}}
+        - {offset: 10, length: 1, name: "error_code", type: "uint8", values: {0: "no error", 17: "busy", 18: "high temperature", 19: "low temperature", 20: "battery too low", 21: "cover open", 22: "paper empty", 23: "wrong Smart Sheet", 33: "print data error", 34: "cover opened during print", 35: "paper exhausted during print", 36: "wrong Smart Sheet during print"}, notes: "Idle cover/paper conditions can be flags only with this byte still zero. A paper jam is queue_status 0x10, not an error code."}
+        - {offset: 11, length: 1, name: "queue_status", type: "uint8", values: {0: "READY: idle; after observed print activity, finished", 1: "PRINT_PREPARATION: preparing, also possible briefly after printing", 4: "PRINT_PRINTING: printing", 16: "PAPER_JAM", 240: "TRANSIENT_ERROR: inspect error_code", 241: "RECOVERABLE_ERROR: inspect error_code"}}
+        - {offset: 12, length: 2, name: "queue_flags", type: "uint16", endianness: "big", notes: "Bits 0-4 are cover open, no paper, wrong paper, Smart Sheet scanning and Smart Sheet error. Bits 5-15 are unused/unknown."}
+        - {offset: 12, length: 2, name: "cover_open", type: "uint16", endianness: "big", mask: 1, values: {0: "closed", 1: "open"}}
+        - {offset: 12, length: 2, name: "out_of_paper", type: "uint16", endianness: "big", mask: 2, values: {0: "paper present", 1: "out of paper"}}
+        - {offset: 12, length: 2, name: "wrong_paper", type: "uint16", endianness: "big", mask: 4, values: {0: "paper accepted", 1: "wrong paper"}}
+        - {offset: 12, length: 2, name: "calibrating", type: "uint16", endianness: "big", mask: 8, values: {0: "not reading Smart Sheet", 1: "reading blue Smart Sheet; wait"}}
+        - {offset: 12, length: 2, name: "calibration_error", type: "uint16", endianness: "big", mask: 16, values: {0: "no calibration-sheet error", 1: "calibration-sheet error"}}
+        - {offset: 14, length: 1, name: "print_progress", type: "int8", unit: "%", notes: "Signed wire byte; observed progress is 25, 50, 75, 100. It remains 100 after returning to READY."}
+      verification: "reported"
+    notes: >
+      Before PRINT_READY require response_status and error_code zero,
+      queue_status READY and flag bits 0-4 clear. A newly loaded paper pack
+      can keep calibration bit 3 set for about 35 seconds; poll rather than
+      print. During completion polling, READY after observed preparation or
+      printing is the terminal success state. READY with progress 100 is also
+      accepted by the public client; a disconnect after progress 100 can be
+      treated as finished.
+    verification: "reported"
+  get_info:
+    description: "GET_INFO (0x0102): read product code, Bluetooth address, serial number and PV223 model string."
+    transport: "rfcomm"
+    value: [0x43, 0x0F, 0x00, 0x01, 0x20, 0x01, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+    response:
+      prefix: "43 F0 00 01 ?? 01 02"
+      length: 34
+      timeout_ms: 5000
+      format:
+        - {offset: 4, length: 1, name: "product_code", type: "uint8", values: {32: "PV-223 family revision 0x20", 33: "Zoemini 2 / PV-223 family revision 0x21", 34: "PV-223 family revision 0x22"}}
+        - {offset: 7, length: 1, name: "response_status", type: "uint8", values: {0: "no error"}}
+        - {offset: 8, length: 6, name: "bluetooth_address", type: "bytes", notes: "Six address octets, most significant first; conventionally displayed colon-separated in the same order."}
+        - {offset: 14, length: 1, name: "serial_length", type: "uint8", unit: "B", notes: "Length n of the UTF-8 serial at payload p[7]. Model length and model follow the n serial bytes; parse dynamically using protocol_details.get_info_payload, not fixed offsets."}
+        - {offset: 15, length: 19, name: "serial_and_model", type: "bytes", notes: "Remainder of the shared 26-byte payload: n serial bytes, one model-length byte m, m model bytes, then zero padding. n + m <= 18; observed serial length is 12 and model is PV223."}
+      verification: "reported"
+    notes: >
+      Owner-specific address and serial values must remain local to a client.
+      The test vector uses a locally administered documentation address and an
+      invented serial. The third serial character is reported to select the
+      body-colour icon; see protocol_details.body_colour_codes.
+    verification: "reported"
+  get_settings:
+    description: "SETTING read (0x0103, access 00): read auto-off, firmware/TMD versions, print counter and uncertain fields."
+    transport: "rfcomm"
+    value: [0x43, 0x0F, 0x00, 0x01, 0x20, 0x01, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+    response:
+      prefix: "43 F0 00 01 ?? 01 03"
+      length: 34
+      timeout_ms: 5000
+      format:
+        - {offset: 4, length: 1, name: "product_code", type: "uint8", values: {32: "PV-223 family revision 0x20", 33: "Zoemini 2 / PV-223 family revision 0x21", 34: "PV-223 family revision 0x22"}}
+        - {offset: 7, length: 1, name: "response_status", type: "uint8", values: {0: "no error"}}
+        - {offset: 8, length: 1, name: "auto_power_off_minutes", type: "uint8", unit: "min", values: {3: "3 minutes", 5: "5 minutes", 10: "10 minutes"}}
+        - {offset: 9, length: 3, name: "firmware_version", type: "bytes", notes: "Three independent bytes a b c displayed a.b.c; 01 04 0D is 1.4.13. These are version digits, not a multi-byte integer."}
+        - {offset: 12, length: 1, name: "settings_unknown_4", type: "uint8", values: {5: "observed value; meaning unknown"}}
+        - {offset: 13, length: 1, name: "tmd_version", type: "uint8", notes: "Displayed 0.0.x in decimal; 0x18 is 0.0.24. Single byte, so no byte order applies."}
+        - {offset: 14, length: 2, name: "photos_printed", type: "uint16", endianness: "big", notes: "Lifetime printed-photo counter; blue calibration sheets are not counted."}
+        - {offset: 16, length: 1, name: "colour_id", type: "uint8", values: {0: "observed value; body colour is encoded in the serial instead"}}
+        - {offset: 17, length: 2, name: "settings_unknown_9_10", type: "uint16", endianness: "big", notes: "Increases slowly with use; possibly a calibration counter, unconfirmed."}
+      verification: "reported"
+    verification: "reported"
+  set_auto_power_off:
+    description: "SETTING write (0x0103, access 01): set the persistent auto power-off delay to 3, 5 or 10 minutes and return full settings."
+    transport: "rfcomm"
+    template: [0x43, 0x0F, 0x00, 0x01, 0x20, 0x01, 0x03, 0x01, "{minutes}", 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+    parameters:
+      minutes:
+        type: "uint8"
+        required: true
+        unit: "min"
+        allowed: [3, 5, 10]
+        labels: ["3 minutes", "5 minutes", "10 minutes"]
+        description: "Delay before automatic power-off. All other payload bytes stay zero; no separate commit command is needed."
+    example_body: "43 0F 00 01 20 01 03 01 05 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00"
+    example_notes: "Set auto power-off to 5 minutes. A successful reply has the get_settings layout with auto_power_off_minutes already equal to 5."
+    response:
+      prefix: "43 F0 00 01 ?? 01 03"
+      length: 34
+      timeout_ms: 5000
+      format:
+        - {offset: 4, length: 1, name: "product_code", type: "uint8"}
+        - {offset: 7, length: 1, name: "response_status", type: "uint8", values: {0: "setting applied"}}
+        - {offset: 8, length: 1, name: "auto_power_off_minutes", type: "uint8", unit: "min", values: {3: "3 minutes", 5: "5 minutes", 10: "10 minutes"}, notes: "Must equal the requested value; otherwise treat the write as not applied."}
+        - {offset: 9, length: 3, name: "firmware_version", type: "bytes", notes: "Three bytes a b c displayed a.b.c."}
+        - {offset: 12, length: 1, name: "settings_unknown_4", type: "uint8"}
+        - {offset: 13, length: 1, name: "tmd_version", type: "uint8", notes: "Displayed 0.0.x."}
+        - {offset: 14, length: 2, name: "photos_printed", type: "uint16", endianness: "big"}
+        - {offset: 16, length: 1, name: "colour_id", type: "uint8"}
+        - {offset: 17, length: 2, name: "settings_unknown_9_10", type: "uint16", endianness: "big"}
+      notes: "A read and a write return the same full-settings layout. Non-zero response_status means refusal; do not send image data or assume persistence."
+      verification: "reported"
+    notes: "The setting persists across power cycles according to the public protocol. Verify the returned minutes byte before reporting success."
+    verification: "reported"
+  print_ready:
+    description: "PRINT_READY (0x0301): announce the exact JPEG byte length before raw transfer; a non-zero reply refuses the print."
+    transport: "rfcomm"
+    template: [0x43, 0x0F, 0x00, 0x01, 0x20, 0x03, 0x01, 0x00, "{jpeg_size}", 0x01, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+    parameters:
+      jpeg_size:
+        type: "uint32"
+        endianness: "big"
+        required: true
+        min: 1
+        unit: "B"
+        description: "Exact number of raw JPEG bytes that send_jpeg will write, encoded as one big-endian uint32 at payload p[0-3]. The two following literal 01 bytes are observed constants whose meanings (possibly copies and print mode) are unknown."
+    example_body: "43 0F 00 01 20 03 01 00 00 11 AA 0C 01 01 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00"
+    example_notes: "Announce 1,157,644 JPEG bytes (0x0011AA0C), copied from the public protocol's worked example and padded to 34 bytes."
+    response:
+      prefix: "43 F0 00 01 ?? 03 01"
+      length: 34
+      timeout_ms: 5000
+      format:
+        - {offset: 4, length: 1, name: "product_code", type: "uint8"}
+        - {offset: 7, length: 1, name: "response_status", type: "uint8", values: {0: "ready for JPEG bytes", 17: "busy", 18: "high temperature", 19: "low temperature", 20: "battery too low", 21: "cover open", 22: "paper empty", 23: "wrong Smart Sheet"}, notes: "Non-zero refuses the print; send no JPEG bytes."}
+        - {offset: 8, length: 1, name: "battery_voltage_raw", type: "uint8", notes: "Raw unit, uncertain."}
+        - {offset: 9, length: 1, name: "battery_percent", type: "uint8", mask: 127, unit: "%", device_class: "battery"}
+        - {offset: 9, length: 1, name: "on_mains", type: "uint8", mask: 128, values: {0: "battery", 1: "mains / charging"}}
+        - {offset: 10, length: 1, name: "error_code", type: "uint8", notes: "Same table as get_status.error_code."}
+        - {offset: 11, length: 1, name: "queue_status", type: "uint8", notes: "Same table as get_status.queue_status."}
+        - {offset: 12, length: 2, name: "queue_flags", type: "uint16", endianness: "big", notes: "Same bits as get_status.queue_flags; check bits 0-4 before transfer."}
+        - {offset: 14, length: 1, name: "print_progress", type: "int8", unit: "%"}
+      verification: "reported"
+    notes: >
+      Run start_session and a successful readiness check first. Only after a
+      zero response_status write send_jpeg. The literal payload bytes p[4]=01
+      and p[5]=01 must not be generalised to other values without new evidence.
+    verification: "reported"
+  send_jpeg:
+    description: "Raw prepared JPEG bytes following accepted PRINT_READY, in chunks no larger than the session image_chunk_size, with no framing or per-chunk acknowledgement."
+    transport: "rfcomm"
+    template: ["{jpeg}"]
+    parameters:
+      jpeg:
+        type: "bytes"
+        required: true
+        min_length: 1
+        description: "One complete baseline JFIF JPEG prepared by protocol_details.jpeg_format. Its byte length must exactly equal print_ready.jpeg_size. Maximum accepted file size is unknown; files over 1 MiB are reported accepted."
+    response:
+      prefix: "43 F0 00 01 ?? 03 02"
+      length: 34
+      timeout_ms: 30000
+      format:
+        - {offset: 4, length: 1, name: "product_code", type: "uint8"}
+        - {offset: 7, length: 1, name: "response_status", type: "uint8", values: {0: "whole image accepted", 33: "print data error", 34: "cover opened during print", 35: "paper exhausted during print", 36: "wrong Smart Sheet during print"}}
+        - {offset: 8, length: 1, name: "battery_voltage_raw", type: "uint8", notes: "Raw unit, uncertain."}
+        - {offset: 9, length: 1, name: "battery_percent", type: "uint8", mask: 127, unit: "%", device_class: "battery"}
+        - {offset: 9, length: 1, name: "on_mains", type: "uint8", mask: 128, values: {0: "battery", 1: "mains / charging"}}
+        - {offset: 10, length: 1, name: "error_code", type: "uint8"}
+        - {offset: 11, length: 1, name: "queue_status", type: "uint8"}
+        - {offset: 12, length: 2, name: "queue_flags", type: "uint16", endianness: "big"}
+        - {offset: 14, length: 1, name: "print_progress", type: "int8", unit: "%"}
+      notes: "The single 0x0302 frame after the last JPEG byte is a receive acknowledgement, not print completion. Poll get_status every 2-5 seconds afterwards."
+      verification: "reported"
+    notes: >
+      Write chunks back to back with no delay and rely on RFCOMM flow control.
+      Use at most image_chunk_size from START_SESSION; if it is zero/unknown,
+      use 650 B. Zoemini 2 reports 0xFFFF, whose unlimited meaning is uncertain;
+      the public client caps writes at 4096 B to report progress. Throughput is
+      about 100 kB/s. Do not send another command until the receive ACK arrives.
+    verification: "reported"
+  reboot:
+    description: "REBOOT (0xFFFF): restart the printer. Documented request only; no reply is established."
+    transport: "rfcomm"
+    value: [0x43, 0x0F, 0x00, 0x01, 0x20, 0xFF, 0xFF, 0x01, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+    advanced: true
+    advanced_reason: "Restarts the printer and drops the current session. Use only when idle; interrupting a transfer or mechanical print can waste paper and leave job state uncertain. Reconnect and run START_SESSION afterwards."
+    response:
+      expected: "unknown"
+      notes: "The public protocol documents the request bytes but no response or post-reboot timing. Do not wait for an invented acknowledgement; reconnect and establish a fresh session."
+    verification: "reported"
+
+features:
+  - type: "image_upload"
+    max_width: 640
+    max_height: 1608
+    session_open: ["start_session", "get_status", "print_ready"]
+    print_geometry:
+      dpi: 320
+      dpi_feed: 536
+    media:
+      - name: "2 x 3 inch Canon ZINK paper with blue Smart Sheet"
+        kind: "die_cut"
+        width_mm: 50.8
+        length_mm: 76.2
+        total_width_dots: 640
+        total_length_dots: 1608
+        print_width_dots: 634
+        print_length_dots: 1596
+        notes: "Centred content: 3 px side margins and 6 px top/bottom margins before rotation and edge filling."
+    notes: >
+      The schema's format enum has no JPEG value, so format is deliberately
+      omitted rather than mislabelling the upload as RGB or bitmap data. The
+      required baseline-JPEG encoding and exact preparation recipe are in
+      protocol_details.jpeg_format. After session_open, send_jpeg carries the
+      announced raw bytes and print_receive_ack is followed by STATUS polling.
+  - type: "raster_print"
+
+local_access:
+  status: "native"
+  summary: >
+    Pair directly over Classic Bluetooth and print or query status without a
+    Canon account or cloud. The pinned public implementation provides Linux
+    and CUPS clients; this repository supplies protocol documentation, not a
+    supported device-client library.
+  covers:
+    - "Session establishment, battery/status, identity, versions and print counter"
+    - "Persistent 3/5/10-minute auto power-off setting"
+    - "Prepared 640 x 1608 baseline-JPEG printing with receive ACK and completion polling"
+  not_covered:
+    - "PV-123, ZV-123, ZV-223 and every SPP-only first-generation protocol"
+    - "Firmware update: no safe mechanism, image mapping, signing or recovery sequence is specified"
+    - "The payload protocols on RFCOMM channels 22, 23 and 25"
+    - "Any separate iOS accessory transport"
+
+entities:
+  - platform: "sensor"
+    name: "Battery"
+    device_class: "battery"
+    unit: "%"
+    state_command: "get_status"
+    state_field: "get_status.battery_percent"
+  - platform: "binary_sensor"
+    name: "Charging"
+    device_class: "battery_charging"
+    state_command: "get_status"
+    state_field: "get_status.on_mains"
+    state_mapping:
+      on_value: 1
+    notes: "Power-word bit 7 means on mains / charging; it is not a separate charge-complete reading."
+  - platform: "sensor"
+    name: "Printer State"
+    icon: "mdi:printer"
+    state_command: "get_status"
+    state_field: "get_status.queue_status"
+    state_mapping:
+      0: "ready"
+      1: "preparing"
+      4: "printing"
+      16: "paper jam"
+      240: "transient error"
+      241: "recoverable error"
+  - platform: "sensor"
+    name: "Print Progress"
+    unit: "%"
+    icon: "mdi:progress-clock"
+    state_command: "get_status"
+    state_field: "get_status.print_progress"
+    notes: "Poll every 2-5 seconds after receive ACK. 100 can remain after READY; queue state determines completion."
+  - platform: "sensor"
+    name: "Printer Error"
+    icon: "mdi:printer-alert"
+    state_command: "get_status"
+    state_field: "get_status.error_code"
+    state_mapping:
+      0: "none"
+      17: "busy"
+      18: "high temperature"
+      19: "low temperature"
+      20: "battery too low"
+      21: "cover open"
+      22: "paper empty"
+      23: "wrong Smart Sheet"
+      33: "print data error"
+      34: "cover opened during print"
+      35: "paper exhausted during print"
+      36: "wrong Smart Sheet during print"
+  - platform: "binary_sensor"
+    name: "Paper Jam"
+    device_class: "problem"
+    state_command: "get_status"
+    state_field: "get_status.queue_status"
+    state_mapping:
+      on_value: 16
+  - platform: "binary_sensor"
+    name: "Cover Open"
+    device_class: "opening"
+    state_command: "get_status"
+    state_field: "get_status.cover_open"
+    state_mapping:
+      on_value: 1
+  - platform: "binary_sensor"
+    name: "Out of Paper"
+    device_class: "problem"
+    state_command: "get_status"
+    state_field: "get_status.out_of_paper"
+    state_mapping:
+      on_value: 1
+  - platform: "binary_sensor"
+    name: "Wrong Paper"
+    device_class: "problem"
+    state_command: "get_status"
+    state_field: "get_status.wrong_paper"
+    state_mapping:
+      on_value: 1
+  - platform: "binary_sensor"
+    name: "Reading Smart Sheet"
+    icon: "mdi:card-search"
+    state_command: "get_status"
+    state_field: "get_status.calibrating"
+    state_mapping:
+      on_value: 1
+    notes: "Wait for this to clear after loading a new pack; it can remain set for about 35 seconds."
+  - platform: "binary_sensor"
+    name: "Smart Sheet Error"
+    device_class: "problem"
+    state_command: "get_status"
+    state_field: "get_status.calibration_error"
+    state_mapping:
+      on_value: 1
+  - platform: "select"
+    name: "Auto Power Off"
+    icon: "mdi:power-sleep"
+    unit: "min"
+    state_command: "get_settings"
+    state_field: "get_settings.auto_power_off_minutes"
+    state_mapping:
+      options:
+        "3": "3 minutes"
+        "5": "5 minutes"
+        "10": "10 minutes"
+    commands:
+      select_option: "set_auto_power_off"
+  - platform: "sensor"
+    name: "Photos Printed"
+    icon: "mdi:counter"
+    state_command: "get_settings"
+    state_field: "get_settings.photos_printed"
+    notes: "Calibration sheets are excluded from the counter."
+  - platform: "sensor"
+    name: "Firmware Version"
+    icon: "mdi:information-outline"
+    state_command: "get_settings"
+    state_field: "get_settings.firmware_version"
+    notes: "Three version bytes rendered major.minor.patch in decimal; the vector 01 04 0D means 1.4.13."
+
+protocol_details:
+  scope:
+    included_models: ["Ivy 2", "Zoemini 2", "iNSPiC PV-223"]
+    reported_model_string: "PV223"
+    excluded_models: ["PV-123", "ZV-123", "ZV-223"]
+    product_codes:
+      "0x20": "PV-223 family revision; retail-model mapping uncertain"
+      "0x21": "PV-223 family; observed on Zoemini 2"
+      "0x22": "PV-223 family revision; retail-model mapping uncertain"
+    generation_rule: >
+      Require the exact Mini Printer inquiry-name shape and the four SDP
+      services in device.discovery. SPP-only means first generation and a
+      different protocol. The vendor app's Instant Camera name alternative is
+      not sufficient evidence for this spec and is excluded.
+    verification: "reported"
+  frame_layout:
+    frame_bytes: 34
+    header_bytes: 8
+    payload_bytes: 26
+    endianness: "big"
+    request_start: "43 0F"
+    response_start: "43 F0"
+    unused_payload: "00"
+    checksum: "none"
+    fields:
+      - {offsets: "0-1", name: "start", request: "43 0F", response: "43 F0"}
+      - {offsets: "2-3", name: "device_type", request: "0001; FFFF for START_SESSION", response: "0001", encoding: "uint16 big-endian"}
+      - {offsets: "4", name: "device_or_product_code", request: "20; FF for START_SESSION", response: "product code 20, 21 or 22 for the PV-223 family"}
+      - {offsets: "5-6", name: "command", request: "command code", response: "echoed command code; 0302 for receive ACK", encoding: "uint16 big-endian"}
+      - {offsets: "7", name: "access_or_status", request: "00 read, 01 write", response: "error status; zero is success"}
+      - {offsets: "8-33", name: "payload", request: "26 bytes, zero padded", response: "26 bytes, zero padded"}
+    receive_rule: >
+      Accumulate across RFCOMM reads, scan to 43 F0 and take exactly 34 bytes.
+      Preserve a trailing 43 until the next read determines whether F0 follows.
+      Outside raw JPEG transfer, no other device-to-host frame shape is known.
+    verification: "reported"
+  sdp_generation_boundary:
+    services:
+      - {channel: 1, uuid: "00001101-0000-1000-8000-00805f9b34fb", service_name: "SerialPort", role: "print/status protocol"}
+      - {channel: 22, uuid: "00000000-deca-fade-deca-deafdecacaff", service_name: "Apple Inc.", role: "generation identification; payload undocumented"}
+      - {channel: 23, uuid: "e5b152ed-6b46-09e9-4678-665e9a972cbc", service_name: "WeChat", role: "advertised only here; payload undocumented"}
+      - {channel: 25, uuid: "00500056-0223-0000-0000-000000000000", service_name: "FSK", role: "generation identification; payload undocumented"}
+    reject: "Do not select this spec for a device publishing only SPP, and do not emulate second generation without all four SDP records."
+    verification: "reported"
+  get_info_payload:
+    description: >
+      Dynamic layout within the 26-byte payload p[]. n and m are byte lengths,
+      strings are UTF-8 with no terminator, and unused trailing bytes are zero.
+      n + m <= 18. The response's frame byte 4 independently carries product
+      code.
+    fields:
+      - {offset: "0-5", length: 6, name: "bluetooth_address", encoding: "six octets, most significant first"}
+      - {offset: "6", length: 1, name: "n", encoding: "uint8 serial-byte count"}
+      - {offset: "7 through 6+n", length: "n", name: "serial", encoding: "UTF-8; 12 characters on observed units"}
+      - {offset: "7+n", length: 1, name: "m", encoding: "uint8 model-byte count"}
+      - {offset: "8+n through 7+n+m", length: "m", name: "model", encoding: "UTF-8, reported PV223"}
+    bounds_rule: "Reject n or m whose length-prefixed strings extend past payload byte 25; never scan for a NUL terminator."
+    verification: "reported"
+  body_colour_codes:
+    description: "Reported meaning of the serial string's third character (index 2), used only for display icon selection; it is not a protocol capability check."
+    values:
+      A: "black / pink / rose gold"
+      B: "pearl white"
+      C: "blue"
+      D: "rose gold and white"
+      E: "pearl white and silver"
+      F: "navy and white"
+    unknown: "Use a generic printer icon for any other character or a serial shorter than three characters."
+    verification: "reported"
+  error_codes:
+    description: "Response byte 7 and STATUS payload p[2] share these codes. Codes 0x1x prevent a print from starting; 0x2x occur during printing. Paper jam is queue status 0x10 instead."
+    values:
+      "0x00": "no error"
+      "0x11": "busy"
+      "0x12": "high temperature"
+      "0x13": "low temperature"
+      "0x14": "battery too low"
+      "0x15": "cover open"
+      "0x16": "paper empty"
+      "0x17": "wrong Smart Sheet"
+      "0x21": "print data error"
+      "0x22": "cover opened during print"
+      "0x23": "paper exhausted during print"
+      "0x24": "wrong Smart Sheet during print"
+    out_of_scope_values:
+      "0x25": "camera write error, reported for camera-printers that this spec does not cover"
+    verification: "reported"
+  print_session:
+    ordered_steps:
+      - "Connect RFCOMM channel 1 and send start_session; retain image_chunk_size."
+      - "Send get_status. Require response status and payload error zero, queue READY and flag bits 0-4 clear; poll while calibration bit 3 is set."
+      - "Send print_ready with the exact JPEG length and literal 01 01 trailing parameters. A non-zero response status refuses the job; send no image bytes."
+      - "Send exactly the announced JPEG bytes with send_jpeg, back to back in chunks no larger than image_chunk_size (650 B fallback, 4096 B public-client cap for the reported 0xFFFF MTU)."
+      - "Read one print_receive_ack (0x0302). Non-zero status means image refusal; zero means received, not mechanically complete."
+      - "Poll get_status every 2-5 seconds. PREPARATION or PRINTING establishes that the print started; a later READY is successful completion. PAPER_JAM and 0x2x errors are failures; inspect TRANSIENT/RECOVERABLE error codes."
+      - "Expect the printer to close the link about 20 seconds after finishing. If it drops after observed progress 100, the public client accepts completion. Reconnect and START_SESSION for another operation."
+    completion:
+      receive_ack_is_completion: false
+      poll_command: "get_status"
+      poll_interval_seconds_min: 2
+      poll_interval_seconds_max: 5
+      success: "queue_status READY after observed PREPARATION/PRINTING, or READY with progress 100; disconnect after progress 100 is also accepted by the public client"
+      not_started: "READY with progress below 100 and no observed preparation/printing is not completion; the public client fails if printing has not started after 30 seconds"
+      failure: "PAPER_JAM, error codes 0x21-0x24, or timeout waiting for completion"
+      typical_mechanical_seconds_after_transfer: 50
+      public_client_timeout_seconds: 240
+    verification: "reported"
+  jpeg_format:
+    description: >
+      The printer performs no scaling, rotation or colour processing. Prepare
+      this exact image before print_ready; acceptance of other geometry,
+      progressive JPEG, ICC profiles or a maximum size is not established.
+    canvas:
+      width_px: 640
+      height_px: 1608
+      orientation: "portrait pixel array rotated 180 degrees relative to the upright source"
+      background: "white"
+    content:
+      width_px: 634
+      height_px: 1596
+      offset_x_px: 3
+      offset_y_px: 6
+      side_margin_px: 3
+      top_bottom_margin_px: 6
+      physical_aspect_ratio: "approximately 2:3 after accounting for non-square pixels"
+    resolution:
+      horizontal_dpi: 320
+      vertical_dpi: 536
+      vertical_to_horizontal_pixel_ratio: 1.675
+      print_width_inches: 2
+      print_height_inches: 3
+    encoding:
+      container: "JFIF JPEG"
+      jpeg_mode: "baseline, not progressive"
+      colour: "RGB, no alpha"
+      chroma_subsampling: "4:4:4 (none)"
+      quality: 90
+      icc_profile: "omit"
+      exif: "omit"
+      maximum_bytes: "unknown; files over 1 MiB are reported accepted"
+    preparation_steps:
+      - "Centre-crop the upright source to the content's physical ratio, 634 : (1596 / 1.675), approximately 2:3."
+      - "Resize to exactly 634 x 1596 without preserving the source pixel aspect ratio."
+      - "Paste at (3, 6) on a white 640 x 1608 canvas."
+      - "Rotate the complete canvas 180 degrees."
+      - "Remember content rows 6 and 1601, shift the whole image down 4 rows, fill rows 0-9 with remembered row 6 and rows 1604-1607 with remembered row 1601. Keep the 3 white columns at each side white."
+      - "Encode as baseline JFIF JPEG, quality 90, 4:4:4 chroma, RGB with no alpha, ICC profile or EXIF. Compute jpeg_size from the resulting encoded bytes, not the pixel count."
+    rendering_note: "Optional shadow/midtone lifting and light sharpening can improve ZINK output but are presentation choices, not protocol requirements."
+    verification: "reported"
+  firmware_update:
+    specified: false
+    update_feature_declared: false
+    commands: []
+    do_not_send: ["0x0201", "0x0202", "0x0203"]
+    answer: >
+      No firmware-update capability is specified for a replacement client.
+      The public protocol names 0x0201-0x0203 only as undocumented update
+      opcodes, warns never to send them, and its emulator refuses them. No
+      command templates, DFU entry, image format, model mapping, signature
+      verification, bootloader identity or interrupted-update recovery are
+      asserted here. Bundled vendor file names in research are not evidence of
+      eligibility or a safe update route. No firmware_update feature is
+      declared.
+    verification: "reported"
+  test_vectors:
+    description: >
+      Full 34-byte frames. start_session, status_ready, get_settings and
+      print_ready reproduce the public protocol's worked values with zero
+      padding made explicit. Status timeline and print_receive_ack follow the
+      public emulator's reported state sequence. get_info is computed from the
+      public GET_INFO layout with documentation address 02:00:00:00:00:01 and
+      invented serial XXFTEST00001. set_auto_power_off is computed from the
+      public write layout. None is a new hardware capture.
+    requests:
+      start_session:
+        hex: "43 0F FF FF FF 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00"
+        meaning: "START_SESSION with special FFFF/FF device selector and zero payload"
+      get_status:
+        hex: "43 0F 00 01 20 01 01 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00"
+        meaning: "STATUS read"
+      get_info:
+        hex: "43 0F 00 01 20 01 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00"
+        meaning: "GET_INFO read"
+      get_settings:
+        hex: "43 0F 00 01 20 01 03 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00"
+        meaning: "SETTING read"
+      set_auto_power_off:
+        hex: "43 0F 00 01 20 01 03 01 05 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00"
+        meaning: "Set auto power-off to 5 minutes"
+        arguments: {minutes: 5}
+      print_ready:
+        hex: "43 0F 00 01 20 03 01 00 00 11 AA 0C 01 01 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00"
+        meaning: "Announce a 1,157,644-byte JPEG and the two observed 01 constants"
+        arguments: {jpeg_size: 1157644}
+      reboot:
+        hex: "43 0F 00 01 20 FF FF 01 01 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00"
+        meaning: "Advanced REBOOT request; no reply established"
+    responses:
+      start_session:
+        hex: "43 F0 00 01 21 00 00 00 01 82 64 FF FF 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00"
+        meaning: "Product 0x21, session byte 1, power 0x8264 = battery 100% on battery, raw high byte 0x82, MTU 0xFFFF"
+      status_ready:
+        hex: "43 F0 00 01 21 01 01 00 81 E4 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00"
+        meaning: "Power 0x81E4 = mains/charging and battery 100%, READY, no errors or flags, progress 0"
+      status_preparing_25:
+        hex: "43 F0 00 01 21 01 01 00 81 E4 00 01 00 00 19 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00"
+        meaning: "Print preparation, 25%: print has started but is not complete"
+      status_printing_50:
+        hex: "43 F0 00 01 21 01 01 00 81 E4 00 04 00 00 32 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00"
+        meaning: "Printing, 50%: not complete"
+      status_ready_complete:
+        hex: "43 F0 00 01 21 01 01 00 81 E4 00 00 00 00 64 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00"
+        meaning: "READY with progress 100 after print activity: completion"
+      get_info:
+        hex: "43 F0 00 01 21 01 02 00 02 00 00 00 00 01 0C 58 58 46 54 45 53 54 30 30 30 30 31 05 50 56 32 32 33 00"
+        meaning: "Documentation address, 12-byte invented serial XXFTEST00001, five-byte model PV223, one trailing zero pad"
+      get_settings:
+        hex: "43 F0 00 01 21 01 03 00 03 01 04 0D 05 18 00 0B 00 00 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00"
+        meaning: "Auto-off 3 min, firmware 1.4.13, unknown byte 5, TMD 0.0.24, 11 photos, colour id 0, unknown word 2"
+      print_receive_ack:
+        hex: "43 F0 00 01 21 03 02 00 81 E4 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00"
+        meaning: "Image accepted with idle status; still not mechanical completion"
+    verification: "reported"
+evidence:
+  artifacts:
+    - type: "public_implementation"
+      artifact: "m4mmon/canon_zoemini2 protocol, Python client, Linux RFCOMM transport and emulator"
+      url: "https://github.com/m4mmon/canon_zoemini2/tree/ccd2d7a4eed0255157a1a88b26ac5b535f917e75"
+      description: >
+        Pinned at commit ccd2d7a4eed0255157a1a88b26ac5b535f917e75. Source of
+        the transport, SDP services, frame layouts, commands, chunking,
+        completion state machine, image preparation, settings, error codes and
+        worked values. The README reports upstream hardware tests on Zoemini 2;
+        this project did not repeat them. MIT licensed.
+    - type: "static_analysis"
+      artifact: "Canon Mini Print for Android 3.8.5 (607), package com.canon.cebm.miniprint.android.us"
+      obtained_via: "Reviewed research summary dated 2026-11-10; no APK, decompiled tree or vendor asset is committed"
+      description: >
+        Used only for family scope and model leads: Ivy 2 / Zoemini 2 / iNSPiC
+        PV-223 are in scope; PV-123, ZV-123 and ZV-223 are not claimed
+        compatible. Bundled firmware-file presence is not treated as proof of
+        update eligibility, authenticity, image mapping or a safe update path.
+    - type: "vendor_documentation"
+      artifact: "Canon Mini Print store and support listings"
+      url: "https://en.canon-cna.com/apps/canon-mini-print/"
+      description: >
+        Confirms the vendor app family. No model-matched official PV-223 manual
+        was acquired; Canon US support attempts during research returned 403,
+        so no unverified manual link is published here.
+  documentation_review: >
+    The protocol text was checked against the pinned public client's framing,
+    status/session decoders, chunking and completion logic, and against the
+    public emulator's response and print-timeline construction. The committed
+    test independently transcribes those layouts using only the Python
+    standard library and does not import the public implementation.
+  open_questions: >
+    Regional PV-223 captures, product-code mapping, bond/reset behaviour, iOS
+    transport, exact MTU semantics, unknown payload fields, acceptance outside
+    the documented JPEG recipe and all firmware questions remain open.
+
+remaining_unknowns:
+  - "One owner-controlled SDP/frame capture per regional PV-223 retail variant is still needed; upstream hardware results are Zoemini 2 results, not proof for every alias."
+  - "Which retail revisions correspond to product codes 0x20 and 0x22; only Zoemini 2's 0x21 mapping is reported."
+  - "PV-123, ZV-123 and ZV-223 protocols and compatibility are unestablished and deliberately excluded; SPP-only first-generation devices need a separate capture."
+  - "START_SESSION p[0] (observed 1), the power word's high-byte raw unit, PRINT_READY's two 01 constants, SETTING p[4] and p[9-10], and queue-flag bits 5-15."
+  - "Whether MTU 0xFFFF literally means unlimited; the public client caps writes at 4096 B. Maximum accepted JPEG size and acceptance of progressive JPEG, other dimensions or ICC profiles are unknown."
+  - "Several prints in one session without reconnecting, low-battery behaviour, and opening the cover during a print are untested upstream."
+  - "Factory-reset existence/effect, pairing-window indication, bond capacity and printer-side selective unpairing."
+  - "How the official iOS app reaches the printer; channel 22's presence and Apple Inc. service name do not establish MFi/iAP2 or frame compatibility."
+  - "Firmware update: no safe commands, image-to-model mapping, signing, bootloader state or recovery is specified. Do not send 0x0201-0x0203; no firmware_update feature is declared."
+  - "No model-matched official PV-223 manual or FCC ID was established by the research."
+
+helpful_urls:
+  - title: "m4mmon/canon_zoemini2: protocol, Linux client, CUPS and emulator (pinned revision)"
+    url: "https://github.com/m4mmon/canon_zoemini2/tree/ccd2d7a4eed0255157a1a88b26ac5b535f917e75"
+    kind: "implementation"
+    description: >
+      MIT-licensed public implementation from which this spec is derived.
+      Reports Zoemini 2 hardware printing on BlueZ; those results are upstream's.
+  - title: "Canon Zoemini 2 / Ivy 2 Bluetooth protocol (pinned protocol.md)"
+    url: "https://github.com/m4mmon/canon_zoemini2/blob/ccd2d7a4eed0255157a1a88b26ac5b535f917e75/protocol.md"
+    kind: "protocol_writeup"
+    description: >
+      Exact 34-byte layouts, SDP generation boundary, status/error tables,
+      print sequence, JPEG recipe, worked frames and explicit uncertainties.
+  - title: "Canon Mini Print app and support overview"
+    url: "https://en.canon-cna.com/apps/canon-mini-print/"
+    kind: "vendor_support"
+    description: "Official regional overview for the companion app; not a protocol specification or a substitute for a model-matched manual."
+  - title: "Canon Mini Print on Google Play"
+    url: "https://play.google.com/store/apps/details?id=com.canon.cebm.miniprint.android.us"
+    kind: "vendor_support"
+    description: "Official Android companion app used for model-scope research; local printing with the public client needs no Canon account."
+  - title: "Android Bluetooth HCI snoop logging"
+    url: "https://source.android.com/docs/core/connect/bluetooth/verifying_debugging"
+    kind: "other"
+    description: "How an owner can capture SDP/RFCOMM evidence to move regional and uncertain facts from reported to confirmed without sharing unit identifiers."
