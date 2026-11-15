@@ -12,6 +12,18 @@ def keystorePropertiesFile = rootProject.file("key.properties")
 def keystoreProperties = new Properties()
 if (keystorePropertiesFile.exists()) {
     keystorePropertiesFile.withInputStream { keystoreProperties.load(it) }
+    // A key missing here reaches the signing config as null, and
+    // :app:signReleaseBundle then dies minutes into the build with a bare
+    // NullPointerException and no message. Name the key now instead.
+    def missing = ["storeFile", "storePassword", "keyAlias", "keyPassword"].findAll {
+        !keystoreProperties.getProperty(it)?.trim()
+    }
+    if (missing) {
+        throw new GradleException(
+            "android/key.properties is missing ${missing.join(', ')}. " +
+            "It needs storeFile (an absolute path), storePassword, keyAlias " +
+            "and keyPassword; see docs/RELEASE.md 'Android signing'.")
+    }
 }
 
 android {

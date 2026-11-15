@@ -223,7 +223,11 @@ the backed-up upload keystore. It is gitignored deliberately.
 checkout's file into the release worktree. It checks that git ignores the
 path there before the copy and checks again after it. If the first check
 fails, nothing is written. If the second fails, it deletes the copy it just
-made. This check must succeed: without the file Gradle silently falls back to the shared debug key,
+made. Before the build, it also signs a throwaway jar with the file's
+keystore, alias and both passwords. Gradle's `:app:signReleaseBundle` fails on
+a missing password or an alias the keystore lacks with a bare
+`NullPointerException`, minutes into the build. The probe fails in seconds and
+jarsigner says which value is wrong. This check must succeed: without the file Gradle silently falls back to the shared debug key,
 and Play will reject the AAB:
 
 ```bash

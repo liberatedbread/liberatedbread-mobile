@@ -32,8 +32,11 @@ ARTIFACT_SHA_KEY=AAB_SHA256
 PLAY_CONSOLE_URL="https://play.google.com/console"
 AAB_PATH=build/app/outputs/bundle/release/app-release.aab
 
-# key_prop FILE KEY — one value from a key.properties file.
-key_prop() { sed -n "s/^[[:space:]]*$2[[:space:]]*=[[:space:]]*//p" "$1" | tail -n 1; }
+# key_prop FILE KEY — one value from a key.properties file. Carriage returns
+# are dropped: Java's Properties (what Gradle reads it with) treats CRLF as a
+# line ending, so a file saved on Windows works for the build, and must not
+# fail here with every value ending in an invisible \r.
+key_prop() { tr -d '\r' <"$1" | sed -n "s/^[[:space:]]*$2[[:space:]]*=[[:space:]]*//p" | tail -n 1; }
 
 platform_preflight() {
   command -v jarsigner &>/dev/null ||
@@ -100,6 +103,40 @@ ensure_key_properties() {
   [[ -f "$store" ]] || die "The upload keystore $store does not exist."
   [[ -n "$KEY_ALIAS" ]] || die "$props has no keyAlias."
   KEYSTORE="$store"
+  check_signing_key "$props"
+}
+
+# Gradle's :app:signReleaseBundle fails with a bare NullPointerException, and
+# no message, when its signing config holds a null. That happens when
+# key.properties has no storePassword or keyPassword, or names a keyAlias the
+# keystore does not hold. A wrong password fails the same task minutes into
+# the build. So sign a throwaway jar with exactly these values first: it takes
+# seconds, and jarsigner says what is wrong. Passwords go through the
+# environment, never the command line.
+check_signing_key() {
+  local props="$1" key missing=() probe out rc=0
+  for key in storePassword keyPassword; do
+    [[ -n "$(key_prop "$props" "$key")" ]] || missing+=("$key")
+  done
+  (( ${#missing[@]} == 0 )) ||
+    die "$props has no ${missing[*]}. Gradle's signReleaseBundle fails on that with a bare NullPointerException."
+  command -v jar &>/dev/null || die "jar not found: install a full JDK (it checks the upload key before the build)."
+  probe="$(mktemp -d)" || die "mktemp failed."
+  printf 'probe\n' >"$probe/probe.txt"
+  (cd "$probe" && jar cf probe.jar probe.txt) || die "jar could not build the probe jar in $probe."
+  out="$(LB_STOREPASS="$(key_prop "$props" storePassword)" \
+    LB_KEYPASS="$(key_prop "$props" keyPassword)" \
+    jarsigner -keystore "$KEYSTORE" -storepass:env LB_STOREPASS -keypass:env LB_KEYPASS \
+    -signedjar "$probe/signed.jar" "$probe/probe.jar" "$KEY_ALIAS" 2>&1)" || rc=$?
+  rm -f "$probe/probe.txt" "$probe/probe.jar" "$probe/signed.jar"
+  rmdir "$probe" 2>/dev/null || true
+  if (( rc != 0 )); then
+    printf '%s\n' "$out" >&2
+    die "The upload key in $props does not work (jarsigner, above): check keyAlias is in $KEYSTORE" \
+      "(keytool -list -keystore $KEYSTORE) and that storePassword and keyPassword are right." \
+      "For a PKCS12 keystore, keyPassword must equal storePassword."
+  fi
+  log "Upload key '$KEY_ALIAS' opens with the passwords in $props."
 }
 
 write_key_properties() {
