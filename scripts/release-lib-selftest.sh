@@ -10,7 +10,7 @@
 #
 # Runs in scripts/test.sh and CI's gate job; needs bash, git and awk.
 
-# shellcheck disable=SC2015,SC2034  # `a && pass || fail` is the idiom here; REMOTE is read by the sourced lib
+# shellcheck disable=SC2015,SC2030,SC2031,SC2034  # `a && pass || fail` is the idiom here; TAG/RELEASE_SHA are set in subshells on purpose; REMOTE is read by the sourced lib
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")/.." && pwd)" || exit 1
@@ -238,19 +238,39 @@ git rev-parse -q --verify refs/heads/release/v0.3.0 >/dev/null &&
   fail "prep declined: worktree discarded"
 
 # main's version already tagged on an earlier commit (v0.1.0 is on "one",
-# main is "notes"): no "Not ready" error and no version prompt; it prepares
-# the next patch, 0.1.1, straight away. Answers: commit y, push y, then q at the
-# wait for the merge.
+# main is "notes"): no "Not ready" error and no version prompt; it commits the
+# next patch, 0.1.1, straight onto main and carries on with it. Answers:
+# commit y, push to main y, release v0.1.1 y.
+# (The moved-tag case above left a local v0.1.0 that --tags would refuse.)
+git_q tag -d v0.1.0
+git_q fetch origin --tags
+NOTES_SHA="$(git rev-parse origin/main)"
 : >"$TMP/gh.log"
-( WANT_VERSION=""; resolve_new_tag ) <<<$'y\ny\nq' >/dev/null 2>"$TMP/auto.err"
-expect "already tagged: release/v0.1.1 pushed without asking for a version" 1 \
-  "$(git ls-remote --heads origin refs/heads/release/v0.1.1 | wc -l | tr -d ' ')"
-expect "already tagged: pubspec bumped to the next patch" "0.1.1" \
-  "$(git show release/v0.1.1:pubspec.yaml | pubspec_version)"
-grep -q 'Not ready\|Prepare the release commit and PR now' "$TMP/auto.err" &&
+( WANT_VERSION=""; resolve_new_tag && echo "RESOLVED=$TAG" ) <<<$'y\ny\ny' >"$TMP/auto.out" 2>"$TMP/auto.err"
+git_q fetch origin main
+expect "already tagged: carries on to release v0.1.1" "RESOLVED=v0.1.1" "$(grep '^RESOLVED=' "$TMP/auto.out")"
+expect "already tagged: origin/main bumped to the next patch" "0.1.1" \
+  "$(git show origin/main:pubspec.yaml | pubspec_version)"
+expect "already tagged: one commit on top of the old main" "$NOTES_SHA" "$(git rev-parse origin/main~1)"
+expect "already tagged: CHANGELOG dated on main" "## [0.1.1] - $TODAY" \
+  "$(git show origin/main:CHANGELOG.md | changelog_heading 0.1.1)"
+grep -q 'Not ready\|Prepare the release commit now' "$TMP/auto.err" &&
   fail "already tagged: no error, no extra question" || pass "already tagged: no error, no extra question"
-grep -q -- '--head release/v0.1.1' "$TMP/gh.log" && pass "already tagged: PR opened" ||
-  fail "already tagged: PR opened"
+expect "already tagged: no PR, no release branch left" "0 0" \
+  "$(grep -c 'pr create' "$TMP/gh.log") $(git ls-remote --heads origin refs/heads/release/v0.1.1 | wc -l | tr -d ' ')"
+expect "already tagged: the user's checkout is untouched" "" "$(git status --porcelain)"
+
+# The CI gate skips release commits back to the one CI covers.
+bump_only_commit origin/main && pass "bump_only_commit: the release commit" ||
+  fail "bump_only_commit: the release commit"
+bump_only_commit "$NOTES_SHA" && fail "bump_only_commit: a commit with code changes" ||
+  pass "bump_only_commit: a commit with code changes"
+git_q checkout -q -b other origin/main
+printf 'name: y\nversion: 0.1.2+1\n' >pubspec.yaml
+git_q commit -qam "pubspec edit beside the version"
+bump_only_commit HEAD && fail "bump_only_commit: another pubspec line" ||
+  pass "bump_only_commit: another pubspec line"
+git_q checkout -q -
 
 if [[ "$status" == 0 ]]; then echo "release-lib selftest: all passed"; fi
 exit "$status"

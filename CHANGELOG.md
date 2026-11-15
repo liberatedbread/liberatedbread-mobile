@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed
+
+- **The release version bump goes straight onto main.** The guided release
+  scripts now push the "Release X.Y.Z" commit (pubspec.yaml's version and the
+  dated CHANGELOG section) directly to `main` instead of opening a PR and
+  waiting for it to merge, then carry on with that version. Such a commit
+  needs no CI run of its own: the CI gate checks the green run of the commit
+  under it, as long as the release commit changes only the version line and
+  CHANGELOG.md. If `main` refuses the push, the scripts open the PR as before.
+
 ## [0.0.1] - 2026-11-14
 
 ### Added

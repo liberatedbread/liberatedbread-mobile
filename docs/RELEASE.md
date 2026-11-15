@@ -102,16 +102,19 @@ that question up front. Then each script:
 
 - does Step 1.1 when you give it a new version (`--new-tag 0.2.0`, or the
   "release a new version" answer when it asks), or when `origin/main` is not
-  ready to tag. In a scratch worktree of `origin/main`, on a new
-  `release/vX.Y.Z` branch, it sets `pubspec.yaml`'s version, moves every entry
+  ready to tag. In a scratch worktree of `origin/main` it sets
+  `pubspec.yaml`'s version, moves every entry
   under CHANGELOG.md's **Unreleased** heading into `## [X.Y.Z] - <today>`
   (dropping a "Nothing yet" placeholder, leaving the Unreleased heading
   empty), shows the diff, and offers `$EDITOR` to curate the notes. After you
-  confirm it commits, pushes the branch and opens a PR into `main`. Your own
-  checkout is never touched. The version must be above every existing tag. An
-  empty Unreleased section stops it until you write the entries. Merging
-  stays with you, after CI and review, as for any change. The script waits,
-  then re-checks `origin/main` and continues with the new version.
+  confirm it commits and pushes that one commit straight onto `main`, with no
+  PR: it changes only the version line and the CHANGELOG, so the CI gate
+  takes the green run of the commit it sits on (below). Then it continues
+  with the new version. If `main` refuses the push (branch protection, or
+  someone pushed first), it offers a `release/vX.Y.Z` PR instead and waits for
+  you to merge it. Your own checkout is never touched. The version must be
+  above every existing tag. An empty Unreleased section stops it until you
+  write the entries.
   When `origin/main`'s version is already tagged on an earlier commit (the
   usual state between releases), it does not stop to ask: it takes the next
   patch after the highest tag (0.0.0 → 0.0.1) and goes straight to preparing
@@ -171,7 +174,13 @@ substitute the version actually in `pubspec.yaml`. A store build must use
    gh run list --workflow ci.yml --commit "$RELEASE_SHA" --limit 20
    ```
    Every required job in that commit's CI run must be green. A running or failed
-   job is a stop, not something to explain away in the release notes.
+   job is a stop, not something to explain away in the release notes. The one
+   exception: a release commit that changes nothing but `pubspec.yaml`'s
+   `version:` line and `CHANGELOG.md` needs no PR or CI run of its own. Gate
+   on the run for its parent (`$RELEASE_SHA^`), which built and tested every
+   other line. The guided scripts do this themselves and record the commit
+   they gated on as `CI_GATE_SHA`. Steps 2–4 still run the tests and the build
+   on the release commit itself.
 
 ### 2. Create and test a clean worktree
 
