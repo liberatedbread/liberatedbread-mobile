@@ -138,7 +138,7 @@ class _IplSetupPanelState extends ConsumerState<IplSetupPanel>
         ? 'Activate device'
         : 'Enable wake-up';
     return _frame(
-      title: 'FOREO activation',
+      title: 'FOREO setup',
       icon: state.locked == false ? Icons.lock_open : Icons.lock_outline,
       children: [
         Text(switch (state.phase) {
@@ -147,8 +147,11 @@ class _IplSetupPanelState extends ConsumerState<IplSetupPanel>
             state.locked == true
                 ? 'This device is locked and needs offline activation.'
                 : 'Activation is present, but wake-up is disabled.',
-          IplSetupPhase.ready => 'Activated · wake-up enabled',
-          IplSetupPhase.working => 'Activating and checking the result…',
+          IplSetupPhase.ready =>
+            state.wakeupEnabled == null
+                ? 'Activated'
+                : 'Activated · wake-up enabled',
+          IplSetupPhase.working => 'Writing and checking the result…',
           IplSetupPhase.error => 'Setup could not be verified.',
         }),
         const SizedBox(height: 8),
@@ -175,6 +178,8 @@ class _IplSetupPanelState extends ConsumerState<IplSetupPanel>
             label: Text(actionLabel),
           ),
         ],
+        if (state.locked == false && state.proModeSupported != null)
+          ..._foreoRemovalMode(context, state),
         if (state.phase == IplSetupPhase.working)
           const Padding(
             padding: EdgeInsets.only(top: 12),
@@ -182,6 +187,90 @@ class _IplSetupPanelState extends ConsumerState<IplSetupPanel>
           ),
       ],
     );
+  }
+
+  /// The Basic/Pro switch, shown where the stock app shows it (the spec's
+  /// `protocol_details.paywall` rule, decided in Rust from 2A28).
+  List<Widget> _foreoRemovalMode(BuildContext context, IplSetupState state) {
+    final text = Theme.of(context).textTheme;
+    final idle =
+        state.phase == IplSetupPhase.ready ||
+        state.phase == IplSetupPhase.needsAction;
+    final revision = state.swRevision;
+    return [
+      const Divider(height: 28),
+      Text(
+        'Removal mode',
+        style: text.titleSmall?.copyWith(fontWeight: FontWeight.w700),
+      ),
+      const SizedBox(height: 6),
+      if (state.proModeSupported != true)
+        Text(
+          'Pro mode is not offered on this model or firmware'
+          '${revision == null || revision.isEmpty ? '' : ' ($revision)'}.',
+          style: text.bodySmall,
+        )
+      else ...[
+        Text(switch (state.proMode) {
+          true => 'Pro · boost intensities available on the handset',
+          false => 'Basic',
+          null => 'Not read yet',
+        }),
+        const SizedBox(height: 6),
+        Text(
+          'Pro adds five boost intensities to the handset’s +/- levels, for '
+          'non-sensitive areas and experienced users. Opening the FOREO app '
+          'without a subscription switches the handset back to Basic.',
+          style: text.bodySmall,
+        ),
+        if (state.proModeError != null) ...[
+          const SizedBox(height: 8),
+          Text(
+            state.proModeError!,
+            style: TextStyle(color: Theme.of(context).colorScheme.error),
+          ),
+        ],
+        if (state.proMode != null) ...[
+          const SizedBox(height: 12),
+          if (state.proMode == false)
+            FilledButton.tonalIcon(
+              onPressed: idle ? _confirmProMode : null,
+              icon: const Icon(Icons.bolt),
+              label: const Text('Unlock Pro mode'),
+            )
+          else
+            OutlinedButton.icon(
+              onPressed: idle ? () => _session.setProMode(false) : null,
+              icon: const Icon(Icons.shield_outlined),
+              label: const Text('Disable Pro mode'),
+            ),
+        ],
+      ],
+    ];
+  }
+
+  Future<void> _confirmProMode() async {
+    final warning =
+        _session.proModeWarning ??
+        'Pro mode unlocks higher-output boost intensities on an IPL handset.';
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Unlock Pro mode?'),
+        content: Text(warning),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Unlock Pro mode'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true) await _session.setProMode(true);
   }
 
   Widget _silkn(BuildContext context, IplSetupState state) {

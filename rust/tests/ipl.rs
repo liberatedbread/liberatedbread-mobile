@@ -20,6 +20,28 @@ fn foreo_commands_resolve_by_characteristic_when_service_is_unknown() {
     assert_eq!(bytes, [0x0A, 0xD0, 0x06]);
 }
 
+/// The Pro-mode panel sends these three by name; a spec rename must fail here
+/// rather than leave the panel's buttons throwing on a real unit.
+#[test]
+fn foreo_pro_mode_commands_encode_from_the_vendored_spec() {
+    let yaml = include_str!("../../vendor/protocol-specs/device-specs/devices/foreo-peach-2.yaml");
+    for (name, expected) in [
+        ("set_removal_mode_pro", vec![0x0A, 0xD0, 0x06]),
+        ("set_removal_mode_basic", vec![0x0A, 0xD0, 0x01]),
+        ("get_removal_mode", vec![0x0B, 0xD0]),
+    ] {
+        let bytes = encode_command(
+            Some(yaml.to_string()),
+            Some("0000fff0-0000-1000-8000-00805f9b34fb".to_string()),
+            "0000fff1-0000-1000-8000-00805f9b34fb".to_string(),
+            name.to_string(),
+            HashMap::new(),
+        )
+        .unwrap();
+        assert_eq!(bytes, expected, "{name}");
+    }
+}
+
 #[test]
 fn unknown_service_never_collapses_duplicate_characteristics() {
     let yaml = r#"
