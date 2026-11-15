@@ -32,15 +32,63 @@ ARTIFACT_SHA_KEY=AAB_SHA256
 PLAY_CONSOLE_URL="https://play.google.com/console"
 AAB_PATH=build/app/outputs/bundle/release/app-release.aab
 
-# key_prop FILE KEY — one value from a key.properties file. Carriage returns
-# are dropped: Java's Properties (what Gradle reads it with) treats CRLF as a
-# line ending, so a file saved on Windows works for the build, and must not
-# fail here with every value ending in an invisible \r.
-key_prop() { tr -d '\r' <"$1" | sed -n "s/^[[:space:]]*$2[[:space:]]*=[[:space:]]*//p" | tail -n 1; }
+# key.properties is read and written through java.util.Properties, the class
+# Gradle loads it with (android/app/build.gradle), so this script and the
+# build agree on every value. A sed over the raw text disagreed on escapes:
+# `\\` is one backslash to Gradle, so a password with a backslash failed the
+# preflight below although Gradle signed with it. Writing raw text was wrong
+# the other way: Gradle reads the file as ISO-8859-1, so a UTF-8 `é` in a
+# password reached the signing config as two other characters. Needs a JDK 11+
+# `java`, which comes with the jarsigner this script already requires.
+#
+#   key_prop FILE KEY   prints KEY's value, or nothing when it is absent.
+#   key_props_write FILE
+#                       writes storeFile, storePassword, keyAlias and
+#                       keyPassword from LB_KP_STOREFILE, LB_KP_STOREPASS,
+#                       LB_KP_ALIAS and LB_KP_KEYPASS (the environment, so no
+#                       password is ever on a command line), owner-only.
+_key_props_java() {
+  local src rc=0
+  src="$(mktemp -d)" || return 1
+  cat >"$src/KeyProps.java" <<'JAVA'
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.util.Properties;
+public class KeyProps {
+  public static void main(String[] a) throws Exception {
+    Properties p = new Properties();
+    if (a[0].equals("get")) {
+      try (FileInputStream in = new FileInputStream(a[1])) { p.load(in); }
+      String v = p.getProperty(a[2]);
+      if (v != null) System.out.print(v);
+      return;
+    }
+    String[][] keys = {{"storeFile", "LB_KP_STOREFILE"}, {"storePassword", "LB_KP_STOREPASS"},
+                       {"keyAlias", "LB_KP_ALIAS"}, {"keyPassword", "LB_KP_KEYPASS"}};
+    for (String[] k : keys) p.setProperty(k[0], System.getenv(k[1]));
+    try (FileOutputStream out = new FileOutputStream(a[1])) { p.store(out, "Upload key for release builds; written by release-android.sh"); }
+  }
+}
+JAVA
+  java "$src/KeyProps.java" "$@" 2> >(grep -v '^Picked up JAVA_TOOL_OPTIONS' >&2) || rc=$?
+  rm -f "$src/KeyProps.java"
+  rmdir "$src" 2>/dev/null || true
+  return "$rc"
+}
+
+key_prop() {
+  _key_props_java get "$1" "$2" || { err "java could not read $2 from $1."; return 1; }
+}
+
+key_props_write() {
+  (umask 077 && _key_props_java put "$1") || { err "java could not write $1."; return 1; }
+}
 
 platform_preflight() {
   command -v jarsigner &>/dev/null ||
     die "jarsigner not found: install a JDK (it checks the AAB's upload signature)."
+  command -v java &>/dev/null ||
+    die "java not found: install a JDK (it reads android/key.properties the way Gradle does)."
 }
 
 platform_gates() {
@@ -147,11 +195,9 @@ write_key_properties() {
   IFS= read -r -s store_pw; printf '\n' >&2
   printf '\033[1m?\033[0m Key password (Enter if the same): ' >&2
   IFS= read -r -s key_pw; printf '\n' >&2
-  (
-    umask 077
-    printf 'storeFile=%s\nstorePassword=%s\nkeyAlias=%s\nkeyPassword=%s\n' \
-      "$store" "$store_pw" "$alias" "${key_pw:-$store_pw}" >"$1"
-  )
+  LB_KP_STOREFILE="$store" LB_KP_STOREPASS="$store_pw" LB_KP_ALIAS="$alias" \
+    LB_KP_KEYPASS="${key_pw:-$store_pw}" key_props_write "$1" ||
+    die "Could not write $1."
   log "Wrote $RELEASE_DIR/$1 (owner-only)."
 }
 
