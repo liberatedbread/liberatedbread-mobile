@@ -284,6 +284,12 @@ log "ci-install-shellcheck selftest"
 log "device-select selftest"
 ./scripts/device-select-selftest.sh
 
+# The adb-server bounce the Android runners offer when they find no device,
+# against a stub adb: offered only when adb lists nothing, never prompts an
+# unattended run, and retries once.
+log "adb-maybe-bounce selftest"
+./scripts/adb-maybe-bounce-selftest.sh
+
 # run-android.sh's emulator boot, against stub adb/emulator binaries: a
 # re-run while the AVD was still booting died instead of waiting for it.
 log "android-emulator-boot selftest"

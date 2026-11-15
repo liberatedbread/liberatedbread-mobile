@@ -303,6 +303,29 @@ on the phone to install yourself or hand off. All combine with `--release` and
 `build/app/outputs/flutter-apk/`. To run a physical phone: enable Developer
 options → USB debugging, plug in, and accept the prompt.
 
+#### A phone that is plugged in but not listed: bouncing the adb server
+
+A wedged adb server (after sleep/resume, a USB hub reset, or two SDKs' adb
+fighting over port 5037) reports *no devices* for a phone that is plugged in,
+unlocked and authorized. Restarting the server fixes it:
+
+```bash
+./scripts/adb-maybe-bounce.sh            # list; if adb sees nothing, ask to restart the server
+./scripts/adb-maybe-bounce.sh --yes      # ...restart without asking
+./scripts/adb-maybe-bounce.sh --force    # restart even when devices are listed
+```
+
+The scripts that need an Android device do this themselves when they cannot
+find one: `run-android.sh` (any target, `--list`, and a failed `adb install` /
+`adb push`), `run-android-device-tests.sh` (no phone, `--list`, and the
+reinstall at the end) and `run.sh`. Each prints `adb devices -l` and, **only
+when adb lists nothing at all**, asks whether to restart the server; if a
+device then shows up it retries once. A device adb *does* list, such as an
+unauthorized or offline phone, is not something a restart fixes, so they do
+not offer one. They ask only on a terminal, so CI and other unattended runs
+fail as before; `LB_ADB_BOUNCE=yes` restarts without asking and
+`LB_ADB_BOUNCE=no` never does.
+
 #### Opening in an IDE (Run button)
 
 - **Android Studio / IntelliJ** (with the Flutter + Dart plugins): open this
@@ -957,7 +980,7 @@ every pull request. Nine jobs:
 
 | Job | Runner | What it does |
 |-----|--------|--------------|
-| `analyze` | ubuntu-latest | `scripts/ci-format.sh`, `flutter analyze --fatal-infos`, `scripts/ci-shellcheck.sh` (with the shellcheck `scripts/ci-install-shellcheck.sh` fetches at the version pinned in `ci.yml`, not the runner's), then the selftests of the scripts that only ever run on an expensive job — `scripts/ci-ios-tests-selftest.sh`, `scripts/verify-ios-app-selftest.sh`, `scripts/device-select-selftest.sh`, `scripts/ci-emulator-tests-selftest.sh` — and two that guard a check rather than a job: `scripts/ci-format-selftest.sh` (which files the format check covers) and `scripts/net_virtual_device_selftest.py` (the emulated-network responder answers only what was asked). Then `scripts/ci-versions.sh --strict` (the toolchain pins are still readable by the setup scripts, and its fallbacks still say what the workflow says) and `scripts/update-specs.sh --check` (the vendored subtree is unmodified and its assets exist). Checks out full history for that last one, and `pub get --enforce-lockfile` here and nowhere else. Dart only — no Rust toolchain, nothing compiled |
+| `analyze` | ubuntu-latest | `scripts/ci-format.sh`, `flutter analyze --fatal-infos`, `scripts/ci-shellcheck.sh` (with the shellcheck `scripts/ci-install-shellcheck.sh` fetches at the version pinned in `ci.yml`, not the runner's), then the selftests of the scripts that only ever run on an expensive job — `scripts/ci-ios-tests-selftest.sh`, `scripts/verify-ios-app-selftest.sh`, `scripts/device-select-selftest.sh`, `scripts/adb-maybe-bounce-selftest.sh`, `scripts/ci-emulator-tests-selftest.sh` — and two that guard a check rather than a job: `scripts/ci-format-selftest.sh` (which files the format check covers) and `scripts/net_virtual_device_selftest.py` (the emulated-network responder answers only what was asked). Then `scripts/ci-versions.sh --strict` (the toolchain pins are still readable by the setup scripts, and its fallbacks still say what the workflow says) and `scripts/update-specs.sh --check` (the vendored subtree is unmodified and its assets exist). Checks out full history for that last one, and `pub get --enforce-lockfile` here and nowhere else. Dart only — no Rust toolchain, nothing compiled |
 | `unit-tests` | ubuntu-latest | checks the FRB bindings haven't drifted from `rust/src/api/` (including brand-new untracked generated files), builds the host Rust lib with `scripts/ensure-rust-lib.sh` — in that order, see the comments there — then `flutter test --coverage --exclude-tags=netdisco,live_ble,live_radio,live_wifi,hardware` with `LB_REQUIRE_RUST_LIB=1`, audits the report for files no test imports (`scripts/ci-coverage-audit.sh`), and uploads it to Codecov under the `unit` flag |
 | `network-discovery` | ubuntu-latest | the `netdisco`-tagged suites, via `scripts/ci-netdisco-tests.sh`, against the stdlib responder `scripts/net_virtual_device.py` on ports 5353/1900; uploads their coverage to Codecov under the `netdisco` flag. No Rust toolchain — the code under test is `dart:io` sockets |
 | `rust` | ubuntu-latest | `cargo fmt --all -- --check`, then `cargo clippy --all-targets --all-features --locked -- -D warnings` and `cargo test --all-features --locked` (`--locked` so a forgotten `Cargo.lock` is an error, not a silent update) |

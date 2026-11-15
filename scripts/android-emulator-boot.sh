@@ -28,8 +28,12 @@
 
 # "serial state" for EVERY attached device, whatever its state — so an
 # unauthorized or offline phone is visible, not silently treated as absent.
+# Skips the header by its text, not as line 1: an adb that has to start its
+# server first prints "* daemon ..." lines on stdout ahead of it, and the
+# header then read as a device called "List".
 adb_devices_states() {
-  "$ADB" devices 2>/dev/null | awk 'NR>1 && NF>=2 {print $1, $2}'
+  "$ADB" devices 2>/dev/null \
+    | awk '/^List of devices/ || /^\*/ {next} NF>=2 {print $1, $2}'
 }
 
 # Explain every attached-but-unusable phone — the near-universal cause of "no
