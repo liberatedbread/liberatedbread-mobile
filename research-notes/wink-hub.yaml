@@ -1,6 +1,6 @@
 # Wink Hub v1 / Wink Hub 2 — Device Spec (research note)
-# Cloud still alive 2026-08-07 (wink.com selling subscriptions) but hostage-pricing
-# history (2020-05 mandatory $4.99/mo; 2022 outages). Two local paths below.
+# Cloud reported live 2026-08-07; current service and cached-token longevity untested.
+# Local paths below are conditional and reported, not hardware-verified here.
 
 device:
   id: wink-hub
@@ -11,50 +11,59 @@ device:
 
 transport:
   type: wifi
-  local_only: true   # path B (rooted) is fully local; path A is local transport + cloud token
+  local_only: false  # stock path is cloud-gated; rooted route is limited/archival
   note: >
     Radios: Zigbee, Z-Wave, Lutron Clear Connect, Kidde RF, BLE.
-    Path A: stock hub local HTTP API on port 8888, requires OAuth token from
-    Wink cloud (python-wink local_control). Path B: rooted v1 hub runs
-    aprontest CLI over SSH — fully cloud-free.
+    Path A: stock hub LAN HTTPS API requires a cloud-minted local_control token
+    and cached cloud hub/device objects. Path B: archived wink-mqtt reportedly
+    exposes already-paired devices on an already-rooted Hub 1 running 2.49 or
+    2.66. Neither is a general offline Wink replacement; Hub 2 is unresolved.
 
 lan:
-  discovery: dhcp-scan
+  discovery: ssdp
   path_a_stock:
-    protocol: http
-    port: 8888
-    auth: oauth-bearer-from-wink-cloud   # ongoing cloud dependency
+    protocol: https
+    port: 8888  # python-wink convention; archived app uses the SSDP LOCATION URL
+    auth: oauth-bearer-from-wink-cloud   # cached-token WAN-blocked behavior untested
     implementation: python-wink (local_control), HA wink component
+    limitations: cloud hub list/catalog, pairing and radio administration remain cloud-gated
   path_b_rooted:
-    requires: "hardware root (v1: open case, UART, short NAND data pins at boot)"
+    requires: "already-rooted Hub 1; wink-mqtt reported on firmware 2.49/2.66 only"
+    root_evidence: "archival firmware-specific Hub 1 reports; not a current owner recipe"
     access: ssh
     control_binary: aprontest
+    device_scope: already-paired devices only
     commands:
-      list_devices: aprontest -l
-      set_attribute: aprontest -e <id> -t <attribute> -v <value>
-    integrations: community aprontest-MQTT bridges (Home Assistant, HomeSeer mcsMQTT)
+      list_devices: "reported: aprontest -l"
+      set_attribute: "reported: aprontest -e <id> -t <attribute> -v <value>"
+    integrations: danielolson13/wink-mqtt at e83d3f9a (archival)
+    limitations: not a root method; no cloud catalog/pairing/enrollment replacement; no Hub 2 route
 
 protocol:
   note: >
-    aprontest manipulates the hub's local device database directly; attribute
-    names/values per device type are documented in community guides and the
-    bridges. No vendor spec exists.
+    Community reports describe aprontest state/attribute access on rooted Hub 1;
+    this is untested here and bounded to already-paired devices for wink-mqtt.
+    The stock LAN API still depends on cloud authorization and cached objects.
+    Old NAND-shorting and 2014 web-root descriptions are archival pointers, not
+    instructions for later firmware. No durable Hub 2 route is established.
   commands:
-    pair_zigbee_zwave: aprontest inclusion modes (documented in root guides)
-    control: aprontest -e/-t/-v
+    control: "reported aprontest -e/-t/-v on rooted Hub 1; already-paired devices only"
 
 status:
-  apk_acquired: false
-  apk_decompiled: false
+  apk_acquired: false       # original survey; external archived-app analysis reviewed separately
+  apk_decompiled: false     # not performed for this note; external static analysis reported
   uuids_recovered: false
-  protocol_recovered: true   # via python-wink + aprontest community tooling
+  protocol_recovered: partial  # local API described; durable authorization/control unresolved
+  hardware_testing: false      # no hub rooted, reset, paired or controlled
   hci_snoop_needed: false
-  cloud_dead: false          # live as of 2026-08-07, subscription-only
-  one_time_cloud: true       # path A needs cloud token continuously; path B none after root
-  rating: confirmed
+  cloud_dead: false          # reported live 2026-08-07; not retested for this correction
+  one_time_cloud: false      # stock path has ongoing cloud dependencies; no offline enrollment
+  rating: reported
   references:
     - consumerreports.org/smart-home/wink-tells-users-pay-up-or-we-will-disable-smart-home-hub/ (2020-07-14)
-    - community.home-assistant.io/t/rooted-wink-local-control/4733 (2016)
+    - xdaforums.com/t/wink-hub-root.2969205/ (2014; archival Hub 1 firmware 0.33-era)
+    - github.com/danielolson13/wink-mqtt/tree/e83d3f9a6faa93e1fc1e0813a857eb41fc8f2ee5 (rooted Hub 1 2.49/2.66)
+    - community.home-assistant.io/t/rooted-wink-local-control/4733 (2016; archival)
     - community.home-assistant.io/t/wink-component-local-control/112822 (2019-04)
-    - forums.homeseer.com Wink-v1-to-mcsMQTT hack (2021-02)
-    - wink.com (live, fetched 2026-08-07)
+    - forums.homeseer.com Wink-v1-to-mcsMQTT hack (2021-02; archival)
+    - wink.com (reported live 2026-08-07)

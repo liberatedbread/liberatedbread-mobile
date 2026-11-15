@@ -6,8 +6,8 @@
 - app package_id(s): com.foreo.foreoapp (FOREO For You 4.4.1/559 and 4.2.0 comparison)
 - device class: IPL hair removal (BLE)
 - transport(s): BLE
-- local-only viability: **high for ordinary control; locked activation and direct Pro
-  acceptance remain unverified**
+- local-only viability: **high for ordinary control and Pro mode (replay-verified
+  2026-11-14); locked activation remains unverified**
 
 ## Evidence now held
 
@@ -22,26 +22,32 @@
   JADX reported 69 errors elsewhere in the bundle, so only matching paths are used.
 
 The capture confirms FFF0 containing FFF1/0A10/0A20, the MAC-derived security write,
-0A20 state 01, serial read from 0A02, intensity 3/5, seven Basic writes, automatic fan
-and seven-byte 0AC4 cooling profiles. No pairing, MTU request, locked activation, Pro
-write or OTA occurred. The spec remains `untested` + `capture-verified`.
+0A20 state 01, serial read from 0A02, T-Sonic levels 3/5, seven Basic writes, automatic
+fan and seven-byte 0AC4 cooling profiles. No pairing, MTU request, locked activation, Pro
+write or OTA occurred.
+
+A 2026-11-14 replacement-client replay against the same model confirmed the GATT table,
+handshake, queries and write-backs, found the handshake unenforced on an active unit,
+and showed the firmware accepting a direct `0ad0 06` Pro write with no account. The spec
+is now `verified` + `minimally-verified`; locked-unit activation is still untested.
 
 ## New protocol findings
 
 - App-configured exact names are `PEACH2`, `PEACH2GO`, `PEACH2Duo` and `PEACH2ProMAX`;
   fuzzy matching is disabled and the scan timeout is 30 seconds. Spaced/trademark forms
   remain aliases from earlier research.
-- The app also derives activation state from the advertisement. Its exact value in this
-  capture is undecoded.
+- The app also derives activation state from the advertisement: manufacturer data
+  (company `0xFFFF`) `FF FF <MAC> FF 01` on an active unit. The locked value is unseen.
 - Security access is connection setup, not a Pro token: after its ATT Write Response,
   the app waits 500 ms and validates no challenge response.
 - PEACH2/GO/Pro Max skip the pre-connect device-info API lookup; account registration is
   a separate later step, not proven unnecessary by that exception.
 - 0A18/0A19 are body/head NTC, 0A0C is accelerometer input and 0A0D is vibrator setting.
-  Units and value conversions remain unknown.
-- Pro's confirmed gate is in the app before writing. Active subscription state is
-  required normally; `testing == 1` is a separate exception. Direct firmware acceptance
-  of Pro is unknown. Duo uses repeated 0AA2 mode bytes, not 0AD0.
+  Units and value conversions remain unknown. FFF1 `0A01` is the T-Sonic motor level,
+  not IPL intensity, which is handset-only.
+- Pro's only gate is in the app before writing. Active subscription state is required
+  normally; `testing == 1` is a separate exception. The firmware accepts a direct Pro
+  write (replay 2026-11-14). Duo uses repeated 0AA2 mode bytes, not 0AD0.
 
 ## Important corrections retained
 

@@ -12,7 +12,10 @@
 #     docs/findings/d7-47-protocol.md, docs/ble-reliability-and-behavior.md.
 #   - wxfield/Orbit_B-Hyve_4Port_Controller (MIT, the original XD work),
 #     read at commit 0bfd0f9: scripts/bhyve.py (independent transcription of
-#     the same cipher and frame), scripts/extract_key.py.
+#     the same cipher and frame), scripts/extract_key.py,
+#     docs/network_key_extraction.md (re-read 2026-11-11).
+#   - Orbit's firmware-metadata endpoint for the HT25-0000, queried without
+#     credentials on 2026-11-11 (see evidence.artifacts).
 #   - knobunc/ha-orbit-bhyve-ble is cited by ljmerza as a third reference;
 #     github.com answered HTTP 451 for it on 2026-10-25, so nothing here
 #     rests on it.
@@ -29,9 +32,12 @@ device:
     notes: >
       Not driven against hardware by this project. Everything below is
       transcribed from two open-source clients whose authors report
-      end-to-end actuation on their own units (HT25-0000 fw0041/fw0085,
-      HT25G2-0001 fw0111, HT25A-0001 fw0098, HT31-0001 fw0058, HT32A-0001
-      and HT34A-0001 fw0107). The cipher vectors in protocol_details were
+      end-to-end actuation on their own units (ljmerza: HT25-0000
+      fw0041/fw0085, HT25G2-0001 fw0111, HT25A-0001 fw0098, HT31-0001
+      fw0058, HT32A-0001 fw0107; wxfield: all four zones of HT34A-0001
+      fw0107, part 24634). ljmerza verified only battery and status decode on
+      its HT34A-0001 and infers XD actuation from the HT32A sibling. The
+      cipher vectors in protocol_details were
       computed by this project with an invented key and checked by
       scripts/test_orbit_bhyve_ble_spec.py; the inner-message CRC was also
       checked against plaintext frames published in ljmerza's message
@@ -167,10 +173,17 @@ device:
           local_alternative: >
             None for a mesh that has never been exported: the key exists only
             in the account and in the vendor app's storage. On a rooted
-            Android phone the key can be read from the B-hyve app's cached
-            mesh response (ljmerza docs/network-key-extraction.md, option 3)
-            without contacting the cloud. Once exported, nothing here needs
-            the cloud again.
+            Android phone (or, rarely, a debug-enabled app build reachable
+            over adb) the key can be read without contacting the cloud from
+            an app that is already signed in and paired: from the B-hyve
+            app's HTTP cache of the mesh response, or from its MMKV
+            key-value store (ljmerza docs/network-key-extraction.md option 3;
+            wxfield docs/network_key_extraction.md option 3). Both still need
+            the timer to have been registered through the official app first;
+            wxfield's cloud path finds no devices otherwise, and fails on
+            accounts with two-factor authentication. No route to an
+            account-free FIRST setup is known. Once exported, nothing here
+            needs the cloud again.
         issues_credentials:
           network_key:
             user_entered: true
@@ -558,13 +571,19 @@ services:
             type: "uint8"
             notes: "Bit 0 voltage-boost circuit fail, bit 1 valve on but no flow, bit 2 valve off but flow (leak)."
       - uuid: "00006c76-fe32-4f58-8b78-98e42b2c047f"
-        name: "Unused write characteristic"
+        name: "Network characteristic (refuses writes)"
         properties: ["write"]
         notes: >
           Refused on every write tried upstream: ljmerza's docs report both
           an ATT application error (0x80) and "Write Not Permitted" (which
-          is ATT error 0x03, a different code). ljmerza associates it with
-          the firmware path. Do not write it.
+          is ATT error 0x03, a different code). The vendor app's BLE layer
+          labels it as its network (Wi-Fi / network provisioning)
+          characteristic, per this project's static analysis of the app and
+          ljmerza's own app findings; one ljmerza page instead associates it
+          with the firmware path. ljmerza's capture of the vendor app shows
+          the app's own write to it rejected too, and the app carrying on.
+          Writing the network key to it was tried and refuted (see
+          setup.credentials). Do not write it.
 
 payload_formats:
   ProtobufStatus:
@@ -687,10 +706,31 @@ features:
       image:
         signing: "unknown"
         source: "vendor_cloud"
-        notes: "Images are downloaded per hardware model from the Orbit cloud by the vendor app; ljmerza's recovery tool fetches the same image with the owner's login."
+        notes: >
+          Images are downloaded per hardware model from the Orbit cloud by
+          the vendor app. ljmerza's recovery tool signs in first, but on
+          2026-11-11 this project's unauthenticated GET of
+          https://api.orbitbhyve.com/v1/device_updates/hardware_version/ht25-0001
+          answered HTTP 200 with fw0085 metadata (release 2026-03-05, type
+          general) and a short-lived signed S3 download URL. The cloud's
+          hardware version ht25-0001 is the HT25-0000 timer. The image it
+          pointed at, ht25-hw0001-fw0085, is 52,874 bytes with SHA-256
+          adc4002dc1830f27aa02001c47490cf0ecd6a09ccaeee95ea1d015b7f126abb3,
+          equal to ljmerza's known-good recovery image (a community hash,
+          not a vendor signature). Only the HT25-0000 image was located;
+          no public, model-correct image was verified for HT25A, HT25G2 or
+          the XD. A public image does not remove the network-key
+          requirement.
       enter:
         how: "unknown"
-        notes: "The vendor app's update path is not documented by either source."
+        notes: >
+          Neither open-source client documents the vendor app's update path.
+          Static analysis of the app shows two OTA generations. The older
+          one is device-driven: the timer requests a block, and the app
+          answers with block metadata and then the block's chunks (ljmerza's
+          message catalogue lists protobuf fields 39 and 40 as the block
+          request and reply). The newer generation is not traced. Neither is
+          transcribed here, and nothing was run.
       dfu_mode:
         notes: >
           A timer stuck in its bootloader (HT25-0000 after a failed update
@@ -816,8 +856,9 @@ protocol_details:
       status replies — always unsubscribe. Upstream bucket-measured about
       433 ticks per US gallon.
     model_differences:
-      HT25A-0001: "fw0098: ignores run seconds (always 1800 s); stop_watering frame starts a run; stop with controller_off."
-      HT34-0001: "Routed to the XD protocol on a fork's report; not hardware-tested by ljmerza."
+      HT25A-0001: "Part 90205Z. fw0098: ignores run seconds (always 1800 s); stop_watering frame starts a run; stop with controller_off. Programs and rain delay reported working upstream; flow-sensor readings not confirmed."
+      HT34A-0001: "Part 24634 (FCC ML6-HT34BT), fw0107. wxfield actuates all four zones; ljmerza verified battery and status only."
+      HT34-0001: "fw0058. Routed to the XD protocol on a fork's report; not hardware-tested by ljmerza."
       HT32A-0001: "2-station XD; same firmware as HT34A."
       HT31-0001: "Single-station sibling of the XD (fw0058), hardware-verified on five units upstream."
   ht25_mesh:
@@ -886,19 +927,75 @@ evidence:
     client sends. The inner CRC was checked against four published
     plaintext requests. knobunc/ha-orbit-bhyve-ble, cited upstream as a
     third reference, returned HTTP 451 and was not read.
+    Rechecked 2026-11-11: the same two commits, plus wxfield's key
+    extraction page and an unauthenticated query of Orbit's HT25 firmware
+    metadata endpoint (features[0].dfu.image). ljmerza's isolated test
+    suite passed (412 tests, 8 skipped). No cloud login, root extraction,
+    real key or BLE command was used.
   open_questions: >
     Whether the device verifies the outer trailer (ljmerza says mismatches
     are dropped; wxfield's client sent a fixed 80 04 trailer on every start
     frame, which matches no start frame under the rule); the device's
     maximum run time; the HT25-0000 countdown scale; which init steps are
-    really required; the factory reset.
+    really required; the factory reset; whether the app's protobuf
+    schema, which includes a set-network-encryption-key message among its
+    Wi-Fi setup messages, installs the key on a new timer over BLE (and so
+    whether a first setup could ever be done locally).
+  artifacts:
+    - type: "public_implementation"
+      artifact: "ljmerza/orbit-bhyve-ble, commit 70b3c90ab2ccb8d1deb55be6076c4825b5a75bf6 (2026-10-11)"
+      url: "https://github.com/ljmerza/orbit-bhyve-ble/tree/70b3c90ab2ccb8d1deb55be6076c4825b5a75bf6"
+      obtained_via: "public GitHub clone, read 2026-10-25 and 2026-11-11"
+      description: >
+        Primary source for both wire families, the cloud key export, the
+        tested hardware/firmware table and HT25-0000 firmware recovery.
+        Cloud is used at setup and reconfiguration only; the key is cached
+        in the config entry.
+    - type: "public_implementation"
+      artifact: "wxfield/Orbit_B-Hyve_4Port_Controller, commit 0bfd0f9aa83020fc9049834115c2b0a1d1de7343 (2026-05-20)"
+      url: "https://github.com/wxfield/Orbit_B-Hyve_4Port_Controller/tree/0bfd0f9aa83020fc9049834115c2b0a1d1de7343"
+      obtained_via: "public GitHub clone, read 2026-10-25 and 2026-11-11"
+      description: >
+        Independent cipher and frame transcription; four-zone actuation on
+        HT34A-0001 fw0107 (part 24634). Its key-extraction page gives the
+        cloud route and the rooted-app route (HTTP cache or MMKV store), and
+        says initial registration must be done in the official app first.
+    - type: "live_probe"
+      artifact: "GET https://api.orbitbhyve.com/v1/device_updates/hardware_version/ht25-0001, no credentials, 2026-11-11"
+      obtained_via: "this project, HTTPS with default certificate validation"
+      description: >
+        HTTP 200 with fw0085 metadata and a temporary signed download URL
+        (the expiring signature was not kept). Shows that firmware metadata
+        for this model needs no login. It says nothing about key
+        provisioning.
+    - type: "firmware_image"
+      artifact: "ht25-hw0001-fw0085 (HT25-0000 firmware 0085), 52,874 bytes"
+      sha256: "adc4002dc1830f27aa02001c47490cf0ecd6a09ccaeee95ea1d015b7f126abb3"
+      obtained_via: "signed S3 URL from the metadata response above, 2026-11-11"
+      description: >
+        Matches ljmerza's known-good recovery image by size and digest and
+        passes its image verifier. Not analysed further, not committed, and
+        not flashed.
+    - type: "static_analysis"
+      artifact: "B-hyve Android app (com.orbit.orbitsmarthome), XAPK acquired 2026-09-01; React Native with a Hermes bytecode bundle"
+      obtained_via: "third-party APK mirror, 2026-09"
+      description: >
+        Gave the app's role labels for the four 0xfe32 characteristics
+        (6c76 is its network characteristic), the two OTA generations, and
+        the existence of Wi-Fi setup and set-network-encryption-key messages
+        in its protobuf schema. Field numbers for those were not recovered.
+        Its reading of the handshake guard (that the first four reply bytes
+        must be zero) contradicts both working clients and was not used.
 
 remaining_unknowns:
   - "The schema cannot express this envelope: there is no framing scheme for AES-CTR with a handshake nonce, no CRC-16/XMODEM auto parameter, and no way to declare that a command body is wrapped in the inner aa775a0f message. Every command here is application plaintext that a client must pass through protocol_details.envelope; a consumer without a handler for it can describe the device but not drive it. `protocol_handler: bhyve_envelope` names the encoder a consumer needs; a declarative framing scheme would be the schema field that replaces it."
   - "Protobuf-family status, battery and running zone come back as protobuf (payload_formats.ProtobufStatus) and have no fixed offsets, so no sensor or switch state is bound for those models. Battery is bound only for HT25-0000, whose health reply is fixed-layout."
   - "Start durations on the protobuf family are bounded to 128-16383 s so the template's nested lengths stay fixed; shorter or longer runs are valid on the wire but need the lengths recomputed, which a template cannot do."
   - "The family is chosen from the hardware string in the owner's account record (HT25…-0000 = mesh); the advertisement carries nothing that tells the families or models apart, so variants have no identification block."
-  - "The network key and mesh ids are only obtainable from the Orbit account (or the vendor app's storage on a rooted phone). If the cloud is retired before an owner exports them, no public method recovers them."
+  - "The network key and mesh ids are only obtainable from the Orbit account (or the storage of an already signed-in vendor app on a rooted phone). If the cloud is retired before an owner exports them, no public method recovers them, and no account-free first setup is known. The firmware-metadata endpoint answering without a login (2026-11-11) does not change this."
+  - "Whether the set-network-encryption-key message in the app's protobuf schema is how the app installs the mesh key on a new timer, and over which channel. Hypothesis only; no field number or capture."
+  - "Public firmware was located only for HT25-0000 (fw0085). Whether the same unauthenticated metadata query works for the other hardware versions, and their cloud hardware-version names, is untested."
+  - "HT25A-0001 flow-sensor readings are not confirmed upstream."
   - "Whether the outer trailer is enforced by the device (sources disagree; see evidence)."
   - "Factory reset procedure and whether it clears the mesh key."
   - "HT34-0001 is routed to the XD protocol on a fork's report and is not hardware-tested by either source. HT25-0001 (bare) is routed to the protobuf family by rule, not by a tested unit."

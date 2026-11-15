@@ -1,47 +1,52 @@
-# PicoBrew Pico S/C/Pro & Zymatic — Device Spec (research note)
+# PicoBrew Pico S/C/Pro, Zymatic & ZSeries — Device Spec (research note)
 # Company bankrupt Feb 2020 (receivership); picobrew.com unreachable 2026-08-03
-# Local path: community server replacement chiefwigms/picobrew_pico
+# Local path: reported community server replacements; no appliance verification
 
 device:
   id: picobrew
-  name: PicoBrew Pico S/C/Pro, Zymatic (+ PicoFerm, PicoStill)
+  name: PicoBrew Pico S/C/Pro, Zymatic, ZSeries (+ PicoFerm, PicoStill)
   manufacturer: PicoBrew Inc. (Seattle) — bankrupt Feb 2020
   category: kitchen_appliance   # home brewing
-  safety_class: MEDIUM  # boiling liquid + pumps; keep abort endpoint prominent
+  safety_class: MEDIUM  # heat + pumps; no verified abort; blank-screen heater warning
 
 transport:
   type: wifi-lan        # NOTE: not BLE — machine talks HTTP to vendor API host
-  local_only: true      # via LAN server emulation (DNS redirect of picobrew.com)
+  local_only: true      # reported LAN-server route; model/firmware dependent, untested here
   note: >
-    Machines are Wi-Fi HTTP clients of the PicoBrew cloud API. Vendor servers
-    are dead; chiefwigms/picobrew_pico reimplements the API on a LAN host
-    (Raspberry Pi class), giving full brew control and recipe management.
+    Machines are Wi-Fi HTTP clients of the PicoBrew cloud API. Community
+    servers reimplement recipe, session/log and firmware-file services on a LAN
+    host. This is not verified full brew control or a hardware emergency stop.
 
 lan:
   control:
     protocol: http
-    host_override: picobrew.com  # DNS redirect on LAN
-    endpoints: see picobrew_pico repo (session start/stop, recipe fetch, firmware)
+    host_override: picobrew.com  # scoped DNS redirect on a trusted LAN
+    endpoints: recipe/session logs and firmware files; no verified start/stop/abort
 
 protocol:
   note: >
-    On-wire API is machine->server HTTP(S); fully documented by implementation
-    in picobrew_pico (Python). Pico and Zymatic use different endpoint families.
-    Repo spec work = transcribe request/response schemas per model, flag any
-    TLS/cert-pinning firmware variants.
+    On-wire APIs are machine->server HTTP(S), partially reconstructed from
+    community server source. Pico S/C/Pro picoChangeState currently returns a
+    blank CRLF response and performs no action. Zymatic session end and ZSeries
+    ZSession closure finalize server-side logs, not hardware emergency stops.
+    The independent Zymatic project warns that a blank-screen fault can stop
+    the pump while the heater remains on; safely isolate power instead.
+    Upstream host tests cover parsers/routes, not live appliance behavior.
+    Configured firmware versions can offer/force updates; prevent unintended
+    delivery until exact model/firmware compatibility is established.
   commands:
-    brew_session_start: documented in picobrew_pico
-    brew_session_abort: documented in picobrew_pico
-    recipe_fetch: documented in picobrew_pico
+    recipe_fetch: reported in community server source; not appliance-tested
 
 status:
   apk_acquired: false    # n/a — vendor UI was a web app
   apk_decompiled: false
   uuids_recovered: false # n/a — no BLE
-  protocol_recovered: true  # via community server source (not this repo)
+  protocol_recovered: partial  # community source; no verified general control operation
+  hardware_testing: false      # upstream host tests are not appliance tests
   hci_snoop_needed: false
   cloud_dead: true       # bankrupt 2020-02; site dead; assets listed for sale 2022
   references:
-    - github.com/chiefwigms/picobrew_pico
+    - github.com/chiefwigms/picobrew_pico/tree/36acae3003845b72568ef5f7d6cf168acb6f9b69
+    - github.com/hotzenklotz/picobrew-server/tree/3accef8edcc0a8de284fefaee2a8a8885eddb47f
     - thespoon.tech/rest-in-peace-picobrew/ (2020-04-30)
     - brauwelt.com/en/international-report/the-americas/641655-the-end-of-picobrew (2020-06-10)

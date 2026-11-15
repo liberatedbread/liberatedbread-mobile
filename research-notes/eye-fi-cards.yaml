@@ -110,6 +110,6 @@ configuration:
 status:
   evidence: three community implementations plus historical vendor app and desktop analysis
   app_transport: secure receiver required, not an outbound camera client
-  validated_spec: null
+  validated_spec: device-specs/devices/eye-fi-cards.yaml
   remaining_milestone: single_card_jpeg_only_read_only_network_receiver_with_strict_session_and_archive_handling
   reset_card_offline_activation: unsolved

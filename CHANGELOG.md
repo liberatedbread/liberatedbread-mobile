@@ -8,6 +8,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- **November discovery follow-up: eight new protocol specs.** Canon PV-223
+  gains a Classic RFCOMM/SPP client surface; KING JIM TEPRA Lite LR30, Root
+  RT0/RT1 and Brother Skitch PP1 gain BLE protocols. Genki Wave and OP-Z gain
+  separate API/BLE-MIDI paths, while Sensirion's newer passive/logger gadgets
+  and legacy SHT31 Smart Humigadget remain explicitly split. All are
+  source-derived and untested, with setup, pairing, reset and rejoin boundaries
+  plus independent standard-library vectors. Destructive design replacement,
+  motion, firmware activation and unsupported variants stay out of scope.
+- **November research follow-up: three richer LED protocols and three new
+  device families.** SPOTLED gains the official one-/three-frame RGB888
+  capture, 7280-byte receive-window resume, transient Just Works pairing
+  details, FF10 OTA layout and separately scoped PIXELY v2/v3 findings;
+  LEDs2RAVE4 is synchronized with it. LOY B3 gains the complete AA55/TLV
+  stored-program path, GIF/YSTP01 media, ACK rules, playback and capture-
+  confirmed V18-to-V24 resource upgrade, while `08 02 00 00` is correctly
+  identified as delete-first-program rather than upload READY. New specs
+  cover Eye-Fi's card-initiated secure-receiver contract, Truma iNet X's
+  strict-read CBOR transport, and the legacy iNet Box's separate ASCII TRBT
+  protocol. Independent vectors cover all five protocol implementations;
+  reset, actuation, OTA replay and other unverified operations remain gated.
 - **Every device spec now answers the pairing question.** `device.pairing`
   was required only on BLE, and 90 Wi-Fi, LAN, wired-bus and vehicle specs
   had none. Each now says what a client must obtain before the local control
@@ -524,6 +544,37 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- **FOREO Peach 2 replayed on hardware; Pro is app-gated only.** An
+  independent BLE client drove an active PEACH2 F.REV.K from the spec: the
+  GATT table matched exactly, and a direct `0AD0 06` Pro write was accepted
+  and persisted with no account, so `device.testing` is now `verified` /
+  `minimally-verified`. FFF1 `0A01` is corrected from "IPL intensity" to the
+  T-Sonic vibration motor (renamed `set_tsonic_level`); IPL intensity is
+  handset-only. Cooling profiles are documented as fixed per-firmware rows,
+  and the flash-voltage and NTC safety tables gain confirmed read formats with
+  deliberately no write templates. Locked-unit activation remains untested.
+- **Research sweep 2026-11-14: ten specs synced with newer research notes.**
+  Lutron Caséta pairing now starts from the public initial LAP certificate and
+  a 180-second physical-access window (it previously claimed 8083 needed no
+  client certificate). Kasa gains reboot, factory-reset and gated firmware
+  commands, and its firmware URL comes from the app, not the cloud. Orbit
+  B-hyve firmware metadata is fetchable without a login. SwitchBot gains its
+  account key-provisioning route and public firmware bucket. TTLock documents
+  the full local key set. The Mi Band 7 no longer claims the legacy 00000009
+  handshake; its chunked FEE0 channel is recorded from a public capture.
+  LYWSD03MMC gains the Telink Flasher bindkey route, and the
+  keeping-devices-alive guide no longer calls post-2025 units unflashable.
+  Furbo's "no traffic leaves the house" claim is weakened to match the TUTK
+  master-server lookup, and Instant Pot's Cancel is no longer implied to be
+  an emergency stop. Kwikset Kevo facts checked only against the app move from
+  `confirmed` to `reported`. Everything new is `reported` or `hypothesis`; no
+  `device.testing` status changed.
+- **PicoBrew and Wink local-control claims are bounded by current evidence.**
+  PicoBrew no longer presents session-log closure as an emergency stop or host
+  tests as appliance verification; the blank-screen heater warning and
+  unintended firmware-delivery risk are explicit. Wink's stock API is
+  cloud-gated, while rooted MQTT is limited to already-rooted Hub 1 firmware
+  2.49/2.66 with already-paired devices. No durable Hub 2 path is claimed.
 - **BLE matching tightened from the collision research.** Bare FFF0 was
   already excluded from identification; this pass closes adjacent paths.
   CoolLEDX and ThermoPro now use exact advertised names, so incompatible

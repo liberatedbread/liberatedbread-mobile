@@ -1,0 +1,414 @@
+# Truma iNet X / iNet X Pro — strict-read BLE/CBOR device spec
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+
+device:
+  name: "Truma iNet X / iNet X Pro Panel (strict read-only)"
+  manufacturer: "Truma Gerätetechnik GmbH & Co. KG"
+  manufacturer_status: "active"
+  aliases: ["Truma iNetX", "iNet X Panel", "iNet X Pro", "Truma Combi panel"]
+  testing:
+    status: untested
+    notes: >
+      No panel, appliance, account, adapter or credential was used by this
+      project. Facts derive from the MIT Node/TypeScript client at 004a8327,
+      independent Home Assistant behavior at 08daf61c, vendor documents and
+      static app analysis. Upstream build/lint/70 tests and nine synthetic
+      transport checks passed, but the reduced strict-read sequence has not
+      been run on a bonded owner panel.
+  protocol: "ble"
+  transport: "ble-gatt"
+  category: "vehicle"
+  type: "rv-climate-gateway"
+  integration: "identify_only"
+  notes: >
+    The panel is a local BLE gateway to vehicle appliances. This spec is
+    deliberately limited to topology and conditional telemetry. Heating,
+    cooling, hot water, fans, pumps, switches, timers, fault resets,
+    configuration, firmware and bond management are outside its scope.
+    identify_only remains until a consumer implements the CBOR/control
+    transport and the reduced read sequence passes an owner-panel test.
+
+    READ-ONLY STILL WRITES GATT: control and request characteristics must be
+    written to announce and issue reads. The general community client's normal
+    discovery also emits client-system-time and client-last-message frames;
+    those change client state and are NOT passive. Omit both from a strict-read
+    client. Do not send {tn,pn,v} setters, measurement triggers, install/demo
+    operations or pairing/bond APIs.
+
+    DO NOT MIX PROTOCOLS: the legacy iNet Box uses ASCII TRBT: frames over
+    Nordic UART, specified separately in truma-inet-box.yaml. Never send TRBT
+    to an iNet X panel or these CBOR envelopes to an iNet Box.
+
+    IDENTITY: the advertised name prefix is Truma iNetX, possibly delivered in
+    a scan response, and advertised service fc310001-…. Community evidence
+    reports a rapidly rotating resolvable private address. Do not persist MAC,
+    weaken host privacy or clear bonds to make telemetry work. Pairing is
+    reported Just Works only in the panel's add-device mode with about four
+    bond slots.
+
+    TELEMETRY MODEL: retain (source group, topic, parameter) with every value.
+    Group hints are not universal: heating often uses 0x0201, tanks/switches
+    0x0405, room climate 0x0101, while one air conditioner appeared at 0x0406.
+    Discover Devices and each response's actual source. Device-supplied
+    availability/permission metadata is not proof that hardware is absent or
+    permission to actuate. Refresh ranges and enums per vehicle.
+
+  identification:
+    local_name_prefix: "Truma iNetX"
+    service_uuids:
+      - "fc310001-f3b2-11e8-8eb2-f2801f1b9fd1"
+    notes: "The name may arrive only in a scan response; the advertised service can identify a first-pass candidate."
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          local_name:
+            match: "prefix"
+            value: "Truma iNetX"
+          service_uuids:
+            - "fc310001-f3b2-11e8-8eb2-f2801f1b9fd1"
+        verification: "reported"
+        notes: "Name or advertised service, then confirm the required control/request/data characteristics after bonding."
+    identity:
+      stable_keys: ["local_name"]
+      display: "local_name"
+      notes: "Do not use the rapidly rotating resolvable private MAC as durable identity."
+    static_ip_required: false
+
+  setup:
+    required: true
+    confidence: "medium"
+    notes: >
+      Bonding is required by the reported community flow. No clock or
+      last-message update is part of this setup route. The reduced read-only
+      sequence itself remains unverified on hardware.
+    methods:
+      - type: "button_pairing"
+        name: "Add-device bonding and strict-read onboarding"
+        role: "primary"
+        verified: false
+        basis: "Community pairing/connectivity reports and the MIT transport implementation; not replayed on a panel."
+        description: >
+          Use the panel's add-device mode, bond with Just Works, subscribe to
+          control/data, then retain the client address returned by the protocol-
+          version exchange. Do not clear existing bonds or send time updates.
+        ble:
+          advertised_name: "Truma iNetX"
+          pairing_required: true
+          pin_source: "None — reported Just Works; no passkey."
+        steps:
+          - action: "Open the panel's add-device mode using its own UI; the exact menu path is not asserted here."
+            actor: "user"
+            expect: "The panel accepts a new Just Works bond while a slot is available."
+          - action: "Scan by name or advertised service, connect and complete Just Works bonding without changing host privacy settings."
+            actor: "client"
+            request:
+              protocol: "ble_gatt"
+          - action: "Subscribe to control and data notifications and run only protocol_details.strict_read.sequence; omit clock/last-message frames and all setters."
+            actor: "client"
+            request:
+              protocol: "ble_gatt"
+              action: "protocol_version"
+            expect: "Protocol version and an assigned client address are returned; stop if the response or framing differs."
+    factory_reset:
+      applicable: "unknown"
+      confidence: "low"
+      effect: >
+        No factory-reset or bond-clear procedure is established or recommended
+        for telemetry. Do not erase an owner's panel to make a client connect.
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        Reuse the existing bond and rediscover by name/service rather than MAC.
+        A new client needs the add-device flow and a free slot; do not factory
+        reset merely because the address changed.
+    credentials:
+      wifi_passphrase_protection: "not_applicable"
+      stored_on_device: ["ble_bond"]
+      issued_to_client: ["assigned_client_address"]
+      notes: "The assigned address is session routing state, not an appliance-control credential. Redact identity and account fields from diagnostics."
+
+  pairing:
+    required: true
+    confidence: "medium"
+    security_mode: "just_works"
+    bonding: "required"
+    enter_pairing_mode:
+      required: true
+      procedures:
+        - name: "Panel add-device mode"
+          verified: false
+          basis: "Community pairing documentation reports that bonding is accepted only in add-device mode; exact panel-menu steps were not verified."
+          steps:
+            - action: "Open add-device mode on the panel and keep the panel nearby."
+              actor: "user"
+              expect: "The panel accepts a Just Works bond while a slot is available."
+      notes: "About four bond slots are reported; no pairing window duration is asserted."
+    exclusivity:
+      single_connection: "unknown"
+      single_bond: false
+      recovery: "Close the other client and retry with an existing bond or a free add-device slot; do not clear all bonds or change adapter privacy."
+      notes: "Approximately four bond slots, not one. Host-specific Linux/ESPHome reports are not blanket claims that an adapter cannot work."
+    unpair:
+      supported: "unknown"
+      notes: "No bond-management route is included in this strict-read spec."
+    notes: "Just Works has no MITM protection. Bonding is required by the reported client flow but was not tested by this project."
+
+local_access:
+  status: "native"
+  summary: >
+    A bonded client can perform local topology and telemetry reads using a
+    framed CBOR request/response exchange. No appliance actuation is declared.
+  covers:
+    - "Protocol-version and assigned-client-address exchange"
+    - "Topic registration, device-list and per-group read requests"
+    - "Length-driven response reassembly and source-group-aware telemetry"
+    - "Conditional temperature, tank, voltage, shore-power, fan and active-state readings"
+  not_covered:
+    - "All appliance settings/actions, measurement triggers, timers, fault resets and install/demo operations"
+    - "Clock/last-message updates, firmware, pairing management and remote-module configuration"
+
+initialization:
+  - characteristic: "fc314001-f3b2-11e8-8eb2-f2801f1b9fd1"
+    subscribe: true
+    notes: "Control notifications drive the request/response state machine."
+  - characteristic: "fc314003-f3b2-11e8-8eb2-f2801f1b9fd1"
+    subscribe: true
+    notes: "Reassemble data to each control-announced length; responses may be queued."
+
+services:
+  - uuid: "fc314000-f3b2-11e8-8eb2-f2801f1b9fd1"
+    name: "Truma iNet X Main Service"
+    verification: "reported"
+    characteristics:
+      - uuid: "fc314001-f3b2-11e8-8eb2-f2801f1b9fd1"
+        name: "Control"
+        properties: ["write", "notify"]
+        verification: "reported"
+        commands:
+          announce_request:
+            description: "Announce the complete outgoing request length before writing it."
+            template: [0x01, "{length_lo}", "{length_hi}"]
+            verification: "reported"
+            parameters:
+              length_lo: { type: "uint8", description: "Low byte of the complete physical request length." }
+              length_hi: { type: "uint8", description: "High byte of the complete physical request length." }
+          request_response:
+            description: "After control 83 <length_lo> <length_hi>, request the waiting response."
+            value: [0x03, 0x00]
+            verification: "reported"
+          acknowledge_response:
+            description: "Acknowledge each flushed response; also wait for f0 01 after sending a request."
+            value: [0xF0, 0x01]
+            verification: "reported"
+        notes: "Wait for 81 00 before writing the request. Transport acceptance is not proof of a setting change."
+      - uuid: "fc314002-f3b2-11e8-8eb2-f2801f1b9fd1"
+        name: "Request"
+        properties: ["write"]
+        verification: "reported"
+        commands:
+          protocol_version:
+            description: "Request protocol version and an assigned client address; retain that source address for this session."
+            value: [0x00, 0x00, 0xFF, 0xFF, 0x12, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0xC1, 0xA1, 0x62, 0x70, 0x76, 0x82, 0x05, 0x01]
+            verification: "reported"
+          device_list:
+            description: "Request source groups; replace the learned source in the template before use. A reply may be [0, {Devices: [group, ...]}]."
+            template: [0x00, 0x00, "{source_lo}", "{source_hi}", 0x0B, 0x00, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00]
+            verification: "reported"
+            parameters:
+              source_lo: { type: "uint8", description: "Low byte of the assigned client source." }
+              source_hi: { type: "uint8", description: "High byte of the assigned client source." }
+          group_read_template:
+            description: "Operation-3 group read with flags 0x0004; replace target and learned source before use."
+            template: ["{target_lo}", "{target_hi}", "{source_lo}", "{source_hi}", 0x0B, 0x00, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04, 0x00]
+            verification: "reported"
+            parameters:
+              target_lo: { type: "uint8", description: "Low byte of the discovered target group." }
+              target_hi: { type: "uint8", description: "High byte of the discovered target group." }
+              source_lo: { type: "uint8", description: "Low byte of the assigned client source." }
+              source_hi: { type: "uint8", description: "High byte of the assigned client source." }
+        notes: "These are read envelopes only. Build registrations from strict_read.topic_registration: four concrete CBOR {tn: [...]} batches with target zero, the learned source, operation 3 and flags 0x0002."
+      - uuid: "fc314003-f3b2-11e8-8eb2-f2801f1b9fd1"
+        name: "Data"
+        properties: ["notify"]
+        verification: "reported"
+        notes: "Validate physical/header lengths before CBOR. Do not rely only on the upstream short-trailing-fragment heuristic."
+      - uuid: "fc314004-f3b2-11e8-8eb2-f2801f1b9fd1"
+        name: "Optional Additional Notification"
+        properties: ["notify"]
+        verification: "reported"
+        notes: "Optional in the MIT client; control, request and data are required."
+  - uuid: "0000180a-0000-1000-8000-00805f9b34fb"
+    name: "Device Information"
+    verification: "reported"
+    characteristics:
+      - uuid: "00002a28-0000-1000-8000-00805f9b34fb"
+        name: "Software Revision"
+        properties: ["read"]
+        verification: "reported"
+        notes: "UTF-8 software revision string; variable length, so no fixed-width format is declared."
+
+protocol_details:
+  frame:
+    verification: "reported"
+    integer_endianness: "little for all multi-byte header fields; CBOR has its own encoding"
+    fields:
+      target: { offset: 0, length: 2 }
+      source: { offset: 2, length: 2 }
+      body_length: { offset: 4, length: 2 }
+      operation: { offset: 6, length: 2 }
+      sequence: { offset: 8, length: 8 }
+      flags: { offset: 16, length: 2 }
+      cbor: { offset: 18, presence: "normal frames when a body is present" }
+    body_length_formula: "1 + 8 + 2 + cborLength"
+    physical_frame_length_formula: "bodyLength + 7"
+    validation: "Check complete physical length and header before trying CBOR; a CBOR decoder's offset search is not frame validation."
+    protocol_version_example: "0000ffff12000100000000000000000001c1a1627076820501"
+    group_read_template: "000000050b00030000000000000000000400; replace target at 0 and learned source at 2, little-endian"
+  control_exchange:
+    verification: "reported"
+    steps:
+      - "Subscribe to control and data."
+      - "Write 01 <length_lo> <length_hi> on control."
+      - "Wait for 81 00, then write the complete request on request."
+      - "Wait for f0 01 transport acceptance."
+      - "On control 83 <length_lo> <length_hi>, send 03 00."
+      - "Reassemble data notifications to the announced length; allow queued responses and a new frame while old responses drain."
+      - "Acknowledge each flushed response with f0 01."
+    fragmentation_warning: "A short first fragment can be mistaken for trailing data after a completed response. Use announced lengths and explicit frame state, then test real ATT/MTU splits."
+  strict_read:
+    hardware_validated: false
+    sequence:
+      - operation: 1
+        name: "protocol_version"
+        result: "pv and assigned client addr; retain addr as source for the session"
+      - operation: 3
+        name: "topic_registration"
+        flags: "0x0002"
+        wire_requests: 4
+        body: "Send the four concrete CBOR batches in strict_read.topic_registration.batches in order"
+      - operation: 2
+        name: "device_list"
+        flags: "0x0001"
+        body: "Substitute the learned source into device_list source_lo/source_hi; 18-byte header without CBOR"
+      - operation: 3
+        name: "group_read"
+        flags: "0x0004"
+        body: "Replace target and learned source in group_read_template"
+    topic_registration:
+      verification: "reported"
+      target: 0
+      source: "The addr assigned by the protocol-version response, little-endian at frame offset 2"
+      operation: 3
+      sequence_number: 0
+      flags: "0x0002"
+      cbor_encoding: "Definite-length map {tn: array}; tn is a text key and every array entry is an exact-case UTF-8 topic text string"
+      max_topics_per_request:
+        value: 10
+        verification: "reported"
+        basis: "Observed batches and independent protocol references; not independently boundary-tested"
+      batches:
+        - name: "climate_and_tanks"
+          topics: ["AirCirculation", "AirCooling", "AirHeating", "DeviceManagement", "EnergySrc", "ErrorReset", "FreshWater", "GasBtl", "GasControl", "GreyWater"]
+          cbor_hex: "a162746e8a6e41697243697263756c6174696f6e6a416972436f6f6c696e676a41697248656174696e67704465766963654d616e6167656d656e7469456e657267795372636a4572726f7252657365746a467265736857617465726647617342746c6a476173436f6e74726f6c69477265795761746572"
+          cbor_bytes: 119
+          body_length: 130
+          physical_frame_bytes: 137
+        - name: "core"
+          topics: ["Identify", "L1Bat", "L2Bat", "LinePower", "MobileIdentity", "PowerSupply", "RoomClimate", "Switches", "Temperature", "Transfer"]
+          cbor_hex: "a162746e8a684964656e74696679654c31426174654c32426174694c696e65506f7765726e4d6f62696c654964656e746974796b506f776572537570706c796b526f6f6d436c696d6174656853776974636865736b54656d7065726174757265685472616e73666572"
+          cbor_bytes: 105
+          body_length: 116
+          physical_frame_bytes: 123
+        - name: "panel_and_ble"
+          topics: ["VBat", "WaterHeating", "AmbientLight", "Panel", "BatteryMngmt", "Install", "Connect", "TimerConfig", "BleDeviceManagement", "BluetoothDevice"]
+          cbor_hex: "a162746e8a64564261746c576174657248656174696e676c416d6269656e744c696768746550616e656c6c426174746572794d6e676d7467496e7374616c6c67436f6e6e6563746b54696d6572436f6e66696773426c654465766963654d616e6167656d656e746f426c7565746f6f7468446576696365"
+          cbor_bytes: 119
+          body_length: 130
+          physical_frame_bytes: 137
+        - name: "system"
+          topics: ["System", "Resources", "PowerMgmt"]
+          cbor_hex: "a162746e836653797374656d695265736f757263657369506f7765724d676d74"
+          cbor_bytes: 32
+          body_length: 43
+          physical_frame_bytes: 50
+      selection:
+        broad_discovery: "Send all four batches in the listed order before device_list; Devices supplies source group IDs, not topic names"
+        selected_reads: "Use nonempty exact-case subsets needed for telemetry, preserve their order, and split them into sequential requests of at most ten names"
+        empty_array: "Not a wildcard or all-topics request; no wildcard semantics are established"
+        group_routing: "Discover group targets with device_list; topic names do not determine group routing"
+      synthetic_frame:
+        batch_index: 3
+        source: 4660
+        source_note: "Invented assigned client address 0x1234 for this vector"
+        frame_hex: "000034122b00030000000000000000000200a162746e836653797374656d695265736f757263657369506f7765724d676d74"
+        control_announcement_hex: "01 32 00"
+        expected: { target: 0, source: 4660, operation: 3, sequence: 0, flags: 2, cbor_bytes: 32, body_length: 43, physical_frame_bytes: 50 }
+    excluded: ["client-system-time", "client-last-message", "{tn,pn,v} setters", "measurement triggers", "reset/install/demo", "firmware", "bond management"]
+    completeness_unknown: "Whether omitting clock/last-message frames changes availability or complete telemetry needs an owner-panel test."
+  telemetry:
+    response_shapes: ["record", "[context, record]"]
+    fields: ["topics", "tn", "pn", "v", "type", "min", "max", "enum", "avail", "a", "perm", "Devices"]
+    identity: ["sourceGroup", "topic", "parameter"]
+    candidates:
+      temperatures: { names: ["AirHeating.Temp", "WaterHeating.Temp"], unit: "temperature_c", example_scale: 0.1, caveat: "One Victron example uses tenths of a degree C and rejects 65535; neither is universal." }
+      tanks: { names: ["FreshWater.Level", "GreyWater.Level"], unit: "%", caveat: "Conditional on the installed vehicle and stale until a new measurement is requested; trigger writes are excluded." }
+      voltage: { names: ["VBat.Voltage", "L1Bat.Voltage"], unit: "voltage_v", caveat: "Retain the electrical block's source group." }
+      shore_power: { names: ["LinePower.Plugged", "System.Plugged"], unit: "boolean", caveat: "Different publishers can both report." }
+      fan: { name: "AirCirculation.FanLevel", reported_range: [0, 10], access: "read-only here" }
+      active: { names: ["AirHeating.Active", "AirCooling.Active"], type: 105, values: { 0: "off", 1: "running", 2: "appliance on but standing by" }, caveat: "Do not apply to RoomClimate.Active type 107." }
+      heating_activity: { name: "System.FlameStatus", caveat: "Follows gas or electric heat, not only a flame." }
+      gas_contents: { name: "GasBtl.FillLevelW", unit: "mass_kg", caveat: "Reported LevelControl installation only." }
+      unresolved: { name: "GasBtl.RemTime", unit: "none", caveat: "Remaining-time interpretation was not substantiated; keep raw/unitless." }
+    privacy: "Redact CertThumb, Muid, SerialNr, UniqueID, UserName, Uuid, real MACs, assigned labels, raw identity responses and account data by default."
+
+features:
+  - type: "firmware_update"
+    dfu:
+      mechanisms: ["unknown"]
+      image:
+        signing: "unknown"
+        source: "vendor_cloud"
+        format: "Unknown; panel firmware is supplied through the vendor app"
+      enter:
+        how: "unknown"
+      recovery:
+        interrupted: "unknown"
+      verification: "reported"
+      notes: >
+        Vendor documentation says the app is required for panel firmware
+        updates. No update transport or image format was researched, and this
+        strict-read spec deliberately provides no update operation.
+
+remaining_unknowns:
+  - "Live pairing/encryption, Panel 1/Panel 2 inventory, strict-read completeness, real ATT/MTU fragmentation and firmware compatibility."
+  - "Per-parameter scales/sentinels, optional remote-module behavior and whether any read requires the omitted clock/last-message frames."
+  - "Factory reset, standalone unpairing, update transport and recovery. None should be probed with appliance writes."
+
+helpful_urls:
+  - title: "Truma iNet X / iNet X Pro operating instructions"
+    url: "https://www.truma.com/download/inet-x-panel-inet-x-pro-panel-operating-instructions-3/?wpdmdl=51078"
+    kind: "manual"
+    description: >
+      Official 22-page guide for first-generation iNet X and iNet X Pro panels,
+      including BLE app control and software-update fallback behavior.
+  - title: "Truma iNet X System product information (01/2025 PDF)"
+    url: "https://portal.truma.com/wp-content/uploads/2025/01/truma-operating-systems-product-information-inet-x-system-panel-0125-oem-int.pdf"
+    kind: "manual"
+    description: >
+      Official eight-page manual for the iNet X Panel 36414-01 and optional
+      iNet X Connect 36450-01, including interfaces and system compatibility.
+  - title: "Truma iNet X Panel"
+    url: "https://www.truma.com/products/operating-systems/truma-inet-x-panel/"
+    kind: "vendor_support"
+    description: "Official panel page and links to the current Android/iOS apps."
+  - title: "node-red-contrib-truma-inetx at 004a8327"
+    url: "https://github.com/node-red-contrib/node-red-contrib-truma-inetx/tree/004a83270721f1a89ed409e91a67e831ad04a98a"
+    kind: "implementation"
+    description: "MIT transport/frame reference used for UUIDs, CBOR envelopes and control exchange."
+  - title: "rpodgorny/hass-truma-inetx at 08daf61c"
+    url: "https://github.com/rpodgorny/hass-truma-inetx/tree/08daf61c2845ab10a6b1e5b92b4308ee0812a156"
+    kind: "implementation"
+    description: "Independent vehicle behavior, pairing and connectivity reports; no unlicensed protocol code is copied."

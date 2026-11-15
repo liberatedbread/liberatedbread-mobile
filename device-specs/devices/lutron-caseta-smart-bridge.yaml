@@ -32,9 +32,22 @@ device:
     Lutron Caseta Smart Bridge 2 advertises multiple local services. LEAP on
     port 8081 is the modern local control protocol: newline-delimited JSON
     over a direct mutual-TLS socket. LAP on
-    port 8083 is deprecated. The _lutron._tcp status service exposes stable
-    bridge identity including MACADDR, firmware CODEVER, system type, and
-    device class. HomeKit HAP is separately advertised on port 4548.
+    port 8083 is deprecated for control but is still where certificate
+    pairing happens. The _lutron._tcp record exposes stable bridge identity
+    including MACADDR, firmware CODEVER, system type, and device class; its
+    SRV port 22 is the bridge's SSH, not LEAP. HomeKit HAP is separately
+    advertised on port 4548.
+
+    This is the non-Pro bridge (L-BDG2): LEAP only, no LIP/Telnet
+    integration. The Smart Bridge PRO (L-BDGPRO2) adds Lutron Integration
+    Protocol on Telnet 23 with its own integration IDs, which this spec does
+    not document. The bridge talks to Caseta dimmers, switches, shades and
+    Picos over Clear Connect Type A (431-437 MHz in North America), not
+    Zigbee, Z-Wave or Wi-Fi; a Pico paired directly to a dimmer keeps working
+    without the bridge, which is needed for the app, schedules, remote
+    access and third-party integration. Community teardowns describe a TI
+    AM335x Linux host with an STM32 coprocessor driving the sub-GHz radio
+    (reported, not a vendor BOM).
 
     This project does NOT drive LEAP yet, so the bridge is classified
     integration: identify_only — the app recognises it from its _leap._tcp /
@@ -47,8 +60,9 @@ device:
   identification:
     # Deliberately NO mac_prefixes. The bridge captured below reports
     # b8:94:d9:aa:bb:cc in its _lutron._tcp MACADDR record, but B8:94:D9 is
-    # assigned to Texas Instruments -- it identifies the radio module inside the
-    # bridge, not Lutron. Listing it would flag every TI-radio device on the
+    # assigned to Texas Instruments -- it identifies TI silicon inside the
+    # bridge (community teardowns put a TI AM335x host SoC there, the likely
+    # owner of the Ethernet MAC), not Lutron. Listing it would flag every TI-radio device on the
     # network as possibly a Caseta bridge. Lutron's own OUI is 00:0F:E7, but we
     # have never observed a Caseta bridge using it, and guessing from the
     # registry is exactly what the schema tells you not to do.
@@ -56,6 +70,10 @@ device:
     default_port: 8081
 
   discovery:
+    # pylutron-caseta and Home Assistant browse _lutron._tcp (HA matches
+    # hostnames smartbridge*), not _leap._tcp; a client should accept either
+    # rather than require _leap._tcp. The LEAP endpoint is 8081 whatever the
+    # _lutron SRV port says, and /server reports it once connected.
     methods:
       - type: "mdns"
         mdns:
@@ -70,7 +88,9 @@ device:
         mdns:
           service_type: "_lutron._tcp.local."
           port: 22
-          txt_record_keys: ["MACADDR", "CODEVER", "SYSTYPE", "DEVCLASS"]
+          # SERNUM (bridge serial) is reported by current client research; it
+          # was not recorded in this project's probe.
+          txt_record_keys: ["MACADDR", "CODEVER", "SYSTYPE", "DEVCLASS", "SERNUM"]
           identity_mapping:
             stable_keys:
               - source: "txt:MACADDR"
@@ -114,21 +134,34 @@ device:
             name: "Sign the client's CSR at the bridge button"
             verified: false
             description: >
-              The client generates a key pair and CSR, then presents it while the
-              physical button on the back of the bridge is held. The bridge signs
-              the CSR and returns the client certificate plus its own CA
-              certificate, which the client pins for all later LEAP sessions.
+              The client generates a key pair and CSR, opens the pairing
+              channel, and waits for the bridge to report that its physical
+              button is being held; only then does it submit the CSR. The
+              bridge signs it and returns the client certificate plus its own
+              CA certificate, which the client pins for all later LEAP
+              sessions.
             steps:
               - action: "Generate an RSA/EC key pair and a certificate signing request on the client."
                 actor: "client"
+              - action: "Open a TLS connection to port 8083 presenting the initial LAP client certificate that open LEAP clients ship (public, not reproduced here)."
+                actor: "client"
+                expect: "The handshake completes; without a client certificate the bridge aborts it with a bad-certificate alert."
+                timeout_seconds: 10
               - action: "Press and hold the button on the back of the bridge."
                 actor: "user"
+              - action: "Wait for the bridge's unsolicited status message granting physical access."
+                actor: "device"
+                expect: "A JSON line whose Header.ContentType begins 'status;' and whose Body.Status.Permissions contains PhysicalAccess."
+                timeout_seconds: 180
               - action: "Submit the CSR to the bridge's pairing service and store the signed certificate, private key and bridge CA."
                 actor: "client"
                 request:
                   service: "LAP pairing (TLS-JSON on port 8083, not HTTP): Execute /pair with CommandType=CSR and Parameters {CSR, DisplayName, DeviceUID, Role}"
                 expect: "Signed client certificate returned in Body.SigningResult.Certificate (with Body.SigningResult.RootCertificate as the bridge CA); later LEAP connections on port 8081 authenticate with it."
-                timeout_seconds: 30
+                timeout_seconds: 10
+              - action: "Reconnect on port 8081 with the new key, certificate and bridge CA and send ReadRequest /server/1/status/ping."
+                actor: "client"
+                expect: "A ReadResponse whose Body.PingResponse.LEAPVersion names the bridge's LEAP version."
     factory_reset:
       confidence: "medium"
       effect: >
@@ -191,15 +224,20 @@ device:
           verified: false
           basis: >
             The pairing flow implemented by the open LEAP clients this spec
-            follows. Not replayed against a bridge here.
+            follows (pylutron-caseta 0.30.1, which Home Assistant uses). Not
+            replayed against a bridge here; this project's probe reached only
+            the 8083 certificate gate.
           power_state: "on"
           steps:
             - action: "Generate an RSA or EC key pair and a certificate signing request on the client."
               actor: "client"
+            - action: "Connect to port 8083 over TLS with the initial LAP client certificate."
+              actor: "client"
             - action: "Press and hold the button on the back of the bridge."
               actor: "user"
-            - action: "Submit the CSR to the bridge's pairing service while the button is held."
+            - action: "Wait for a status message listing PhysicalAccess in Body.Status.Permissions, then submit the CSR."
               actor: "client"
+              timeout_seconds: 180
               expect: "A signed client certificate and the bridge CA in the response."
     notes: >
       Unusually for this repository, the credential is a client certificate
@@ -275,14 +313,48 @@ protocol_details:
       "Body": {...}}. CommuniqueTypes seen in the app: CreateRequest/Response,
       ReadRequest/Response, UpdateRequest/Response, DeleteRequest/Response,
       SubscribeRequest/Response, UnsubscribeRequest/Response, MetadataRequest/
-      Response, ExceptionResponse. Liveness check: ReadRequest to
-      /server/1/status/ping. Subscriptions accept a ?where= filter, e.g.
-      /zone/status/expanded?where=Level!:0 to list only zones that are on.
+      Response, ExceptionResponse. Each object is one line terminated by
+      CRLF. Replies echo Header.ClientTag for correlation and carry an
+      HTTP-style Header.StatusCode; large collections page with
+      Header.Paging {Start, Count, Total}. Liveness check: ReadRequest to
+      /server/1/status/ping (pylutron-caseta pings every 60 s with a 5 s
+      timeout and reconnects on failure; the vendor app uses a 3 s timeout).
+      A subscription returns current state and then events; after a
+      reconnect, re-subscribe and re-read state. Subscriptions accept a
+      ?where= filter, e.g. /zone/status/expanded?where=Level!:0 to list only
+      zones that are on.
+    resources:
+      configuration: ["/device", "/zone", "/area", "/button", "/occupancygroup", "/virtualbutton", "/server"]
+      notes: >
+        Read configuration dynamically; Caseta is device/zone based (RA3 and
+        QSX use areas and /area/{id}/associatedzone instead). Zone commands
+        go in Body.Command to /zone/{id}/commandprocessor; scenes are
+        activated through the corresponding /virtualbutton/{id}/commandprocessor
+        and Pico buttons through /button/{id}/commandprocessor. Further
+        vendor-app CommandTypes beyond the entity notes: GoToShadeLevelWithTilt,
+        GoToFanSpeed and GoToScene. No generic SetLevel exists. pylutron-caseta
+        also reads /device/{id}/status for BatteryStatus.
+      verification: "reported"
+    events:
+      notes: >
+        Button, zone and occupancy-group status arrive on subscriptions.
+        Home Assistant exposes press, release and multi-tap for supported
+        Picos on Caseta; LongHold is confirmed only on HomeWorks QSX, not
+        Caseta. Older integration notes that say LEAP has no keypad events
+        are out of date.
+      verification: "reported"
     lap_pairing:
       notes: >
-        Port 8083 speaks the same LEAP JSON envelope (not HTTP) and stays
-        reachable without a client certificate while the rear button is held.
-        Pairing is: Execute /pair with Body.CommandType=CSR and
+        Port 8083 speaks LEAP-style JSON lines (not HTTP), but the pairing
+        request names its operation in Header.RequestType ("Execute") rather
+        than CommuniqueType. The TLS handshake needs a client certificate even
+        here: open clients present a publicly distributed initial LAP
+        certificate and key (not reproduced), and this project's 2026-08-14
+        probe saw the bridge abort a certificate-less handshake. The client
+        then waits (pylutron-caseta: up to 180 s) for an unsolicited message
+        whose Header.ContentType starts with "status;" and whose
+        Body.Status.Permissions lists "PhysicalAccess" -- the button being
+        held. Pairing is: Execute /pair with Body.CommandType=CSR and
         Parameters={CSR (PEM), DisplayName, DeviceUID, Role (Admin or
         Installer)}; a 200 reply carries Body.SigningResult.Certificate (the
         signed client cert) and Body.SigningResult.RootCertificate (the bridge
@@ -291,7 +363,66 @@ protocol_details:
         CommandType=Wipe (revoke certs; optional Filter.Subject.Organization),
         Subscribe /system/status/crosssign (cloud cross-sign progress).
         Responses carry an HTTP-style Header.StatusCode ("200 OK",
-        "204 No Content", "401 Unauthorized").
+        "204 No Content", "401 Unauthorized") and the request's ClientTag.
+        pylutron-caseta sends DeviceUID "000000000000" and Role "Admin". These
+        management exchanges need the pairing channel; they are not an
+        unauthenticated route to LEAP, and a network reset is not a shortcut
+        around the button.
+
+features:
+  - type: "firmware_update"
+    dfu:
+      mechanisms: ["vendor_cloud"]
+      transport: "cloud"
+      image:
+        signing: "unknown"
+        encrypted: true
+        source: "public_url"
+        format: >
+          ZIP (stored) holding versionInfo, a sub-device firmware manifest, a
+          SHA-256 manifest with a detached PKCS#7 signature, a per-package
+          wrapped key + IV, and firmware.tar.enc (AES-128-CBC, OpenSSL salted
+          format).
+        notes: >
+          Seven official "lite-heron" packages, 26.00.05f000 and
+          26.00.08f000-26.00.13f000, were fetched unauthenticated from
+          https://firmware-downloads.iot.lutron.io/lite-heron/final/<version>/lutron_firmware
+          (2026-08-15). 26.00.14f000-26.00.16f000 returned 404 on 2026-11-11,
+          which does not prove nothing newer exists. The payload key is
+          wrapped for the processor's own private key, which is not public,
+          so no rootfs was decrypted. The package is signed; whether the
+          bridge refuses an unsigned or altered one is not established.
+          Whether these packages target this L-BDG2 at all is open: the
+          probed unit reports CODEVER 08.x, and 08.x paths return 404.
+      enter:
+        how: "automatic"
+        notes: >
+          Updates are started from the Lutron app and delivered through the
+          vendor cloud. No LEAP command that starts or feeds an update is
+          recorded, so a replacement client cannot update the bridge.
+      recovery:
+        interrupted: "unknown"
+      verification: "reported"
+      notes: >
+        From the project's retained official packages and their analysis;
+        nothing was installed. Do not install a package for research.
+
+local_access:
+  status: "native"
+  summary: >
+    LEAP is a cloud-independent local integration as shipped: pair once at
+    the bridge button, keep the three resulting files (bridge CA, client
+    certificate, client private key), and reuse them for every later LEAP
+    session. No replacement cloud is needed. Pairing needs physical access;
+    it is not a password reset or a way into somebody else's bridge.
+  covers:
+    - "Discovery and identity over mDNS."
+    - "Zone control, scenes, Pico button and occupancy events over LEAP (documented, not yet driven by this project)."
+    - "Reading and editing the bridge's own timeclock schedules (see scheduling)."
+  not_covered:
+    - "Firmware updates, which go through the Lutron app and cloud."
+    - "Remote (off-LAN) access, voice assistants and the Lutron account."
+    - "Re-establishing trust after the client key is lost or a network reset drops issued certificates: that means pairing at the button again."
 
 evidence:
   live_lan_probe:
@@ -311,7 +442,35 @@ evidence:
         MACADDR: "b8:94:d9:aa:bb:cc"
       - service_type: "_hap._tcp.local."
         port: 4548
+  artifacts:
+    - type: "live_probe"
+      artifact: "One L-BDG2 on the project LAN, 2026-07-16 and 2026-08-14 (identifiers placeholdered)"
+      description: "mDNS service set and TXT, and the TLS certificate gate on 8081 and 8083; see device.testing."
+    - type: "static_analysis"
+      artifact: "com.lutron.mmw 26.7.0.5"
+      description: "LEAP envelope, pairing-channel exchanges, CommandType names and the timeclock model."
+    - type: "static_analysis"
+      artifact: "com.lutron.mmw 26.9.1.1 (Play listing dated 2026-11-03)"
+      obtained_via: "APKPure, 2026-11-07"
+      description: "Re-read for the 2026-11 pass: same timeclock event model and create/update/test paths as 26.7.0.5, command enum unchanged in the parts this spec uses. Decompiled, never executed."
+    - type: "public_implementation"
+      artifact: "gurumitts/pylutron-caseta v0.30.1, commit 1c25f55bef14adf0bac81c2bba43ea4f7e6826b1"
+      description: "Pairing sequence (8083 with the initial LAP certificate, PhysicalAccess wait, /pair CSR, ping on 8081), CRLF framing, ping cadence, and the three reusable credential files."
+    - type: "vendor_documentation"
+      artifact: "Home Assistant lutron_caseta integration documentation"
+      description: "Supported bridges (L-BDG2, L-BDGPRO2, RR-SEL-REP2, RR-PROC3, HQP7), zeroconf matching and per-system button-event coverage."
+    - type: "firmware_image"
+      artifact: "Seven official lite-heron packages 26.00.05f000 and 26.00.08f000-26.00.13f000"
+      obtained_via: "Lutron public firmware CDN, 2026-08-15; 26.00.14f000-26.00.16f000 HEAD-probed 404 on 2026-11-11"
+      description: "Package structure and encryption only; payload not decrypted. See features."
 
+remaining_unknowns:
+  - "Whether port 8083 accepts a TLS client with no certificate while the button is held; open clients always present the initial LAP certificate, and this project only probed with the button released."
+  - "CSR signing, authenticated LEAP reads and every command remain unexercised by this project."
+  - "Whether this unit advertises SERNUM in its _lutron._tcp TXT; the probe did not record it."
+  - "Which firmware track the L-BDG2 is on: the probed unit reports 08.x CODEVER while the only public packages found are lite-heron 26.00.x."
+  - "Whether the bridge enforces the package signature, and its behaviour after an interrupted update."
+  - "Pico long-hold events on Caseta (LongHold is confirmed only on QSX) and which button events each Pico model emits."
 
 entities:
   # DESCRIPTIVE DOCUMENTATION, not bindings: this spec is integration:

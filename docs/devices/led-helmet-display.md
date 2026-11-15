@@ -13,7 +13,7 @@ The companion app is **Shining Display** (`com.shiningdisplay.shiningdisplay`). 
 
 **Family boundary — read this first.** Two other "LED helmet / LED mask display" ecosystems are *not* this device:
 
-- The **LOY family** (LOY PLAY / LOY EYES apps, Shenzhen Yanse, BLE service `FFF0`, popled.cn cloud) — a different OEM and protocol. This spec does not cover it.
+- The **LOY family** (LOY PLAY / LOY EYES apps, Shenzhen Yanse, BLE service `FFF0`, popled.cn cloud) — a different OEM and protocol. This spec does not cover it; the LOY B3 tail-light/helmet-mount capture is documented in [LOY / LOYPRO Helmet and B3 Tail-Light LED Displays](loypro-led-display.md).
 - The **Shining Mask / Shining Glasses / Magic Display family** ([magic-display](magic-display.md), shining-mask, shining-glasses) — Quintic QPP platform, AES-128-ECB encrypted ASCII commands. Different protocol despite overlapping seller names.
 
 This document covers only the TIRO/Heaton, JieLi-based panel driven by the Shining Display app, identified before connecting by manufacturer data `54 52 00 74` and after connecting by the **FA02** command characteristic.

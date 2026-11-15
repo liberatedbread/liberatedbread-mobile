@@ -7,7 +7,10 @@
 
 !!! warning "Remote start heats a sealed pot"
     These commands start pressure-cooking programs. Only start one with someone
-    at the cooker, and always offer Cancel.
+    at the cooker, and always offer Cancel. Cancel is the ordinary end-program
+    command, untested, and not an emergency stop. The protocol has no
+    lid-release or pressure-release command. Do not automate delayed pressure
+    cooking: OpenPot's builder for it overwrites the mode byte.
 
 ## Overview
 
@@ -17,8 +20,10 @@ cooker still talks BLE straight to a phone with no account: 20-byte frames start
 and cancel programs, and the cooker notifies its state, remaining time, pressure
 and temperature.
 
-The one public reverse-engineering is OpenPot, whose README and code disagree
-in several places. The spec follows the code (which drove a cooker) and lists
+The radio is Bluetooth 4.0 LE (10–15 m per the manual), with no Wi-Fi. The later
+Instant Connect / Smart WiFi cookers are a different product. The original app
+could not be recovered, so the one public reverse-engineering is OpenPot, whose
+README and code disagree in several places. The spec follows the code (which drove a cooker) and lists
 every disagreement in `remaining_unknowns`.
 
 ## Initial Setup
@@ -56,7 +61,9 @@ until a short beep, then accept the phone's prompt.
 | `0000daa2`/`daa3` | Delay timers 1/2 | `[hours, minutes]` |
 | `0000dac1-0000-1000-8000-00805f9b34fb` | Recipe step | Undocumented beyond the README |
 
-Every frame's last byte makes all 20 bytes sum to 0 mod 256. Cancel is
+Every command frame's last byte makes all 20 bytes sum to 0 mod 256. Telemetry
+is assumed to follow the same rule, but OpenPot never checks it, so check it
+and log mismatches rather than dropping frames. Cancel is
 `aa555a010e000000000000000000000000000098`; Manual high pressure for 30 minutes
 is `aa555a010c20300000001e00000000000000002c`. `scripts/test_instant_pot_spec.py`
 checks these against the rule.
@@ -66,4 +73,5 @@ See `device-specs/devices/instant-pot-smart-bluetooth.yaml` for the full spec.
 ## References
 
 - [lizardlab/openpot](https://github.com/lizardlab/openpot)
-- [Instant Pot Smart-60 manual](https://www.manualslib.com/manual/2251041/Instant-Pot-Smart-60.html)
+- [Instant Pot Smart-60 manual (retailer-hosted PDF)](https://images.thdstatic.com/catalog/pdfImages/48/48881aac-b9d8-45f2-8adc-02298ecc7266.pdf)
+- [Instant Pot Smart-60 manual (manualslib)](https://www.manualslib.com/manual/2251041/Instant-Pot-Smart-60.html)

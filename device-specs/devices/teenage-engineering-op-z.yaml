@@ -1,0 +1,617 @@
+# teenage engineering OP-Z — Device Specification
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Standard BLE-MIDI only on the radio control surface. No proprietary app
+# commands are asserted. Lifecycle instructions come from the official guide;
+# none has been executed against hardware by this project.
+
+device:
+  name: "teenage engineering OP-Z"
+  manufacturer: "teenage engineering"
+  manufacturer_status: "active"
+  testing:
+    status: untested
+    notes: >
+      No OP-Z was connected, reset, updated or driven by this project. Standard
+      BLE-MIDI facts are reported from the official MIDI/user guides and the
+      official Android app 1.3.3 transport implementation. The official guide
+      procedures are unexecuted. BLE-MIDI test vectors are synthetic standard-
+      library constructions checked by scripts/test_teenage_engineering_op_z.py,
+      not captured device traffic.
+  protocol: "ble"
+  transport: "ble-gatt"
+  category: "other"
+  type: "midi-sequencer-synthesizer"
+  aliases: ["OP-Z", "TE012"]
+  companion_apps:
+    - name: "OP-Z"
+      package: "com.teenageengineering.te012"
+      role: "primary"
+      platform: "cross_platform"
+      url: "https://play.google.com/store/apps/details?id=com.teenageengineering.te012"
+      notes: >
+        Official companion app for the TE012 family. Android 1.3.3 (601766) and
+        iOS 1.3.1 were store-verified during research; feature parity between
+        platforms is not assumed. Standard BLE-MIDI does not require this app.
+  notes: >
+    OP-Z is a 16-track multimedia sequencer and synthesizer. This initial spec
+    deliberately covers standard BLE-MIDI, the official incoming MIDI map,
+    midi.json configuration, and documented USB/app lifecycle procedures. It
+    does not expose proprietary app visual/content commands. Local MIDI and USB
+    content backup do not require a cloud account. No latest-firmware claim or
+    universal host-pairing rule is made.
+  openness:
+    status: "documented_api"
+    reverse_engineered: true
+    upstream_docs:
+      - url: "https://teenage.engineering/guides/op-z/midi"
+        title: "Official OP-Z MIDI guide"
+        covers: "16-track MIDI, device settings, midi.json and the incoming MIDI implementation table."
+      - url: "https://teenage.engineering/guides/op-z/app"
+        title: "Official OP-Z app guide"
+        covers: "Official app pairing and rear pair-button procedure."
+      - url: "https://teenage.engineering/guides/op-z/disk-modes"
+        title: "Official OP-Z disk-mode guide"
+        covers: "USB content mode, upgrade mode, firmware-file update and factory reset."
+    notes: >
+      The vendor documents MIDI behavior and lifecycle procedures. The official
+      app's transport was also inspected to establish the standard GATT UUIDs,
+      notification setup and BLE-MIDI header handling. No vendor-specific radio
+      opcode or app-internal protocol is included.
+  identification: {}
+  discovery:
+    none: >
+      Manual selection only. No advertised OP-Z local name was established by
+      the research. The standard BLE-MIDI service is present on unrelated
+      keyboards, controllers and adapters, so its UUID must not auto-select this
+      spec. Let the user choose the intended peripheral, then confirm the
+      standard MIDI service and characteristic after connection. Do not invent
+      an OP-Z name prefix from the product or package name.
+    identity:
+      stable_keys: ["address"]
+      display: "local_name"
+    static_ip_required: false
+  setup:
+    required: false
+    confidence: "medium"
+    notes: >
+      Ordinary MIDI needs no account or provisioning. Enable incoming/outgoing
+      MIDI on the instrument as needed, manually select the peripheral, and use
+      the standard service. The official app has a separate rear-button pairing
+      flow. USB content mode is an independent local route for configuration and
+      backup, not a proprietary BLE command channel.
+    methods:
+      - type: "ble_direct"
+        name: "Standard BLE-MIDI performance"
+        role: "primary"
+        verified: false
+        basis: "Official OP-Z MIDI guide and official app 1.3.3 standard BLE-MIDI transport; not replayed against hardware."
+        description: >
+          Use ordinary timestamped BLE-MIDI in both directions. All 16 tracks
+          can send and receive MIDI, subject to the instrument's per-track and
+          global settings. No app-specific authentication or command is added.
+        steps:
+          - action: "Manually select the intended OP-Z; never auto-select a peripheral solely because it advertises the generic MIDI service."
+            actor: "user"
+          - action: "If MIDI input or output is disabled, hold tempo and screen together and use key 2 for incoming MIDI or key 3 for outgoing MIDI, checking the resulting setting rather than blindly toggling it twice."
+            actor: "user"
+          - action: "Connect and locate service 03b80e5a-ede8-4b33-a751-6ce34ec4c700 and characteristic 7772e5db-3868-4112-a1a9-f2669d106bf3."
+            actor: "client"
+          - action: "Read the MIDI characteristic as the official app does, then enable notifications and the client-characteristic configuration descriptor."
+            actor: "client"
+          - action: "Keep MIDI message and running-status state across notifications; strip BLE-MIDI headers/timestamps and emit only complete messages."
+            actor: "client"
+      - type: "button_pairing"
+        name: "Official OP-Z app pairing"
+        role: "alternative"
+        verified: false
+        basis: "Official OP-Z app guide section 23.2; the physical flow was not run."
+        description: >
+          Pair the official companion app using the rear pair button. This is
+          the documented app route and does not establish a universal bonding
+          requirement for independent BLE-MIDI hosts.
+        ble:
+          service_uuid: "03b80e5a-ede8-4b33-a751-6ce34ec4c700"
+          read_characteristic: "7772e5db-3868-4112-a1a9-f2669d106bf3"
+          write_characteristic: "7772e5db-3868-4112-a1a9-f2669d106bf3"
+        steps:
+          - action: "Open the official app's devices screen. On platforms that need it, start the BLE scan; Android requires location-services permission for BLE connection."
+            actor: "user"
+          - action: "Press the pair button on the back of OP-Z."
+            actor: "user"
+          - action: "When the intended OP-Z appears in the app device list, tap it to connect."
+            actor: "user"
+          - action: "For app configuration, use the documented MIDI setup screen; do not infer proprietary visual/content commands from this standard-MIDI spec."
+            actor: "client"
+      - type: "device_ui"
+        name: "USB content-mode configuration and backup"
+        role: "alternative"
+        verified: false
+        basis: "Official OP-Z disk-mode guide section 22.2 and MIDI guide section 21.4; not run on hardware."
+        description: >
+          Use the removable USB disk to back up or restore projects, samples,
+          bounces and configuration, including midi.json. This is separate from
+          BLE-MIDI performance and from upgrade mode.
+        steps:
+          - action: "With OP-Z off, hold the track button while turning it on."
+            actor: "user"
+            expect: "All track LEDs are green, indicating content mode."
+          - action: "Connect OP-Z to a computer with a USB data cable and open the removable OP-Z disk."
+            actor: "user"
+          - action: "Back up the disk before changes. Edit midi.json only using the documented setting names and ranges; its detailed JSON container shape is not asserted here."
+            actor: "user"
+          - action: "Safely eject the disk before unplugging. Changes are applied while OP-Z synchronizes and restarts in normal mode."
+            actor: "user"
+          - action: "Wait for synchronization and restart to finish; do not power off during that process."
+            actor: "device"
+    factory_reset:
+      applicable: true
+      confidence: "medium"
+      effect: >
+        Restores original factory settings and removes custom user content.
+        Whether every host-specific Bluetooth bond is cleared is not separately
+        established.
+      description: >
+        Factory reset is initiated in upgrade mode, not content mode and not by
+        a MIDI message. It is destructive. Back up user content first and safely
+        eject before power cycling. The final indicator differs from the initial
+        upgrade-mode indicator, as detailed in the procedure steps.
+      procedures:
+        - name: "Screen and stop in upgrade mode"
+          verified: false
+          basis: "Official OP-Z user/disk-mode guide v1.2.45 sections 22.6 and 22.8; not executed by this project."
+          power_state: "off"
+          description: >
+            Enter upgrade mode first, then hold screen and stop together for one
+            second. Custom user content is removed.
+          indicator: "A blinking white LED and four green LEDs when the reset finishes."
+          steps:
+            - action: "Back up any content you need to keep, then start with OP-Z off."
+              actor: "user"
+            - action: "Hold the screen button while turning OP-Z on."
+              actor: "user"
+              expect: "Upgrade mode: the kick LED blinks white and all parameter-dial LEDs are white."
+            - action: "With OP-Z in upgrade mode, hold screen and stop together for one second."
+              actor: "user"
+              expect: "A blinking white LED and four green LEDs indicate that the factory reset has finished."
+            - action: "Safely eject OP-Z, power cycle it, and verify that it restarts ready for setup."
+              actor: "user"
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        A new standard-MIDI host is selected manually. For the official app,
+        repeat the rear pair-button flow. Factory reset is destructive and is
+        not the routine way to change hosts; no separate unpair procedure is
+        established.
+    credentials:
+      wifi_passphrase_protection: not_applicable
+      notes: >
+        No Wi-Fi credential, account token or MIDI API key is documented. Any
+        OS-level bond records and app-specific content are outside this spec's
+        credential claims.
+  pairing:
+    required: "unknown"
+    confidence: low
+    security_mode: "unknown"
+    bonding: "unknown"
+    exclusivity:
+      single_connection: "unknown"
+      single_bond: "unknown"
+      recovery: >
+        Close the existing app/MIDI client, manually select the intended unit,
+        and retry. For the official app, use the rear pair button again. Do not
+        factory-reset merely to work around an unproven bond conflict.
+    enter_pairing_mode:
+      required: "unknown"
+      procedures:
+        - name: "Rear pair button for the official app"
+          verified: false
+          basis: "Official OP-Z app guide section 23.2; not executed by this project."
+          power_state: "on"
+          indicator: "The unit appears in the official app's device list; no LED pairing signal is stated."
+          steps:
+            - action: "Open the official app's devices screen and start a scan if the platform requires one."
+              actor: "user"
+            - action: "Press the pair button on the back of OP-Z."
+              actor: "user"
+            - action: "Select the intended OP-Z in the app list to connect."
+              actor: "user"
+      notes: >
+        The rear-button flow is established for the official app. Whether an
+        independent BLE-MIDI host must bond, and whether the button is needed
+        for every host, is unknown.
+    unpair:
+      supported: "unknown"
+      notes: >
+        No bond-only clearing procedure is established. Factory reset removes
+        custom content and must not be presented as a benign unpair shortcut.
+    notes: >
+      No universal pairing, bonding, single-connection or single-bond claim is
+      made. The official guide documents an app discovery/pair-button flow;
+      independent MIDI host link-layer behavior still needs hardware checks.
+
+initialization:
+  - characteristic: "7772e5db-3868-4112-a1a9-f2669d106bf3"
+    read: true
+    when: "connect"
+    notes: "The official app performs an initial read before enabling MIDI notifications."
+  - characteristic: "7772e5db-3868-4112-a1a9-f2669d106bf3"
+    subscribe: true
+    when: "connect"
+    notes: "Enable notifications and CCCD; retain BLE-MIDI reassembly state across every subsequent notification."
+
+services:
+  - uuid: "03b80e5a-ede8-4b33-a751-6ce34ec4c700"
+    name: "Standard BLE-MIDI service"
+    notes: >
+      Standard timestamped MIDI only. This service is deliberately not an
+      automatic OP-Z identity signal. No vendor-specific characteristic,
+      SysEx command, visual-module protocol or authentication command is
+      declared by this spec.
+    characteristics:
+      - uuid: "7772e5db-3868-4112-a1a9-f2669d106bf3"
+        name: "Standard BLE-MIDI I/O"
+        properties: ["read", "write", "notify"]
+        role: "stream"
+        notes: >
+          The official app reads, writes and enables notifications on this
+          characteristic. BLE-MIDI notifications and writes are packets, not
+          guaranteed complete MIDI messages. A message may continue in the next
+          packet and one packet may contain several messages. Write-side
+          segmentation must use standard BLE-MIDI timestamps and the negotiated
+          ATT payload; the app's 240-byte buffer is not a universal MTU claim.
+
+features:
+  - type: "firmware_update"
+    dfu:
+      mechanisms: ["custom"]
+      transport: "usb"
+      verification: "reported"
+      image:
+        signing: "unknown"
+        algorithm: "unknown"
+        source: "user_supplied"
+        format: "Vendor-supplied OP-Z firmware file; exact filename, container and version are not asserted."
+        notes: >
+          Obtain a file intended for OP-Z by following the vendor's own guide.
+          Do not substitute OP-1, OP-1 Field or another product's image.
+      enter:
+        how: "button"
+        notes: "With OP-Z off, hold screen while turning it on. There is no BLE bootloader-entry command in this spec."
+      dfu_mode:
+        notes: >
+          Upgrade mode presents a removable USB disk. The official guide shows
+          the kick LED blinking white and all parameter-dial LEDs white. No
+          update-mode BLE name or service identity is asserted.
+      recovery:
+        interrupted: "unknown"
+        notes: >
+          The guide says not to power off during update, but the result of an
+          interrupted copy/update and any bootloader recovery behavior are not
+          established.
+      notes: >
+        The official manual procedure is to connect in upgrade mode, copy the
+        firmware file onto the removable disk in full, safely eject, and wait
+        for OP-Z to update and restart in normal mode. Do not power off during
+        the update. This spec does not identify a latest firmware version,
+        validate an image, or automate the file copy. See
+        protocol_details.usb_procedures.firmware_update for the unverified,
+        sourced procedure.
+
+payload_formats:
+  BleMidiPacket:
+    description: >
+      Standard BLE-MIDI packet structure, not a fixed-length OP-Z payload.
+      Byte 0 is a header with bits 10 followed by six timestamp-high bits.
+      Subsequent high-bit bytes are seven-bit timestamp-low bytes when the
+      parser is expecting a timestamp; the following MIDI byte can be a status
+      or a data byte. Full state rules are in protocol_details.ble_midi.
+    fields:
+      - {name: "header", offset: 0, length: 1, type: "uint8", description: "Required bits 10 plus timestamp high bits; header & 0xc0 == 0x80."}
+      - {name: "packet_body", offset: 1, type: "bytes", description: "Interleaved timestamp-low and MIDI bytes, continuing across packets when necessary."}
+    parse_rules:
+      - "Compute a timestamp as ((header & 0x3f) << 7) | (timestamp_low & 0x7f), modulo 8192 ms; timestamp bytes never enter the MIDI message."
+      - "Do not treat each notification as one MIDI message. Preserve the current message, SysEx state and channel running status across notifications."
+      - "Use protocol_details.ble_midi.receive_reassembly and the synthetic vectors rather than assuming a notification boundary or a fixed MTU."
+    example: "80 80 b0 01 40"
+
+entities: []
+
+protocol_details:
+  ble_midi:
+    verification: "reported"
+    scope: >
+      Standard BLE-MIDI and standard MIDI messages only. OP-Z-specific behavior
+      is limited to the official incoming map and configuration below. No
+      proprietary commands are included.
+    timestamp_rules:
+      - "Every notification begins with a header for which byte & 0xc0 == 0x80. Its low six bits are timestamp high bits."
+      - "When expecting a timestamp, a high-bit body byte supplies the low seven timestamp bits and is not MIDI data. The next body byte is MIDI even when it is another high-bit status byte."
+      - "The timestamp is ((high & 0x3f) << 7) | low, modulo 8192 ms. If the low value decreases from the preceding timestamp WITHIN THE SAME NOTIFICATION, advance the high group by 128 modulo 8192. Reset that comparison at each new notification and trust its header; never advance the high group merely because the previous packet ended with a larger low value."
+      - "Timestamps may order/schedule events but do not delimit SysEx or substitute for MIDI message-length state."
+    receive_reassembly:
+      - "Keep current_message, expected channel/system data-byte count, in_sysex and running_status across notifications. Reset them only on disconnect or a deliberate parser reset."
+      - "After removing the notification header, walk the body. A low-bit byte is MIDI data for the pending message (or for running status); a high-bit byte consumed as a timestamp never enters current_message."
+      - "Channel statuses 8x, 9x, Ax, Bx and Ex take two data bytes; Cx and Dx take one. Preserve channel running status so a timestamp may be followed by data without a repeated status."
+      - "F0 starts SysEx and clears channel running status. Buffer all following MIDI data across notifications through F7 and emit the SysEx only when complete. F1/F3 take one data byte, F2 takes two, and F6 takes none; these system-common messages clear running status."
+      - "F8 through FF are zero-data real-time statuses and do not clear channel running status. Deliver one immediately even when it appears inside an incomplete SysEx, without inserting it into the SysEx payload."
+      - "A new notification may begin with continuation data below 80, or with a timestamp. It need not begin with a MIDI status. Conversely, several complete messages may be coalesced into one notification."
+      - "Reject an unexpected data byte with neither a pending message nor running status, and reject a new non-real-time status that interrupts an incomplete message rather than emitting a plausible truncated message."
+      - "Bound partial-message/SysEx buffers in a production client. The official app's 1024-byte decoder allocation is an implementation observation, not a protocol maximum."
+    outgoing:
+      - "Packetize complete MIDI messages with standard BLE-MIDI header/timestamp bytes and negotiated ATT payload limits. Preserve message order and standard running-status rules."
+      - "A long SysEx may span writes; do not start each write with F0, and place F7 only at the actual end. A continuation write still has a BLE-MIDI packet header."
+      - "The official app's 240-byte write-packet allocation is not a guaranteed OP-Z or host MTU. Negotiate and honor the actual connection limit."
+    test_vectors:
+      synthetic: true
+      description: >
+        Constructed from standard BLE-MIDI rules to test stateful reassembly.
+        notifications_hex are GATT payloads; messages_hex are complete MIDI
+        messages after timestamps are removed. No vector is an OP-Z capture.
+      single_control_change:
+        notifications_hex: ["80 80 b0 01 40"]
+        messages_hex: ["b0 01 40"]
+      fragmented_sysex:
+        notifications_hex: ["80 80 f0 01 02", "80 03 04", "80 80 f7"]
+        messages_hex: ["f0 01 02 03 04 f7"]
+      coalesced_clock_and_control_change:
+        notifications_hex: ["80 80 f8 80 b0 01 40 81 fa"]
+        messages_hex: ["f8", "b0 01 40", "fa"]
+      split_control_change:
+        notifications_hex: ["80 80 b0 01", "80 40"]
+        messages_hex: ["b0 01 40"]
+      running_status:
+        notifications_hex: ["80 80 b0 01 40 81 02 41"]
+        messages_hex: ["b0 01 40", "b0 02 41"]
+      realtime_inside_sysex:
+        notifications_hex: ["80 80 f0 01 81 f8 02", "80 80 f7"]
+        messages_hex: ["f8", "f0 01 02 f7"]
+        notes: "The real-time clock is emitted immediately; the SysEx is emitted only when its F7 arrives."
+      timestamp_low_wrap:
+        notifications_hex: ["80 ff f8 80 f9"]
+        messages_hex: ["f8", "f9"]
+        expected_timestamps: [127, 128]
+      timestamp_high_bits_supplied_by_next_packet:
+        notifications_hex: ["80 ff f8", "81 80 f9"]
+        messages_hex: ["f8", "f9"]
+        expected_timestamps: [127, 128]
+      timestamp_low_decrease_across_packets_is_not_a_wrap:
+        notifications_hex: ["80 ff f8", "80 80 f9"]
+        messages_hex: ["f8", "f9"]
+        expected_timestamps: [127, 0]
+
+  incoming_midi:
+    verification: "reported"
+    source: "Official OP-Z MIDI guide section 21.6, https://teenage.engineering/guides/op-z/midi#implementation"
+    scope: >
+      All 16 tracks can send and receive MIDI, with per-track channels and
+      configurable outgoing CC assignments. Channels and values below reproduce
+      the official incoming table. Any means the setting is not channel-bound.
+      Relative entries document only values 1 and 127; this spec does not infer
+      which value increments or decrements.
+    absolute_and_relative_parameters:
+      - {name: "parameter 1", absolute_cc: 1, relative_cc: 32, channels: "1-16", absolute_values: "0-127", relative_values: [1, 127]}
+      - {name: "parameter 2", absolute_cc: 2, relative_cc: 33, channels: "1-16", absolute_values: "0-127", relative_values: [1, 127]}
+      - {name: "filter cutoff", absolute_cc: 3, relative_cc: 34, channels: "1-16", absolute_values: "0-127", relative_values: [1, 127]}
+      - {name: "filter resonance", absolute_cc: 4, relative_cc: 35, channels: "1-16", absolute_values: "0-127", relative_values: [1, 127]}
+      - {name: "envelope attack", absolute_cc: 5, relative_cc: 36, channels: "1-16", absolute_values: "0-127", relative_values: [1, 127]}
+      - {name: "envelope decay", absolute_cc: 6, relative_cc: 37, channels: "1-16", absolute_values: "0-127", relative_values: [1, 127]}
+      - {name: "envelope sustain", absolute_cc: 7, relative_cc: 38, channels: "1-16", absolute_values: "0-127", relative_values: [1, 127]}
+      - {name: "envelope release", absolute_cc: 8, relative_cc: 39, channels: "1-16", absolute_values: "0-127", relative_values: [1, 127]}
+      - {name: "lfo depth", absolute_cc: 9, relative_cc: 40, channels: "1-16", absolute_values: "0-127", relative_values: [1, 127]}
+      - {name: "lfo speed", absolute_cc: 10, relative_cc: 41, channels: "1-16", absolute_values: "0-127", relative_values: [1, 127]}
+      - {name: "lfo target", absolute_cc: 11, relative_cc: 42, channels: "1-16", absolute_values: "0-127", relative_values: [1, 127]}
+      - {name: "lfo shape", absolute_cc: 12, relative_cc: 43, channels: "1-16", absolute_values: "0-127", relative_values: [1, 127]}
+      - {name: "fx 1 send", absolute_cc: 13, relative_cc: 44, channels: "1-16", absolute_values: "0-127", relative_values: [1, 127]}
+      - {name: "fx 2 send", absolute_cc: 14, relative_cc: 45, channels: "1-16", absolute_values: "0-127", relative_values: [1, 127]}
+      - {name: "pan", absolute_cc: 15, relative_cc: 46, channels: "1-16", absolute_values: "0-127", relative_values: [1, 127]}
+      - {name: "volume", absolute_cc: 16, relative_cc: 47, channels: "1-16", absolute_values: "0-127", relative_values: [1, 127]}
+      - {name: "portamento", absolute_cc: 17, relative_cc: 48, channels: "1-16", absolute_values: "0-127", relative_values: [1, 127]}
+      - {name: "note style", absolute_cc: 18, relative_cc: 49, channels: "1-16", absolute_values: "0-127", relative_values: [1, 127]}
+    system:
+      - {name: "track gain", cc: 50, channels: "1-16", values: "0-127"}
+      - {name: "track gain (relative)", cc: 51, channels: "1-16", values: [1, 127]}
+      - {name: "reset track gains", cc: 52, channels: "any", values: "any"}
+      - {name: "mute", cc: 53, channels: "1-16", values: "0-1"}
+      - {name: "audio mute", cc: 54, channels: "1-16", values: "0-1"}
+      - {name: "mute group", cc: 55, channels: "any", values: "0-9"}
+      - {name: "tempo", cc: 56, channels: "any", values: "0-127"}
+      - {name: "swing", cc: 57, channels: "any", values: "0-127"}
+      - {name: "select pattern", cc: 103, channels: "1-10", values: "0-15"}
+      - {name: "next pattern", cc: 103, channels: "any", values: "16"}
+      - {name: "previous pattern", cc: 103, channels: "any", values: "17"}
+    track:
+      - {name: "track step count", cc: 60, channels: "1-16", values: "1-16"}
+      - {name: "track step length", cc: 61, channels: "1-16", values: "1-16"}
+      - {name: "quantize", cc: 62, channels: "1-16", values: "0-127"}
+      - {name: "note length", cc: 63, channels: "1-16", values: "0-127"}
+    other_and_realtime:
+      - {name: "start", status_hex: "fa", kind: "system real-time"}
+      - {name: "stop", status_hex: "fc", kind: "system real-time"}
+      - {name: "continue", status_hex: "fb", kind: "system real-time"}
+      - {name: "clock", status_hex: "f8", kind: "system real-time", notes: "Incoming clock automatically selects external sync; four green LEDs show tempo while tempo is held."}
+      - {name: "program change (first documented form)", channels: "1-10", values: "0-15", kind: "program change"}
+      - {name: "program change (second documented form)", channels: "1, 2", values: "0-127", kind: "program change"}
+      - {name: "pitch bend", channels: "1-16", kind: "standard 14-bit MIDI pitch bend"}
+      - {name: "song pointer", supported: false}
+      - {name: "active sense", supported: false}
+    ui:
+      - {name: "active track", cc: 102, channels: "0", values: "0-15"}
+      - {name: "parameter page", cc: 102, channels: "1", values: "0-3"}
+
+  midi_json:
+    verification: "reported"
+    location: "midi.json on the OP-Z content-mode USB disk"
+    source: "Official OP-Z MIDI guide section 21.4"
+    container_scope: >
+      The official guide publishes setting names, types/ranges and meanings, not
+      enough evidence here to assert the complete JSON nesting/array shape or
+      malformed-file behavior. Back up the existing file and preserve its
+      structure. Do not construct a new file from this key list alone.
+    settings:
+      - {key: "channel_one_to_active", type: "boolean", values: [true, false], meaning: "Redirect incoming MIDI channel 1 to the currently active track."}
+      - {key: "incoming_midi", type: "boolean", values: [true, false], meaning: "Enable incoming MIDI."}
+      - {key: "outgoing_midi", type: "boolean", values: [true, false], meaning: "Enable outgoing MIDI."}
+      - {key: "timing_clock_in", type: "boolean", values: [true, false], meaning: "Enable incoming MIDI clock."}
+      - {key: "timing_clock_out", type: "boolean", values: [true, false], meaning: "Enable outgoing MIDI clock."}
+      - {key: "enable_program_change", type: "boolean", values: [true, false], meaning: "Enable program change input/output."}
+      - {key: "alt_program_change", type: "boolean", values: [true, false], meaning: "True: bank 1-16 / program 1-16 selects the active pattern. False: bank 1 / program 1-128 and bank 2 / program 1-32 select patterns 1-160."}
+      - {key: "midi_echo", type: "boolean", values: [true, false], meaning: "Echo incoming MIDI on the same port and through to other ports."}
+      - {key: "track_enable", type: "boolean", values: [true, false], scope: "per track", meaning: "Enable MIDI on the corresponding track."}
+      - {key: "track_channels", type: "integer", range: "1-16", scope: "per track", meaning: "Set the outgoing MIDI channel."}
+      - {key: "parameter_cc_out", type: "integer", range: "0-255", scope: "per parameter per track", meaning: "Assign the outgoing CC value. The official range is 0-255; do not silently substitute a different range."}
+    apply_rules:
+      - "Enter content mode by holding track while turning OP-Z on; all track LEDs turn green."
+      - "Back up the existing disk/file and preserve its established JSON structure while changing only documented settings."
+      - "Safely eject before disconnecting. OP-Z applies content changes, synchronizes and restarts in normal mode."
+
+  device_midi_settings:
+    verification: "reported"
+    source: "Official OP-Z MIDI guide sections 21.2-21.3"
+    access: "Hold tempo and screen together, then use the corresponding key; track-channel assignment uses a held track button and the green dial."
+    toggles:
+      - {key: "1", setting: "channel one to active"}
+      - {key: "2", setting: "incoming midi"}
+      - {key: "3", setting: "outgoing midi"}
+      - {key: "4", setting: "midi clock in"}
+      - {key: "5", setting: "midi clock out"}
+      - {key: "6", setting: "alternate program change"}
+      - {key: "7", setting: "midi echo"}
+      - {key: "8", setting: "enable program change"}
+      - {key: "track 1-16", setting: "mute all MIDI on the corresponding track"}
+      - {key: "hold track 1-16 + green dial", setting: "set that track's MIDI channel to 1-16"}
+    notes: >
+      These are toggles, so inspect the current result rather than sending a
+      blind sequence. Incoming clock automatically selects external sync.
+      Outgoing MIDI must be enabled before a host can rely on performance data.
+
+  usb_procedures:
+    upgrade_mode:
+      verified: false
+      basis: "Official OP-Z disk-mode guide section 22.6; not executed."
+      power_state: "off"
+      indicator: "Kick LED blinking white and all parameter-dial LEDs white."
+      steps:
+        - action: "With OP-Z off, hold screen while turning it on."
+          actor: "user"
+        - action: "Confirm the upgrade-mode LED pattern before connecting a firmware image or initiating reset."
+          actor: "user"
+    firmware_update:
+      verified: false
+      basis: "Official OP-Z disk-mode guide section 22.7; no image was fetched and no update was run."
+      destructive_notice: "Do not power off during the update. Use only an OP-Z image from the vendor's documented route, not an OP-1-family image."
+      steps:
+        - action: "Enter upgrade mode by holding screen while turning OP-Z on and confirm the documented LEDs."
+          actor: "user"
+        - action: "Connect OP-Z to a computer with USB and open its removable disk."
+          actor: "user"
+        - action: "Copy the vendor-supplied OP-Z firmware file onto the disk and verify that the copy has finished in full."
+          actor: "user"
+        - action: "Safely eject the USB disk."
+          actor: "user"
+        - action: "Wait for OP-Z to update and restart in normal mode; do not power it off during the update."
+          actor: "device"
+      version_scope: "No latest version, image URL, signature rule or universal compatibility claim is established."
+
+  local_control_scope:
+    covered:
+      - "Standard BLE-MIDI performance and the official incoming MIDI map."
+      - "Official app pairing instructions without claiming the app protocol."
+      - "USB content-mode backup/configuration and midi.json setting names/ranges."
+      - "Sourced physical factory-reset and USB firmware-file instructions."
+    not_covered:
+      - "Proprietary app visual-module, screen, photomatic or content-transfer commands."
+      - "Automated firmware download, latest-version selection or image validation."
+      - "USB-MIDI implementation details beyond the vendor's statement that USB-C supports MIDI."
+      - "A universal OS pairing/bonding rule or an advertised OP-Z name."
+
+evidence:
+  official_documentation: >
+    Reviewed official OP-Z guide v1.2.45, the MIDI guide, app guide section 23.2
+    and disk-mode guide sections 22.1-22.8. These establish the 16-track MIDI
+    model, full incoming map, midi.json keys/ranges, app pair-button flow, USB
+    content/upgrade modes, destructive reset and firmware-file sequence.
+  app_static_analysis: >
+    The official Android app 1.3.3 (601766) transport uses the standard MIDI
+    service and characteristic, reads the characteristic, enables notifications
+    and CCCD, and implements standard BLE-MIDI header/timestamp handling. Its
+    240-byte outgoing allocation and 1024-byte decoder allocation are recorded
+    only as implementation observations. No proprietary command surface is
+    inferred or exposed.
+  artifacts:
+    - type: "vendor_documentation"
+      artifact: "Official OP-Z user guide v1.2.45 and MIDI guide, retrieved 2026-11-10"
+      url: "https://teenage.engineering/guides/op-z"
+      description: "Product identity, MIDI behavior and settings, lifecycle procedures and model-family context."
+    - type: "vendor_documentation"
+      artifact: "Official OP-Z app and disk-mode guides"
+      url: "https://teenage.engineering/guides/op-z/disk-modes"
+      description: "Rear pair-button app flow via the linked app chapter; content/upgrade modes, firmware update and factory reset."
+    - type: "static_analysis"
+      artifact: "Official OP-Z Android app 1.3.3 (601766), com.teenageengineering.te012"
+      sha256: "3c409c3b388e9c7353f3fe2a9378be68ff0c623799279f7087970720e961f738"
+      obtained_via: "Third-party XAPK mirror of the store package, 2026-11-10; package/version read back"
+      url: "https://play.google.com/store/apps/details?id=com.teenageengineering.te012"
+      description: "Standard BLE-MIDI UUIDs, characteristic setup and packet handling only. No app-internal names or proprietary commands are carried into the spec."
+    - type: "public_implementation"
+      artifact: "nbw/opz at 17b3f031c61d5f9ff9b7e7e8685083763cd7a6e4"
+      url: "https://github.com/nbw/opz/tree/17b3f031c61d5f9ff9b7e7e8685083763cd7a6e4"
+      description: "Community Web MIDI event parser used as a cross-check on ordinary MIDI output and the need to enable outgoing MIDI; not a full app replacement."
+    - type: "public_implementation"
+      artifact: "chrisdiana/OPZgo at 5f818fe729220eb7c26b667b5dc3090637925b9f"
+      url: "https://github.com/chrisdiana/OPZgo/tree/5f818fe729220eb7c26b667b5dc3090637925b9f"
+      description: "Community USB content-mode backup path for projects, samples, bounces and configuration; not a BLE or full app replacement."
+  open_questions: >
+    No owner BLE-MIDI capture covering fragmented SysEx/clock, no advertised-name
+    evidence, no midi.json before/after comparison, no host pairing matrix and no
+    firmware image/update experiment exists in this research. App-specific
+    visual/content protocols and USB-MIDI details remain separate work.
+
+remaining_unknowns:
+  - "No advertised OP-Z local name is established; generic MIDI service advertisements must never auto-identify the device."
+  - "Real OP-Z BLE-MIDI fragmentation/coalescing, running-status behavior and actual connection MTU need an owner capture; synthetic vectors are not captures."
+  - "The full JSON nesting/array shape and malformed-file behavior of midi.json are not established; preserve an existing file's structure."
+  - "OS pairing/bond requirements, connection limits and bond-only clearing are unknown across hosts."
+  - "Whether factory reset clears every Bluetooth bond in addition to custom content is not separately established."
+  - "No latest firmware version, image signature/container, public update manifest or interrupted-update recovery behavior is asserted."
+  - "Proprietary app visual/content commands and detailed USB-MIDI behavior are outside this initial standard-BLE-MIDI spec."
+
+local_access:
+  status: "native"
+  summary: "Direct standard BLE-MIDI plus local USB content backup/configuration; no cloud is required for those functions."
+  covers:
+    - "Standard MIDI input/output, clock, program change and the documented incoming CC map."
+    - "USB content-mode projects, samples, bounces and midi.json configuration."
+    - "Official physical app-pairing, factory-reset and firmware-file instructions."
+  not_covered:
+    - "Official app visual/content protocols are not replaced by this document."
+    - "Firmware discovery/download and latest-version selection remain vendor/documentation tasks."
+  notes: "The official app offers additional features, but this spec does not claim to reproduce them."
+
+helpful_urls:
+  - title: "teenage engineering OP-Z user guide"
+    url: "https://teenage.engineering/guides/op-z"
+    kind: "manual"
+    description: "Official guide for the OP-Z TE012 family, with links to app pairing, USB content mode, upgrade mode, firmware update and destructive factory reset."
+  - title: "teenage engineering OP-Z MIDI guide"
+    url: "https://teenage.engineering/guides/op-z/midi"
+    kind: "manual"
+    description: "Official OP-Z MIDI settings, midi.json keys/ranges and complete incoming MIDI implementation table."
+  - title: "OP-Z official app pairing guide"
+    url: "https://teenage.engineering/guides/op-z/app#pairing"
+    kind: "vendor_support"
+    description: "Official rear pair-button and app device-list procedure for OP-Z."
+  - title: "OP-Z USB disk modes, firmware update and reset"
+    url: "https://teenage.engineering/guides/op-z/disk-modes"
+    kind: "vendor_support"
+    description: "Official OP-Z content/upgrade mode entry, safe-eject, firmware-file and factory-reset instructions."
+  - title: "nbw/opz community MIDI parser (pinned commit)"
+    url: "https://github.com/nbw/opz/tree/17b3f031c61d5f9ff9b7e7e8685083763cd7a6e4"
+    kind: "implementation"
+    description: "Community standard-MIDI event parser and output-enable caveats; not a replacement for the official app."
+  - title: "chrisdiana/OPZgo content backup (pinned commit)"
+    url: "https://github.com/chrisdiana/OPZgo/tree/5f818fe729220eb7c26b667b5dc3090637925b9f"
+    kind: "implementation"
+    description: "Community USB content-mode backup implementation for OP-Z projects, samples, bounces and configuration."

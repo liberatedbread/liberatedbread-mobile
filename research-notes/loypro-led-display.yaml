@@ -1,22 +1,13 @@
-# LOYPRO matching research and live confirmation — 2026-11-07/08
+# LOYPRO / B3 matching, live query and capture-derived protocol — 2026-11-08
 
 observation:
   advertised_name: "LOY<serial>"
   advertised_service: 0000fff0-0000-1000-8000-00805f9b34fb
   service_data: {}
   manufacturer_data: {}
-  rssi_dbm: -59
   address_retained: false
-  physical_identity: helmet-worn motorcycle LED display
-  writes_pairing_reset_or_firmware: false
-
-supplied_gatt_log:
-  service_discovery_completed: true
-  layout: [FFF0, FFF2, FFF1]
-  fff1_notification_enabling_succeeded: true
-  characteristic_properties_in_log: false
-  command_writes_or_replies: false
-  secondary_5833ff_absence_scope: this session only; not proof of absence
+  physical_identity: B3 motorcycle tail light with bicycle/helmet mounts
+  firmware_family: MTYB3BGR
 
 live_information_confirmation:
   date: 2026-11-08
@@ -30,49 +21,74 @@ live_information_confirmation:
   width_height_endian: little
   brightness: 15
   power_type: 1
+  firmware: V2.9.1#V18
   capabilities: [pwd, remote, car_linkage, brake, "HS:2", "MTU:512", power]
-  unit_identity_and_cid_retained: false
   display_configuration_pairing_reset_or_firmware_writes: false
 
 best_match:
   spec: loypro-led-display
   app: com.yskj.loypro
-  reason: LOYPRO explicitly accepts the LOY prefix and returned a checksum-valid AA55 reply
+  reason: LOYPRO accepts LOY and the unit returned a checksum-valid AA55 reply
   integration: supported
-  testing: minimally-verified
-  exact_model: unknown; literal model field is server
-  geometry_source: live little-endian panel TLV, not advertised digits
+  testing: minimally-verified plus official-capture analysis
+  fff0_is_not_an_independent_matcher: true
+  shining_display_fa02_is_a_different_family: true
+
+official_capture:
+  packets: 7086
+  sha256: 63cf7e1a4abfbcad815b51b14e221c9be0784048deac3d54be6c9cf5a681c084
+  reassembled_aa55_packets: 969
+  all_lengths_and_checksums_valid: true
+  ordinary_type2_acks: 84
+  upgrade_type4_acks: 377
+  custom_ystp01_images_and_text: true
+  static_gif_resources: 4
+  animated_gif:
+    width: 48
+    height: 15
+    frames: 65
+    bytes: 4551
+    logical_chunks: 5
+    maximum_chunk_bytes: 960
+  tlv_canvas: [48, 16]
+  firmware_before: V2.9.1#V18
+  firmware_after: V2.9.1#V24
+  firmware_bytes: 360448
+  offline_gif_builder_packets_matched: 8
+  new_hardware_writes_during_analysis: false
+
+program_upload:
+  delete_only_08020000_is_not_ready: true
+  storage_effect: replace selected zero-based program deliberately
+  sequence: [program_header, graphic_item, ascending_media_chunks, resource_finalization]
+  ack: matching type 82 sequence and status zero after every type 2 packet
+  raw_gif_preserved: true
+  non_gif_encoding: YSTP01
+  text_is_rendered_image_pages: true
+  resource_id: eight-character program prefix plus MD5 of original input description, 20 bytes total
+
+firmware_update:
+  transport_type: 4
+  chunks: 377
+  integrity: metadata sum16 and image MD5 both match
+  signature_or_cross_model_safety_not_established: true
+  replay_forbidden: true
 
 vehicle_linkage:
-  capabilities_confirmed: [car_linkage, brake]
+  capabilities_confirmed: [remote, car_linkage, brake, power]
   program_ids:
     turn_left: 67
     turn_right: 68
     brake: 69
     double_flash: 70
     reverse: 71
-  telecontrol_model: 10942
-  binding_attempted: false
+  msa311_driver_string_present: true
   accelerometer_or_wiring_proven: false
-  live_brake_events: false
-  next_queries: read-only vehicle telecontrol and sensor type 0 only
-
-rejected_candidates:
-  AUTOBABA: YS/TL name mismatch; protocol relative only
-  Aurora: FS name and single-characteristic layout mismatch
-  CoolLEDX: name and required manufacturer evidence mismatch
-  ELK_and_Lotus_families: name and FFF3/FFF4 layout mismatch
-  iBBQ: name, five-characteristic profile and credential model mismatch
-  iDeal_and_Shining: custom d44bc439 channels and TR manufacturer data absent
-  Inkbird: sps/tps names, readings and command map mismatch
-  OBD: name, transport and AT/serial protocol mismatch
-  Quicklynks_BM2: name, FFF4 notify and encrypted advertisements mismatch
-  UREVO: URTM/SYWP names and BluePack protocol mismatch
-  Example_Smart_Bulb: example fixture, not production identification
+  tag36_is_playback_not_sensor_axes: true
 
 remaining_unknowns:
-  - exact hardware/reseller model and advertised-digit semantics
-  - vehicle-linkage mappings, sensor type/value and actual brake event source
-  - whether 5833ff, Nordic DFU or other maintenance services exist in other firmware states
-  - raw-GIF compatibility, display writes, settings, password configuration, reset and OTA
-  - whether intermittent advertising is firmware policy, power-state behavior or another central
+  - visible third-party rendering and arbitrary geometry/media/program slots
+  - vehicle bindings, live events, sensor values/scaling and motion mappings
+  - password configuration, reset and optional maintenance services
+  - wrong-image/interrupted-update recovery and other image compatibility
+  - intermittent advertising cause

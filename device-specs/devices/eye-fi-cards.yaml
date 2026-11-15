@@ -1,0 +1,374 @@
+# Eye-Fi X2 / Mobi Wi-Fi SD cards — local receiver and configuration spec
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+
+device:
+  name: "Eye-Fi X2 / Mobi / Mobi Pro Wi-Fi SD Cards"
+  manufacturer: "Eye-Fi (services discontinued)"
+  manufacturer_status: "shutdown"
+  aliases: ["Eye-Fi X2", "Eye-Fi Pro X2", "Eye-Fi Mobi", "Eye-Fi Mobi Pro", "Keenai card"]
+  testing:
+    status: untested
+    notes: >
+      No physical card, photograph or over-the-air session was used by this
+      project. Three public implementations were reviewed and their 86 offline
+      checks, including a four-call loopback receiver and hostile archive cases,
+      passed. Historical vendor app/desktop analysis supplements those sources;
+      it is not hardware verification.
+  protocol: "wifi"
+  transport: "soap"
+  category: "camera"
+  type: "wifi-sd-card"
+  integration: "identify_only"
+  notes: >
+    Already-configured Eye-Fi cards can push photographs to a local receiver
+    without the retired cloud. DIRECTION MATTERS: the CARD connects to a phone,
+    computer, router or NAS listening for cleartext HTTP/SOAP on TCP 59278.
+    This is not an outbound camera API and offers no shutter, delete, format or
+    firmware-control command. identify_only is deliberate: this project's app
+    has no secure Eye-Fi receiver transport, so the YAML documents a host
+    implementation rather than pretending the mobile app can poll a card.
+
+    A card must already know its network and receiver destination, or have a
+    working direct-mode configuration. Historical fresh X2 activation called
+    the vendor registration service, so this document does NOT rescue a reset
+    card by itself. Do not infer the opposite either: configured cards can still
+    use a local receiver after the Eye-Fi/Keenai services disappeared.
+
+    SECURITY: the legacy protocol is cleartext with reusable upload credentials,
+    and one reviewed Mobi path uses a 16-zero-byte key placeholder. Use only an
+    isolated direct-mode network or trusted segmented LAN; never expose TCP
+    59278 to the internet or public Wi-Fi. Photographs are private. A new
+    receiver needs bounded requests, strict session state and safe TAR handling,
+    not the historical servers' unrestricted extraction behavior.
+
+  identification:
+    ssid_prefix: "Eye-Fi Card "
+    notes: >
+      Mobi direct mode uses SSID `Eye-Fi Card ` (including the trailing space)
+      plus the last six card-MAC hexadecimal digits, WPA2 with the card's
+      activation code, and DHCP supplied by the card. Keep the suffix and
+      activation code private. This SSID does not reveal the receiver address.
+  discovery:
+    none: >
+      There is no established Bonjour, SSDP or outbound discovery exchange.
+      The card connects to its configured receiver. A receiver learns the card
+      address from the incoming TCP session and identity from StartSession;
+      direct-mode SSID scanning finds only the card's AP, not the upload target.
+      Historical multicast/UDP configuration exists but is not a proven service.
+    identity:
+      stable_keys: ["macaddress"]
+      display: "macaddress"
+      notes: "Use the configured card identity, not a logged owner address in examples; the test vectors use documentation-range addresses."
+    static_ip_required: true
+
+  setup:
+    required: true
+    confidence: "medium"
+    notes: >
+      Receiver operation requires existing card/network configuration. The two
+      usable routes below start from that state and are source-derived, not
+      replayed by this project. The historical cloud method is last because it
+      is defunct and is not a current activation answer.
+    methods:
+      - type: "wired"
+        name: "Configured card to a new local receiver"
+        role: "primary"
+        verified: false
+        basis: "Public receiver/configuration implementations and vendor desktop analysis; no physical card was used."
+        description: >
+          Back up the card, read its existing network/receiver configuration or
+          owner upload key through the mounted-card records, then configure a
+          fixed-address local receiver. A historical O 0x06 record may allow
+          listener provisioning but is not hardware-verified, so no automatic
+          listener-write recipe is claimed.
+        steps:
+          - action: "Back up the mounted card and obtain owner consent before reading private configuration or changing any record."
+            actor: "user"
+          - action: "Read the existing receiver/network settings and, for X2 or Mobi Pro infrastructure mode, export the owner upload key using the mounted-card channel."
+            actor: "client"
+          - action: "Configure a fixed-address receiver on TCP 59278 for that card identity and start with the JPEG-only single-card profile."
+            actor: "client"
+            expect: "The configured card opens StartSession to the local receiver; no vendor cloud connection is needed."
+      - type: "softap_http"
+        name: "Already-working Mobi direct mode"
+        role: "alternative"
+        verified: false
+        basis: "Historical vendor app analysis establishes the direct-mode SSID/WPA2/DHCP behavior; receiver-IP selection after DHCP still needs a capture."
+        description: >
+          Join the card's existing direct-mode network using its owner-held
+          activation code, then run the local receiver. Do not assume a fixed
+          card address; active/profile/global listener hints and a bounded
+          subnet-candidate mechanism are reported, but the selected address is
+          not established.
+        softap:
+          ssid_prefix: "Eye-Fi Card "
+        steps:
+          - action: "Join SSID `Eye-Fi Card ` plus the card-specific suffix using the owner activation code; do not record either in logs."
+            actor: "user"
+          - action: "Accept DHCP from the card and start the restricted local receiver on TCP 59278."
+            actor: "client"
+          - action: "Wait for the card to select the receiver and begin StartSession; stop if it does not rather than scanning the whole subnet indefinitely."
+            actor: "device"
+            expect: "A card-initiated HTTP session arrives at the local receiver."
+      - type: "cloud_account"
+        name: "Historical first-party activation"
+        role: "historical"
+        verified: false
+        basis: "Static analysis of first-party X2 Utility 1.1.1; the registration service is retired."
+        description: >
+          The historical utility's fresh-activation path called the vendor's
+          /3/cards.json registration endpoint. That service is gone, so this is
+          evidence about the reset-card boundary, not a usable setup route.
+        cloud:
+          provider: "Eye-Fi / Keenai registration (retired)"
+          local_alternative: >
+            Yes only for a card that retains working network/receiver
+            configuration: use the primary mounted-card route or the direct-
+            mode alternative above. There is no known local alternative for
+            first-time activation of a reset card.
+        steps:
+          - action: "Do not promise offline activation for a reset card; recover an existing configuration or research a replacement activation path first."
+            actor: "user"
+    factory_reset:
+      applicable: "unknown"
+      confidence: "low"
+      effect: >
+        No factory-reset procedure or offline reactivation path is established.
+        Do not erase a working card to test the retired cloud flow.
+    rejoin:
+      in_place_supported: false
+      requires_factory_reset: false
+      notes: >
+        Changing routers or receiver addresses requires existing direct mode or
+        mounted-card reconfiguration, not necessarily a factory reset. The
+        network-change and listener-write paths need owner-approved validation.
+    credentials:
+      wifi_passphrase_protection: "device_encrypted"
+      stored_on_device: ["wifi_passphrase", "upload_key", "activation_code"]
+      issued_to_client: ["session_credential"]
+      notes: >
+        WPA2 protects direct-mode join; HTTP upload credentials are reusable
+        legacy digests, not secure modern authentication. Never commit or log
+        owner SSIDs, activation codes, upload keys, nonces or card addresses.
+
+  pairing:
+    required: true
+    confidence: "medium"
+    security_mode: "app_layer"
+    bonding: "none"
+    enter_pairing_mode:
+      required: false
+    notes: >
+      There is no Bluetooth pairing. A receiver and card must share the
+      configured upload-key profile and complete StartSession/GetPhotoStatus
+      credentials. A local receiver should verify the second credential in
+      constant time, bind nonce state to card/session/item and expire it after
+      the roll; no persistent client bond is created.
+
+cloud:
+  required: false
+  vendor_service: "Eye-Fi / Keenai activation and upload services (retired)"
+  failure_mode: >
+    Fresh historical activation and vendor-cloud photo delivery are unavailable.
+    An already-configured card can still use the local receiver documented here.
+  endpoints:
+    - path: "/3/cards.json"
+      method: "POST"
+      name: "historical_card_registration"
+      returns: "Historical activation response"
+      verification: "reported"
+      notes: "First-party X2 Utility fresh activation used this retired vendor endpoint; no current host or offline replacement is claimed."
+  data_leaves_device: ["photographs and account data only when a cloud profile is explicitly enabled"]
+  notes: "Set upsyncallowed=false in a local-only receiver; it must never authorize onward upload to a third party."
+
+local_access:
+  status: "native"
+  summary: >
+    The stock card pushes photos to a local host. Implement a single-card,
+    JPEG-only, read-only-network receiver first; this project's mobile app does
+    not currently provide that server role.
+  covers:
+    - "StartSession, GetPhotoStatus, UploadPhoto and compatibility-aware roll completion"
+    - "Owner-keyed X2/Mobi credential verification and single-use nonce state"
+    - "Multipart TAR media reception with conservative validation and storage"
+    - "Read-side mounted-card configuration export with owner consent"
+  not_covered:
+    - "Factory-reset activation, universal receiver-IP discovery and unverified network provisioning"
+    - "Camera shutter/delete/format control, universal RAW/video profiles and verified interruption resume"
+
+protocol_details:
+  receiver:
+    direction: "card_initiates_upload_to_host"
+    transport: "cleartext HTTP/SOAP over TCP"
+    listen_port: 59278
+    soap_path: "/api/soap/eyefilm/v1"
+    upload_path: "/api/soap/eyefilm/v1/upload"
+    xml: "Match operations and fields by XML local name; bound metadata and reject DTDs, external entities and duplicate fields."
+    sequence:
+      - operation: "StartSession"
+        path: "/api/soap/eyefilm/v1"
+        soap_action: '"urn:StartSession"'
+        request_fields: ["macaddress", "cnonce", "transfermode", "transfermodetimestamp"]
+        response_fields: ["credential", "snonce", "transfermode", "transfermodetimestamp", "upsyncallowed"]
+        local_profile: "Generate a fresh 16-byte snonce, encode all 32 hex characters, and set upsyncallowed=false."
+      - operation: "GetPhotoStatus"
+        path: "/api/soap/eyefilm/v1"
+        soap_action: '"urn:GetPhotoStatus"'
+        request_fields: ["credential", "macaddress", "filename", "filesize", "filesignature", "flags"]
+        response_fields: ["fileid", "offset"]
+        local_profile: "Verify the second credential in constant time and bind the expected item to this card/session."
+      - operation: "UploadPhoto"
+        path: "/api/soap/eyefilm/v1/upload"
+        soap_action: '"urn:UploadPhoto"'
+        verification: "reported"
+        multipart_fields: ["SOAPENVELOPE", "FILENAME", "INTEGRITYDIGEST"]
+        multipart_order: "required_in_listed_order"
+        integrity_digest_format: "32 lowercase hexadecimal characters"
+        file_content: "TAR archive containing media first and an optional event log second; filesize is TAR bytes."
+        response: "UploadPhotoResponse with Boolean success only after the request matches the authorized card/session/item, INTEGRITYDIGEST verifies against that authorized item's upload key, and storage is completely and safely finished; otherwise success=false."
+      - operation: "MarkLastPhotoInRoll"
+        path: "/api/soap/eyefilm/v1"
+        soap_action: '"urn:MarkLastPhotoInRoll"'
+        compatibility: "Community X2 server: empty success; reviewed Mobi server: unimplemented; historical Windows: SOAP fault 2 / Last Photo then close. Hardware evidence must choose the profile."
+    reject: ["action on the wrong path", "unexpected upload SOAPAction", "malformed multipart", "missing fields", "oversized request", "replay after roll completion"]
+  credentials:
+    algorithm: "Concatenate the specified hexadecimal strings, hex-decode them, MD5 the decoded bytes, and emit lowercase hex. Do not hash ASCII hex text."
+    mac_encoding: "Twelve hexadecimal characters without colons"
+    profiles:
+      x2:
+        start_session: "MD5_bytes(mac + cnonce + upload_key)"
+        get_photo_status: "MD5_bytes(mac + upload_key + snonce)"
+        key_source: "Owner-exported 16-byte upload key"
+      reviewed_mobi:
+        start_session: "MD5_bytes(mac + cnonce + 32_ASCII_zeroes)"
+        get_photo_status: "MD5_bytes(mac + 32_ASCII_zeroes + snonce)"
+        key_source: "Legacy placeholder decoded as 16 zero bytes; not a recommendation"
+      mobi_pro_infrastructure:
+        start_session: "Same formula with the real owner upload key where configured"
+        get_photo_status: "Same formula with the real owner upload key where configured"
+        key_source: "Mounted-card read token 0xfd on an already-configured card"
+    session_policy: "Bind state to card identity, session, server nonce and expected item; use single-use expiring nonces and one defined outstanding transfer per card."
+    test_vectors:
+      mac: "00005e005301"
+      cnonce: "0102030405060708090a0b0c0d0e0f10"
+      snonce: "ffeeddccbbaa99887766554433221100"
+      x2_upload_key: "00112233445566778899aabbccddeeff"
+      mobi_zero_key: "00000000000000000000000000000000"
+      x2_start_session_credential: "a2e99d07358fce61e94b3c61dbb62e20"
+      x2_photo_status_credential: "a833dcc5cc4339f13432a5385d2b73c2"
+      mobi_start_session_credential: "7c3f7fe880fb9ebbcc92fc9ed5b4517e"
+      mobi_photo_status_credential: "0bcb84813e4933dfbfd17b3770668b75"
+  resume:
+    state_key: "filesignature"
+    filesignature_algorithm: "unknown; do not invent one or deduplicate on filename alone"
+    new_destination_offset: "Spooled bytes rounded down to a 4 KiB boundary"
+    complete_item_offset: "filesize"
+    initial_implementation: "offset=0 is the conservative first profile; nonzero resume needs an interruption capture"
+    integrity_digest:
+      verification: "reported"
+      block_bytes: 512
+      word_byte_order: "big-endian"
+      checksum_byte_order: "big-endian"
+      coverage: "Only complete 512-byte TAR blocks are hashed; exclude a trailing partial block."
+      output_format: "32 lowercase hexadecimal characters"
+      algorithm: "For each complete 512-byte TAR block, compute the 16-bit Internet checksum over big-endian 16-bit words with end-around carry and invert it. Serialize each inverted sum as two big-endian bytes, concatenate them in block order, append the authorized item's 16-byte upload key, MD5 the result, and emit 32 lowercase hexadecimal characters."
+      verification_policy: "Recompute and compare INTEGRITYDIGEST using the upload key bound to the authorized card/session/item before returning UploadPhoto success."
+      test_vectors:
+        synthetic_512_byte_tar_block:
+          tar_bytes_hex: >-
+            000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f
+            404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f
+            808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebf
+            c0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedfe0e1e2e3e4e5e6e7e8e9eaebecedeeeff0f1f2f3f4f5f6f7f8f9fafbfcfdfeff
+            000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f
+            404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f
+            808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebf
+            c0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedfe0e1e2e3e4e5e6e7e8e9eaebecedeeeff0f1f2f3f4f5f6f7f8f9fafbfcfdfeff
+          upload_key: "00112233445566778899aabbccddeeff"
+          expected_block_checksum_hex: "7f80"
+          expected_integrity_digest: "9190630d60a776ce999f3e1563172826"
+  archive_policy:
+    initial_profile: "single-card JPEG-only receiver with bounded temporary spooling"
+    validate_before_extract: true
+    accept: ["regular files", "harmless directory entries", "size-consistent .jpg/.jpeg with start/end markers"]
+    reject: ["absolute/traversal/backslash paths", "symbolic/hard links", "devices/FIFOs/unknown types", "normalized/case-folded collisions", "oversized requests/members/expanded totals"]
+    storage: "Controlled destination, exclusive creation, no overwrite of different content, remove partial output on failure"
+    side_effects: "Skip historical geolocation/log sidecars and do not invoke external services"
+  mounted_configuration:
+    channel: "Files under EyeFi/ on a mounted FAT card, not a single XML settings file"
+    records: { reqm: "host request buffer", reqc: "request sequence", rspm: "card response buffer", rspc: "response sequence/status" }
+    buffer_bytes: 16384
+    padding: "zero"
+    information_request: "ASCII o + one-byte subcommand"
+    one_byte_write: "ASCII O + subcommand + 01 + value"
+    transaction: "Increment previous response sequence (seed 0x1234 if zero), write reqc, poll rspc up to 50 times at 300 ms intervals, then read rspm only on a matching fresh sequence."
+    sequence_encoding: "Native u32 in the reference utility, little-endian on its Linux host; do not generalize without checking the card representation."
+    read_tokens:
+      "0x01": "card MAC (private)"
+      "0x02": "firmware information"
+      "0x04": "configured upload API address"
+      "0x11": "transfer mode"
+      "0x22": "direct-mode SSID (private)"
+      "0x23": "direct-mode passphrase (private)"
+      "0x24": "direct-mode wait-for-connection; zero disables, 0xff indefinitely"
+      "0x25": "direct-mode wait-after-transfer"
+      "0xfd": "owner-only upload-key export"
+    caution: "Back up first. Network changes, AP start, reboot and Mobi coverage are unverified; the reference utility also has a compiler-reported mount-path lifetime warning."
+  firmware_delivery:
+    advanced: true
+    verification: "reported"
+    mechanism: "A receiver may offer fwversion; the card then requests GET /api/firmware/<MAC>."
+    safety: "Signed-image enforcement is reported in firmware strings, but no modified image or recovery path was tested. This is card-pull, not an outbound firmware-control API."
+
+features:
+  - type: "firmware_update"
+    dfu:
+      mechanisms: ["custom"]
+      transport: "http"
+      image:
+        signing: "unknown"
+        source: "unknown"
+        format: "Card-requested firmware image; container and compatibility are not established"
+        notes: "Signed-image enforcement is reported but not tested. No image is supplied by this spec."
+      enter:
+        how: "automatic"
+        notes: "The receiver offers fwversion and the card pulls /api/firmware/<MAC>; advanced receiver-only operation, not a mobile command."
+      dfu_mode:
+        notes: "No separate update-mode network identity is established."
+      recovery:
+        interrupted: "unknown"
+      verification: "reported"
+      notes: "Do not offer firmware from this documentary block without an exact card profile, valid image and interruption recovery evidence."
+
+remaining_unknowns:
+  - "Factory-reset activation and reset-card upload-key creation without retired services."
+  - "Receiver-IP selection after DHCP, real X2/Mobi/Mobi Pro sessions and the correct MarkLastPhotoInRoll compatibility response."
+  - "filesignature, nonzero interruption/resume, concurrent cards, RAW/video/log variants and remaining transfer-mode bits."
+  - "Mounted-utility coverage across Mobi firmware and hardware-validated network/listener changes."
+
+helpful_urls:
+  - title: "Eye-Fi Mobi quick guide (Spanish PDF, Internet Archive)"
+    url: "https://archive.org/download/manualzilla-id-6177979/6177979.pdf"
+    kind: "manual"
+    description: >
+      Archived quick guide for Eye-Fi Mobi cards, covering the historical
+      activation-code and direct phone/tablet reception flow. Spanish.
+  - title: "Eye-Fi Pro X2 manual"
+    url: "https://www.manualslib.com/manual/1565254/Eyefi-Pro-X2.html"
+    kind: "manual"
+    description: >
+      Manual page for the Eye-Fi Pro X2 card and its historical setup options;
+      scripted download may be blocked even when the page is readable.
+  - title: "dgrant/eyefiserver2"
+    url: "https://github.com/dgrant/eyefiserver2"
+    kind: "implementation"
+    description: "X2-era local receiver evidence; review its credential and archive limitations rather than deploying it unchanged."
+  - title: "michaelbrandt/node-eyefimobiserver"
+    url: "https://github.com/michaelbrandt/node-eyefimobiserver"
+    kind: "implementation"
+    description: "Mobi receiver evidence for the session and upload paths; roll completion and security hardening need separate work."
+  - title: "hansendc/eyefi-config"
+    url: "https://github.com/hansendc/eyefi-config"
+    kind: "implementation"
+    description: "Mounted-card configuration evidence, including read tokens and sequence records; back up before any owner-approved use."

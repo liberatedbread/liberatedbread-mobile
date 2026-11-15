@@ -1,62 +1,76 @@
-# LOY / LOYPRO helmet LED displays (com.yskj.loypro) — Device Specification
+# LOY / LOYPRO helmet and B3 LED displays (com.yskj.loypro) — Device Specification
 # Copyright 2026 Pigs Can Fly Labs LLC
 # SPDX-License-Identifier: Apache-2.0
 
 device:
-  name: "LOY / LOYPRO Helmet LED Display"
+  name: "LOY / LOYPRO Helmet and B3 Tail-Light LED Display"
   manufacturer: "LOY / YSKJ OEM family"
   manufacturer_status: "active"
-  aliases: ["LOYPRO display", "motorcycle helmet LED display", "helmet LED matrix"]
+  aliases: ["LOYPRO display", "LOY B3", "MTYB3BGR", "motorcycle helmet LED display", "motorcycle tail light LED matrix"]
   openness:
     status: "undocumented"
     reverse_engineered: true
     notes: >
-      The LOYPRO app (com.yskj.loypro) explicitly accepts advertised names
-      beginning LOY, unlike the LOY PLAY and LOY SPACE app versions that
-      accept only YS and TL. That prefix, not the widely shared 0xFFF0
-      service, is the scan-time discriminator for this candidate.
+      LOYPRO explicitly accepts advertised names beginning LOY, unlike the
+      reviewed LOY PLAY and LOY SPACE app versions that accept only YS and TL.
+      That prefix, not the widely shared 0xFFF0 service, is the scan-time
+      discriminator. Protocol facts come from a live information query and an
+      official-app capture, not from copying vendor implementation code.
   testing:
     status: verified
     detail: minimally-verified
     notes: >
-      On 2026-11-08 this project used the documented 20-byte dev_info_all
-      query on a helmet-worn unit. The checksum-valid 159-byte reply confirmed
-      FFF2 write-without-response and FFF1 notify, little-endian 48x16 panel
-      geometry, fixed brightness 15, power type 1, and remote/car_linkage/
-      brake/HS:2/MTU:512/power capabilities. Only an information query and
-      notification subscription were used; no display, configuration, pairing,
-      reset or firmware write was performed.
+      On 2026-11-08 this project used the documented dev_info_all query on the
+      LOY-named unit and confirmed FFF2/FFF1, little-endian 48x16 geometry and
+      firmware V2.9.1#V18. A supplied official-app capture later that day was
+      decoded and replayed offline by this project: all AA55 lengths/checksums,
+      84 type-2 ACKs, 377 type-4 ACKs, custom YSTP01 images/text, static and
+      65-frame GIF resources, playback and a V18-to-V24 firmware update. The
+      offline builder reproduces the captured 48x15 GIF upload's eight packets
+      byte-for-byte. No new display, configuration, reset or firmware write was
+      made by this project during capture analysis.
   protocol: "ble"
   transport: "ble-gatt"
   category: "display"
   category_hierarchy: ["display", "led_matrix"]
   integration: "supported"
   notes: >
-    Confirmed LOY/LOYPRO helmet display using the AA55 binary-TLV family.
-    The observed physical unit is a helmet-worn motorcycle display. Its exact
-    hardware/reseller model is unknown; the device-information model field is
-    literally `server`, and the advertised digits have no proven model or
-    resolution meaning. The 48x16 geometry comes from the live panel TLV, not
-    those digits.
+    LOY/YSKJ AA55 binary-TLV display family. The captured product is a B3
+    motorcycle tail light supplied with bicycle and helmet mounts; its firmware
+    identity contains MTYB3BGR. The earlier physical description as a helmet-
+    worn display and the B3 listing are complementary, not evidence that every
+    LOY-named product has the same shell or trigger inputs.
 
-    FFF0 is retained in `services` for post-connect use, never as an
-    identification signal: unrelated LED panels, thermometers, battery
-    monitors, OBD adapters and treadmills all advertise it. AUTOBABA is a
-    protocol relative but expects YS/TL, so it must not be selected for this
-    LOY-named helmet. The older Shining Display helmet platform uses FA02 and
-    is a different protocol.
+    GEOMETRY IS NOT ONE NUMBER: the device-information/TLV canvas is 48x16,
+    while the captured animated GIF is 48x15. Query geometry and preserve the
+    source media's dimensions; do not pad a 48x15 GIF header into a 48x16 TLV
+    canvas or infer that firmware and physical dimensions must be identical.
 
-    This unit reports `car_linkage` and `brake`. That proves a firmware
-    capability, not the event source: an integrated accelerometer, wireless
-    accessory, wired vehicle input or another mechanism remain possible. Do
-    not infer wiring or motion-triggered animations from those tokens alone.
+    FFF0 is retained in services for post-connect use, never as an independent
+    identification signal. Unrelated panels, thermometers, battery monitors,
+    OBD adapters and treadmills use it. AUTOBABA is a protocol relative but its
+    reviewed filter expects YS/TL. The Shining Display/TR helmet platform uses
+    FA02 and is a different protocol documented by led-helmet-display.yaml.
+
+    UPLOAD SAFETY: 08 02 00 00 is a delete/replace-first-program TLV inside an
+    ordinary program header. It is NOT an upload-ready probe. The earlier
+    delete-only READY attempt was therefore destructive in intent even though
+    it timed out. Choose a program slot deliberately, send the complete program
+    sequence, and wait for each matching ACK before continuing.
+
+    VEHICLE INPUTS: remote, car_linkage, brake and power are confirmed firmware
+    capabilities. The upgraded image also contains an MSA311 sensor driver,
+    but neither the driver string nor those tokens establishes an integrated
+    accelerometer, wiring, a particular remote or a motion-to-animation map.
+    Short type-6 tag-0x36 notifications decode as playback model/index data,
+    not accelerometer axes.
+
   identification:
     local_name_prefixes: ["LOY"]
     notes: >
-      LOYPRO 2.1.04 explicitly accepts this prefix in its scan filter.
-      LOY PLAY 1.7.15 and LOY SPACE 1.2.19 accept only YS/TL, so do not
-      conflate the three app families. The digits after LOY have no proven
-      model or resolution meaning.
+      LOYPRO 2.1.04 explicitly accepts this prefix. The reviewed LOY PLAY and
+      LOY SPACE versions accept only YS/TL. Digits after LOY have no proven
+      model or resolution meaning; use the information reply for identity.
   discovery:
     methods:
       - type: "ble_scan"
@@ -66,34 +80,31 @@ device:
             value: "LOY"
         verification: "confirmed"
         notes: >
-          Exact-prefix evidence from the advertisement and LOYPRO app's scan
-          list. Do not add 0xFFF0 here: doing so would reactivate every
-          unrelated FFF0-based spec as a candidate. Advertising is
-          intermittent, so rediscover freshly and do not persist a stale
-          address.
+          Exact-prefix advertisement and app-filter evidence. Do not add FFF0
+          here: it would reactivate unrelated FFF0 specs. Advertising can be
+          intermittent, so rediscover freshly and do not persist a stale address.
     identity:
       stable_keys: ["local_name"]
       display: "local_name"
     static_ip_required: false
+
   setup:
     required: false
     confidence: "high"
     notes: >
-      No account or provisioning is required for the confirmed BLE display
-      path. The information query and notification subscription were run
-      successfully without pairing. Start read-only: enumerate GATT, subscribe
-      to FFF1 and use the information query after selecting this LOYPRO
-      candidate. Do not send another protocol's initialization.
+      No account or provisioning is required for the confirmed BLE path. Start
+      read-only: enumerate GATT, subscribe to FFF1 and issue dev_info_all.
+      Uploads replace stored programs and firmware updates are advanced
+      operations, not onboarding steps.
     methods:
       - type: "ble_direct"
         name: "LOYPRO information query and identification"
         role: "primary"
         verified: true
         description: >
-          Match the LOY prefix, enumerate services and characteristics,
-          subscribe to FFF1, then issue the source-derived AA55 information
-          query on FFF2 with response=False. The observed unit completed this
-          flow and returned a checksum-valid response.
+          Match LOY, confirm FFF2 write-without-response and FFF1 notify,
+          subscribe, then send the AA55 information query with response=False.
+          The observed unit returned a checksum-valid response without pairing.
         ble:
           advertised_name: "LOY<serial>"
           pairing_required: false
@@ -104,28 +115,32 @@ device:
             actor: "client"
           - action: "Subscribe to FFF1 and request device/panel information using protocol_details.read_only_identification."
             actor: "client"
+            request:
+              protocol: "ble_gatt"
+              action: "get_device_info"
             expect: "A checksum-valid AA55 reply identifying firmware, capabilities and little-endian width/height; stop if the dialect differs."
     factory_reset:
       applicable: "unknown"
       confidence: "low"
       effect: >
-        No reset is established. Do not use a display-format or delete-all
-        command as a pairing or identification probe.
+        No reset is established. Do not use delete-program, playback or firmware
+        operations as pairing, reset or identification probes.
     rejoin:
       in_place_supported: true
       requires_factory_reset: false
       notes: >
-        Rediscover by the exact advertised name and confirmed characteristic
-        layout. A previous address may be stale, and advertising may pause
-        after disconnect or with power state.
+        Rediscover by the advertised name and confirmed characteristics. The
+        address may be stale and advertising may pause with power state or
+        another central. Stored programs persist across the captured upgrade.
     credentials:
       wifi_passphrase_protection: "not_applicable"
       stored_on_device: []
       issued_to_client: []
       notes: >
         No account, Wi-Fi credential or pairing secret is established. The
-        device reports pwd support, but whether a password is configured is
-        unknown; use the owner's normal flow if one is enabled.
+        device reports pwd support, but whether one is configured is unknown;
+        use the owner's normal flow rather than guessing or bypassing it.
+
   pairing:
     required: false
     confidence: "high"
@@ -134,51 +149,55 @@ device:
     enter_pairing_mode:
       required: false
     notes: >
-      The confirmed query session used no pairing. The wider codec has an
-      optional password capability, but no configured password was observed.
-      If enabled, use the owner's normal app flow rather than guessing or
-      bypassing it.
+      The information query and official-app control capture required no bond.
+      Optional application password support exists; no configured password was
+      observed and no bypass is documented.
 
 local_access:
   status: "native"
   summary: >
-    The documented dev_info_all query works locally over BLE. Other commands
-    and uploads remain unverified on this unit.
+    Information, stored program upload, GIF/YSTP media, playback and the
+    captured type-4 resource upgrade all operate locally over FFF2/FFF1.
+    Uploads and firmware require dedicated AA55/TLV handling and ACKs; they
+    are not generic one-write commands.
   covers:
-    - "FFF2 information query with sequence-matched, checksum-valid FFF1 reply"
-    - "Little-endian panel geometry, power and fixed-brightness reads"
-    - "Firmware capability discovery for remote, car_linkage, brake and power"
+    - "Device information, geometry, firmware and capability discovery"
+    - "Stored custom YSTP01 image/text pages, raw static or animated GIF programs"
+    - "Ascending 960-byte media chunks with per-packet ACK and resource finalization"
+    - "Playback model/index/program-list selection"
+    - "Type-4 firmware resource upgrade with integrity metadata and post-update version readback"
   not_covered:
-    - "Display content writes, raw-GIF upload, settings, binding, reset and OTA"
-    - "Accelerometer or motion-trigger evidence, live brake events and vehicle-linkage mappings"
+    - "Vehicle-input bindings, trigger mappings, sensor scaling and live brake events"
+    - "Factory reset, password configuration and arbitrary firmware/media compatibility"
 
 protocol_handler: "popled_json"
 
 initialization:
   - characteristic: "0000fff1-0000-1000-8000-00805f9b34fb"
     subscribe: true
-    notes: "Open display replies before the information query or any display command."
+    notes: "Open replies before information, upload, playback or firmware operations; reassemble ATT fragments before parsing AA55."
 
 services:
   - uuid: "0000fff0-0000-1000-8000-00805f9b34fb"
     name: "LOY display service"
     verification: "confirmed"
     notes: >
-      Complete live discovery on 2026-11-08 confirmed this service and its
-      FFF2/FFF1 children. Only FFF0 appeared in that session; this does not
-      exclude other services in other firmware states. FFF0 is shared by many
-      unrelated protocols and must not identify the device by itself.
+      FFF0 appeared in the live session and capture. Other services may exist
+      in other firmware states; FFF0 is shared and must not identify by itself.
     characteristics:
       - uuid: "0000fff1-0000-1000-8000-00805f9b34fb"
         name: "Display notifications"
         properties: ["notify"]
         verification: "confirmed"
-        notes: "Notification enabling succeeded and the information reply arrived here. Reassemble AA55 frames by declared length."
+        notes: "AA55 responses and playback notifications. Reassemble by declared AA55 length; an ATT fragment is not a new command."
       - uuid: "0000fff2-0000-1000-8000-00805f9b34fb"
         name: "Display writes"
         properties: ["write_without_response"]
         verification: "confirmed"
-        notes: "Use response=False, as in the confirmed information query."
+        notes: >
+          Use response=False. The capture negotiated MTU 512/517 and host ATT
+          values were at most 509 bytes. Logical 960-byte media chunks are TLVs
+          inside AA55 packets, not individual ATT writes; reassemble first.
         commands:
           get_device_info:
             description: "Request device, panel, power and brightness information using the confirmed AA55 dev_info_all query in protocol_details.read_only_identification."
@@ -192,22 +211,18 @@ protocol_details:
   family_evidence:
     app: "LOY / LOYPRO com.yskj.loypro 2.1.04"
     accepted_name_prefixes: ["YS", "TL", "LOY"]
-    transport_shape: "AA55 framing, sequence, flags/mode, TLV payloads and little-endian additive checksum"
-    not_evidence_for: >
-      Exact retail model, raw-GIF compatibility, optional maintenance services
-      in other firmware states, or a particular vehicle-trigger mechanism.
+    transport_shape: "AA55 framing, little-endian sequence/length/checksum, flags/type and binary TLVs"
+    confirmed_product: "B3 motorcycle tail light / helmet-mount display, firmware family MTYB3BGR"
   read_only_identification:
     verification: "confirmed"
     source_derived_query_hex: "aa 55 ff ff 0e 00 01 00 c1 03 0a 00 1b 00 04 00 06 00 ff 03"
     notes: >
-      Twenty-byte AA55 dev_info_all query with example sequence 1, now
-      confirmed on the helmet. Subscribe to FFF1 first and use FFF2 without
-      response. A real client increments its sequence counter. Device-
-      information TLV 0x0a carries identity/model/version/capabilities; panel
-      TLV 0x1b carries a leading panel-data-type byte followed by little-endian
-      width and height. Power TLV 0x04 reports type 1 and brightness TLV 0x06
-      reports fixed value 15. Stop if no valid AA55 reply arrives; do not try
-      another protocol's initialization as a fallback.
+      Twenty-byte dev_info_all query with example sequence 1. Subscribe to FFF1
+      first and use FFF2 without response. A real client increments sequence.
+      Device-information TLV 0x0a carries identity/model/version/capabilities;
+      panel TLV 0x1b carries a leading panel-data-type byte then little-endian
+      width/height. Power TLV 0x04 reports type 1 and brightness TLV 0x06 fixed
+      value 15. Stop if no valid reply arrives.
     observed_reply:
       frame_bytes: 159
       width: 48
@@ -216,12 +231,191 @@ protocol_details:
       brightness: 15
       power_type: 1
       capabilities: ["pwd", "remote", "car_linkage", "brake", "HS:2", "MTU:512", "power"]
-      note: "The MTU string is a firmware capability, not a negotiated-MTU measurement. Unit-specific identity and CID values are deliberately omitted."
-    tlv_length_encoding:
-      short: "LL below 0x80: LL bytes"
-      extended_8: "81 LL: LL bytes (128-255)"
-      extended_16: "82 LL LH: little-endian u16 length (256 and above)"
-      example: "13 81 c4 = type 0x13 with a 196-byte value"
+      note: "The MTU token is a firmware capability, not a negotiated-MTU measurement. Unit-specific identity and CID values are omitted."
+  aa55_framing:
+    verification: "confirmed"
+    header_hex: "aa 55 ff ff"
+    length: { offset: 4, length: 2, endianness: "little", covers: "sequence + flags + command_type + payload + checksum; physical packet bytes = declared length + 6" }
+    sequence: { offset: 6, length: 2, endianness: "little", note: "May be reused by later operations; correlate within the current connection/operation." }
+    flags: { offset: 8, length: 1, host_command: "0xc1", ordinary_response: "0x81" }
+    command_type: { offset: 9, length: 1, values: { program_or_control: "0x02", query: "0x03", resource_upgrade: "0x04", ordinary_ack: "0x82", query_response: "0x83", upgrade_ack: "0x84", notification: "0x06" } }
+    payload: { offset: 10, encoding: "Binary TLV for host program/control/query packets; ordinary and upgrade ACKs instead carry one raw status byte as declared below" }
+    ordinary_ack:
+      flags: "0x81"
+      command_type: "0x82"
+      full_frame_bytes: 13
+      payload_encoding: "One raw status byte, not a TLV"
+      status: { offset: 10, length: 1, success_value: 0, nonzero: "Reject/failure; no captured nonzero values or vendor error taxonomy" }
+      matching_rule: "Require flags 0x81, response type 0x82, the request sequence and status zero before sending the next type-2 packet."
+      success_response_hex: "aa 55 ff ff 07 00 16 00 81 82 00 1d 04"
+      synthetic_nonzero_response_hex: "aa 55 ff ff 07 00 16 00 81 82 01 1e 04"
+      synthetic_note: "The nonzero vector only tests rejection handling; 0x01 is constructed, not an observed or named device error."
+    upgrade_ack:
+      flags: "0x81"
+      command_type: "0x84"
+      full_frame_bytes: 13
+      payload_encoding: "One raw status byte, not a TLV"
+      status: { offset: 10, length: 1, success_value: 0, nonzero: "Reject/failure; no captured nonzero values or vendor error taxonomy" }
+      matching_rule: "Require flags 0x81, response type 0x84, the request sequence and status zero before sending the next type-4 chunk."
+      success_response_hex: "aa 55 ff ff 07 00 00 00 81 84 00 09 04"
+      synthetic_nonzero_response_hex: "aa 55 ff ff 07 00 00 00 81 84 01 0a 04"
+      synthetic_note: "The nonzero vector only tests rejection handling; 0x01 is constructed, not an observed or named device error."
+    checksum: { endianness: "little", algorithm: "sum of every preceding byte including AA 55 FF FF, modulo 65536" }
+    att_rule: "Join ATT values to the declared AA55 length before length/checksum validation or ACK matching."
+  tlv_length_encoding:
+    short: "LL below 0x80: LL bytes"
+    extended_8: "81 LL: LL bytes (128-255)"
+    extended_16: "82 LL LH: little-endian u16 length (256 and above)"
+    example: "13 81 c4 = type 0x13 with a 196-byte value"
+  program_upload:
+    verification: "confirmed"
+    storage_effect: "The program header replaces the selected zero-based stored program. It is not a readiness probe."
+    tags:
+      - { tag: "0x08", meaning: "Delete/replace zero-based program ID in the program header", example: "08 02 00 00 targets program 0" }
+      - { tag: "0x09", meaning: "Data-save flag", example: "09 01 01" }
+      - { tag: "0x0c", meaning: "Zero-based program ID" }
+      - { tag: "0x0d", meaning: "Zero-based region ID" }
+      - { tag: "0x0e", meaning: "Zero-based item ID within the region" }
+      - { tag: "0x11", meaning: "Item playback/media declaration; captured graphic items end in type 0x0a" }
+      - { tag: "0x12", meaning: "Chunk metadata: total count LE16, zero-based index LE16, maximum chunk bytes LE16, then 00" }
+      - { tag: "0x13", meaning: "Media bytes; raw GIF stays GIF, non-GIF graphics use the separate YSTP01 encoder" }
+      - { tag: "0x14", meaning: "Animation/effect parameters; captured 01 0d 03 is an example, not a universal default" }
+      - { tag: "0x1c", meaning: "Program background/play configuration" }
+      - { tag: "0x1d", meaning: "Region x, y, width, height as four LE16 values followed by background byte" }
+      - { tag: "0x35", meaning: "Resource declaration/finalization: zero-based program byte, 20-byte key, u32 LE timestamp" }
+      - { tag: "0x36", meaning: "Playback model/index/program list, not an accelerometer report" }
+    sequence:
+      - "Send a program header containing replacement, save, program, play configuration, region and geometry TLVs."
+      - "Send the graphic item declaration."
+      - "Send media chunks in ascending zero-based index order using media_chunks.tag_order; captured maximum logical chunk size is 960 bytes."
+      - "Wait for ordinary response 0x82 with the matching sequence and status 00 after every type-2 packet; all 84 in the capture answered."
+      - "Finalize with tag 0x35 and require its ACK. Deduplicate retransmissions by program/item/chunk index."
+    media_chunks:
+      tag_order: ["0x09", "0x0c", "0x0d", "0x0e", "0x12", "0x13"]
+      item_prefix: "Every chunk repeats save flag 09 01 01 and the graphic item's zero-based program (0c), region (0d) and item (0e) values before its chunk metadata and media"
+      synthetic_vector:
+        sequence: 3
+        program_index: 0
+        region_index: 0
+        item_index: 0
+        chunk_count: 1
+        chunk_index: 0
+        maximum_chunk_bytes: 960
+        media_hex: "01 02 03"
+        packet_hex: "aa 55 ff ff 20 00 03 00 c1 02 09 01 01 0c 01 00 0d 01 00 0e 01 00 12 07 01 00 00 00 c0 03 00 13 03 01 02 03 11 05"
+        total_bytes: 38
+        note: "Framing-only vector with three invented media bytes, not a complete renderable image"
+    resource_id:
+      program_number_base: "The prefix uses the one-based app/UI program number: wire_program_index + 1, distinct from the zero-based TLV fields"
+      local_generation: "(decimal (wire_program_index + 1) + '0000000') truncated to 8 characters, followed by lowercase MD5 hex of the input description; decode the 40 ASCII hex characters to 20 bytes"
+      input_description: "JSON description of the program, or concatenated space-separated hexadecimal of the original input byte buffers"
+      important: "Hash original GIF/input bytes, not converted YSTP01. Captured cloud resources may use unrelated keys or zero timestamps; keys are identifiers, not secrets."
+      synthetic_vector:
+        wire_program_index: 0
+        app_program_number: 1
+        input_hex: "47 49 46"
+        input_description: "47 49 46"
+        expected_prefix_ascii: "10000000"
+        expected_resource_id_hex: "10 00 00 00 3e 25 6c 8e 7c 3b 3f 01 9d 86 a4 7c be b0 73 cb"
+        note: "Synthetic three-byte hash input; the resource ID is 20 decoded bytes, not 40 ASCII bytes"
+    geometry_examples:
+      tlv_canvas: [48, 16]
+      raw_animated_gif: [48, 15]
+      gif_frames: 65
+      gif_bytes: 4551
+      logical_chunks: 5
+      maximum_chunk_bytes: 960
+    ystp01:
+      verification: "confirmed"
+      coverage: "Two single-page 24-bit images and three colored text sequences with final blank pages; both 24-bit and 8-bit palettized pages were decoded."
+      confirmed_depths: [8, 24]
+      header:
+        magic: { offset: 0, length: 6, ascii: "YSTP01" }
+        width: { offset: 6, length: 2, endianness: "little", unit: "pixels" }
+        height: { offset: 8, length: 2, endianness: "little", unit: "pixels" }
+        page_count: { offset: 10, length: 2, endianness: "little", unit: "pages" }
+        delay: { offset: 12, length: 2, endianness: "little", unit: "unknown", scaling: "Raw device value; time scaling is not established" }
+        bits_per_pixel: { offset: 14, length: 1, values: { 8: "256-entry palette indices", 24: "Direct RGB888" } }
+      palette:
+        present_for_depths: [8]
+        offset: 15
+        entries_formula: "1 << bits_per_pixel"
+        bytes_per_entry: 3
+        channel_order: ["red", "green", "blue"]
+        note: "A 24-bit stream has no palette. Palettized pages share this one palette. Lower depths are not established."
+      page_layout:
+        pixel_offset_formula: "15 + 3 * (1 << bits_per_pixel) for depths <= 8; 15 for 24-bit"
+        pages: "Concatenated in order with no per-page header; geometry, depth and palette come from the shared header"
+        row_order: "top_to_bottom"
+        pixel_order: "left_to_right"
+        row_stride_bytes_formula: "(width * bits_per_pixel + 7) // 8"
+        rgb888: "Three bytes per pixel in R,G,B order"
+        palette_indices: "Pack each index at its little-endian bit offset within the row; least-significant bit first"
+        row_padding: "Each row starts on a byte boundary; emit zero in unused high bits. Captured widths are byte-aligned, so device padding requirements are unknown."
+        total_length_formula: "15 + palette_bytes + page_count * height * row_stride_bytes, where palette_bytes is 3 * (1 << bits_per_pixel) for depths <= 8 and zero for 24-bit"
+      synthetic_vectors:
+        rgb888_2x2:
+          media_hex: "59 53 54 50 30 31 02 00 02 00 01 00 30 00 18 ff 00 00 00 ff 00 00 00 ff ff ff ff"
+          width: 2
+          height: 2
+          page_count: 1
+          delay_raw: 48
+          bits_per_pixel: 24
+          expected_pages:
+            - - [[255, 0, 0], [0, 255, 0]]
+              - [[0, 0, 255], [255, 255, 255]]
+          expected_total_bytes: 27
+          expected_sha256: "4da112d970f8fe664a2847b56d80d3d679222ceeb03acb31f5262356da834cb7"
+        palettized8_2x1_two_pages:
+          width: 2
+          height: 1
+          page_count: 2
+          delay_raw: 34
+          bits_per_pixel: 8
+          palette: { entries: 256, channel_values: "index,index,index" }
+          expected_pages:
+            - - [0, 255]
+            - - [255, 0]
+          expected_total_bytes: 787
+          expected_sha256: "74ab290c8156a41c276c2121cdbb3adb3d0051a02ee63fd8f512fb296f31c0b0"
+      boundary: "Text uploads are rendered image pages, not a simple string command. Delay units, text rasterization and other YSTP depths/variants are not established. Synthetic vectors contain only primary colors and a grayscale palette, not captured user media."
+    example_program_header_hex: "aa55ffff26000100c102080200000901010c01001c060000030003000d01001d09000000003000100000a504"
+    example_graphic_item_hex: "aa55ffff1d000200c1020901010c01000d01000e01001403010d0311040001000a5c04"
+    example_note: "Synthetic 48x16 program-0 header and item declarations, sequences 1 and 2; no user media or unit identifier. Reproduce both with scripts/test_loypro_led_display.py."
+  playback:
+    verification: "confirmed"
+    tag: "0x36"
+    fields: ["model", "index", "ids_pro"]
+    value_layout:
+      model: { offset: 0, length: 1 }
+      index: { offset: 1, length: 1, note: "Raw app playback position; its numbering semantics are not established" }
+      ids_pro: { offset: 2, length: "TLV value length minus 2", element: "u8 zero-based program index", order: "Preserve the exact list and order; the app displays each ID plus one" }
+    models: { 0: "single-play candidate", 1: "looping" }
+    selection_vector:
+      sequence: 17
+      model: 0
+      index: 2
+      ids_zero_based: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+      ids_one_based_decoded: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+      tlv_value_hex: "00 02 00 01 02 03 04 05 06 07 08 09"
+      packet_hex: "aa 55 ff ff 14 00 11 00 c1 02 36 0c 00 02 00 01 02 03 04 05 06 07 08 09 56 04"
+    note: "Model/index combinations are app playback controls. Keep exact device lists and do not infer sensor events from short type-6 tag-0x36 notifications."
+  firmware_upgrade:
+    verification: "confirmed"
+    advanced: true
+    transport_type: "0x04"
+    acknowledgement_type: "0x84"
+    acknowledgement_layout: "aa55_framing.upgrade_ack"
+    acknowledgement_rule: "After every type-4 chunk, require flags 0x81, type 0x84, matching sequence and raw status zero at offset 10 before continuing"
+    observed_chunks: 377
+    observed_image_bytes: 360448
+    metadata: "First chunk carries a text metadata header naming the model component, sum16 and a 20-byte resource ID; remaining chunks carry the image."
+    integrity:
+      sum16: "16-bit additive value stated in the metadata"
+      md5: "MD5 of the reconstructed image matches the digest in the resource ID"
+      warning: "MD5 and sum16 are integrity checks, not a vendor signature or evidence that an image is safe for another device."
+    observed_result: "Device information changed from V2.9.1#V18 before transfer to V2.9.1#V24 after disconnect/reconnect."
+    rule: "Do not use the ordinary image uploader as DFU and do not replay the captured type-4 stream. No wrong-image or interrupted-update recovery is established."
   vehicle_linkage:
     verification: "reported"
     capabilities_confirmed: ["car_linkage", "brake"]
@@ -234,71 +428,109 @@ protocol_details:
     telecontrol_model: 10942
     notes: >
       These are app-assignable display program IDs, not demonstrated motion
-      gestures. The app offers a separate type-2 binding operation, which was
-      not attempted and must not be sent during read-only confirmation.
-      Generic vehicle-accessory instructions do not establish that this helmet
-      requires wiring or contains an accelerometer.
+      gestures. The separate type-2 binding operation was not attempted.
+      Firmware contains an MSA311 driver but no numeric sensor stream was captured.
     next_read_only_queries:
       vehicle_telecontrol_sequence_6_hex: "aa 55 ff ff 0b 00 06 00 c1 03 34 03 02 2a be f3 04"
       sensor_type_0_sequence_7_hex: "aa 55 ff ff 09 00 07 00 c1 03 3e 01 00 10 04"
-      note: "Use only after a fresh connection and only after the information response has confirmed the family. Stop if the first reply is invalid. No binding, mapping or display writes."
+      note: "Only after fresh family identification; stop on an invalid reply. No binding or display writes."
 
 features:
   - type: "image_upload"
     format: "gif"
     resolution_source: "device_reported"
-    verification: "hypothesis"
+    animation: true
+    verification: "confirmed"
     notes: >
-      Read little-endian panel TLV 0x1b before rendering; the observed unit is
-      48x16. Raw-GIF support on related YS-family backpacks is not proof of
-      compatibility with this LOYPRO helmet. No display-content write was
-      attempted on this unit.
+      Official capture proves raw GIF and YSTP01 program media, including a
+      48x15 65-frame GIF on a 48x16 TLV canvas. The offline builder reproduces
+      all eight packets of the captured upload. This is capture confirmation,
+      not a new third-party hardware write or visible-rendering claim.
+  - type: "stored_upload"
+    format: "gif"
+    resolution_source: "device_reported"
+    verification: "confirmed"
+    notes: >
+      AA55 program/region/item TLVs contain GIF or YSTP01 media. Programs are
+      stored under zero-based IDs and selected by tag-0x36
+      playback lists after disconnect. The program header replaces the chosen
+      slot; it is not a harmless READY operation.
+  - type: "firmware_update"
+    dfu:
+      mechanisms: ["vendor_ble"]
+      transport: "ble"
+      services: ["0000fff0-0000-1000-8000-00805f9b34fb"]
+      image:
+        signing: "unknown"
+        algorithm: "crc_only"
+        source: "vendor_cloud"
+        format: "Type-4 resource-upgrade stream with text metadata, sum16 and MD5 integrity values"
+        notes: "The captured V24 image is evidence only, not a reusable update package for other units."
+      enter:
+        how: "in_place"
+        notes: "The running connection accepts type-4 chunks, then disconnects/reconnects; no separate bootloader identity is documented."
+      dfu_mode:
+        notes: "No DFU name/address or alternate GATT layout was recorded; post-update queries returned V2.9.1#V24."
+      recovery:
+        interrupted: "unknown"
+      verification: "confirmed"
+      notes: >
+        Capture-confirmed but deliberately not exposed as a generic command.
+        Use exact-model images, per-chunk 0x84 ACKs and post-update version
+        readback. Wrong-image and interrupted-update behavior are unknown.
+
+entities:
+  - platform: "select"
+    name: "Stored Program Playback"
+    state_mapping:
+      options:
+        "0": "single_play"
+        "1": "looping"
+    notes: >
+      Playback uses tag 0x36 with model, index and an explicit program-ID list.
+      No generic command is declared because selecting/replacing programs needs
+      the dedicated popled_json handler and a deliberate stored-slot choice.
 
 remaining_unknowns:
-  - "Exact hardware/reseller model and whether the advertised digits have serial/model semantics. Firmware V2.9.1#V18 and 48x16 geometry are confirmed."
-  - "Vehicle-linkage mappings, sensor type/value, actual brake event source, and whether any accelerometer or motion-triggered animation path exists."
-  - "Whether 5833ff, Nordic DFU or other maintenance services exist in other firmware states. The completed live discovery showed only FFF0."
-  - "Raw-GIF compatibility, display writes, settings, password configuration, reset and OTA."
-  - "Whether intermittent advertising is firmware policy, power-state behavior or another central holding the connection."
+  - "Visible rendering from a new third-party upload and compatibility with other GIF sizes, frame counts, geometries, YSTP variants and program slots."
+  - "Vehicle-linkage mappings, sensor values, actual brake/remote event sources and any accelerometer scaling or motion-trigger map."
+  - "Factory reset, password configuration, optional maintenance services in other firmware states, and whether intermittent advertising is policy, power state or another central."
+  - "Wrong-image/interrupted firmware-update recovery and compatibility with any image other than the captured exact-model V24 upgrade."
 
 evidence:
   artifacts:
-    - type: "advertisement"
-      artifact: "LOY-prefixed display, observed 2026-11-07"
-      description: >
-        Name and advertised 0xFFF0, RSSI -59 dBm; no manufacturer or
-        service-data record retained. Address and raw payloads deliberately
-        omitted. Advertising was intermittent in later scans.
-    - type: "live_probe"
-      artifact: "Supplied Flutter/BlueZ GATT session log, 2026-11-07"
-      description: >
-        Confirmed one FFF0 service containing FFF2 and FFF1 and successful
-        FFF1 notification enabling. The log omitted characteristic properties
-        and contained no display-command write or reply. The secondary
-        5833ff service was absent only in that session, not proven absent
-        from the device or other firmware states.
     - type: "live_probe"
       artifact: "Sanitized dev_info_all query and response, 2026-11-08"
       description: >
-        Fresh name-based discovery, complete GATT enumeration and one
-        source-derived information query. Confirmed write-without-response and
-        notify properties, a checksum-valid 159-byte reply, little-endian
-        48x16 geometry, brightness 15 and the capability tokens listed in this
-        spec. No display, configuration, pairing, reset or firmware write was
-        performed.
+        Fresh name-based discovery, complete GATT enumeration and one query;
+        confirmed FFF2/FFF1 properties, a checksum-valid 159-byte reply, 48x16
+        geometry, brightness 15 and the capabilities recorded above. No display,
+        configuration, pairing, reset or firmware write was performed.
+    - type: "packet_capture"
+      artifact: "Official LOY app B3 control capture, 2026-11-08"
+      sha256: "63cf7e1a4abfbcad815b51b14e221c9be0784048deac3d54be6c9cf5a681c084"
+      description: >
+        7086-packet pcapng containing information, custom YSTP01 images/text,
+        static and animated GIFs, playback, and a V18-to-V24 type-4 upgrade.
+        This project's decoder validated 969 reassembled AA55 checksums, 84
+        ordinary ACKs and 377 upgrade ACKs; no new hardware write was made.
+    - type: "offline_reproduction"
+      artifact: "Capture-derived program builder verification"
+      description: >
+        Reproduces all eight packets of the captured 48x15 GIF program upload
+        byte-for-byte and verifies the firmware image's sum16 and MD5. Generated
+        examples in this spec contain no user media or unit identifiers.
     - type: "static_analysis"
       artifact: "LOYPRO com.yskj.loypro 2.1.04 and LOY PLAY com.yskj.loy 1.7.15"
       description: >
-        Established that LOYPRO accepts LOY while the other app version
-        accepts only YS/TL, and corroborated the FFF0/FFF2/FFF1 map, AA55
-        family and vehicle-linkage program paths. No vendor classes, methods,
-        source paths or UI text are reproduced.
+        Established the LOY versus YS/TL scan-filter distinction and corroborated
+        the GATT map, resource-ID algorithm, playback and vehicle-linkage paths.
     - type: "public_implementation"
       artifact: "ztrawhcs/yskj-led-sign"
       url: "https://github.com/ztrawhcs/yskj-led-sign"
       description: >
-        Independent LOY PLAY / YSKJ client with the same service map and
-        AA55 framing. Tested another named device, not the observed LOY unit.
+        Independent LOY PLAY / YSKJ client with the same service map and AA55
+        framing; tested another named device, not this B3 unit.
 
 helpful_urls:
   - title: "LOY / LOYPRO on Google Play"
@@ -308,7 +540,7 @@ helpful_urls:
   - title: "ztrawhcs/yskj-led-sign"
     url: "https://github.com/ztrawhcs/yskj-led-sign"
     kind: "implementation"
-    description: "Independent LOY PLAY / YSKJ AA55 client; family evidence, not verification of this LOY unit."
+    description: "Independent LOY PLAY / YSKJ AA55 client; family evidence, not verification of this B3 unit."
   - title: "AUTOBABA LED Backpack protocol relative"
     url: "https://github.com/liberatedbread/liberatedbread-protocol-specs/blob/main/device-specs/devices/autobaba-led-backpack.yaml"
     kind: "protocol_writeup"

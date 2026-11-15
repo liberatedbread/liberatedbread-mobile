@@ -78,10 +78,18 @@ announced lengths and explicit frame state.
 
 - Protocol-version request (operation 1) supplies protocol version and an
   assigned client address. Retain that source address for the session.
-- Topic registration (operation 3, flags `0x0002`) uses `tn` arrays.
+- Topic registration (operation 3, flags `0x0002`) expands to four concrete
+  `tn` batches covering 33 unique names, declared with CBOR literals in the
+  spec. The small System/Resources/PowerMgmt frame has an invented-source test
+  vector and a matching control announcement.
 - Device-list request (operation 2, flags `0x0001`) discovers source groups.
 - Group reads (operation 3, flags `0x0004`) replace target at offset 0 and
   learned source at offset 2, both little-endian.
+
+Broad discovery sends all four batches before device-list retrieval. Selected
+reads use nonempty exact-case subsets split into at most ten names per request;
+empty/wildcard registration is not established. The ten-name boundary and the
+strict-read sequence remain reported, not hardware-validated here.
 
 Exclude clock/last-message updates, `{tn,pn,v}` setters, resets, install/demo
 operations and pairing/bond APIs. Whether this reduced sequence returns

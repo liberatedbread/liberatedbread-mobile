@@ -47,8 +47,10 @@ copies these values into the local client:
 The upstream integration reads them from `https://api.orbitbhyve.com/v1`:
 `POST /session`, `GET /devices`, then `GET /meshes/{mesh_id}` (newer accounts
 use `/network_topologies/{mesh_id}`). On a rooted Android phone, the key can
-also be read from the B-hyve app's cache. If the cloud disappears before the
-key has been exported, no public method recovers it.
+also be read from an already signed-in B-hyve app, either from its HTTP cache
+or from its MMKV store. Every route assumes the timer was first registered in
+the official app, and no account-free first setup is known. If the cloud
+disappears before the key has been exported, no public method recovers it.
 
 **The key is a per-user secret.** It opens every valve on the account. Every
 key and id in this repository is invented.
@@ -73,7 +75,7 @@ key and id in this repository is invented.
 | `00006c71-fe32-4f58-8b78-98e42b2c047f` | Handshake | Write 20 bytes, read 20 bytes, once per connection |
 | `00006c72-fe32-4f58-8b78-98e42b2c047f` | Command | Encrypted frames, host to device |
 | `00006c73-fe32-4f58-8b78-98e42b2c047f` | Reply | Encrypted frames, notify |
-| `00006c76-fe32-4f58-8b78-98e42b2c047f` | (unused) | Refuses writes; leave it alone |
+| `00006c76-fe32-4f58-8b78-98e42b2c047f` | Network (the app's label) | Refuses writes, including the vendor app's own; leave it alone |
 
 **Session.** Subscribe to `6c73`. Then write 20 random bytes `C` (with
 `C[11] = 0`) to `6c71` and read 20 bytes `D` back. Set
@@ -140,6 +142,10 @@ spec.
 - The sources disagree on whether the device enforces the outer trailer.
 - The upstream authors warn against firmware updates, because the protocol may
   change.
+- Firmware: only the HT25-0000 fw0085 image has been fetched publicly (its
+  metadata endpoint answered without a login on 2026-11-11). The update and
+  recovery transfer is not transcribed, and no image is known for the other
+  models.
 
 ## References
 

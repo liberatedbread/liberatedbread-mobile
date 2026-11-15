@@ -1,0 +1,563 @@
+device:
+  name: "Sensirion SHT31 Smart Gadget (Smart Humigadget)"
+  manufacturer: "Sensirion AG"
+  manufacturer_status: "abandoned"
+  testing:
+    status: "untested"
+    notes: >
+      No physical scan, connection, live notification, clock sync, history
+      download, interval write, or reset was performed for this spec on
+      2026-11-11. Official legacy firmware/profile/app source and the vendor
+      user guide supply the reported behavior. Independent tests use invented
+      float, history, and timestamp packets only.
+  protocol: "ble"
+  transport: "ble-gatt"
+  category: "sensor"
+  category_hierarchy: ["measurement", "environmental"]
+  type: "temperature-humidity-sensor"
+  model: "SHT31 Smart Gadget"
+  openness:
+    status: "open_by_design"
+    reverse_engineered: false
+    source_code: "https://github.com/Sensirion/SmartGadget-Firmware"
+    license: "BSD-3-Clause"
+    upstream_docs:
+      - url: "https://sensirion.com/media/documents/429F0DF6/61643DC1/Sensirion_Humidity_Sensors_SHT3x_Smart-Gadget_User-Guide_1.pdf"
+        title: "SHT31 Smart Gadget User Guide"
+        covers: "Radio enable/disable, advertised name, local logging, and the legacy companion app."
+      - url: "https://github.com/Sensirion/SmartGadget-Firmware/blob/0fca4bb74585b576a5d25e05ef89a22b69b701a8/Simple_BLE_Profile_Description.pdf"
+        title: "Smart Gadget Profile"
+        covers: "Legacy service and characteristic UUIDs."
+    notes: >
+      The vendor published the complete legacy firmware and profile. This spec
+      follows that generation, not the newer Arduino manufacturer-sample
+      protocol or its 00008000-… logger.
+  aliases:
+    - "Smart Humigadget"
+    - "SHT31 Smart Gadget Reference Design"
+    - "SHT3x Smart Gadget"
+  companion_apps:
+    - name: "Sensirion Smart Gadget"
+      package: "com.sensirion.smartgadget"
+      role: "historical"
+      platform: "android"
+      url: "https://github.com/Sensirion/SmartGadget-Android/tree/f1bfb86baf6154be4bd94258aab7f7bf6accb6d4"
+      notes: "Official source for the deprecated legacy app; the research check found its former store listings unavailable."
+  notes: >
+    A connected-only legacy temperature/humidity design advertising the exact
+    name Smart Humigadget. Live values are four-byte little-endian IEEE-754
+    binary32 numbers on separate humidity and temperature characteristics.
+    The same two characteristics later multiplex history packets with a
+    four-byte sequence prefix, so packet length is mandatory when decoding.
+
+    Do NOT assign the newer company-0x06D5 passive type 00 04 format, the
+    tick-based conversions, or the newer 00008000-… logger to this device.
+    Sensirion's current protocol page explicitly excludes Smart Humigadget
+    from that logger. Its current humidity row also says uint8, but the
+    official legacy firmware sends a four-byte float; the firmware is the
+    generation-specific authority here.
+
+    The legacy f234 logger uses uint64 little-endian epoch milliseconds for
+    synchronization/range values and a uint32 little-endian interval in
+    milliseconds. History floats contain no per-value timestamp. Each stream
+    is newest-first, and timestamps are reconstructed from the selected newest
+    time, interval, sequence number, and value position.
+  identification:
+    local_names: ["Smart Humigadget"]
+    notes: >
+      Match the exact complete local name from the legacy firmware. No newer
+      manufacturer-data prefix is claimed, and the vendor services below are
+      not asserted to be advertised before connection.
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          local_name:
+            match: "exact"
+            value: "Smart Humigadget"
+        notes: >
+          Bluetooth must have been enabled with the board button. If another
+          central holds the link or BLE was disabled, a scan may find nothing;
+          do not fall back to the newer Sensirion manufacturer samples.
+    identity:
+      stable_keys: ["address"]
+      display: "local_name"
+    static_ip_required: false
+  setup:
+    required: false
+    confidence: "medium"
+    notes: >
+      There is no credential provisioning. The user enables the radio with the
+      onboard button, then a client connects directly. Confidence is medium:
+      the procedure is in the official user guide and firmware, unreplayed here.
+    methods:
+      - type: "ble_direct"
+        verified: false
+        description: "Enable Bluetooth on the board, scan for Smart Humigadget, connect, and subscribe to the two measurement characteristics."
+        ble:
+          pairing_required: false
+          advertised_name: "Smart Humigadget"
+          advertised_name_match: "exact"
+        steps:
+          - action: "With the board powered, hold its switch button for more than one second to enable Bluetooth."
+            actor: "user"
+            expect: "The Bluetooth symbol blinks and the device ID appears briefly; the board advertises as Smart Humigadget."
+          - action: "Scan for the exact name Smart Humigadget and connect over GATT without requesting a bond."
+            actor: "client"
+            expect: "The Bluetooth symbol becomes steady while connected."
+          - action: "Subscribe to 00001235-… and 00002235-… and decode exactly four-byte notifications as live float32 values."
+            actor: "client"
+            expect: "Relative humidity in percent and temperature in degrees Celsius arrive independently."
+    factory_reset:
+      applicable: "unknown"
+      confidence: "low"
+      effect: >
+        No full factory-reset procedure or bond-clearing effect is established.
+        The documented long button press toggles Bluetooth only; an interval
+        write clears history but is not a factory reset.
+      description: >
+        Do not represent the Bluetooth toggle, battery removal, or logger
+        interval change as a verified full reset. No candidate reset procedure
+        is published here.
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        The board joins no Wi-Fi network and the documented firmware keeps no
+        client bond. Disconnect the previous central, enable Bluetooth with
+        the button if needed, and connect from the new phone. Download history
+        before changing its interval.
+    credentials:
+      wifi_passphrase_protection: "not_applicable"
+      stored_on_device: []
+      issued_to_client: []
+      notes: "No Wi-Fi passphrase, account token, application key, or persistent BLE bond is used by the documented legacy firmware."
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "none"
+    bonding: "none"
+    exclusivity:
+      single_connection: "unknown"
+      single_bond: false
+      recovery: >
+        Disconnect the existing central and reconnect. If Bluetooth was
+        disabled, hold the board button for more than one second to enable it;
+        there is no stored bond to forget or clear.
+    enter_pairing_mode:
+      required: false
+      notes: >
+        The more-than-one-second button press enables advertising; it is not a
+        separate authenticated pairing mode and supplies no PIN.
+    unpair:
+      supported: false
+      requires_factory_reset: false
+      clears: "Not applicable: the documented firmware does not create a persistent bond."
+      notes: "Disconnecting ends the link but does not erase logged measurements."
+    notes: >
+      The user guide says 'pair' in the ordinary connect-to-a-phone sense, but
+      the official firmware exposes unencrypted GATT read/write/notify
+      properties and defines no PIN/bonding workflow. This is a source-derived
+      no-link-layer-pairing answer, not a hardware security audit.
+
+services:
+  - uuid: "00001234-b38d-4985-720e-0f993a68ee41"
+    name: "Relative Humidity (legacy)"
+    notes: >
+      Live and history share 00001235-…. Exactly four bytes means live;
+      8/12/16/20 bytes means history. The current cross-family web table's
+      uint8 label does not describe this official legacy firmware.
+    characteristics:
+      - uuid: "00001235-b38d-4985-720e-0f993a68ee41"
+        name: "Relative Humidity / History"
+        properties: ["read", "notify"]
+        role: "stream"
+        notes: >
+          Live: 4-byte float32 LE percent RH. History during an f234 download:
+          uint32 LE sequence followed by one to four float32 LE RH values,
+          yielding exactly 8, 12, 16, or 20 bytes. Sequence starts at 1 and
+          identifies the first value in download order; it is not a timestamp.
+        format:
+          - offset: 0
+            length: 4
+            name: "relative_humidity_percent"
+            type: "float32"
+            endianness: "little"
+            unit: "%"
+            device_class: "humidity"
+            notes: "LIVE PACKETS ONLY, exactly four bytes. Route 8/12/16/20-byte values through payload_formats.LegacyHistoryPacket instead."
+  - uuid: "00002234-b38d-4985-720e-0f993a68ee41"
+    name: "Temperature (legacy)"
+    notes: "Live and history share 00002235-… and use the same length discriminator as humidity."
+    characteristics:
+      - uuid: "00002235-b38d-4985-720e-0f993a68ee41"
+        name: "Temperature / History"
+        properties: ["read", "notify"]
+        role: "stream"
+        notes: >
+          Live: 4-byte float32 LE degrees Celsius. History: uint32 LE sequence
+          plus one to four float32 LE temperature values, exactly 8/12/16/20
+          bytes. Temperature and humidity have independent streams/sequences.
+        format:
+          - offset: 0
+            length: 4
+            name: "temperature_c"
+            type: "float32"
+            endianness: "little"
+            unit: "C"
+            device_class: "temperature"
+            notes: "LIVE PACKETS ONLY, exactly four bytes. Route 8/12/16/20-byte values through payload_formats.LegacyHistoryPacket instead."
+  - uuid: "0000f234-b38d-4985-720e-0f993a68ee41"
+    name: "Legacy Logger"
+    notes: >
+      Legacy only; not interchangeable with 00008000-…. Before downloading,
+      synchronize epoch time, read the resulting range, subscribe to both
+      measurement streams and to the completion characteristic, then write a
+      nonzero byte to 0000f238-…. Disconnect cancels an active download.
+    characteristics:
+      - uuid: "0000f235-b38d-4985-720e-0f993a68ee41"
+        name: "Synchronize Time"
+        properties: ["write"]
+        notes: >
+          Exactly eight bytes: uint64 little-endian Unix epoch milliseconds.
+          Writing establishes the current logging grid and causes the device
+          to calculate readable newest/oldest range values and the initial
+          download count. Synchronize again after every interval change.
+        commands:
+          synchronize_clock:
+            description: "Write the client's current Unix epoch time as exactly eight uint64-le bytes; this selects the initial full-history range without erasing samples."
+            verification: "reported"
+            template: ["{epoch_ms_le}"]
+            parameters:
+              epoch_ms_le:
+                type: "bytes"
+                min_length: 8
+                max_length: 8
+                description: "Current Unix epoch milliseconds encoded as one unsigned 64-bit little-endian integer; do not send seconds, ASCII, or a 32-bit value."
+      - uuid: "0000f236-b38d-4985-720e-0f993a68ee41"
+        name: "Oldest Sample Time / Range Start"
+        properties: ["read", "write"]
+        notes: >
+          Eight-byte uint64 little-endian epoch milliseconds. After sync, read
+          the computed lower bound. An optional write narrows the next
+          download; firmware clamps it to the available range and rounds the
+          start upward to the logging grid. This does not delete history.
+        format:
+          - offset: 0
+            length: 8
+            name: "oldest_epoch_ms_le"
+            type: "bytes"
+            notes: "Decode as uint64 little-endian Unix epoch milliseconds; schema format has no uint64 type."
+        commands:
+          set_oldest_requested_time:
+            description: "Optionally move the requested range start to an eight-byte epoch-millisecond value before starting; firmware clamps/rounds it and does not erase samples."
+            verification: "reported"
+            template: ["{oldest_epoch_ms_le}"]
+            parameters:
+              oldest_epoch_ms_le:
+                type: "bytes"
+                min_length: 8
+                max_length: 8
+                description: "Requested oldest timestamp as uint64 little-endian Unix epoch milliseconds."
+      - uuid: "0000f237-b38d-4985-720e-0f993a68ee41"
+        name: "Newest Sample Time / Range End"
+        properties: ["read", "write"]
+        notes: >
+          Eight-byte uint64 little-endian epoch milliseconds. This selected
+          newest value anchors per-value timestamps. An optional write narrows
+          the range; firmware clamps it and rounds downward to the logging
+          grid. Do not infer a packet timestamp from the sequence prefix.
+        format:
+          - offset: 0
+            length: 8
+            name: "newest_epoch_ms_le"
+            type: "bytes"
+            notes: "Decode as uint64 little-endian Unix epoch milliseconds; schema format has no uint64 type."
+        commands:
+          set_newest_requested_time:
+            description: "Optionally move the requested range end to an eight-byte epoch-millisecond value before starting; firmware clamps/rounds it and does not erase samples."
+            verification: "reported"
+            template: ["{newest_epoch_ms_le}"]
+            parameters:
+              newest_epoch_ms_le:
+                type: "bytes"
+                min_length: 8
+                max_length: 8
+                description: "Requested newest timestamp as uint64 little-endian Unix epoch milliseconds."
+      - uuid: "0000f238-b38d-4985-720e-0f993a68ee41"
+        name: "Start Download / Completion"
+        properties: ["write", "notify"]
+        role: "command"
+        notes: >
+          Any nonzero one-byte write starts the prepared download; 01 is the
+          conventional trigger. A write while already active has no additional
+          effect. History then appears on 00001235-… and 00002235-…, not on
+          this characteristic. Live four-byte values can still interleave at a
+          reduced cadence. Device completion is a zero-valued notification on
+          this characteristic, emitted after a short delay. Disconnect cancels.
+        commands:
+          start_history_download:
+            description: "Start the prepared newest-first history transfer after synchronization/range selection and after subscribing to humidity, temperature, and this completion characteristic."
+            verification: "reported"
+            value: [0x01]
+      - uuid: "0000f239-b38d-4985-720e-0f993a68ee41"
+        name: "Logger Interval"
+        properties: ["read", "write"]
+        notes: >
+          uint32 little-endian milliseconds; default 600000 ms (10 minutes).
+          A write rounds down to a whole-second boundary, with 0..999 ms and
+          zero normalized to 1000 ms. EVERY WRITE clears all logged values and
+          resets the firmware's internal time and synchronization counters.
+          Download wanted history first, then synchronize again before use.
+        format:
+          - offset: 0
+            length: 4
+            name: "logger_interval_ms"
+            type: "uint32"
+            endianness: "little"
+            unit: "ms"
+        commands:
+          set_logger_interval_ms:
+            description: "Set the logging interval in milliseconds; the device normalizes to at least 1000 ms in whole-second steps and erases all history."
+            verification: "reported"
+            advanced: true
+            advanced_reason: "Every interval write permanently clears all onboard temperature and humidity history and resets the time base. Download wanted history first, then synchronize the clock again."
+            template: ["{interval_ms}"]
+            parameters:
+              interval_ms:
+                type: "uint32"
+                endianness: "little"
+                min: 0
+                max: 4294967295
+                unit: "ms"
+                description: "Requested milliseconds. Firmware rounds down to a multiple of 1000 and substitutes 1000 when the rounded result is zero; read back the accepted interval."
+  - uuid: "0000180f-0000-1000-8000-00805f9b34fb"
+    name: "Battery"
+    characteristics:
+      - uuid: "00002a19-0000-1000-8000-00805f9b34fb"
+        name: "Battery Level"
+        properties: ["read", "notify"]
+        format:
+          - offset: 0
+            length: 1
+            name: "battery_percent"
+            type: "uint8"
+            unit: "%"
+            device_class: "battery"
+
+payload_formats:
+  LegacyLiveMeasurement:
+    description: "One live humidity or temperature notification/read on the legacy measurement characteristics."
+    fields:
+      - index: 0
+        name: "value"
+        description: "Exactly four bytes: IEEE-754 binary32 little-endian. Percent RH on 00001235-…, degrees Celsius on 00002235-…."
+    parse_rules:
+      - "Accept exactly 4 bytes and decode with a little-endian binary32 operation (for example Python struct '<f')."
+      - "Do not apply the newer 16-bit tick transfer functions, and do not decode a longer history packet with this rule."
+    example: "00 00 36 42"
+  LegacyHistoryPacket:
+    description: "One history notification on either legacy measurement characteristic during an f234 download."
+    fields:
+      - index: 0
+        name: "sequence"
+        description: "Bytes 0-3: uint32 LE one-based position of values[0] in this service's download order; not a timestamp."
+      - index: 4
+        name: "values"
+        description: "One to four consecutive float32 LE measurements. Unit comes from the characteristic: percent RH or degrees Celsius."
+    parse_rules:
+      - "Accept only lengths 8, 12, 16, or 20. The value count is (length - 4) / 4; exactly 4 bytes is a live measurement instead."
+      - "Maintain sequence state independently for humidity and temperature. The first history packet for each has sequence 1."
+      - "Within and across packets, values run newest to oldest. For zero-based value slot j in a packet, timestamp_ms = selected_newest_epoch_ms - (sequence - 1 + j) * logger_interval_ms."
+      - "selected_newest_epoch_ms is the read-back 0000f237-… range end after synchronization and any optional narrowing. All timestamps and the interval are milliseconds, not seconds."
+      - "Do not mistake interleaved four-byte live values for history, or a zero completion notification on 0000f238-… for another measurement."
+    example: "07 00 00 00 00 00 48 42 00 00 46 42"
+  LegacyTimestamp:
+    description: "The eight-byte values used by f235/f236/f237."
+    fields:
+      - index: 0
+        name: "epoch_ms"
+        description: "Unsigned 64-bit little-endian Unix epoch milliseconds; 64 bits are required, so a 32-bit decoder is insufficient."
+    parse_rules:
+      - "Read or write exactly 8 bytes and decode as uint64 little-endian."
+      - "Do not confuse these absolute epoch-millisecond values with the logger's internal uptime counters or a history sequence number."
+    example: "40 4a e7 cf 8b 01 00 00"
+
+protocol_details:
+  generation: "Legacy SHT31 Smart Gadget firmware, not newer Arduino BLE Gadget protocol"
+  manufacturer_samples: "Not documented or claimed for this device; company 0x06D5 type 00 04 belongs to the newer family spec."
+  measurement_channels:
+    humidity:
+      service: "00001234-b38d-4985-720e-0f993a68ee41"
+      characteristic: "00001235-b38d-4985-720e-0f993a68ee41"
+      unit: "%"
+    temperature:
+      service: "00002234-b38d-4985-720e-0f993a68ee41"
+      characteristic: "00002235-b38d-4985-720e-0f993a68ee41"
+      unit: "C"
+    live: {length: 4, encoding: "IEEE-754 binary32", endianness: "little"}
+    history:
+      lengths: [8, 12, 16, 20]
+      sequence: {offset: 0, length: 4, type: "uint32", endianness: "little", first: 1, timestamp: false}
+      values: {offset: 4, count_rule: "(packet_length - 4) / 4", encoding: "IEEE-754 binary32", endianness: "little", maximum: 4}
+      order: "newest_to_oldest"
+      timestamp_rule: "timestamp_ms = selected_newest_epoch_ms - (sequence - 1 + zero_based_value_slot) * logger_interval_ms"
+  logger_flow:
+    - "Read 0000f239-… as uint32 LE milliseconds."
+    - "Write current Unix epoch milliseconds to 0000f235-… as uint64 LE, then read the computed 0000f236-… and 0000f237-… range values."
+    - "Optionally narrow the range with eight-byte writes to f236/f237; these writes change selection, not stored data."
+    - "Subscribe to 00001235-…, 00002235-…, and 0000f238-… before writing 01 to f238."
+    - "Classify every measurement notification by exact length, maintain independent channel sequences, and reconstruct timestamps from the selected newest range end."
+    - "Finish when f238 notifies zero; disconnecting cancels. Do not issue another sync or interval write mid-download."
+  interval_write:
+    type: "uint32"
+    endianness: "little"
+    unit: "ms"
+    default: 600000
+    normalization: "accepted_ms = max(1000, requested_ms - (requested_ms % 1000))"
+    clears_history: true
+    resets_internal_time_and_sync_counters: true
+    requires_resynchronization: true
+  start_write:
+    length: 1
+    trigger: "any nonzero value; 01 is the published conventional trigger"
+    repeated_while_active: "ignored"
+    completion: "zero-valued notification on 0000f238-…"
+    history_destination: "00001235-… and 00002235-…"
+    live_side_effect: "Four-byte live values can interleave at reduced cadence during download"
+  timestamps:
+    synchronization_and_range: {length: 8, type: "uint64", endianness: "little", epoch: "unix", unit: "ms"}
+    interval: {length: 4, type: "uint32", endianness: "little", unit: "ms"}
+    history_packet_contains_timestamp: false
+  test_vectors:
+    provenance: "All packets and timestamps are invented; no unit ID, address, serial, or owner data is present."
+    live_humidity:
+      packet_hex: "00 00 36 42"
+      expected_percent: 45.5
+    history_humidity:
+      packet_hex: "07 00 00 00 00 00 48 42 00 00 46 42"
+      expected_sequence: 7
+      expected_percent: [50.0, 49.5]
+      expected_length: 12
+    epoch_milliseconds:
+      value: 1700000123456
+      packet_hex: "40 4a e7 cf 8b 01 00 00"
+    interval_milliseconds:
+      value: 600000
+      packet_hex: "c0 27 09 00"
+    history_timestamp:
+      selected_newest_epoch_ms: 1700000123456
+      sequence: 3
+      zero_based_value_slot: 1
+      logger_interval_ms: 600000
+      expected_timestamp_ms: 1699998323456
+    interval_normalization:
+      - {requested_ms: 0, accepted_ms: 1000}
+      - {requested_ms: 999, accepted_ms: 1000}
+      - {requested_ms: 1000, accepted_ms: 1000}
+      - {requested_ms: 1500, accepted_ms: 1000}
+      - {requested_ms: 600000, accepted_ms: 600000}
+
+entities:
+  - platform: "sensor"
+    name: "Humidity"
+    device_class: "humidity"
+    unit: "%"
+    state_characteristic: "00001235-b38d-4985-720e-0f993a68ee41"
+    state_mapping:
+      value: "relative_humidity_percent"
+    notes: "Only exact four-byte live packets may use this direct mapping; history packets require the length-aware f234 flow."
+  - platform: "sensor"
+    name: "Temperature"
+    device_class: "temperature"
+    unit: "C"
+    state_characteristic: "00002235-b38d-4985-720e-0f993a68ee41"
+    state_mapping:
+      value: "temperature_c"
+    notes: "Only exact four-byte live packets may use this direct mapping; history packets require the length-aware f234 flow."
+  - platform: "sensor"
+    name: "Battery"
+    device_class: "battery"
+    unit: "%"
+    state_characteristic: "00002a19-0000-1000-8000-00805f9b34fb"
+    state_mapping:
+      value: "battery_percent"
+
+local_access:
+  status: "native"
+  summary: "Live readings and onboard history are available directly over legacy BLE GATT without a cloud account."
+  covers:
+    - "Smart Humigadget discovery and direct connection"
+    - "Independent float32 live humidity and temperature"
+    - "Legacy f234 synchronization, range selection, newest-first history, and completion"
+    - "Destructive interval changes explicitly marked advanced"
+  not_covered:
+    - "Newer company-0x06D5 passive samples and tick conversions"
+    - "The newer 00008000-… logger"
+    - "Factory reset, OTA/DFU, firmware images, and product-specific recovery not present in the cited legacy source"
+
+cloud:
+  required: false
+  notes: "The historical app reads the gadget locally. Former app-store availability and any app analytics are not prerequisites for this GATT protocol."
+
+evidence:
+  documentation_review: >
+    Reviewed 2026-11-11: official SHT31 user guide, Smart Gadget profile,
+    legacy firmware commit 0fca4bb7, and official Android app commit f1bfb86b.
+    All byte-level behavior is reported from source; no hardware verification
+    was performed. Current cross-family documentation was used only to record
+    the explicit Smart Humigadget exclusion and the conflicting humidity type.
+  artifacts:
+    - type: "vendor_documentation"
+      artifact: "SHT31 Smart Gadget User Guide"
+      url: "https://sensirion.com/media/documents/429F0DF6/61643DC1/Sensirion_Humidity_Sensors_SHT3x_Smart-Gadget_User-Guide_1.pdf"
+      description: "Button-enabled advertising, display indications, local logging, and historical app role."
+    - type: "vendor_documentation"
+      artifact: "Smart Gadget Profile, commit 0fca4bb74585b576a5d25e05ef89a22b69b701a8"
+      url: "https://github.com/Sensirion/SmartGadget-Firmware/blob/0fca4bb74585b576a5d25e05ef89a22b69b701a8/Simple_BLE_Profile_Description.pdf"
+      description: "Official legacy UUID map for f234-f239, humidity 1234/1235, and temperature 2234/2235."
+    - type: "public_implementation"
+      artifact: "Sensirion SmartGadget-Firmware, commit 0fca4bb74585b576a5d25e05ef89a22b69b701a8"
+      url: "https://github.com/Sensirion/SmartGadget-Firmware/tree/0fca4bb74585b576a5d25e05ef89a22b69b701a8"
+      description: "Authoritative legacy float32 live writes, history packet lengths/order, epoch-millisecond range handling, start/completion behavior, and history-clearing interval writes."
+    - type: "public_implementation"
+      artifact: "Sensirion SmartGadget-Android 1.8.7, commit f1bfb86baf6154be4bd94258aab7f7bf6accb6d4"
+      url: "https://github.com/Sensirion/SmartGadget-Android/tree/f1bfb86baf6154be4bd94258aab7f7bf6accb6d4"
+      description: "Official historical client role, exact advertised-name filter, local live/history use, and millisecond timestamp handling."
+    - type: "vendor_documentation"
+      artifact: "Sensirion BLE Services definitions, commit 423a74c7adb593e7880387a6f0f782734363c19c"
+      url: "https://github.com/Sensirion/ble-services/tree/423a74c7adb593e7880387a6f0f782734363c19c/sensirion-ble/src/resources"
+      description: "Explicitly excludes Smart Humigadget from the newer 00008000-… logger; its uint8 humidity label is not applied to the float32 legacy firmware."
+  open_questions: >
+    Actual packet captures and timestamp alignment, maximum simultaneous
+    centrals, behavior of zero/invalid floats, completion timing tolerance,
+    battery-cycle effects, and a full reset/recovery procedure still need
+    hardware. No firmware-update interface is asserted.
+
+remaining_unknowns:
+  - "No hardware flow was run; the independent tests prove only that the documented packets and arithmetic are mutually consistent."
+  - "Read-back range quantization and per-sample timestamps should be compared with a physical download before treating absolute times as calibrated."
+  - "Single-central behavior, invalid/sentinel float handling, power-cycle persistence, and exact completion timing are not established."
+  - "No full factory reset, unpairing procedure, OTA/DFU entry, image format, or interrupted-update recovery is documented; no DFU feature is declared."
+
+helpful_urls:
+  - title: "SHT31 Smart Gadget User Guide (PDF)"
+    url: "https://sensirion.com/media/documents/429F0DF6/61643DC1/Sensirion_Humidity_Sensors_SHT3x_Smart-Gadget_User-Guide_1.pdf"
+    kind: "manual"
+    description: "Official guide for the legacy SHT31 Smart Gadget / Smart Humigadget: button-enabled Bluetooth, display states, local logging, and historical app use."
+  - title: "Legacy Smart Gadget Profile (PDF)"
+    url: "https://github.com/Sensirion/SmartGadget-Firmware/blob/0fca4bb74585b576a5d25e05ef89a22b69b701a8/Simple_BLE_Profile_Description.pdf"
+    kind: "manual"
+    description: "Official GATT UUID map for the SHT31 Smart Gadget's legacy f234 logger and separate humidity/temperature services."
+  - title: "Official legacy SHT31 firmware"
+    url: "https://github.com/Sensirion/SmartGadget-Firmware/tree/0fca4bb74585b576a5d25e05ef89a22b69b701a8"
+    kind: "implementation"
+    description: "Pinned source for float32 live values, history framing/order, timestamp units, and destructive interval-write behavior."
+  - title: "Official legacy Smart Gadget Android app"
+    url: "https://github.com/Sensirion/SmartGadget-Android/tree/f1bfb86baf6154be4bd94258aab7f7bf6accb6d4"
+    kind: "implementation"
+    description: "Deprecated official app source for the Smart Humigadget generation; useful for local live/history behavior, not the newer manufacturer-sample protocol."
+  - title: "Current Sensirion BLE Services definitions"
+    url: "https://sensirion.github.io/ble-services/"
+    kind: "vendor_support"
+    description: "Current cross-family reference; its newer logger does not apply to Smart Humigadget, and its humidity type does not override the legacy firmware."

@@ -15,14 +15,18 @@ device:
     Curtain, Motion Sensor, Contact Sensor, Color Bulb, LED Strip Light, Smart Lock,
     Plug Mini, Humidifier, and Meter Plus. Manufacturer publishes an open BLE API at
     github.com/OpenWonderLabs/SwitchBotAPI-BLE — this spec is a clean-room encoding
-    of that documentation plus community implementations (Danielhiversen/pySwitchbot).
+    of that documentation plus community implementations (sblibs/pySwitchbot,
+    formerly Danielhiversen/pySwitchbot).
 
     SOURCES: the official SwitchBotAPI-BLE repo is stale (last commit 2024-10;
     it documents only 11 device types — no Lock Pro/Lock Ultra, Blind Tilt,
     Roller Shade, Meter Pro or Hub 2/3). pySwitchbot is the living
-    specification (~50 models), including AES-CTR command encryption whose key
-    is bootstrapped once via a SwitchBot cloud account, after which commands
-    work fully locally.
+    specification (~50 models), including AES-CTR command encryption on some
+    models. Its per-unit key (a one-byte key ID plus a 16-byte key) is
+    obtained once with the owner's SwitchBot account, either from the app's
+    Device Info page or from the account API, after which commands work
+    fully locally (see setup.methods). That is one-time account
+    provisioning, not account-free first setup.
 
     COMMUNICATION: all devices share the same service UUID and frame format.
     REQ frame (client→device) written to TX char: [0x57 magic][header byte]
@@ -103,16 +107,27 @@ device:
     required: false
     confidence: "high"
     notes: >
-      No provisioning — BLE connection only. Some devices (Lock, newer firmware)
-      may require a PIN/password for encrypted communication. Pairing is
-      optional for most devices; the Bot, Meter, and Curtain work with
-      unencrypted commands.
+      The unencrypted models (Bot, Meter and the other sensors in the official
+      BLE API) need no provisioning: BLE connection only, plus the optional
+      owner-set password where one was set. Encrypted models need a one-time
+      key from the owner's account (second method). Which models are
+      encrypted is per model and per firmware: OpenWonderLabs'
+      homebridge-switchbot names Lock / Lock Pro, Curtain 3, some Curtain 2
+      units on updated firmware, and some sensors and newer models, and says
+      the app's Device Info page is the authority. pySwitchbot treats the
+      Lock family and several newer lights, fans, humidifiers and the relay
+      switch as encrypted, but drives Curtain and Curtain 3 without a key —
+      the sources disagree on the curtains (see remaining_unknowns).
     methods:
       - type: "ble_direct"
+        name: "Connect directly (unencrypted models)"
+        role: "variant"
         verified: false
         description: >
-          Scan for the service UUID (0xFD3D service data or 0x0969 manufacturer
-          data), connect, optionally send password to enable encrypted commands.
+          Covers every model whose Device Info page in the SwitchBot app shows
+          no Encryption Key / Key ID fields. Scan for the service UUID (0xFD3D
+          service data or 0x0969 manufacturer data), connect, and, if the
+          owner set a password in the app, send it in the command frames.
         ble:
           pairing_required: false
         steps:
@@ -122,6 +137,48 @@ device:
               protocol: "ble_gatt"
           - action: "Connect and optionally authenticate with device password."
             actor: "client"
+      - type: "cloud_account"
+        name: "Copy the BLE encryption key once (encrypted models)"
+        role: "variant"
+        verified: false
+        description: >
+          Covers models whose Device Info page in the SwitchBot app shows an
+          Encryption Key and a Key ID (per homebridge-switchbot: Lock / Lock
+          Pro, Curtain 3, some updated Curtain 2, some sensors and newer
+          models). The owner copies both values from the app once; a wrong
+          key or key ID makes every BLE exchange with that unit fail. If the
+          fields are absent, the unit either needs no encryption or needs a
+          firmware update first. A second route is pySwitchbot's
+          scripts/get_encryption_key.py, which signs in to the SwitchBot
+          account API with the unit's MAC, the account username and the
+          password, and prints the key ID and key. It returns keys only to
+          the account that owns the device (a shared or family member gets
+          an API error, status 190), does not support accounts with
+          two-factor authentication, and needs a password set on accounts
+          created through Apple or Google sign-in. Neither route was run by
+          this project.
+        cloud:
+          provider: "SwitchBot account (in-app Device Info page, or the account API used by pySwitchbot)"
+          local_alternative: >
+            None known. Both documented routes need the device-owning account.
+            Once copied, the values are reused for every later local session;
+            nothing contacts the cloud again.
+        issues_credentials:
+          key_id:
+            user_entered: true
+            notes: "One byte, entered as 2 hex characters (pySwitchbot rejects any other length)."
+          encryption_key:
+            user_entered: true
+            notes: >
+              16-byte AES key, entered as 32 hex characters. Per unit and a
+              live credential: never log or commit it.
+        steps:
+          - action: "In the SwitchBot app, open the device, then Device Settings (gear icon), then Device Info."
+            actor: "user"
+            expect: "Encryption Key and Key ID fields are shown on models that use BLE encryption."
+          - action: "Copy the Encryption Key and Key ID into the local client."
+            actor: "user"
+            expect: "A 32-hex-character key and a 2-hex-character key ID stored by the client."
     factory_reset:
       confidence: "medium"
       effect: "Clears pairing info, timer settings, and encryption keys. Hold button for ~5 seconds on most devices."
@@ -137,9 +194,15 @@ device:
       notes: "Unpair from OS Bluetooth settings if previously bonded, then reconnect."
     credentials:
       wifi_passphrase_protection: "not_applicable"
-      stored_on_device: []
-      issued_to_client: []
-      notes: "BLE-only. Encryption is optional; Bot/Meter work with no auth."
+      stored_on_device:
+        - "BLE encryption key and key ID (encrypted models only)"
+        - "Owner-set password, if one was set"
+      issued_to_client:
+        - "key_id and encryption_key (encrypted models only, from the owner's account)"
+      notes: >
+        BLE-only. Bot and Meter work with no auth. The encrypted models' key
+        ID and key are issued through the owner's account once and then
+        reused locally; treat the key like a password.
 
   pairing:
     required: false
@@ -155,11 +218,17 @@ device:
         and then required on every command to those models. Not a BLE passkey
         — it is carried in the command frames.
     notes: >
-      Bot, Meter and Curtain accept unencrypted commands from any central, so
-      the common case needs no pairing at all. The Lock family, and newer
-      firmware on some others, require the app-set password before they will
-      act. A client should treat encryption as a per-model property read from
-      this spec rather than assuming either answer for the family.
+      Bot and Meter accept unencrypted commands from any central, so the
+      common case needs no pairing at all. Two separate app-layer mechanisms
+      exist. The optional owner-set password (the `pin` above) is carried in
+      the command frames. The encrypted models (the Lock family, and per
+      homebridge-switchbot Curtain 3, some Curtain 2 on updated firmware and
+      some sensors and newer models) instead need the account-issued key ID
+      and 16-byte key from setup.methods. Neither is a link-layer bond. A
+      client should treat encryption as a per-model property, and the
+      presence of the Encryption Key field on the unit's Device Info page in
+      the app as the authority, rather than assuming either answer for the
+      family.
     enter_pairing_mode:
       required: false
   variants:
@@ -174,11 +243,11 @@ device:
     - model: "Curtain (WoCurtain)"
       identification:
         local_name_prefix: "WoCurtain"
-      notes: "Device type 0x63 ('c') in service data. Curtain motor."
+      notes: "Device type 0x63 ('c') in service data. Curtain motor. homebridge-switchbot says some Curtain 2 units on updated firmware require the BLE encryption key; pySwitchbot drives the Curtain unencrypted. Check the unit's Device Info page in the app."
     - model: "Curtain 3"
       identification:
         local_name_prefix: "WoCurtain"
-      notes: "Device type 0x7B ('{') in service data. Curtain 3 variant."
+      notes: "Device type 0x7B ('{') in service data. Curtain 3 variant. homebridge-switchbot lists it as requiring the BLE encryption key and key ID; pySwitchbot drives it with the unencrypted Curtain code. Unresolved; check the unit's Device Info page in the app."
     - model: "Motion Sensor"
       identification:
         local_name_prefix: "WoPresence"
@@ -206,7 +275,7 @@ device:
     - model: "Smart Lock"
       identification:
         local_name_prefix: "WoLock"
-      notes: "Device type 0x6F ('o') in service data. Smart door lock."
+      notes: "Device type 0x6F ('o') in service data. Smart door lock. Encrypted: needs the key ID and encryption key (setup.methods); both homebridge-switchbot and pySwitchbot agree, and pySwitchbot's key script is documented for the locks."
     - model: "Humidifier"
       identification:
         local_name_prefix: "WoHumi"
@@ -471,13 +540,29 @@ features:
         - "02f00000-0000-0000-0000-00000000fe00"
       image:
         signing: "unknown"
-        source: "vendor_cloud"
+        source: "public_url"
         format: "Per chipset. Nordic: legacy DFU zip (manifest dfu_version 0.5, .bin, 14-byte .dat). Realtek: RTL8762C OTA image (\"GM\" header). Freqchip: raw .bin."
         notes: >
           The Nordic images are unsigned. Their init packet is a 14-byte
           legacy packet with a CRC16 and all-FF device type, revision and
           application version. Signing of the Realtek and Freqchip images is
           not established.
+
+          Public: the vendor serves every image from a world-readable S3
+          bucket whose listing is also open
+          (https://s3.amazonaws.com/www.wohand.com/?list-type=2&prefix=version/wocaotech/firmware/
+          enumerated 5,493 objects across about 100 directories on
+          2026-08-15). Images sit under https://s3.amazonaws.com/www.wohand.com/version/wocaotech/firmware/<directory>/,
+          here WoHand/ (Bot) and WoMeter/ (Meter). Names follow the chipset:
+          <Name>_app_V<n>.zip Nordic, <Name>_rtl_app_V<n>.bin Realtek,
+          <Name>_freq_app_V<n>.bin Freqchip, with _LATEST aliases, but many
+          directories hold irregular names (other products' files, test and
+          un-suffixed images), so enumerate the listing rather than build
+          a name, and do not treat a file's directory or alias as proof it
+          fits an unidentified unit. Example: WoHand/WoHand_app_V1066.zip
+          (Bot 1.066, Nordic) answered HTTP 200 with 53,737 bytes on
+          2026-11-11. Public readability is not a vendor signature and does
+          not bypass an encrypted model's key provisioning.
       enter:
         how: "command"
         command: "enter_ota"
@@ -505,8 +590,9 @@ features:
         - "02f00000-0000-0000-0000-00000000fe00"
       image:
         signing: "unknown"
-        source: "vendor_cloud"
+        source: "public_url"
         format: "Per chipset. Realtek: RTL8762C OTA image (\"GM\" header). Freqchip: raw .bin."
+        notes: "Public: the vendor's world-readable, listable firmware bucket, under https://s3.amazonaws.com/www.wohand.com/version/wocaotech/firmware/WoMeterPlus/. See the Bot / Meter entry for naming."
       enter:
         how: "command"
         command: "enter_ota"
@@ -529,8 +615,9 @@ features:
       services: ["02f00000-0000-0000-0000-00000000fe00"]
       image:
         signing: "unknown"
-        source: "vendor_cloud"
+        source: "public_url"
         format: "Raw Freqchip .bin."
+        notes: "Public: the vendor's world-readable, listable firmware bucket, under https://s3.amazonaws.com/www.wohand.com/version/wocaotech/firmware/<SKU-coded directory>/ (MeterPro_freq_app_V<n>.bin for the Meter Pro). See the Bot / Meter entry for naming."
       enter:
         how: "command"
         command: "enter_ota"
@@ -556,13 +643,13 @@ features:
         - "02f00000-0000-0000-0000-00000000fe00"
       image:
         signing: "unknown"
-        source: "vendor_cloud"
+        source: "public_url"
         format: "Per chipset. Nordic: Secure DFU zip (.bin + 140-byte protobuf .dat). Freqchip: raw .bin."
         notes: >
           The Nordic init packets are signed commands with an ECDSA P-256
           signature (signature type 0, 64 bytes), so a Secure DFU bootloader
           checks them against the vendor key. Signing of the Freqchip images
-          is not established.
+          is not established. Public: the vendor's world-readable, listable firmware bucket, under https://s3.amazonaws.com/www.wohand.com/version/wocaotech/firmware/WoPresence/ and WoContact/. See the Bot / Meter entry for naming.
       enter:
         how: "command"
         command: "enter_ota"
@@ -589,11 +676,11 @@ features:
         - "0000d0ff-3c17-d293-8e48-14fe2e4da212"
       image:
         signing: "unknown"
-        source: "vendor_cloud"
+        source: "public_url"
         format: "Per chipset. Nordic: Secure DFU zip (.bin + 140-byte protobuf .dat). Realtek: RTL8762C OTA image (\"GM\" header)."
         notes: >
           The Nordic init packets are ECDSA P-256 signed. Signing of the
-          Realtek images is not established.
+          Realtek images is not established. Public: the vendor's world-readable, listable firmware bucket, under https://s3.amazonaws.com/www.wohand.com/version/wocaotech/firmware/WoCurtain/ and WoLock/ (WoLockPro/ and WoLockLite/ hold other lock models). See the Bot / Meter entry for naming.
       enter:
         how: "command"
         command: "enter_ota"
@@ -618,8 +705,9 @@ features:
       services: ["0000d0ff-3c17-d293-8e48-14fe2e4da212"]
       image:
         signing: "unknown"
-        source: "vendor_cloud"
+        source: "public_url"
         format: "Realtek RTL8762C OTA image (\"GM\" header)."
+        notes: "Public: the vendor's world-readable, listable firmware bucket, under https://s3.amazonaws.com/www.wohand.com/version/wocaotech/firmware/WoCurtain3/. See the Bot / Meter entry for naming."
       enter:
         how: "command"
         command: "enter_ota"
@@ -708,3 +796,45 @@ helpful_urls:
     kind: "manual"
     description: >
       Manual for one of the encrypted models, whose app-set password this spec's pairing block records.
+
+evidence:
+  artifacts:
+    - type: "public_implementation"
+      artifact: "OpenWonderLabs/homebridge-switchbot 5.2.12, commit 28fd83bb8951ee82556a8d94fb203931da9aaa26 (2026-11-06), README section BLE Encryption Support"
+      url: "https://github.com/OpenWonderLabs/homebridge-switchbot/blob/28fd83bb8951ee82556a8d94fb203931da9aaa26/README.md#L208-L244"
+      obtained_via: "public GitHub clone, read 2026-11-11"
+      description: >
+        Vendor-organisation documentation of where an encrypted model's key
+        lives: the app's Device Settings > Device Info page shows an
+        Encryption Key and a Key ID on models that use BLE encryption, and
+        nothing on models that do not (or that need a firmware update
+        first). Names Lock / Lock Pro, Curtain 3, some updated Curtain 2,
+        and some sensors and newer models. Not run against hardware here.
+    - type: "public_implementation"
+      artifact: "sblibs/pySwitchbot 3.2.1, commit 458335de3c8c191b4988e8b0e82346dd2574841e (2026-11-11): scripts/get_encryption_key.py, README key-retrieval troubleshooting, the encrypted-device base class"
+      url: "https://github.com/sblibs/pySwitchbot/tree/458335de3c8c191b4988e8b0e82346dd2574841e"
+      obtained_via: "public GitHub clone, read 2026-11-11"
+      description: >
+        Account-API key retrieval (owner account only; no two-factor
+        support), the key ID / key lengths (2 and 32 hex characters), and
+        which device classes use encryption: the Lock family and several
+        newer lights, fans, humidifiers, the relay switch and others, but not
+        Curtain or Curtain 3. Its 1,551 offline tests passed; the key script
+        was not run and no owner key was read.
+    - type: "firmware_image"
+      artifact: "200 vendor firmware images (the newest one or two per file pattern for 26 BLE device directories), 2026-08-15"
+      url: "https://s3.amazonaws.com/www.wohand.com/?list-type=2&prefix=version/wocaotech/firmware/"
+      obtained_via: "vendor's publicly listable S3 firmware bucket; re-hashed 2026-11-11 (all 200 matched their recorded SHA-256), and WoHand/WoHand_app_V1066.zip re-fetched with HTTP 200"
+      sha256: "58b5b39863b41b7f70c3b5d55974abbbf4e6b964632dc6eff45569d8b0620dcd"
+      description: >
+        Source of the image formats, init-packet signing and per-model
+        chipset sets in the firmware_update features. The digest given is
+        WoHand_app_V1066.zip (Bot 1.066, Nordic legacy DFU, 53,737 bytes);
+        the per-file table is kept with the research notes, not committed.
+        No image was flashed and no device was contacted.
+
+remaining_unknowns:
+  - "Whether Curtain 3 (and which Curtain 2 firmware) requires the BLE encryption key: homebridge-switchbot says it does, pySwitchbot drives both curtains unencrypted. Resolving it needs a unit whose Device Info page in the app is checked, and an unencrypted command sent to it."
+  - "The full list of encrypted models. Neither source enumerates it; the app's Device Info page is the per-unit authority."
+  - "The encrypted command framing itself (how the key ID and the AES-CTR key wrap a 0x57 frame) is not transcribed here; pySwitchbot's encrypted-device class is the reference."
+  - "Whether a factory reset regenerates the encryption key, so that a key copied before the reset stops working."

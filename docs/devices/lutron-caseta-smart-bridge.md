@@ -29,13 +29,18 @@ hostname as a fallback.
 |---|---:|---|
 | `_leap._tcp.local.` | 8081 | Modern control: newline-delimited JSON over TLS |
 | `_lap._tcp.local.` | 8083 | Deprecated local protocol (also hosts cert pairing) |
-| `_lutron._tcp.local.` | 22 | Status/identity TXT records |
+| `_lutron._tcp.local.` | 22 | Identity TXT records; the SRV port is the bridge's SSH, not LEAP |
 | `_hap._tcp.local.` | 4548 | HomeKit accessory service |
 
 LEAP frames are one JSON object: `{"CommuniqueType": ..., "Header": {"Url":
-...}, "Body": ...}`. Pairing runs on port 8083 while the rear button is held:
-`Execute /pair` with `CommandType=CSR` and the client's PEM CSR returns the
-signed client certificate plus the bridge CA in `Body.SigningResult`.
+...}, "Body": ...}`, one per CRLF-terminated line. Pairing runs on port 8083:
+the client connects with the initial LAP client certificate that open LEAP
+clients ship (the bridge refuses a TLS client with none), waits for a status
+message listing `PhysicalAccess` while the rear button is held, then sends
+`Execute /pair` with `CommandType=CSR` and its PEM CSR; the reply carries the
+signed client certificate plus the bridge CA in `Body.SigningResult`. Keep
+those with the private key — they are reused for every LEAP session, and no
+cloud is involved.
 Zone control is a `CreateRequest` to `/zone/{id}/commandprocessor` —
 dimmers `GoToDimmedLevel` (Level 0–100), switches `GoToSwitchedLevel`
 (On/Off), shades `GoToShadeLevel`/`GoToTilt`. (Verified against vendor app
