@@ -35,7 +35,8 @@ device:
       0A01 and 0AD0 01 with 01-prefixed acknowledgements, a 0AD0 06 Pro
       write that read back 06 and persisted across reconnects, and 0A44
       notifications, plus read-only 0BB2 / 0BB4 / 0BB5 / 0BD1 table
-      queries and a T-Sonic write from 5 to 2. Not driven: the locked-unit
+      queries, a T-Sonic write from 5 to 2 and back, and a handset check
+      showing the IPL level is independent of 0A01. Not driven: the locked-unit
       activation write (no locked unit), 0A30 wake-up, cooling writes, any
       write to the 0AB*/0AD1 safety tables (deliberately), old-dialect and
       Duo paths, and OTA. Earlier evidence:
@@ -397,8 +398,12 @@ services:
               Set the T-Sonic vibration-motor level, 0–5. This is the
               handset's massage motor, not IPL output: the app's own name for
               the opcode is "motor level", and the settings screen shows it
-              under a T-Sonic heading. Earlier revisions of this spec called
-              it IPL intensity, which was wrong.
+              under a T-Sonic heading. Hardware agrees (2026-11-14): with
+              0A01 set to 2 the handset showed one IPL dot, and pressing +
+              moved it to two dots while 0B01 still read 02, so the handset
+              IPL level neither follows nor is reported by this opcode.
+              Earlier revisions of this spec called it IPL intensity, which
+              was wrong.
             template: [0x0A, 0x01, "{level}"]
             verification: "confirmed"
             parameters:
@@ -1027,7 +1032,7 @@ remaining_unknowns:
   - "0A30 wake-up, 0A07 chip ID and 2A19 battery were absent from the captured new-dialect GATT table; their presence and containing services on other firmware remain unknown."
   - "The fixed (non-level) bytes of the 0AC4 cooling profiles, whether F.REV.L / Pro MAX accept their eight-byte rows and how 0BC4 0007 reports the eighth byte; the 0BA2 read-back layout; what the Pro MAX 0AA3 IPL-speed bytes control."
   - "How Pro's 'five extra boost intensities' are applied. The handset still offers five levels in Pro (owner observation, 2026-11-14) and the flash voltage table holds ten entries, so levels 1–5 most likely select entries 6–10 in Pro; confirming that needs a 0BD1 read in Basic and an observation of which entry a flash uses, neither done. Units of the voltage entries are unknown."
-  - "Whether any BLE command sets or reads the handset's IPL intensity. None was found in the app's Peach settings flows."
+  - "Whether any BLE command sets or reads the handset's IPL intensity. None was found in the app's Peach settings flows, and 0A01/0B01 is ruled out on hardware (the handset level changed with 0B01 unchanged)."
   - "Whether a handshake-less connection can do anything the handshake normally gates. On the active F.REV.K unit nothing tested required it."
   - "Units and conversion formulas for body/head NTC (0A18/0A19), accelerometer axes/units (0A0C), the vibrator-setting vocabulary (0A0D), the unknown 0A44/0A09 streams, and the accepted 0AB1 A5 write."
   - "Old-dialect behavior, Duo-specific mode/cooling paths and SW-revision suffix edge cases beyond the one confirmed new-dialect F.REV.K unit; Duo Pro was not captured."

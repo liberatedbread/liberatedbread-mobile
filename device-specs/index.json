@@ -4801,6 +4801,42 @@
         "description": "How the older FB002 authenticates with the account id and P2PAccessToken, worked out on real hardware."
       },
       {
+        "title": "ha-furbo CHANGELOG (1.3.7: the FB002 token rotates)",
+        "url": "https://github.com/willbeeching/ha-furbo/blob/27117e5ff12939e4001e834345296acf3fac421c/furbo-bridge/CHANGELOG.md",
+        "kind": "implementation",
+        "description": "Why a legacy camera's credential goes stale (-90) and the re-read of the device record that fixes it."
+      },
+      {
+        "title": "felipeadeildo/offleash",
+        "url": "https://github.com/felipeadeildo/offleash",
+        "kind": "implementation",
+        "description": "Independent LAN client (README in Portuguese) with a hardware result on a Furbo Mini 360 (MC0030, firmware 045): 1440p video, pan and settings, single session, stored credentials. Internet-blocked streaming not measured."
+      },
+      {
+        "title": "Slyke/Furbo-Feeder-Firmware (furbo-local)",
+        "url": "https://github.com/Slyke/Furbo-Feeder-Firmware",
+        "kind": "implementation",
+        "description": "Fully local replacement daemon for a Furbo 2 that already has root SSH. Requires a private backup; provides no root exploit or flash restore."
+      },
+      {
+        "title": "Software Secured: Hacking Furbo, part 6 (the finale)",
+        "url": "https://www.softwaresecured.com/post/hacking-furbo-a-hardware-research-project-part-6-the-finale",
+        "kind": "teardown",
+        "description": "The 2025 research behind the Furbo 360 and Mini CVE set, including the log-upload script against its replacement binary."
+      },
+      {
+        "title": "Software Secured: Hacking Furbo, part 3 (chip-off and persistence)",
+        "url": "https://www.softwaresecured.com/post/hacking-furbo-a-hardware-research-project-part-3-chip-off-and-persistence",
+        "kind": "teardown",
+        "description": "W25N02KV NAND on a newer unit; an in-circuit read bricked one device and recovery needed ECC-aware chip-off."
+      },
+      {
+        "title": "NVD: CVE-2025-11640",
+        "url": "https://nvd.nist.gov/vuln/detail/CVE-2025-11640",
+        "kind": "other",
+        "description": "Cleartext BLE provisioning, scoped to Furbo 360 through FB0035_FW_036 and Mini through MC0020_FW_074."
+      },
+      {
         "title": "go2rtc pkg/tutk",
         "url": "https://pkg.go.dev/github.com/AlexxIT/go2rtc/pkg/tutk",
         "kind": "implementation",
@@ -6535,6 +6571,12 @@
         "title": "Instant Pot standalone company after bankruptcy (Retail Dive)",
         "url": "https://www.retaildive.com/news/instant-pot-standalone-company-new-leadership-post-bankruptcy/711981/",
         "description": "The appliance business re-emerging as Instant Pot Brands after the 2023 Chapter 11."
+      },
+      {
+        "title": "Instant Pot Smart-60 user manual (retailer-hosted PDF)",
+        "url": "https://images.thdstatic.com/catalog/pdfImages/48/48881aac-b9d8-45f2-8adc-02298ecc7266.pdf",
+        "kind": "manual",
+        "description": "The Smart-60 (Instant Pot Smart Bluetooth, 6 qt) user manual as a 24-page PDF on a retailer's CDN; its metadata title says IP-DUO but the cover reads Smart-60. Pairing, the one-phone limit, the Pressure/Adjust ten-second holds and the Bluetooth 4.0 range."
       },
       {
         "title": "Instant Pot Smart-60 user manual",
@@ -11795,6 +11837,11 @@
         "url": "https://www.manualslib.com/manual/3463905/Ttlock-A210-Series.html",
         "kind": "manual",
         "description": "A sibling model, useful because the rebadges vary in which controls they expose.\n"
+      },
+      {
+        "title": "roquerodrigo/ha-ttlock-ble",
+        "url": "https://github.com/roquerodrigo/ha-ttlock-ble",
+        "description": "Maintained Home Assistant integration: local BLE lock/unlock, state, battery and push events from cloud-downloaded or hand-entered per-lock keys."
       }
     ],
     "schema_version": "2020-12"
