@@ -205,7 +205,11 @@ check_eq "standalone --yes exits 0 when the bounce finds a phone" "0 1" "$(stand
 # 11. run-android-device-tests.sh, end to end in a sandbox: `flutter devices`
 # sees no phone until the adb server is restarted.
 sandbox="$WORK/sandbox"
-mkdir -p "$sandbox/scripts" "$sandbox/flutter/bin"
+mkdir -p "$sandbox/scripts" "$sandbox/flutter/bin" "$sandbox/sdk/platform-tools"
+# The runner's final reinstall finds adb through find_adb, which prefers
+# $ANDROID_HOME/platform-tools/adb over PATH. GitHub's runners set ANDROID_HOME
+# to a real SDK, whose adb failed that reinstall, so point it at the stub.
+cp "$WORK/adb" "$sandbox/sdk/platform-tools/adb"
 cp scripts/run-android-device-tests.sh scripts/android-device-select.sh \
   scripts/adb-maybe-bounce.sh "$sandbox/scripts/"
 printf 'regen_frb_bindings() { :; }\n' >"$sandbox/scripts/regen-bindings.sh"
@@ -229,7 +233,7 @@ STUB
 chmod +x "$sandbox/flutter/bin/flutter"
 runner() { # env assignments... ; prints "<exit> <bounces> <suites run>"
   ( unset LB_ADB_BOUNCED LB_ADB_BOUNCE; export_all "$@"
-    cd "$sandbox" && PATH="$WORK:$PATH" FLUTTER_HOME="$sandbox/flutter" \
+    cd "$sandbox" && ANDROID_HOME="$sandbox/sdk" FLUTTER_HOME="$sandbox/flutter" \
       bash scripts/run-android-device-tests.sh </dev/null >/dev/null 2>&1
     echo "$? $(bounces) $(grep -c '^flutter test' "$STUB_STATE/calls")" )
 }
