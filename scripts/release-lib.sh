@@ -20,8 +20,10 @@
 #                      ready), it first prepares the release commit itself:
 #                      pubspec.yaml's version bumped and CHANGELOG.md's
 #                      Unreleased entries moved under a dated [X.Y.Z]
-#                      heading, on a release/vX.Y.Z branch it pushes and
-#                      opens a PR for. Once that merges, the run carries on.
+#                      heading, committed straight onto main (only those two
+#                      files change, so the CI gate takes the parent's green
+#                      run). If main refuses the push, it opens a PR instead
+#                      and carries on once that merges.
 #   --from-tag vX.Y.Z  build an existing tag (the other platform's script, or
 #                      an earlier run, already cut it). Pushes it if it is
 #                      only local.
@@ -285,6 +287,22 @@ changelog_cut() {
     }'
 }
 
+# bump_only_commit SHA — status 0 when SHA has one parent and changes nothing
+# but pubspec.yaml's version: line and CHANGELOG.md: a release commit, which
+# needs no CI run of its own (its parent's covers every line that is built
+# or tested). Anything else, or a parent missing from a shallow clone, is 1.
+bump_only_commit() {
+  local sha="$1" files f
+  [[ "$(git rev-list --parents -n 1 "$sha" 2>/dev/null | wc -w | tr -d ' ')" == 2 ]] || return 1
+  files="$(git diff --name-only "$sha^" "$sha" 2>/dev/null)" || return 1
+  [[ -n "$files" ]] || return 1
+  for f in $files; do
+    case "$f" in pubspec.yaml | CHANGELOG.md) ;; *) return 1 ;; esac
+  done
+  ! git diff -U0 "$sha^" "$sha" -- pubspec.yaml |
+    grep -E '^[-+]' | grep -vE '^(\+\+\+|---) ' | grep -qvE '^[-+]version:'
+}
+
 # build_number_from_log — the --build-number release.sh logged.
 build_number_from_log() {
   sed -n 's/.*--build-number=\([0-9][0-9]*\).*/\1/p' | head -n 1
@@ -358,7 +376,7 @@ modes when neither flag is given:
                      build, check, then push the tag
   --new-tag X.Y.Z    the same, releasing X.Y.Z: if $REMOTE/main is not there
                      yet, bump pubspec.yaml, date CHANGELOG.md's Unreleased
-                     entries as [X.Y.Z], and open that commit as a PR first
+                     entries as [X.Y.Z], and push that commit to main first
   --from-tag vX.Y.Z  build an existing tag (pushing it first if only local)
 EOF
 }
@@ -613,6 +631,28 @@ discard_prep() {
   die "$@"
 }
 
+# push_release_commit NEW — put PREP_BRANCH's one commit straight onto
+# $REMOTE/main (a fast-forward: the branch is off RELEASE_SHA). It touches
+# only pubspec.yaml's version and CHANGELOG.md, so it needs no PR or CI run of
+# its own (see bump_only_commit). Status 0 once pushed; when declined or
+# refused (branch protection, or main moved on), it offers the PR instead and
+# returns 1.
+push_release_commit() {
+  local new="$1"
+  step "Push the release commit to main"
+  if confirm "Push 'Release $new' straight onto $REMOTE/main?" y &&
+    git push --quiet "$REMOTE" "refs/heads/$PREP_BRANCH:refs/heads/main"; then
+    log "$REMOTE/main is now $(git log -1 --format='%h %s' "$PREP_BRANCH")."
+    git worktree remove "$PREP_DIR" ||
+      warn "Could not remove $PREP_DIR; the commit is on main, so it can go."
+    git branch -D "$PREP_BRANCH" >/dev/null 2>&1 || true
+    return 0
+  fi
+  warn "Not pushed to $REMOTE/main (declined, refused by branch protection, or main moved on)."
+  open_release_pr "$new"
+  return 1
+}
+
 # open_release_pr NEW — push PREP_BRANCH and open its PR against main. The
 # merge itself stays with the human (and CI, and review), like any change.
 open_release_pr() {
@@ -704,7 +744,7 @@ resolve_new_tag() {
 
     if [[ "$released" == 1 ]]; then
       say "" "Preparing it: pubspec.yaml → $WANT_VERSION, CHANGELOG.md's Unreleased entries" \
-        "under '## [$WANT_VERSION] - $(date +%F)', on a release/v$WANT_VERSION PR into main."
+        "under '## [$WANT_VERSION] - $(date +%F)', committed straight onto $REMOTE/main."
     else
       err "Not ready to cut v${WANT_VERSION:-$VERSION} from $REMOTE/main:"
       printf '%s' "$problems" | sed 's/^/   - /' >&2
@@ -712,13 +752,16 @@ resolve_new_tag() {
         "Step 1 of docs/RELEASE.md: bump pubspec.yaml's version if it is changing," \
         "move CHANGELOG.md's Unreleased entries under '## [X.Y.Z] - $(date +%F)'," \
         "leave a new empty Unreleased section, and get that commit onto $REMOTE/main" \
-        "(through a PR as usual). This script can make that commit and open the PR."
+        "This script can make that commit and push it to main."
     fi
-    if [[ "$released" == 1 ]] || confirm "Prepare the release commit and PR now?" y; then
+    if [[ "$released" == 1 ]] || confirm "Prepare the release commit now?" y; then
       if [[ -z "$WANT_VERSION" ]]; then
         WANT_VERSION="$(ask_version "$(suggest_version)")" || exit 1
       fi
-      if prepare_release_commit "$WANT_VERSION"; then open_release_pr "$WANT_VERSION"; fi
+      if prepare_release_commit "$WANT_VERSION" && push_release_commit "$WANT_VERSION"; then
+        git fetch --quiet "$REMOTE" main --tags || die "git fetch $REMOTE failed."
+        continue
+      fi
       say "" "Merge it into main once CI and review pass. This script then re-checks" \
         "$REMOTE/main and carries on with v$WANT_VERSION."
     fi
@@ -763,14 +806,22 @@ ci_gate() {
     log "CI already recorded green: $(recorded CI_RUN_URL)"
     return
   fi
-  local row id status conclusion url
+  # A release commit that only bumps the version and dates the CHANGELOG is
+  # gated on the run for the commit it sits on: nothing it changes is built
+  # differently or tested.
+  local gate="$RELEASE_SHA" row id status conclusion url
+  while bump_only_commit "$gate"; do gate="$(git rev-parse "$gate^")"; done
+  if [[ "$gate" != "$RELEASE_SHA" ]]; then
+    log "$SHORT_SHA only bumps pubspec.yaml's version and CHANGELOG.md; gating on CI for"
+    log "$(git log -1 --format='%h %s' "$gate")."
+  fi
   while true; do
-    row="$(gh run list --workflow ci.yml --commit "$RELEASE_SHA" --limit 1 \
+    row="$(gh run list --workflow ci.yml --commit "$gate" --limit 1 \
       --json databaseId,status,conclusion,url \
       --jq '.[0] | select(.) | [.databaseId, .status, .url, .conclusion] | @tsv')" ||
       die "gh run list failed."
     if [[ -z "$row" ]]; then
-      warn "No CI run for $RELEASE_SHA yet. CI runs on every push to main."
+      warn "No CI run for $gate yet. CI runs on every push to main."
       confirm "Check again?" y || die "A release needs a green CI run for its exact commit."
       continue
     fi
@@ -782,13 +833,14 @@ ci_gate() {
       continue
     fi
     if [[ "$conclusion" != success ]]; then
-      die "CI for $RELEASE_SHA concluded '$conclusion': $url" \
+      die "CI for $gate concluded '$conclusion': $url" \
         "A failed or cancelled job is a stop, not something to explain in the notes."
     fi
     break
   done
   log "CI green: $url"
   record CI_RUN_URL "$url"
+  record CI_GATE_SHA "$gate"
   mark_done CI_DONE_SHA
 }
 
