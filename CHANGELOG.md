@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## [0.0.1] - 2026-11-14
+
 ### Added
 
 - **The guided release scripts prepare the version bump themselves.**
@@ -28,7 +30,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   prepare its release commit and PR (pubspec.yaml bump and CHANGELOG.md cut)
   without asking first. The version is the next patch after the highest tag
   (0.0.0 → 0.0.1); `--new-tag X.Y.Z` still picks a minor or major by hand.
-
 
 ## [0.0.0] - 2026-11-13
 
