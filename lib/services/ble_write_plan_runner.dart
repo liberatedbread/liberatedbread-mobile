@@ -35,6 +35,17 @@ class DeviceRefusedException implements Exception {
       'DeviceRefusedException(${reply.map((b) => b.toRadixString(16).padLeft(2, '0')).join(' ')})';
 }
 
+/// The completion poll's deadline passed with the device answering every ask
+/// that it was not done: a status, not silence. [reply] is the last status it
+/// gave, which may say why (an MXW01 out of paper sets an error flag rather
+/// than sending a refusal). A [TimeoutException], so a caller that only knows
+/// "it took too long" still catches it.
+class PollNotDoneException extends TimeoutException {
+  final List<int> reply;
+  PollNotDoneException(this.reply, Duration duration)
+    : super('the device kept reporting it was not done', duration);
+}
+
 /// A plan's [StopSignal] tripped before its last write went out.
 class ImagePlanStoppedException implements Exception {
   const ImagePlanStoppedException();
@@ -180,13 +191,21 @@ Future<void> _pollUntilDone(
   required List<List<int>> errors,
   required Duration replyTimeout,
 }) async {
-  final deadline = DateTime.now().add(Duration(milliseconds: poll.timeoutMs));
+  final budget = Duration(milliseconds: poll.timeoutMs);
+  final deadline = DateTime.now().add(budget);
+  // The last status that said "not done", so a deadline passed while the
+  // device kept answering is reported as what it said, not as silence.
+  List<int>? notDone;
+  Never expired() {
+    final last = notDone;
+    if (last != null) throw PollNotDoneException(last, budget);
+    throw TimeoutException('the device never reported done', budget);
+  }
+
   while (true) {
     await send(poll.request);
     final remaining = deadline.difference(DateTime.now());
-    if (remaining <= Duration.zero) {
-      throw TimeoutException('the device never reported done', remaining);
-    }
+    if (remaining <= Duration.zero) expired();
     final List<int> reply;
     try {
       reply = await replies.take(
@@ -199,10 +218,11 @@ Future<void> _pollUntilDone(
         timeout: remaining < replyTimeout ? remaining : replyTimeout,
       );
     } on TimeoutException {
-      if (!DateTime.now().isBefore(deadline)) rethrow;
+      if (!DateTime.now().isBefore(deadline)) expired();
       continue;
     }
     if (_carries(reply, poll.doneOffset, poll.doneBytes)) return;
+    notDone = reply;
     await Future<void>.delayed(Duration(milliseconds: poll.intervalMs));
   }
 }

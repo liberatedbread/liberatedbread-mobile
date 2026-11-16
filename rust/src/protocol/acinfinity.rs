@@ -271,7 +271,7 @@ fn checked_frame(frame: &[u8]) -> Result<(u16, u8, &[u8]), ProtocolError> {
         return Err(malformed("the tail CRC does not match"));
     }
     if frame[8] != 0 {
-        return Err(malformed("byte 8 of an A5 frame is zero"));
+        return Err(malformed("byte 8 of an A5 frame is not zero"));
     }
     Ok((
         u16::from_be_bytes([frame[4], frame[5]]),
@@ -858,6 +858,22 @@ mod tests {
         assert!(checked_frame(&high).is_err());
         assert!(checked_frame(&good[..8]).is_err());
         assert!(checked_frame(&[]).is_err());
+    }
+
+    /// A frame whose CRCs hold but whose byte 8 is set is refused, and the
+    /// reason says what was wrong with it, not the opposite.
+    #[test]
+    fn a_nonzero_byte_8_is_refused_as_not_zero() {
+        let mut frame = bytes("a5 1c 00 06 00 00 91 e8 00 03 10 00 12 00 ff 01 16 29");
+        frame[8] = 0x01;
+        let tail = frame.len() - 2;
+        let crc = crc16(&frame[8..tail]).to_be_bytes();
+        frame[tail..].copy_from_slice(&crc);
+        let error = checked_frame(&frame).unwrap_err().to_string();
+        assert!(
+            error.contains("byte 8 of an A5 frame is not zero"),
+            "{error}"
+        );
     }
 
     /// `controller_stream.constructed_example`, every value it states.

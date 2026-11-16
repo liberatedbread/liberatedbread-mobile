@@ -7,6 +7,7 @@ import 'dart:isolate';
 import 'dart:typed_data';
 
 import 'package:ffi/ffi.dart';
+import 'package:flutter/foundation.dart' show visibleForTesting;
 
 import 'direct_att/att_channel.dart' show bdaddrBytes;
 import '../src/rust/api/sdp_api.dart';
@@ -226,6 +227,7 @@ const _pollin = 1;
 const _pollout = 4;
 const _pollerr = 8;
 const _pollhup = 0x10;
+const _pollnval = 0x20;
 const _msgDontwait = 0x40;
 const _msgNosignal = 0x4000;
 
@@ -318,7 +320,7 @@ int _openSocket(_SocketKind kind, String address, int channel, int timeoutMs) {
             errno: error,
           );
         }
-        _wait(fd, _pollout, timeoutMs);
+        _wait(fd, _pollout, timeoutMs, 'connect');
       }
       _libc.fcntl(fd, _fSetfl, flags);
       return fd;
@@ -331,8 +333,53 @@ int _openSocket(_SocketKind kind, String address, int channel, int timeoutMs) {
   }
 }
 
-void _wait(int fd, int events, int timeoutMs) {
+/// What one poll(2) wake means for a wait on [events].
+enum SppPollVerdict {
+  /// What was waited for is there.
+  ready,
+
+  /// The link is gone (an error, a hangup, or a closed descriptor).
+  dropped,
+
+  /// Neither: wait again.
+  notYet,
+}
+
+/// Read one poll(2) result. Data already received outlives the hangup that
+/// follows it: a printer that sends its last status frame and closes sets
+/// POLLIN and POLLHUP together, and that frame is the answer, so readable
+/// data is ready before a hangup is looked at (the hangup is seen on the next
+/// read, as recv returning 0). A writable socket with an error is not ready:
+/// POLLOUT with POLLERR is how a failed non-blocking connect reports itself.
+@visibleForTesting
+SppPollVerdict sppPollVerdict(int events, int revents) {
+  if (events & _pollin != 0 && revents & _pollin != 0) {
+    return SppPollVerdict.ready;
+  }
+  if (revents & (_pollerr | _pollhup | _pollnval) != 0) {
+    return SppPollVerdict.dropped;
+  }
+  if (revents & events != 0) return SppPollVerdict.ready;
+  return SppPollVerdict.notYet;
+}
+
+/// Wait for [events] on [fd]. [stage] names what the wait is for
+/// (`connect`, `send` or `recv`) in what it throws; a send or receive wait
+/// is bounded by the job's remaining time, so running out is the job's
+/// `timeout`.
+void _wait(int fd, int events, int timeoutMs, String stage) {
   final pfd = calloc<Uint8>(8);
+  final timeout = stage == 'connect'
+      ? const SppTransportException(
+          'connect',
+          'Bluetooth connect timed out',
+          errno: _etimedout,
+        )
+      : SppTransportException(
+          'timeout',
+          'Bluetooth $stage timed out',
+          errno: _etimedout,
+        );
   try {
     final view = ByteData.sublistView(pfd.asTypedList(8))
       ..setInt32(0, fd, Endian.host)
@@ -340,37 +387,29 @@ void _wait(int fd, int events, int timeoutMs) {
     final clock = Stopwatch()..start();
     while (true) {
       final left = timeoutMs - clock.elapsedMilliseconds;
-      if (left <= 0) {
-        throw const SppTransportException(
-          'connect',
-          'Bluetooth connect timed out',
-          errno: _etimedout,
-        );
-      }
+      if (left <= 0) throw timeout;
+      view.setUint16(6, 0, Endian.host);
       final rc = _libc.poll(pfd, 1, left);
       if (rc < 0 && _libc.errno == _eintr) continue;
       if (rc < 0) {
         throw SppTransportException(
-          'poll',
+          stage,
           'Bluetooth wait failed',
           errno: _libc.errno,
         );
       }
-      if (rc == 0) {
-        throw const SppTransportException(
-          'connect',
-          'Bluetooth connect timed out',
-          errno: _etimedout,
-        );
+      if (rc == 0) throw timeout;
+      switch (sppPollVerdict(events, view.getUint16(6, Endian.host))) {
+        case SppPollVerdict.ready:
+          return;
+        case SppPollVerdict.dropped:
+          throw SppTransportException(
+            stage,
+            'the printer dropped the connection',
+          );
+        case SppPollVerdict.notYet:
+          continue;
       }
-      final revents = view.getUint16(6, Endian.host);
-      if (revents & (_pollerr | _pollhup) != 0) {
-        throw const SppTransportException(
-          'connect',
-          'the printer dropped the connection',
-        );
-      }
-      return;
     }
   } finally {
     calloc.free(pfd);
@@ -384,7 +423,7 @@ void _writeAll(int fd, List<int> bytes, int Function() left) {
     buffer.asTypedList(data.length).setAll(0, data);
     var offset = 0;
     while (offset < data.length) {
-      _wait(fd, _pollout, left());
+      _wait(fd, _pollout, left(), 'send');
       final sent = _libc.send(
         fd,
         buffer + offset,
@@ -410,7 +449,7 @@ void _writeAll(int fd, List<int> bytes, int Function() left) {
 Uint8List _readSome(int fd, int Function() left) {
   final buffer = calloc<Uint8>(4096);
   try {
-    _wait(fd, _pollin, left());
+    _wait(fd, _pollin, left(), 'recv');
     final count = _libc.recv(fd, buffer, 4096, _msgDontwait);
     if (count < 0) {
       final error = _libc.errno;

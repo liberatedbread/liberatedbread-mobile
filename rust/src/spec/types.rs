@@ -1496,6 +1496,35 @@ pub struct UdpBroadcastProbe {
     pub response_format: Option<String>,
     #[serde(default)]
     pub identity_mapping: Option<UdpIdentityMapping>,
+    /// Conditions on the reply that narrow the probe from "a device speaking
+    /// this protocol" to this spec's product, ANDed. Absent (or empty) means
+    /// the probe says nothing about which product answered: a probe that any
+    /// module of a chipset family answers (the Hi-Flying `HF-A11ASSISTHREAD`
+    /// on 48899) is such a probe.
+    #[serde(default)]
+    pub response_match: Option<Vec<UdpResponseMatch>>,
+}
+
+impl UdpBroadcastProbe {
+    /// Whether the probe states anything a reply must carry to be this
+    /// spec's device.
+    pub fn declares_response_match(&self) -> bool {
+        self.response_match
+            .as_ref()
+            .is_some_and(|conditions| !conditions.is_empty())
+    }
+}
+
+/// One `response_match` condition: where in the reply, how to compare, and
+/// against what.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct UdpResponseMatch {
+    /// The same `<dialect>:<key>` spelling as `identity_mapping` sources.
+    pub source: String,
+    /// `exact` | `prefix` | `contains` | `regex`.
+    #[serde(rename = "match")]
+    pub kind: String,
+    pub value: String,
 }
 
 /// How to lift an identity out of a probe reply.

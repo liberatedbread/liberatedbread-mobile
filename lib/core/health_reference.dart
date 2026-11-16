@@ -165,4 +165,6 @@ HealthReferenceRow bloodPressureBeurerReference(
 /// placed in the table's lowest band.
 bool _validOxygen(double value) => value.isFinite && value > 0;
 
-bool _validPressure(double value) => value.isFinite && value >= 0;
+/// Zero is a cuff with no result, not a pressure: 0/0 must not be shown as
+/// the table's lowest (normal) band.
+bool _validPressure(double value) => value.isFinite && value > 0;

@@ -58,21 +58,51 @@ void main() {
   });
 
   test(
-    'a cuff whose record the decoder cannot read keeps its own cards',
+    'QardioArm gets the blood-pressure panel and its records decode',
     () async {
       if (!rustReady) {
         markTestSkipped('Rust lib not loaded');
         return;
       }
-      // QardioArm has the same systolic/diastolic entities on 0x2A35, but
-      // names each flag bit instead of a `flags` byte. Claimed by the panel,
-      // its entity cards were hidden and no record ever decoded.
-      final qardio = await specCodec.loadDeviceSpec(
-        await rootBundle.loadString(
-          'vendor/protocol-specs/device-specs/devices/qardio-arm.yaml',
-        ),
+      // QardioArm names each flag bit instead of a `flags` byte, and its
+      // pulse, user and status follow the flags. Before the decoder read that
+      // layout the panel was withheld from it.
+      final qardioYaml = await rootBundle.loadString(
+        'vendor/protocol-specs/device-specs/devices/qardio-arm.yaml',
       );
-      expect(healthMeasurementPlan(qardio, _discovered(qardio)), isNull);
+      final qardio = await specCodec.loadDeviceSpec(qardioYaml);
+      final plan = healthMeasurementPlan(qardio, _discovered(qardio));
+      expect(plan?.kind, HealthMeasurementKind.bloodPressure);
+      expect(plan?.mode, HealthMeasurementMode.savedRecords);
+
+      const charUuid = '00002a35-0000-1000-8000-00805f9b34fb';
+      // The spec's worked example with every optional field.
+      final sample = await healthCodec.decodeSample(
+        specYaml: qardioYaml,
+        charUuid: charUuid,
+        bytes: [
+          0x1e, 0x78, 0x00, 0x50, 0x00, 0x5f, 0x00, //
+          0xe9, 0x07, 0x0a, 0x0b, 0x08, 0x1e, 0x00, //
+          0x48, 0x00, 0xff, 0x04, 0x00,
+        ],
+      );
+      final reading = sample.bloodPressure;
+      expect(reading?.systolicMmhg, 120);
+      expect(reading?.diastolicMmhg, 80);
+      expect(reading?.meanArterialMmhg, 95);
+      expect(reading?.pulseBpm, 72);
+      expect(reading?.measuredAt, '2025-10-11T08:30:00');
+      expect(reading?.userSlot, isNull);
+      expect(reading?.irregularHeartbeat, isTrue);
+
+      // A record streamed mid-measurement is no reading, not a failure.
+      final partial = await healthCodec.decodeSample(
+        specYaml: qardioYaml,
+        charUuid: charUuid,
+        bytes: [0x04, 0xff, 0x07, 0xff, 0x07, 0xff, 0x07, 0x48, 0x00],
+      );
+      expect(partial.bloodPressure, isNull);
+      expect(partial.pulseOximeter, isNull);
     },
   );
 

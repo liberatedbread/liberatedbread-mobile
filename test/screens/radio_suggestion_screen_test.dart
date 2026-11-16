@@ -234,6 +234,9 @@ void main() {
     testWidgets('accepts coordinates typed with a decimal comma', (
       tester,
     ) async {
+      // The comma is a decimal point only where the locale writes one.
+      tester.platformDispatcher.localeTestValue = const Locale('de', 'DE');
+      addTearDown(tester.platformDispatcher.clearLocaleTestValue);
       // What an iOS decimal pad types in de/fr/es/it/pt/nl, which has no
       // period key; double.tryParse refused it.
       await _pump(tester, location: FakeLocationService());

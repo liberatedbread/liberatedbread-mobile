@@ -2249,6 +2249,21 @@ class FakeSpecCodec implements SpecCodec {
     String? variant,
   }) async => Uint8List.fromList([0x1B, 0x40, 0x1B, 0x69, 0x53]);
 
+  /// What [describePrintRefusal] answers, for any reply.
+  String? printRefusal;
+
+  /// Every reply [describePrintRefusal] was asked about.
+  final List<List<int>> printRefusalReplies = [];
+
+  @override
+  Future<String?> describePrintRefusal({
+    required String specYaml,
+    required List<int> reply,
+  }) async {
+    printRefusalReplies.add(List.of(reply));
+    return printRefusal;
+  }
+
   /// A P-touch status frame read the way the Rust decoder reads it: tape
   /// width at byte 10, media at 11, status type at 18, phase at 19, error
   /// bits at 8 and 9.

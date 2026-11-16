@@ -447,7 +447,9 @@ record_url() {
 # Merging is by key. A key this machine has keeps its value; a key only the
 # other machine has is added. The halves write different keys (every
 # per-platform key names ANDROID or IOS), so nothing real conflicts. Paths on
-# this machine (*_ARTIFACT, *_BUILD_LOG) are never shared. Syncing is best
+# this machine (*_ARTIFACT, *_BUILD_LOG) are never shared, nor are the phone
+# suites' extra arguments (DEVICE_TEST_ARGS_*), which can name a phone's
+# serial or UDID. Syncing is best
 # effort: a gh or network failure is one warning, and the local file is what
 # the run reads. The one hard stop is a shared record for another commit:
 # that is two builds of one version, which the record exists to prevent.
@@ -455,7 +457,10 @@ record_url() {
 
 shared_record_on() { [[ "${LB_RELEASE_SHARED_RECORD:-1}" != 0 ]]; }
 shared_record_tag() { printf 'release-record-%s' "$VERSION"; }
-record_key_is_local() { case "$1" in *_ARTIFACT | *_BUILD_LOG) return 0 ;; esac; return 1; }
+record_key_is_local() {
+  case "$1" in *_ARTIFACT | *_BUILD_LOG | DEVICE_TEST_ARGS_*) return 0 ;; esac
+  return 1
+}
 
 # record_key_owner KEY — the platform that writes KEY (ANDROID, IOS), or
 # nothing for the keys both halves share (VERSION, CI_*, HOST_TESTS_*, ...).
@@ -530,7 +535,11 @@ record_push() {
     record_merge "$RECORD" "$dir/release-record.txt"
     rm -f "$dir/release-record.txt"
   fi
-  grep -vE '^[A-Z0-9_]*(_ARTIFACT|_BUILD_LOG)=' "$RECORD" >"$dir/release-record.txt" || true
+  local line
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    [[ "$line" == [A-Z]*=* ]] && record_key_is_local "${line%%=*}" && continue
+    printf '%s\n' "$line"
+  done <"$RECORD" >"$dir/release-record.txt"
   if gh release view "$tag" -R "$GITHUB_REPO" >/dev/null 2>&1; then
     gh release upload "$tag" -R "$GITHUB_REPO" "$dir/release-record.txt" --clobber >/dev/null 2>&1 ||
       shared_record_warn upload
@@ -823,6 +832,17 @@ prepare_release_commit() {
     warn "Get it merged into main (or delete the branch on $REMOTE to start over)."
     return 1
   fi
+  # Declining both the push to main and the PR leaves the commit in its
+  # worktree; the next "Prepare the release commit now?" takes it up again
+  # rather than stopping on the worktree it left.
+  if [[ -e "$PREP_DIR" ]] &&
+    [[ "$(git -C "$PREP_DIR" symbolic-ref -q --short HEAD 2>/dev/null)" == "$PREP_BRANCH" ]] &&
+    [[ "$(git rev-parse -q --verify "$PREP_BRANCH~1" 2>/dev/null)" == "$RELEASE_SHA" ]] &&
+    [[ "$(git log -1 --format=%s "$PREP_BRANCH")" == "Release $new" ]] &&
+    [[ -z "$(git -C "$PREP_DIR" status --porcelain)" ]]; then
+    log "Reusing $(git log -1 --format='%h %s' "$PREP_BRANCH") on $PREP_BRANCH ($PREP_DIR)."
+    return 0
+  fi
   [[ ! -e "$PREP_DIR" ]] ||
     die "$PREP_DIR already exists (an earlier, unfinished prep?)." \
       "Inspect it, then: git worktree remove \"$PREP_DIR\" and re-run."
@@ -1031,6 +1051,12 @@ resolve_new_tag() {
       if [[ -z "$WANT_VERSION" ]]; then
         WANT_VERSION="$(ask_version "$(suggest_version)")" || exit 1
       fi
+      # The bump is gated on CI for the commit it sits on (ci_gate), so ask
+      # that run now: once the bump is on main, a red run would leave main
+      # with a dated [X.Y.Z] section for a release that cannot be cut.
+      step "CI for ${RELEASE_SHA:0:10}, before the release commit"
+      ci_wait_green "$(ci_gate_commit "$RELEASE_SHA")"
+      log "CI green: $CI_GREEN_URL"
       if prepare_release_commit "$WANT_VERSION" && push_release_commit "$WANT_VERSION"; then
         git fetch --quiet "$REMOTE" main --tags || die "git fetch $REMOTE failed."
         continue
@@ -1083,15 +1109,32 @@ ci_gate() {
     log "CI already recorded green: $(recorded CI_RUN_URL)"
     return
   fi
-  # A release commit that only bumps the version and dates the CHANGELOG is
-  # gated on the run for the commit it sits on: nothing it changes is built
-  # differently or tested.
-  local gate="$RELEASE_SHA" row id status conclusion url
-  while bump_only_commit "$gate"; do gate="$(git rev-parse "$gate^")"; done
+  local gate
+  gate="$(ci_gate_commit "$RELEASE_SHA")"
   if [[ "$gate" != "$RELEASE_SHA" ]]; then
     log "$SHORT_SHA only bumps pubspec.yaml's version and CHANGELOG.md; gating on CI for"
     log "$(git log -1 --format='%h %s' "$gate")."
   fi
+  ci_wait_green "$gate"
+  log "CI green: $CI_GREEN_URL"
+  record CI_RUN_URL "$CI_GREEN_URL"
+  record CI_GATE_SHA "$gate"
+  mark_done CI_DONE_SHA
+}
+
+# ci_gate_commit SHA — the commit whose CI run gates SHA. A release commit
+# that only bumps the version and dates the CHANGELOG is gated on the run for
+# the commit it sits on: nothing it changes is built differently or tested.
+ci_gate_commit() {
+  local gate="$1"
+  while bump_only_commit "$gate"; do gate="$(git rev-parse "$gate^")"; done
+  printf '%s\n' "$gate"
+}
+
+# ci_wait_green SHA — wait for ci.yml's run on SHA to finish; die unless it
+# is green. Sets CI_GREEN_URL to the run.
+ci_wait_green() {
+  local gate="$1" row id status conclusion url
   while true; do
     row="$(gh run list --workflow ci.yml --commit "$gate" --limit 1 \
       --json databaseId,status,conclusion,url \
@@ -1115,10 +1158,7 @@ ci_gate() {
     fi
     break
   done
-  log "CI green: $url"
-  record CI_RUN_URL "$url"
-  record CI_GATE_SHA "$gate"
-  mark_done CI_DONE_SHA
+  CI_GREEN_URL="$url"
 }
 
 one_time_gates() {

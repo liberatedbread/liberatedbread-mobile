@@ -79,6 +79,12 @@ pub fn decode_live_sample(
                 None => HealthSample::NoReading,
             })
         }
+        "blood_pressure" if declares_flag_bits(spec, char_uuid) => {
+            decode_sig_blood_pressure(spec, char_uuid, bytes).map(|reading| match reading {
+                Some(reading) => HealthSample::BloodPressure(reading),
+                None => HealthSample::NoReading,
+            })
+        }
         "blood_pressure" => {
             decode_blood_pressure(spec, char_uuid, bytes).map(HealthSample::BloodPressure)
         }
@@ -198,14 +204,14 @@ fn decode_blood_pressure(
         let raw = required_raw(&values, name)? as u16;
         let value = decode_sfloat(raw)
             .ok_or_else(|| anyhow!("blood-pressure field {name} is not a finite SFLOAT"))?;
-        Ok(if kpa { value * 7.50061683 } else { value })
+        Ok(if kpa { value * MMHG_PER_KPA } else { value })
     };
     let optional_pressure = |name: &str| -> Option<f64> {
         let raw = optional_raw(&values, name)? as u16;
         let value = decode_sfloat(raw)?;
         value
             .is_finite()
-            .then_some(if kpa { value * 7.50061683 } else { value })
+            .then_some(if kpa { value * MMHG_PER_KPA } else { value })
     };
     let status = optional_raw(&values, "status").map(|value| value as u8);
     let systolic = pressure("systolic_sfloat")?;
@@ -223,7 +229,13 @@ fn decode_blood_pressure(
         pulse_bpm: optional_raw(&values, "pulse_sfloat")
             .and_then(|raw| decode_sfloat(raw as u16))
             .filter(|value| value.is_finite()),
-        measured_at: timestamp_from_decoded(&values),
+        // Flags bit 1 says the record carries a timestamp; without it the
+        // bytes where the date would sit are not a date.
+        measured_at: if flags & 0x02 != 0 {
+            timestamp_from_decoded(&values)
+        } else {
+            None
+        },
         user_slot: optional_raw(&values, "user_slot").map(|value| value as u8),
         irregular_heartbeat: status.map(|value| value & 0x04 != 0),
         sufficient_rest: status.and_then(|value| match (value >> 6) & 0x03 {
@@ -233,6 +245,130 @@ fn decode_blood_pressure(
         }),
         converted_from_kpa: kpa,
     })
+}
+
+/// mmHg per kPa.
+const MMHG_PER_KPA: f64 = 7.50061683;
+
+/// Whether the blood-pressure characteristic's format names each flag bit
+/// (`flags_unit_kpa`, `flags_timestamp_present`, ...) rather than one whole
+/// `flags` byte: the SIG record whose optional tail sits at flag-dependent
+/// offsets, as qardio-arm.yaml declares it, and not the fixed-offset layout
+/// [`decode_blood_pressure`] reads.
+pub(crate) fn declares_flag_bits(spec: &DeviceSpec, char_uuid: &str) -> bool {
+    spec.find_decodable_characteristic(char_uuid)
+        .and_then(|(_, c)| c.format.as_deref())
+        .is_some_and(|fields| {
+            !fields.iter().any(|f| f.name == "flags")
+                && fields
+                    .iter()
+                    .any(|f| f.offset == 0 && f.name.starts_with("flags_"))
+        })
+}
+
+/// One Bluetooth SIG Blood Pressure Measurement record whose format names
+/// its flag bits: flags, then systolic, diastolic and mean arterial pressure
+/// as SFLOATs, then the optional fields in flag order (bit 1 a 7-byte
+/// timestamp, bit 2 an SFLOAT pulse, bit 3 a user id, bit 4 a u16 status),
+/// ending exactly at the record's length.
+///
+/// `Ok(None)` for a record that is well formed but holds no result: the
+/// cuff streams those while it inflates and deflates (zeros, or special
+/// SFLOATs), and one where systolic does not exceed diastolic is not a
+/// result either. A record with reserved flag bits 5-7 set, or a tail that
+/// does not fit the flags, is an error.
+fn decode_sig_blood_pressure(
+    spec: &DeviceSpec,
+    char_uuid: &str,
+    bytes: &[u8],
+) -> Result<Option<BloodPressureReading>> {
+    let (_, characteristic) = spec
+        .find_decodable_characteristic(char_uuid)
+        .ok_or_else(|| anyhow!("blood-pressure characteristic {char_uuid} has no format"))?;
+    if bytes.len() < 7 {
+        bail!(
+            "blood-pressure record is short: expected at least 7 bytes, got {}",
+            bytes.len()
+        );
+    }
+    let flags = bytes[0];
+    if flags & 0xE0 != 0 {
+        bail!("blood-pressure record sets reserved flag bits ({flags:#04x})");
+    }
+    let kpa = flags & 0x01 != 0;
+    let values = decode_all_fields(bytes, characteristic.format.as_deref().unwrap_or_default())?;
+    let pressure = |name: &str| -> Result<Option<f64>> {
+        let raw = required_raw(&values, name)? as u16;
+        Ok(decode_sfloat(raw).map(|v| if kpa { v * MMHG_PER_KPA } else { v }))
+    };
+    let systolic = pressure("systolic_sfloat")?;
+    let diastolic = pressure("diastolic_sfloat")?;
+    let mean_arterial = pressure("map_sfloat")?;
+
+    // The optional tail, little-endian like the rest of the SIG record.
+    let mut at = 7;
+    let mut take = |len: usize, what: &str| -> Result<&[u8]> {
+        let field = bytes
+            .get(at..at + len)
+            .ok_or_else(|| anyhow!("blood-pressure record ends before its {what}"))?;
+        at += len;
+        Ok(field)
+    };
+    let measured_at = if flags & 0x02 != 0 {
+        let t = take(7, "timestamp")?;
+        valid_timestamp(
+            i32::from(u16::from_le_bytes([t[0], t[1]])),
+            u32::from(t[2]),
+            u32::from(t[3]),
+            u32::from(t[4]),
+            u32::from(t[5]),
+            u32::from(t[6]),
+        )
+    } else {
+        None
+    };
+    let pulse_bpm = if flags & 0x04 != 0 {
+        let p = take(2, "pulse rate")?;
+        decode_sfloat(u16::from_le_bytes([p[0], p[1]]))
+    } else {
+        None
+    };
+    let user_slot = if flags & 0x08 != 0 {
+        Some(take(1, "user id")?[0]).filter(|&id| id != 0xFF)
+    } else {
+        None
+    };
+    let status = if flags & 0x10 != 0 {
+        let s = take(2, "measurement status")?;
+        Some(u16::from_le_bytes([s[0], s[1]]))
+    } else {
+        None
+    };
+    if at != bytes.len() {
+        bail!(
+            "blood-pressure record is {} bytes, but its flags account for {at}",
+            bytes.len()
+        );
+    }
+
+    let (Some(systolic), Some(diastolic)) = (systolic, diastolic) else {
+        return Ok(None);
+    };
+    if systolic <= 0.0 || diastolic <= 0.0 || systolic <= diastolic {
+        return Ok(None);
+    }
+    Ok(Some(BloodPressureReading {
+        systolic_mmhg: systolic,
+        diastolic_mmhg: diastolic,
+        mean_arterial_mmhg: mean_arterial,
+        pulse_bpm,
+        measured_at,
+        user_slot,
+        irregular_heartbeat: status.map(|value| value & 0x0004 != 0),
+        // The SIG status has no rest indicator (bits 6-15 are reserved).
+        sufficient_rest: None,
+        converted_from_kpa: kpa,
+    }))
 }
 
 fn decode_sfloat(raw: u16) -> Option<f64> {
@@ -475,6 +611,19 @@ mod tests {
     }
 
     #[test]
+    fn a_record_without_the_timestamp_flag_has_no_measured_at() {
+        // Same bytes as the decoded record above, but flags bit 1 clear:
+        // bytes 7-13 hold a plausible date that the record does not claim.
+        let bytes = [
+            0x00, 0x00, 0x78, 0x00, 0x50, 0x00, 0x5D, 0xEA, 0x07, 11, 8, 14, 32, 15, 0x00, 0x48, 2,
+            0, 0x44,
+        ];
+        let reading = decode_blood_pressure(&beurer_spec(), BP_CHAR, &bytes).unwrap();
+        assert_eq!(reading.systolic_mmhg, 120.0);
+        assert_eq!(reading.measured_at, None);
+    }
+
+    #[test]
     fn converts_kpa_pressures_but_not_pulse() {
         let bytes = [
             0x03, 0xF0, 0xA0, 0xF0, 0x6B, 0xF0, 0x78, 0xEA, 0x07, 11, 8, 14, 32, 15, 0x00, 0x48, 1,
@@ -572,6 +721,96 @@ mod tests {
     fn beurer_spec() -> std::sync::Arc<DeviceSpec> {
         parse_or_cached(include_str!("../../../vendor/protocol-specs/device-specs/devices/beurer-series800-blood-pressure.yaml"))
             .unwrap()
+    }
+
+    fn qardio_spec() -> std::sync::Arc<DeviceSpec> {
+        parse_or_cached(include_str!(
+            "../../../vendor/protocol-specs/device-specs/devices/qardio-arm.yaml"
+        ))
+        .unwrap()
+    }
+
+    fn hex(text: &str) -> Vec<u8> {
+        text.split_whitespace()
+            .map(|b| u8::from_str_radix(b, 16).unwrap())
+            .collect()
+    }
+
+    fn qardio(record: &str) -> Result<HealthSample> {
+        decode_live_sample(&qardio_spec(), BP_CHAR, &hex(record))
+    }
+
+    fn qardio_reading(record: &str) -> BloodPressureReading {
+        match qardio(record).unwrap() {
+            HealthSample::BloodPressure(reading) => reading,
+            other => panic!("{record}: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn qardio_layout_is_told_from_the_fixed_one() {
+        assert!(declares_flag_bits(&qardio_spec(), BP_CHAR));
+        assert!(!declares_flag_bits(&beurer_spec(), BP_CHAR));
+    }
+
+    /// The spec's worked examples (payload_formats.BloodPressureMeasurement).
+    #[test]
+    fn qardio_decodes_the_specs_worked_examples() {
+        let plain = qardio_reading("04 78 00 50 00 5f 00 48 00");
+        assert_eq!(plain.systolic_mmhg, 120.0);
+        assert_eq!(plain.diastolic_mmhg, 80.0);
+        assert_eq!(plain.mean_arterial_mmhg, Some(95.0));
+        assert_eq!(plain.pulse_bpm, Some(72.0));
+        assert_eq!(plain.measured_at, None);
+        assert_eq!(plain.user_slot, None);
+        assert_eq!(plain.irregular_heartbeat, None);
+        assert!(!plain.converted_from_kpa);
+
+        let kpa = qardio_reading("05 a0 f0 6a f0 7f f0 48 00");
+        assert!(kpa.converted_from_kpa);
+        assert!((kpa.systolic_mmhg - 120.0).abs() < 0.05);
+        assert!((kpa.diastolic_mmhg - 79.5).abs() < 0.05);
+        assert!((kpa.mean_arterial_mmhg.unwrap() - 95.3).abs() < 0.05);
+        // Pulse is a rate, not a pressure: no unit conversion.
+        assert_eq!(kpa.pulse_bpm, Some(72.0));
+
+        let all = qardio_reading("1e 78 00 50 00 5f 00 e9 07 0a 0b 08 1e 00 48 00 ff 04 00");
+        assert_eq!(all.measured_at.as_deref(), Some("2025-10-11T08:30:00"));
+        assert_eq!(all.pulse_bpm, Some(72.0));
+        assert_eq!(all.user_slot, None, "255 is the unknown user");
+        assert_eq!(all.irregular_heartbeat, Some(true));
+        assert_eq!(all.sufficient_rest, None);
+    }
+
+    #[test]
+    fn qardio_records_without_a_result_are_no_reading() {
+        for record in [
+            "00 00 00 00 00 00 00",
+            "04 ff 07 ff 07 ff 07 48 00",
+            // Diastolic above systolic.
+            "00 50 00 78 00 5f 00",
+        ] {
+            assert_eq!(qardio(record).unwrap(), HealthSample::NoReading, "{record}");
+        }
+    }
+
+    #[test]
+    fn qardio_refuses_reserved_bits_and_a_tail_that_does_not_fit() {
+        for record in [
+            // Reserved bit 5.
+            "24 78 00 50 00 5f 00 48 00",
+            // Pulse flagged, not there.
+            "04 78 00 50 00 5f 00",
+            // A byte past what the flags account for.
+            "04 78 00 50 00 5f 00 48 00 00",
+            // Status flagged, one byte of it.
+            "14 78 00 50 00 5f 00 48 00 04",
+            "04 78 00 50 00",
+        ] {
+            assert!(qardio(record).is_err(), "{record}");
+        }
+        let user = qardio_reading("0c 78 00 50 00 5f 00 48 00 02");
+        assert_eq!(user.user_slot, Some(2));
     }
 
     fn po60_spec() -> std::sync::Arc<DeviceSpec> {

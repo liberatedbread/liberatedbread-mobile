@@ -522,10 +522,12 @@ class _LightControlCardState extends ConsumerState<LightControlCard> {
         style: text.bodySmall?.copyWith(color: scheme.error),
       );
     }
+    // Nothing read and nothing sent yet: say the state is unknown (the
+    // toggle is hidden for the same reason) rather than "Ready".
     if (shownOn == null) return Text('State unknown', style: style);
-    // Lights commonly have no readable state at all (most strips are
-    // write-only); a working blind control is normal, so only a live decode
-    // earns a state line.
+    // Once there is a state to show, lights commonly have no readable state
+    // to confirm it (most strips are write-only); a working blind control is
+    // normal and reads "Ready", so only a live decode earns On/Off.
     if (value == null || value.status != EntityValueStatus.live) {
       return Text('Ready', style: style);
     }

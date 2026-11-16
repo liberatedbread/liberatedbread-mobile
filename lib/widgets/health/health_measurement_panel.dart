@@ -435,7 +435,8 @@ class _HealthMeasurementPanelState extends ConsumerState<HealthMeasurementPanel>
         children: [
           Expanded(
             child: Text(
-              'Saved on this phone only.',
+              'Saved on this phone, and in its backups if those are on. '
+              'Never sent by the app.',
               style: Theme.of(
                 context,
               ).textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant),

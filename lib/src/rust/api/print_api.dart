@@ -79,6 +79,19 @@ Future<Uint8List> brotherPtStatusRequest({
 Future<BrotherPtStatusDto> decodeBrotherPtStatus({required List<int> reply}) =>
     RustLib.instance.api.crateApiPrintApiDecodeBrotherPtStatus(reply: reply);
 
+/// Why a BLE printer will not print, in words, read from the status reply its
+/// job's readiness poll ended on (`None` when the handler has nothing to say
+/// about it, and the caller keeps its own message). The MXW01 answers an out
+/// of paper status with an error flag rather than a refusal frame, so without
+/// this its job waited out the poll and read as a printer gone quiet.
+Future<String?> describePrintRefusal({
+  required String specYaml,
+  required List<int> reply,
+}) => RustLib.instance.api.crateApiPrintApiDescribePrintRefusal(
+  specYaml: specYaml,
+  reply: reply,
+);
+
 /// The canvas to compose a P-touch label on: the dots that print across
 /// `tape_width_mm` tape on `variant`'s head, continuous along the feed.
 Future<LabelCanvasDto> brotherPtLabelCanvas({

@@ -231,9 +231,13 @@ TODAY="$(date +%F)"
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
 # The PR is the one outward step with no throwaway stand-in: record the call.
 # shellcheck disable=SC2329  # called by the sourced lib, not here
+# CI answers with GH_CI_CONCLUSION (green unless a case says otherwise).
 gh() {
   printf '%s\n' "$*" >>"$TMP/gh.log"
-  if [[ "$1 $2" == "pr create" ]]; then echo https://example.invalid/pr/1; fi
+  case "$1 $2" in
+    "pr create") echo https://example.invalid/pr/1 ;;
+    "run list") printf '7\tcompleted\thttps://ci.example/7\t%s\n' "${GH_CI_CONCLUSION:-success}" ;;
+  esac
 }
 
 # git's v:refname sort ranks v0.1.0-rc1 above v0.1.0; latest_tag_version must not.
@@ -275,6 +279,15 @@ git rev-parse -q --verify refs/heads/release/v0.3.0 >/dev/null &&
 [[ ! -e "$TMP/prep" ]] && pass "prep declined: worktree discarded" ||
   fail "prep declined: worktree discarded"
 
+# Declining both the push to main and the PR leaves the commit in its
+# worktree; preparing again (the next prompt's default) takes it up.
+( prepare_release_commit 0.3.0 && open_release_pr 0.3.0 ) <<<$'y\nn' >/dev/null 2>&1
+PREP_030="$(git rev-parse -q --verify refs/heads/release/v0.3.0)"
+expect "prep again after declining the PR: reuses the commit" "0 $PREP_030" \
+  "$( (prepare_release_commit 0.3.0 </dev/null >/dev/null 2>&1); echo $?) $(git rev-parse -q --verify refs/heads/release/v0.3.0)"
+git worktree remove --force "$TMP/prep" 2>/dev/null
+git_q branch -D release/v0.3.0
+
 # main's version already tagged on an earlier commit (v0.1.0 is on "one",
 # main is "notes"): no "Not ready" error and no version prompt; it commits the
 # next patch, 0.1.1, straight onto main and carries on with it. Answers:
@@ -283,6 +296,18 @@ git rev-parse -q --verify refs/heads/release/v0.3.0 >/dev/null &&
 git_q tag -d v0.1.0
 git_q fetch origin --tags
 NOTES_SHA="$(git rev-parse origin/main)"
+# A red CI on main stops before the bump is prepared, let alone pushed: main
+# must not gain a dated [0.1.1] section for a release that cannot be cut.
+: >"$TMP/gh.log"
+( GH_CI_CONCLUSION=failure WANT_VERSION=""; resolve_new_tag && echo "RESOLVED=$TAG" ) \
+  <<<$'y\ny\ny' >"$TMP/red.out" 2>"$TMP/red.err"
+git_q fetch origin main
+expect "red CI: stops before the release commit" "" "$(grep '^RESOLVED=' "$TMP/red.out")"
+expect "red CI: origin/main untouched" "$NOTES_SHA" "$(git rev-parse origin/main)"
+expect "red CI: no prep branch or worktree" "0 no" \
+  "$(git branch --list 'release/v0.1.1' | wc -l | tr -d ' ') $([[ -e "$TMP/prep" ]] && echo yes || echo no)"
+grep -q "run list.*--commit $NOTES_SHA" "$TMP/gh.log" && pass "red CI: asked about main's tip" ||
+  fail "red CI: asked about main's tip"
 : >"$TMP/gh.log"
 ( WANT_VERSION=""; resolve_new_tag && echo "RESOLVED=$TAG" ) <<<$'y\ny\ny' >"$TMP/auto.out" 2>"$TMP/auto.err"
 git_q fetch origin main
@@ -335,12 +360,14 @@ expect "char_count: characters, not bytes" 3 "$(printf '•é!\n' | char_count)"
 # ── the shared record ────────────────────────────────────────────────────────
 
 printf '# header\nVERSION=1.0.0\nCI_DONE_SHA=aaa\nANDROID_ARTIFACT=/a.aab\n' >"$TMP/local.txt"
-printf 'CI_DONE_SHA=other\nIOS_BUILD_NUMBER=7\nIOS_ARTIFACT=/mac/x.ipa\nIOS_BUILD_LOG=/mac/l\n' >"$TMP/other.txt"
+printf 'CI_DONE_SHA=other\nIOS_BUILD_NUMBER=7\nIOS_ARTIFACT=/mac/x.ipa\nIOS_BUILD_LOG=/mac/l\nDEVICE_TEST_ARGS_IOS=-d UDID\n' >"$TMP/other.txt"
 record_merge "$TMP/local.txt" "$TMP/other.txt"
 expect "record_merge: a key here keeps its value" aaa "$(record_get "$TMP/local.txt" CI_DONE_SHA)"
 expect "record_merge: the other machine's key is added" 7 "$(record_get "$TMP/local.txt" IOS_BUILD_NUMBER)"
 expect "record_merge: the other machine's paths are not" "" \
   "$(record_get "$TMP/local.txt" IOS_ARTIFACT)$(record_get "$TMP/local.txt" IOS_BUILD_LOG)"
+expect "record_merge: the other machine's phone ids are not" "" \
+  "$(record_get "$TMP/local.txt" DEVICE_TEST_ARGS_IOS)"
 # The Mac imported Android's build 100; Android then rebuilt as 101. The Mac
 # must take 101, not push its stale 100 back, and keeps its own iOS keys.
 printf 'ANDROID_VERSION_CODE=100\nIOS_BUILD_NUMBER=7\nCI_DONE_SHA=aaa\n' >"$TMP/mac.txt"
@@ -393,12 +420,16 @@ export GH_STATE="$TMP/ghstate"
   # shellcheck disable=SC2030  # PATH and the rest are this subshell's own
   PATH="$TMP/bin:$PATH" LB_RELEASE_SHARED_RECORD=1 VERSION=9.9.9 RELEASE_SHA=sha1
   RECORD="$TMP/shared-a.txt"
-  printf 'VERSION=9.9.9\nRELEASE_SHA=sha1\nANDROID_ARTIFACT=/x\nCI_DONE_SHA=sha1\n' >"$RECORD"
+  printf 'VERSION=9.9.9\nRELEASE_SHA=sha1\nANDROID_ARTIFACT=/x\nDEVICE_TEST_ARGS_ANDROID=-d SERIAL\nCI_DONE_SHA=sha1\n' >"$RECORD"
   record_push
   expect "record_push: creates a draft release" yes \
     "$([[ -f "$GH_STATE/rel/release-record-9.9.9/.draft" ]] && echo yes)"
   expect "record_push: machine paths stay here" "" \
     "$(record_get "$GH_STATE/rel/release-record-9.9.9/release-record.txt" ANDROID_ARTIFACT)"
+  expect "record_push: phone ids in the device-test args stay here" "" \
+    "$(record_get "$GH_STATE/rel/release-record-9.9.9/release-record.txt" DEVICE_TEST_ARGS_ANDROID)"
+  expect "record_push: shared keys still go" sha1 \
+    "$(record_get "$GH_STATE/rel/release-record-9.9.9/release-record.txt" CI_DONE_SHA)"
   RECORD="$TMP/shared-b.txt"
   printf 'VERSION=9.9.9\nRELEASE_SHA=sha1\nIOS_BUILD_NUMBER=5\n' >"$RECORD"
   record_pull

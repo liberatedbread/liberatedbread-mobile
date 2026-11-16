@@ -193,11 +193,13 @@ fn read_fields(frame: &mut JuiceNetFrameDto, tokens: &[&str], legacy: bool) -> R
         frame.power_watts = Some((v * a * 10.0).round() / 10.0);
     }
     if legacy && frame.status_code.is_none() {
-        // The legacy format has no S; A > 0 means charging.
-        if let Some(a) = frame.current_amps {
-            let code = if a > 0.0 { 2 } else { 0 };
-            frame.status_code = Some(code);
-            frame.status_text = Some(status_text(code).to_string());
+        // The legacy format has no S; the spec says only that A > 0 means
+        // charging. A of 0 could be unplugged or plugged in and idle
+        // (juicepassproxy guesses the latter, and notes it needs testing),
+        // so it is left unknown rather than guessed.
+        if frame.current_amps.is_some_and(|a| a > 0.0) {
+            frame.status_code = Some(2);
+            frame.status_text = Some(status_text(2).to_string());
         }
     }
     Ok(())
@@ -424,6 +426,10 @@ mod tests {
         assert_eq!(repeated.session_wh, Some(14));
         assert_eq!(repeated.status_code, Some(2), "A > 0 means charging");
         assert_eq!(repeated.current_amps, Some(10.0));
+        let idle = parse_datagram(b"0910000000000000000000004242:V247,E14,A0:");
+        assert_eq!(idle.current_amps, Some(0.0));
+        assert_eq!(idle.status_code, None, "A of 0 does not say plugged or not");
+        assert_eq!(idle.status_text, None);
     }
 
     #[test]

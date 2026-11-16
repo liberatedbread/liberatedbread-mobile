@@ -168,7 +168,9 @@ pub fn encode_print_job(
         inter_write_delay_ms: INTER_WRITE_DELAY_MS,
         // Step 3: "abort unless the overall flag is 0". A printer reporting an
         // error is asked again until the deadline, so feeding paper in time
-        // saves the job, and a deadline passed means nothing was printed.
+        // saves the job, and a deadline passed means nothing was printed. The
+        // runner hands back the last status it got, and [`refusal_reason`]
+        // reads it, so that ends as "out of paper", not as a silent printer.
         completion_poll: Some(CompletionPoll {
             before_write: print_request,
             request: command(CMD_GET_STATUS, &[])?,
@@ -202,6 +204,48 @@ pub fn encode_print_job(
             },
         ],
         writes,
+    })
+}
+
+/// The status field that says what went wrong when the flag is non-zero.
+const FIELD_ERROR_BITMASK: &str = "error_bitmask";
+
+/// The error bits the spec's `error_bitmask` notes name, in its words' order.
+const ERROR_BITS: [(u8, &str); 3] = [
+    (0x01, "out of paper"),
+    (0x04, "overheated"),
+    (0x08, "battery low"),
+];
+
+/// Why the printer will not print, read from a status reply whose overall
+/// flag is non-zero: the reply the job's readiness poll ended on. `None` for
+/// any other frame, or a status that says nothing is wrong, so the caller
+/// keeps its own message.
+pub fn refusal_reason(spec: &DeviceSpec, reply: &[u8]) -> Option<String> {
+    let (notify, flag_offset) = resolve_notify_channel(spec)?;
+    if reply.len() <= flag_offset || reply[..2] != REPLY_HEAD || reply[2] != REPLY_STATUS {
+        return None;
+    }
+    let flag = reply[flag_offset];
+    if flag == 0 {
+        return None;
+    }
+    let bits = notify
+        .format
+        .as_ref()?
+        .iter()
+        .find(|f| f.name == FIELD_ERROR_BITMASK)
+        .and_then(|f| reply.get(f.offset).copied())
+        .unwrap_or(0);
+    let named: Vec<&str> = ERROR_BITS
+        .iter()
+        .filter(|(bit, _)| bits & bit != 0)
+        .map(|(_, words)| *words)
+        .collect();
+    Some(if named.is_empty() {
+        format!("it reports error {bits:#04x}")
+    } else {
+        named.join(", ")
     })
 }
 
@@ -291,6 +335,42 @@ mod tests {
 
     fn job() -> EncodedFrame {
         encode_print_job(&spec(), &tiny(), 8, 2, 0, 244).unwrap()
+    }
+
+    /// A 0xA1 status reply with the overall flag (payload[6]) and the error
+    /// bitmask (payload[7]) as given.
+    fn status(flag: u8, bits: u8) -> Vec<u8> {
+        let mut reply = vec![0x22, 0x21, 0xA1, 0x00, 0x0C, 0x00];
+        reply.extend_from_slice(&[0, 0, 0, 80, 30, 0, flag, bits, 0, 0, 0, 0]);
+        reply.extend_from_slice(&[0x00, 0xFF]);
+        reply
+    }
+
+    #[test]
+    fn a_status_with_its_error_flag_set_says_why() {
+        let spec = spec();
+        assert_eq!(
+            refusal_reason(&spec, &status(1, 0x01)).as_deref(),
+            Some("out of paper")
+        );
+        assert_eq!(
+            refusal_reason(&spec, &status(1, 0x09)).as_deref(),
+            Some("out of paper, battery low")
+        );
+        assert_eq!(
+            refusal_reason(&spec, &status(1, 0x04)).as_deref(),
+            Some("overheated")
+        );
+        assert_eq!(
+            refusal_reason(&spec, &status(1, 0x40)).as_deref(),
+            Some("it reports error 0x40")
+        );
+        // A healthy status, or another frame, is no reason.
+        assert_eq!(refusal_reason(&spec, &status(0, 0x01)), None);
+        let mut other = status(1, 0x01);
+        other[2] = 0xA9;
+        assert_eq!(refusal_reason(&spec, &other), None);
+        assert_eq!(refusal_reason(&spec, &[0x22, 0x21]), None);
     }
 
     /// The fixed frames, byte for byte as the spec's device notes lay them out

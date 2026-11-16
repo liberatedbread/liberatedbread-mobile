@@ -115,11 +115,12 @@ HealthMeasurementPlan? _bloodPressurePlan(
     for (final char in service.characteristics) {
       if (normalizeUuid(char.uuid) == normalizeUuid(charUuid) &&
           char.canNotify &&
-          // The decoder reads a whole `flags` byte at fixed offsets. A
-          // record laid out otherwise (QardioArm names each flag bit and
-          // walks an optional tail) would be claimed here, have its own
-          // cards hidden, and then never decode.
-          char.formatFields.any((field) => field.name == 'flags') &&
+          // A record the decoder reads: a whole `flags` byte with fixed
+          // offsets (Beurer), or the SIG record whose format names each flag
+          // bit and whose optional tail follows them (QardioArm). One laid
+          // out any other way would be claimed here, have its own cards
+          // hidden, and then never decode.
+          _decodableBloodPressureFlags(char.formatFields) &&
           _isDiscovered(discovered, service.uuid, charUuid)) {
         final handled = spec.entities
             .where(
@@ -173,3 +174,9 @@ bool _isDiscovered(
                 char.canWrite,
       ),
 );
+
+/// The two blood-pressure layouts the Rust decoder reads, told apart the way
+/// it tells them (`health::declares_flag_bits`).
+bool _decodableBloodPressureFlags(List<FormatFieldDto> fields) =>
+    fields.any((field) => field.name == 'flags') ||
+    fields.any((field) => field.offset == 0 && field.name.startsWith('flags_'));

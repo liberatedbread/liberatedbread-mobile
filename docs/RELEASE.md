@@ -106,7 +106,9 @@ that question up front. Then each script:
   `pubspec.yaml`'s version, moves every entry
   under CHANGELOG.md's **Unreleased** heading into `## [X.Y.Z] - <today>`
   (dropping a "Nothing yet" placeholder, leaving the Unreleased heading
-  empty), shows the diff, and offers `$EDITOR` to curate the notes. After you
+  empty), shows the diff, and offers `$EDITOR` to curate the notes. It waits
+  for CI on the commit the bump will sit on first, and stops if that run is
+  not green, so a red `main` never gains a dated release section. After you
   confirm it commits and pushes that one commit straight onto `main`, with no
   PR: it changes only the version line and the CHANGELOG, so the CI gate
   takes the green run of the commit it sits on (below). Then it continues
@@ -226,7 +228,8 @@ The record is mirrored to a **draft** GitHub Release tagged
 `release-record-X.Y.Z`, holding only `release-record.txt`: drafts are visible
 only to people with push access and create no tag. Never publish it. Each
 machine merges the other's keys at the start and after every finished step,
-so the CI gate, gates and GitHub Release done on one count on the other.
+so the CI gate and GitHub Release done on one count on the other (the
+one-time gates are confirmed per platform).
 Machine paths (artifacts, logs) are not shared. A shared record for a
 different commit stops the run: that would be two builds of one version.
 `LB_RELEASE_SHARED_RECORD=0` keeps the record local.

@@ -522,6 +522,9 @@ void main() {
     });
 
     testWidgets('reads a decimal comma as the point', (tester) async {
+      // The comma is a decimal point only where the locale writes one.
+      tester.platformDispatcher.localeTestValue = const Locale('de', 'DE');
+      addTearDown(tester.platformDispatcher.clearLocaleTestValue);
       // An iOS decimal pad in de/fr/es/it/pt/nl has a comma key and no
       // period, so "146,940" was the only way to type the frequency there,
       // and it was refused as not looking like 146.940.

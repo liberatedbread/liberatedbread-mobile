@@ -59,4 +59,21 @@ void main() {
       expect(bloodPressureBeurerReference(120, 110).label, contains('Grade 3'));
     });
   });
+
+  test('a zero pressure is outside the tables, not a normal reading', () {
+    for (final (systolic, diastolic) in [
+      (0.0, 0.0),
+      (0.0, 70.0),
+      (110.0, 0.0),
+    ]) {
+      expect(
+        bloodPressureNihReference(systolic, diastolic).label,
+        'Outside cited range',
+      );
+      expect(
+        bloodPressureBeurerReference(systolic, diastolic).label,
+        'Outside cited range',
+      );
+    }
+  });
 }

@@ -211,6 +211,54 @@ void main() {
     }
   });
 
+  group('FOREO with 0A30 and wake-up off', () {
+    IplSetupSession foreo(FakeForeoBle ble, FakeSpecCodec specCodec) =>
+        IplSetupSession(
+          ble: ble,
+          specCodec: specCodec,
+          iplCodec: FakeIplCodec(),
+          deviceId: 'AA:BB:CC:DD:EE:FF',
+          specYaml: 'yaml',
+          spec: foreoSpec(),
+          discoveredServices: iplDiscovered(const [
+            _security,
+            _sw,
+            _activation,
+            _wakeup,
+            foreoCommandChar,
+          ]),
+        );
+
+    for (final applies in [true, false]) {
+      test('a mode change ${applies ? 'that succeeds' : 'that fails'} '
+          'keeps the wake-up step pending', () async {
+        final specCodec = FakeSpecCodec();
+        final ble = FakeForeoBle(
+          specCodec: specCodec,
+          applies: applies,
+          extraReads: const {
+            _wakeup: [0],
+          },
+        );
+        final session = foreo(ble, specCodec);
+        addTearDown(session.dispose);
+        session.start();
+        await _settle();
+        expect(session.state.phase, IplSetupPhase.needsAction);
+        expect(session.state.wakeupEnabled, isFalse);
+
+        await session.setProMode(true);
+        expect(session.state.proMode, applies);
+        expect(
+          session.state.proModeError,
+          applies ? isNull : contains('still reports Basic'),
+        );
+        expect(session.state.phase, IplSetupPhase.needsAction);
+        expect(session.state.wakeupEnabled, isFalse);
+      });
+    }
+  });
+
   test('an already activated FOREO gets no activation write', () async {
     final ble = FakeBleService(
       readValues: const {

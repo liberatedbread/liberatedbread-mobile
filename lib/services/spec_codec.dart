@@ -1255,6 +1255,14 @@ abstract class SpecCodec {
   /// Decode one 32-byte P-touch status frame (throws when malformed).
   Future<BrotherPtStatusDto> decodeBrotherPtStatus({required List<int> reply});
 
+  /// Why a BLE printer will not print, in words ("out of paper"), read from
+  /// the status [reply] its job ended on; null when the spec's handler has
+  /// nothing to say about it.
+  Future<String?> describePrintRefusal({
+    required String specYaml,
+    required List<int> reply,
+  });
+
   /// The canvas to compose a P-touch label on for [tapeWidthMm] tape.
   Future<LabelCanvasDto> brotherPtLabelCanvas({
     required String specYaml,

@@ -198,6 +198,24 @@ void main() {
     expect(purifier.requests.last.token, read.token);
   });
 
+  test('a host name is resolved to IPv4, to match the IPv4 socket', () async {
+    purifier = await _FakePurifier.start(_healthy);
+    final asked = <InternetAddressType>[];
+    final client = PhilipsAirControlClient(
+      timeout: const Duration(milliseconds: 400),
+      lookup: (host, {type = InternetAddressType.any}) async {
+        asked.add(type);
+        return [
+          if (type != InternetAddressType.IPv4) InternetAddress.loopbackIPv6,
+          InternetAddress.loopbackIPv4,
+        ];
+      },
+    );
+    final fields = await client.readStatus('purifier.local', purifier.port);
+    expect(fields['state.reported.pwr'], '1');
+    expect(asked, [InternetAddressType.IPv4]);
+  });
+
   test('a write goes under the synced counter plus one, byte for byte the '
       "spec's vector", () async {
     purifier = await _FakePurifier.start(_healthy);
