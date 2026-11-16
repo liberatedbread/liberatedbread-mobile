@@ -231,9 +231,13 @@ TODAY="$(date +%F)"
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
 # The PR is the one outward step with no throwaway stand-in: record the call.
 # shellcheck disable=SC2329  # called by the sourced lib, not here
+# CI answers with GH_CI_CONCLUSION (green unless a case says otherwise).
 gh() {
   printf '%s\n' "$*" >>"$TMP/gh.log"
-  if [[ "$1 $2" == "pr create" ]]; then echo https://example.invalid/pr/1; fi
+  case "$1 $2" in
+    "pr create") echo https://example.invalid/pr/1 ;;
+    "run list") printf '7\tcompleted\thttps://ci.example/7\t%s\n' "${GH_CI_CONCLUSION:-success}" ;;
+  esac
 }
 
 # git's v:refname sort ranks v0.1.0-rc1 above v0.1.0; latest_tag_version must not.
@@ -283,6 +287,18 @@ git rev-parse -q --verify refs/heads/release/v0.3.0 >/dev/null &&
 git_q tag -d v0.1.0
 git_q fetch origin --tags
 NOTES_SHA="$(git rev-parse origin/main)"
+# A red CI on main stops before the bump is prepared, let alone pushed: main
+# must not gain a dated [0.1.1] section for a release that cannot be cut.
+: >"$TMP/gh.log"
+( GH_CI_CONCLUSION=failure WANT_VERSION=""; resolve_new_tag && echo "RESOLVED=$TAG" ) \
+  <<<$'y\ny\ny' >"$TMP/red.out" 2>"$TMP/red.err"
+git_q fetch origin main
+expect "red CI: stops before the release commit" "" "$(grep '^RESOLVED=' "$TMP/red.out")"
+expect "red CI: origin/main untouched" "$NOTES_SHA" "$(git rev-parse origin/main)"
+expect "red CI: no prep branch or worktree" "0 no" \
+  "$(git branch --list 'release/v0.1.1' | wc -l | tr -d ' ') $([[ -e "$TMP/prep" ]] && echo yes || echo no)"
+grep -q "run list.*--commit $NOTES_SHA" "$TMP/gh.log" && pass "red CI: asked about main's tip" ||
+  fail "red CI: asked about main's tip"
 : >"$TMP/gh.log"
 ( WANT_VERSION=""; resolve_new_tag && echo "RESOLVED=$TAG" ) <<<$'y\ny\ny' >"$TMP/auto.out" 2>"$TMP/auto.err"
 git_q fetch origin main

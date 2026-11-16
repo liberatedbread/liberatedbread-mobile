@@ -106,7 +106,9 @@ that question up front. Then each script:
   `pubspec.yaml`'s version, moves every entry
   under CHANGELOG.md's **Unreleased** heading into `## [X.Y.Z] - <today>`
   (dropping a "Nothing yet" placeholder, leaving the Unreleased heading
-  empty), shows the diff, and offers `$EDITOR` to curate the notes. After you
+  empty), shows the diff, and offers `$EDITOR` to curate the notes. It waits
+  for CI on the commit the bump will sit on first, and stops if that run is
+  not green, so a red `main` never gains a dated release section. After you
   confirm it commits and pushes that one commit straight onto `main`, with no
   PR: it changes only the version line and the CHANGELOG, so the CI gate
   takes the green run of the commit it sits on (below). Then it continues

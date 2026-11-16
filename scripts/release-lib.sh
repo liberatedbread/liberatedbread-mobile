@@ -1031,6 +1031,12 @@ resolve_new_tag() {
       if [[ -z "$WANT_VERSION" ]]; then
         WANT_VERSION="$(ask_version "$(suggest_version)")" || exit 1
       fi
+      # The bump is gated on CI for the commit it sits on (ci_gate), so ask
+      # that run now: once the bump is on main, a red run would leave main
+      # with a dated [X.Y.Z] section for a release that cannot be cut.
+      step "CI for ${RELEASE_SHA:0:10}, before the release commit"
+      ci_wait_green "$(ci_gate_commit "$RELEASE_SHA")"
+      log "CI green: $CI_GREEN_URL"
       if prepare_release_commit "$WANT_VERSION" && push_release_commit "$WANT_VERSION"; then
         git fetch --quiet "$REMOTE" main --tags || die "git fetch $REMOTE failed."
         continue
@@ -1083,15 +1089,32 @@ ci_gate() {
     log "CI already recorded green: $(recorded CI_RUN_URL)"
     return
   fi
-  # A release commit that only bumps the version and dates the CHANGELOG is
-  # gated on the run for the commit it sits on: nothing it changes is built
-  # differently or tested.
-  local gate="$RELEASE_SHA" row id status conclusion url
-  while bump_only_commit "$gate"; do gate="$(git rev-parse "$gate^")"; done
+  local gate
+  gate="$(ci_gate_commit "$RELEASE_SHA")"
   if [[ "$gate" != "$RELEASE_SHA" ]]; then
     log "$SHORT_SHA only bumps pubspec.yaml's version and CHANGELOG.md; gating on CI for"
     log "$(git log -1 --format='%h %s' "$gate")."
   fi
+  ci_wait_green "$gate"
+  log "CI green: $CI_GREEN_URL"
+  record CI_RUN_URL "$CI_GREEN_URL"
+  record CI_GATE_SHA "$gate"
+  mark_done CI_DONE_SHA
+}
+
+# ci_gate_commit SHA — the commit whose CI run gates SHA. A release commit
+# that only bumps the version and dates the CHANGELOG is gated on the run for
+# the commit it sits on: nothing it changes is built differently or tested.
+ci_gate_commit() {
+  local gate="$1"
+  while bump_only_commit "$gate"; do gate="$(git rev-parse "$gate^")"; done
+  printf '%s\n' "$gate"
+}
+
+# ci_wait_green SHA — wait for ci.yml's run on SHA to finish; die unless it
+# is green. Sets CI_GREEN_URL to the run.
+ci_wait_green() {
+  local gate="$1" row id status conclusion url
   while true; do
     row="$(gh run list --workflow ci.yml --commit "$gate" --limit 1 \
       --json databaseId,status,conclusion,url \
@@ -1115,10 +1138,7 @@ ci_gate() {
     fi
     break
   done
-  log "CI green: $url"
-  record CI_RUN_URL "$url"
-  record CI_GATE_SHA "$gate"
-  mark_done CI_DONE_SHA
+  CI_GREEN_URL="$url"
 }
 
 one_time_gates() {
