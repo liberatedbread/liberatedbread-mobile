@@ -1357,6 +1357,12 @@ class RealSpecCodec implements SpecCodec {
   }) => print_rust.decodeBrotherPtStatus(reply: reply);
 
   @override
+  Future<String?> describePrintRefusal({
+    required String specYaml,
+    required List<int> reply,
+  }) => print_rust.describePrintRefusal(specYaml: specYaml, reply: reply);
+
+  @override
   Future<LabelCanvasDto> brotherPtLabelCanvas({
     required String specYaml,
     String? variant,

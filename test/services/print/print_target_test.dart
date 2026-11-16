@@ -39,6 +39,55 @@ class _ThrowingBle extends FakeBleService {
   ) => Future.error(const SocketException('gone'));
 }
 
+/// An MXW01-shaped printer: every status ask (`22 21 A1`) is answered on the
+/// notify stream with its overall flag set and the "no paper" bit.
+class _OutOfPaperPrinter extends FakeBleService {
+  final StreamController<List<int>> _notify;
+  _OutOfPaperPrinter._(this._notify) : super(notifyStream: _notify.stream);
+  factory _OutOfPaperPrinter() =>
+      _OutOfPaperPrinter._(StreamController<List<int>>.broadcast());
+
+  static const status = [
+    0x22, 0x21, 0xA1, 0x00, 0x0C, 0x00, //
+    0, 0, 0, 80, 30, 0, 0x01, 0x01, 0, 0, 0, 0, 0x00, 0xFF,
+  ];
+
+  @override
+  Future<void> writeCharacteristic(
+    String deviceId,
+    String serviceUuid,
+    String charUuid,
+    List<int> value,
+  ) async {
+    await super.writeCharacteristic(deviceId, serviceUuid, charUuid, value);
+    if (value.length > 2 && value[2] == 0xA1) {
+      scheduleMicrotask(() => _notify.add(status));
+    }
+  }
+}
+
+/// Each write takes [delay]: a printer slow enough to outlast a job deadline.
+class _SlowBle extends FakeBleService {
+  final Duration delay;
+  _SlowBle(this.delay);
+
+  @override
+  Future<void> writeCharacteristic(
+    String deviceId,
+    String serviceUuid,
+    String charUuid,
+    List<int> value,
+  ) async {
+    await Future<void>.delayed(delay);
+    await super.writeCharacteristic(deviceId, serviceUuid, charUuid, value);
+  }
+}
+
+ImageWriteDto _ctl(int cmd) => ImageWriteDto(
+  characteristicUuid: 'ae01',
+  bytes: Uint8List.fromList([0x22, 0x21, cmd, 0x00, 0x01, 0x00, 0, 0, 0xFF]),
+);
+
 class _RecordingBrother extends BrotherQlPrintService {
   final BrotherQlSendResult result;
   _RecordingBrother([this.result = const BrotherQlSendOk(null)]);
@@ -99,6 +148,95 @@ void main() {
       );
       final outcome = await target.printMono(Uint8List(384 * 3), 384, 1);
       expect(outcome, isA<PrintFailed>());
+    });
+
+    // Before the fix the job had no write timeout: a write the stack never
+    // completed held the print forever.
+    test('a write that never completes fails the print', () async {
+      final ble = FakeBleService(writeGate: Completer<void>().future);
+      final target = BleRasterTarget(
+        codec: FakeSpecCodec(),
+        ble: ble,
+        deviceId: 'AA:BB',
+        specYaml: 'cat-yaml',
+        name: 'Cat printer',
+        raster: _cat,
+        writeTimeout: const Duration(milliseconds: 50),
+      );
+      final outcome = await target
+          .printMono(Uint8List(384 * 3), 384, 1)
+          .timeout(const Duration(seconds: 5));
+      expect(outcome, isA<PrintFailed>());
+    });
+
+    test('a job past its deadline is stopped, not left writing', () async {
+      final ble = _SlowBle(const Duration(milliseconds: 40));
+      final codec = FakeSpecCodec(
+        imagePlan: ImageWritePlanDto(
+          serviceUuid: 'srv',
+          writes: [for (var i = 0; i < 20; i++) _ctl(0xAD)],
+          nextFrameIndex: 0,
+          replyWaits: const [],
+        ),
+      );
+      final target = BleRasterTarget(
+        codec: codec,
+        ble: ble,
+        deviceId: 'AA:BB',
+        specYaml: 'cat-yaml',
+        name: 'Cat printer',
+        raster: _cat,
+        jobTimeout: const Duration(milliseconds: 150),
+      );
+      final outcome = await target.printMono(Uint8List(384 * 3), 384, 1);
+      expect((outcome as PrintFailed).reason, contains('took too long'));
+      // Stopped well short of the plan; the last write is the abort.
+      expect(ble.writes.length, lessThan(20));
+      expect(codec.encodeCalls.last.commandName, 'cancel_print');
+    });
+
+    // Before the fix an MXW01 out of paper was asked for status until the
+    // poll's deadline and reported as a printer that stopped answering.
+    test('a printer that reports an error says why, and the job is '
+        'cancelled', () async {
+      final ble = _OutOfPaperPrinter();
+      final codec = FakeSpecCodec(
+        encoded: _ctl(0xAC).bytes,
+        imagePlan: ImageWritePlanDto(
+          serviceUuid: 'srv',
+          writes: [_ctl(0xA2), _ctl(0xA9), _ctl(0xAD)],
+          nextFrameIndex: 0,
+          replyWaits: const [],
+          completionPoll: CompletionPollDto(
+            beforeWrite: 1,
+            request: _ctl(0xA1),
+            characteristicUuid: 'ae02',
+            replyPrefix: Uint8List.fromList([0x22, 0x21, 0xA1]),
+            doneOffset: 12,
+            doneBytes: Uint8List.fromList([0x00]),
+            intervalMs: 10,
+            timeoutMs: 200,
+          ),
+        ),
+      )..printRefusal = 'out of paper';
+      final target = BleRasterTarget(
+        codec: codec,
+        ble: ble,
+        deviceId: 'AA:BB',
+        specYaml: 'mxw01-yaml',
+        name: 'MXW01',
+        raster: _cat,
+      );
+      final outcome = await target.printMono(Uint8List(384 * 3), 384, 1);
+      expect(
+        (outcome as PrintFailed).reason,
+        'The printer will not print: out of paper.',
+      );
+      expect(codec.printRefusalReplies.last, _OutOfPaperPrinter.status);
+      // Nothing past the status asks went out but the cancel.
+      expect(ble.writes.map((w) => w.value[2]).toSet(), {0xA2, 0xA1, 0xAC});
+      expect(codec.encodeCalls.single.commandName, 'cancel_print');
+      expect(codec.encodeCalls.single.charUuid, 'ae01');
     });
   });
 

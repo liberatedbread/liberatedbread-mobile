@@ -6,6 +6,7 @@ import 'dart:typed_data';
 import 'package:flutter/foundation.dart' show immutable;
 
 import '../../core/log.dart';
+import '../../core/stop_signal.dart';
 import '../ble_connect_within.dart';
 import '../ble_service.dart';
 import '../ble_write_plan_runner.dart';
@@ -329,6 +330,11 @@ class BrotherPtTarget implements LabelPrintTarget {
   }
 }
 
+/// The spec commands that end a print job early, tried in order: the MXW01's
+/// `cancel_print`, NIIMBOT's `print_end` ("sent after an error or timeout,
+/// so the job ends either way"). A spec declaring neither gets nothing.
+const _abortCommands = ['cancel_print', 'print_end'];
+
 /// A BLE raster printer the app is connected to (cat printer, Fichero D11):
 /// the label is encoded by the spec's image-upload handler into a GATT
 /// write plan and written over the live connection.
@@ -337,6 +343,15 @@ class BleRasterTarget implements LabelPrintTarget {
   final BleService ble;
   final String deviceId;
   final String specYaml;
+
+  /// How long one GATT write may take before the job is failed. Without it
+  /// a write the stack never completes held the print sheet forever.
+  final Duration writeTimeout;
+
+  /// How long one copy's whole plan may run. The plan's own reply waits are
+  /// bounded already; this stops the plan, rather than only ceasing to wait
+  /// for it, so nothing is left writing behind a failed print.
+  final Duration jobTimeout;
 
   @override
   final String name;
@@ -351,6 +366,8 @@ class BleRasterTarget implements LabelPrintTarget {
     required this.specYaml,
     required this.name,
     required RasterPrintDto raster,
+    this.writeTimeout = const Duration(seconds: 8),
+    this.jobTimeout = const Duration(minutes: 5),
   }) : geometry = LabelGeometry(
          // 384 is the 58 mm roll every cat printer takes, and the widest
          // any BLE thermal printer in the catalogue is.
@@ -389,27 +406,110 @@ class BleRasterTarget implements LabelPrintTarget {
     }
     try {
       for (var i = 0; i < copies; i++) {
-        await runImageWritePlan(ble, deviceId, plan);
+        await _runCopy(plan);
       }
+    } on ImagePlanStoppedException {
+      Log.ble.warning('printer $deviceId job passed its deadline');
+      await _abortJob(plan);
+      return const PrintFailed(
+        'The printer took too long, so the label was stopped. Check it is on '
+        'and in range, then try again.',
+      );
     } on DeviceRefusedException catch (e) {
       Log.ble.warning('printer $deviceId refused the job', error: e);
-      return const PrintFailed(
-        'The printer refused the label. Check the lid is shut and the '
-        'labels are loaded.',
+      await _abortJob(plan);
+      final reason = await _refusalReason(e.reply);
+      return PrintFailed(
+        reason != null
+            ? 'The printer will not print: $reason.'
+            : 'The printer refused the label. Check the lid is shut and the '
+                  'labels are loaded.',
+      );
+    } on PollNotDoneException catch (e) {
+      // Still answering, but never ready: what it said is the reason.
+      Log.ble.warning('printer $deviceId never reported ready', error: e);
+      await _abortJob(plan);
+      final reason = await _refusalReason(e.reply);
+      return PrintFailed(
+        reason != null
+            ? 'The printer will not print: $reason.'
+            : 'The printer did not finish the label in time. Check it is on '
+                  'and has labels, then try again.',
       );
     } on TimeoutException catch (e) {
       Log.ble.warning('printer $deviceId stopped answering', error: e);
+      await _abortJob(plan);
       return const PrintFailed(
         'The printer stopped answering partway through. Check it is on and '
         'in range, then try again.',
       );
     } on Object catch (e) {
       Log.ble.warning('print write failed for $deviceId', error: e);
+      await _abortJob(plan);
       return const PrintFailed(
         'The printer stopped responding. Check it is on and in range.',
       );
     }
     return const PrintOk();
+  }
+
+  /// One copy, under [jobTimeout] and with every write under [writeTimeout],
+  /// the way a group run bounds an upload.
+  Future<void> _runCopy(ImageWritePlanDto plan) async {
+    final stop = StopSignal();
+    final deadline = Timer(jobTimeout, stop.stop);
+    try {
+      await runImageWritePlan(
+        ble,
+        deviceId,
+        plan,
+        stop: stop,
+        writeTimeout: writeTimeout,
+      );
+    } finally {
+      deadline.cancel();
+    }
+  }
+
+  /// Best effort: tell a printer whose job failed partway that it is over,
+  /// with the first of [_abortCommands] its spec declares on the plan's
+  /// control channel. A failure here is logged and nothing more; the print
+  /// has already failed and the reason the user sees is that one.
+  Future<void> _abortJob(ImageWritePlanDto plan) async {
+    final control =
+        plan.completionPoll?.request.characteristicUuid ??
+        (plan.writes.isEmpty ? null : plan.writes.first.characteristicUuid);
+    if (control == null) return;
+    for (final name in _abortCommands) {
+      final Uint8List bytes;
+      try {
+        bytes = await codec.encodeCommand(
+          specYaml: specYaml,
+          serviceUuid: plan.serviceUuid,
+          charUuid: control,
+          commandName: name,
+          params: const {},
+        );
+      } on Object {
+        continue; // Not this spec's command.
+      }
+      try {
+        await ble
+            .writeCharacteristic(deviceId, plan.serviceUuid, control, bytes)
+            .timeout(writeTimeout);
+      } on Object catch (e) {
+        Log.ble.debug('printer $deviceId: $name not sent: $e');
+      }
+      return;
+    }
+  }
+
+  Future<String?> _refusalReason(List<int> reply) async {
+    try {
+      return await codec.describePrintRefusal(specYaml: specYaml, reply: reply);
+    } on Object {
+      return null;
+    }
   }
 }
 

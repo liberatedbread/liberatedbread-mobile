@@ -349,6 +349,21 @@ pub fn decode_brother_pt_status(reply: Vec<u8>) -> anyhow::Result<BrotherPtStatu
     })
 }
 
+/// Why a BLE printer will not print, in words, read from the status reply its
+/// job's readiness poll ended on (`None` when the handler has nothing to say
+/// about it, and the caller keeps its own message). The MXW01 answers an out
+/// of paper status with an error flag rather than a refusal frame, so without
+/// this its job waited out the poll and read as a printer gone quiet.
+pub fn describe_print_refusal(spec_yaml: String, reply: Vec<u8>) -> anyhow::Result<Option<String>> {
+    let spec = crate::protocol::dispatch::parse_or_cached(&spec_yaml)?;
+    Ok(match spec.protocol_handler.as_deref() {
+        Some(crate::protocol::cat_printer_mxw01::HANDLER_NAME) => {
+            crate::protocol::cat_printer_mxw01::refusal_reason(&spec, &reply)
+        }
+        _ => None,
+    })
+}
+
 /// The canvas to compose a P-touch label on: the dots that print across
 /// `tape_width_mm` tape on `variant`'s head, continuous along the feed.
 pub fn brother_pt_label_canvas(
