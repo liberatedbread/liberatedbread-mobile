@@ -11,6 +11,20 @@ plus the finders' incidental spec notes). Verified items were put to an adversar
 **Open: 2 verified, 9 unverified.** Five more were delivered upstream; see
 below.
 
+## Found 2026-11-16, reviewing the PAX status request
+
+Not checked against hardware either way. The app's reading is in
+`rust/src/protocol/pax.rs` (`encode_status_request`).
+
+- pax-vape `request_status_update` says "type 0xFE followed by an 8-byte LE
+  bitmask", which the app encrypts as 9 plaintext bytes (AES-OFB needs no
+  padding) followed by the 16-byte IV. The reviewer reports that
+  pax-romana's status-request message zero-pads that plaintext to 16 bytes
+  before encrypting. Whether the firmware accepts, needs or ignores the
+  padding is unknown. The spec should state the plaintext length (9, or
+  padded to a 16-byte block with zeros) once a device has answered one or
+  the other; the app keeps sending 9 until then.
+
 ## Found 2026-11-14, wiring the FOREO Peach 2 Pro-mode switch
 
 Checked against a real PEACH2 (F.REV.K). The app's reading is in
