@@ -278,6 +278,12 @@ class Edit:
     def get_track(self, track: str) -> dict:
         return self.play.call('GET', f'/{self.id}/tracks/{quote(track)}')
 
+    def bundle_codes(self) -> set:
+        """versionCodes of every bundle already uploaded to the app."""
+        listing = self.play.call('GET', f'/{self.id}/bundles')
+        return {int(b['versionCode']) for b in listing.get('bundles', []) or []
+                if 'versionCode' in b}
+
     def put_track(self, track: str, releases: list) -> dict:
         return self.play.call('PUT', f'/{self.id}/tracks/{quote(track)}',
                               {'track': track, 'releases': releases})
@@ -309,6 +315,45 @@ def find_release(track: dict, version_code: int) -> dict | None:
     for release in track.get('releases', []) or []:
         if has_code(release, version_code):
             return release
+    return None
+
+
+# Statuses whose versionCodes users of the track have, or are getting.
+SERVING = ('completed', 'inProgress', 'halted')
+
+
+def serving_codes(track: dict) -> dict:
+    """{versionCode: status} for the releases a track serves."""
+    codes = {}
+    for release in track.get('releases', []) or []:
+        if release.get('status') in SERVING:
+            for v in release.get('versionCodes', []) or []:
+                codes[int(v)] = release['status']
+    return codes
+
+
+def track_verdict(name: str, track: dict, code: int) -> str | None:
+    """The status code already has on the track, None when a release of code
+    can be added, or Failure when the track serves a higher versionCode.
+
+    Play Console refuses both other cases with messages that do not say what
+    to do: a release of a versionCode the track already serves "does not add
+    or remove any app bundles", and one below it "doesn't allow any existing
+    users to upgrade" (nobody moves to a lower versionCode). Re-runs of the
+    guided release hit the first; testing an older build than one already
+    rolled out hits the second.
+    """
+    serving = serving_codes(track)
+    if code in serving:
+        return serving[code]
+    higher = sorted(c for c in serving if c > code)
+    if higher:
+        raise Failure(
+            f'{name} already serves versionCode {higher[-1]} ({serving[higher[-1]]}), '
+            f'above {code}: no user there could upgrade to {code}, so Play would '
+            f"refuse the release (\"doesn't allow any existing users to upgrade\"). "
+            f'Test or promote {higher[-1]} instead, or rebuild so the new build '
+            'gets a higher versionCode')
     return None
 
 
@@ -364,17 +409,44 @@ def staged_status(fraction: float | None) -> tuple[str, float | None]:
 
 def cmd_upload(args, play: Play) -> tuple[int, dict]:
     notes = read_notes(args.notes_file, args.language)
+    expected = args.expect_version_code
     with Edit(play) as edit:
-        log(f'uploading {args.aab} ({os.path.getsize(args.aab)} bytes)')
-        bundle = play.upload_bundle(edit.id, args.aab)
-        code = bundle.get('versionCode')
-        if code is None:
-            raise Failure('Play accepted the upload but returned no versionCode')
-        code = int(code)
-        log(f'Play has the bundle: versionCode {code}')
-        if args.expect_version_code is not None and code != args.expect_version_code:
-            raise Failure(f'the bundle is versionCode {code}, expected '
-                          f'{args.expect_version_code}; not releasing it')
+        target = edit.get_track(args.track)
+        bundle = {}
+        if expected is not None:
+            # Before anything is uploaded: a re-run of a build that is already
+            # on the track has nothing to do, and one below the track's
+            # serving versionCode would be refused after a long upload.
+            already = track_verdict(args.track, target, expected)
+            if already:
+                log(f'versionCode {expected} is already on {args.track} '
+                    f'({already}); nothing to upload or roll out')
+                return EXIT_OK, {'versionCode': expected, 'track': args.track,
+                                 'status': already, 'already': True}
+        if expected is not None and expected in edit.bundle_codes():
+            # Uploaded by an earlier run whose track update did not land:
+            # Play refuses the same versionCode twice, so release that one.
+            log(f'Play already has the bundle for versionCode {expected}; '
+                'not uploading it again')
+            code = expected
+        else:
+            log(f'uploading {args.aab} ({os.path.getsize(args.aab)} bytes)')
+            bundle = play.upload_bundle(edit.id, args.aab)
+            code = bundle.get('versionCode')
+            if code is None:
+                raise Failure('Play accepted the upload but returned no versionCode')
+            code = int(code)
+            log(f'Play has the bundle: versionCode {code}')
+            if expected is not None and code != expected:
+                raise Failure(f'the bundle is versionCode {code}, expected '
+                              f'{expected}; not releasing it')
+            if expected is None:
+                already = track_verdict(args.track, target, code)
+                if already:
+                    log(f'versionCode {code} is already on {args.track} '
+                        f'({already}); nothing to roll out')
+                    return EXIT_OK, {'versionCode': code, 'track': args.track,
+                                     'status': already, 'already': True}
         release = {'versionCodes': [str(code)], 'status': 'completed'}
         if args.release_name:
             release['name'] = args.release_name
@@ -384,7 +456,8 @@ def cmd_upload(args, play: Play) -> tuple[int, dict]:
         edit.commit()
     log(f'versionCode {code} is on {args.track} ({status})')
     return EXIT_OK, {'versionCode': code, 'track': args.track,
-                     'status': status, 'sha256': bundle.get('sha256')}
+                     'status': status, 'sha256': bundle.get('sha256'),
+                     'already': False}
 
 
 def cmd_promote(args, play: Play) -> tuple[int, dict]:
@@ -395,6 +468,13 @@ def cmd_promote(args, play: Play) -> tuple[int, dict]:
         if source is None:
             raise Failure(f'no release on {args.source} has versionCode {code}; '
                           'promote only what was tested')
+        already = track_verdict(args.target, edit.get_track(args.target), code)
+        if already:
+            log(f'versionCode {code} is already on {args.target} ({already}); '
+                'nothing to promote')
+            return EXIT_OK, {'versionCode': code, 'from': args.source,
+                             'to': args.target, 'status': already,
+                             'userFraction': None, 'already': True}
         status, fraction = staged_status(args.user_fraction)
         release = {'versionCodes': [str(code)], 'status': status}
         # The tested release's name and notes come along unless replaced, as
@@ -415,7 +495,8 @@ def cmd_promote(args, play: Play) -> tuple[int, dict]:
             f'{status}{fraction_note}')
     return EXIT_OK, {'versionCode': code, 'from': args.source,
                      'to': args.target, 'status': status,
-                     'userFraction': fraction if status == 'inProgress' else None}
+                     'userFraction': fraction if status == 'inProgress' else None,
+                     'already': False}
 
 
 def cmd_rollout(args, play: Play) -> tuple[int, dict]:

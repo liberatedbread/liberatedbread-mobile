@@ -310,6 +310,18 @@ verify_upload_fingerprint() {
   log "Signed by the upload key (certificate SHA-256 matches)."
 }
 
+# say_track_errors — what Play Console's two refusals for a release that
+# gives no user anything newer mean. They read like faults, but both are about
+# what the track already serves (play_publish.py checks this itself).
+say_track_errors() {
+  say "" \
+    "If Play says the release \"does not add or remove any app bundles\": versionCode" \
+    "$BUILD_NUMBER is already on that track. Discard the new release; that step is done." \
+    "If it says it \"doesn't allow any existing users to upgrade\": the track serves a" \
+    "HIGHER versionCode. Discard the release, then test that newer build, or stop (q)," \
+    "re-run, and answer No to reusing the build so this one gets a higher number."
+}
+
 # play_api — status 0 when a service account is configured for play_publish.py.
 play_api() {
   [[ -f "$PLAY_SERVICE_ACCOUNT" ]] && return 0
@@ -327,7 +339,9 @@ platform_upload() {
       --notes-file "$STORE_NOTES" --release-name "$VERSION ($BUILD_NUMBER)")"; then
       status="$(json_field status <<<"$out")"
       record PLAY_INTERNAL_STATUS "$status"
-      if [[ "$status" == draft ]]; then
+      if [[ "$(json_field already <<<"$out")" == True ]]; then
+        log "Build $BUILD_NUMBER is already on Internal testing ($status); nothing to upload."
+      elif [[ "$status" == draft ]]; then
         open_url "$PLAY_CONSOLE_URL"
         say "Liberated Bread has never been published, so Play holds this as a DRAFT" \
           "release on Internal testing. Play Console → Testing → Internal testing →" \
@@ -349,6 +363,7 @@ platform_upload() {
     "     release, and start the rollout to Internal testing. Not Production." \
     "If Play refuses the versionCode, stop (q) and re-run: answer No to reusing" \
     "the build, and the next build gets a higher one."
+  say_track_errors
   pause
   record_url PLAY_INTERNAL_RELEASE_URL "Internal-testing release URL (blank to skip)"
 }
@@ -375,6 +390,10 @@ platform_publish() {
       out="$(python3 "$PLAY_PUBLISH" "${args[@]}")"; then
       status="$(json_field status <<<"$out")"
       record PLAY_PRODUCTION_STATUS "$status"
+      if [[ "$(json_field already <<<"$out")" == True ]]; then
+        log "versionCode $BUILD_NUMBER is already on Production ($status); nothing to promote."
+        return
+      fi
       record PLAY_ROLLOUT_FRACTION "$fraction"
       if [[ "$status" == draft ]]; then
         open_url "$PLAY_CONSOLE_URL"
@@ -399,6 +418,7 @@ platform_publish() {
     "forward: do not rebuild or upload anything new." \
     "Release notes: $STORE_NOTES. Check the store forms, review the Production" \
     "release, and start its rollout (staged, when offered)."
+  say_track_errors
   pause
   record_url PLAY_PRODUCTION_RELEASE_URL "Production release URL (blank to skip)"
 }

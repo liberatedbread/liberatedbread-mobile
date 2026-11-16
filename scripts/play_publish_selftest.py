@@ -67,8 +67,11 @@ class FakePlay:
         self.reset()
 
     def reset(self, *, tracks: dict | None = None, upload_code: int = 42,
-              draft_app: bool = False, fail: tuple | None = None) -> None:
+              draft_app: bool = False, fail: tuple | None = None,
+              bundles: set | None = None) -> None:
         self.tracks = copy.deepcopy(tracks or {})
+        # versionCodes already uploaded to the app (Play refuses a repeat).
+        self.bundles = set(bundles or ())
         self.upload_code = upload_code
         self.draft_app = draft_app
         # (method, path regex, http code, message): refuse matching calls.
@@ -161,8 +164,18 @@ class Handler(BaseHTTPRequestHandler):
             if (call['query'].get('uploadType') != ['media']
                     or call['type'] != 'application/octet-stream'):
                 return self.refuse(400, 'Media upload expected.')
+            if FAKE.upload_code in FAKE.bundles:
+                return self.refuse(403, 'APK specifies a version code that '
+                                   'has already been used.')
+            FAKE.bundles.add(FAKE.upload_code)
             return self.reply(200, {'versionCode': FAKE.upload_code,
                                     'sha1': 'x', 'sha256': 'f' * 64})
+        m = re.fullmatch(APP + r'/([^/:]+)/bundles', path)
+        if cmd == 'GET' and m:
+            if self.edit(m.group(1)) is None:
+                return
+            return self.reply(200, {'bundles': [
+                {'versionCode': c, 'sha256': 'f' * 64} for c in sorted(FAKE.bundles)]})
         m = re.fullmatch(APP + r'/([^/:]+):commit', path)
         if cmd == 'POST' and m:
             edit = self.edit(m.group(1))
@@ -200,6 +213,26 @@ class Handler(BaseHTTPRequestHandler):
                                       for r in body.get('releases', [])):
                 return self.refuse(400, 'Only releases with status draft may '
                                    'be created on draft app.')
+            # Play Console's two refusals for a release that gives no user
+            # anything newer: the script must never reach either.
+            serving = {int(v) for r in edit['tracks'].get(track, [])
+                       if r.get('status') in ('completed', 'inProgress', 'halted')
+                       for v in r.get('versionCodes', [])}
+            new = {int(v) for r in body.get('releases', [])
+                   if r.get('status') in ('completed', 'inProgress')
+                   for v in r.get('versionCodes', [])}
+            # Finishing or resizing a staged rollout changes a status, which
+            # Play allows; re-releasing what is fully rolled out it refuses.
+            completed = {int(v) for r in edit['tracks'].get(track, [])
+                         if r.get('status') == 'completed'
+                         for v in r.get('versionCodes', [])}
+            if new and new <= completed:
+                return self.refuse(400, 'This release does not add or remove '
+                                   'any app bundles.')
+            if new and serving and max(new) < max(serving):
+                return self.refuse(400, "You can't rollout this release because "
+                                   "it doesn't allow any existing users to "
+                                   'upgrade to the newly added app bundles.')
             edit['tracks'][track] = body.get('releases', [])
             return self.reply(200, body)
         self.refuse(404, f'no fake route for {cmd} {path}')
@@ -314,15 +347,17 @@ def test_upload(env: Env) -> None:
                              '--release-name', '0.2.0')
     check('upload exits 0', code == 0, f'exit {code}: {err}')
     test_jwt(env)
-    check('upload: edit, bundle, track, commit, in that order',
+    check('upload: edit, track and bundle checks, bundle, track, commit, in that order',
           FAKE.summary() == [
               'POST /token',
               'POST /androidpublisher/v3/app/edits',
+              'GET /androidpublisher/v3/app/edits/edit-1/tracks/internal',
+              'GET /androidpublisher/v3/app/edits/edit-1/bundles',
               'POST /upload/androidpublisher/v3/app/edits/edit-1/bundles',
               'PUT /androidpublisher/v3/app/edits/edit-1/tracks/internal',
               'POST /androidpublisher/v3/app/edits/edit-1:commit'],
           repr(FAKE.summary()))
-    upload = FAKE.calls[2]
+    upload = next(c for c in FAKE.calls if c['route'].startswith('/upload/'))
     check('the AAB is sent whole as a media upload',
           upload['raw'] == env.aab.read_bytes()
           and upload['query'].get('uploadType') == ['media']
@@ -340,7 +375,50 @@ def test_upload(env: Env) -> None:
     check('upload stdout JSON carries versionCode, track and status',
           out.get('ok') is True and out.get('versionCode') == 42
           and out.get('track') == 'internal' and out.get('status') == 'completed'
-          and out.get('exit') == 0, repr(out))
+          and out.get('exit') == 0 and out.get('already') is False, repr(out))
+
+
+def no_change(label: str) -> None:
+    check(label, not any(s.startswith('PUT') or ':commit' in s or '/upload/' in s
+                         for s in FAKE.summary())
+          and not FAKE.edits, repr(FAKE.summary()))
+
+
+def test_upload_track_state(env: Env) -> None:
+    # A re-run of a build already rolled out to the track: done, not refused.
+    FAKE.reset(tracks=internal_track(), bundles={42})
+    code, out, err = env.run('upload', '--aab', str(env.aab),
+                             '--expect-version-code', '42')
+    check('upload of a versionCode the track already serves is a no-op success',
+          code == 0 and out.get('already') is True
+          and out.get('status') == 'completed', f'exit {code}: {err} {out}')
+    no_change('... uploading nothing and leaving no edit open')
+
+    # An older build than the one the track serves: Play would refuse it.
+    FAKE.reset(tracks=internal_track(50), bundles={50})
+    code, out, err = env.run('upload', '--aab', str(env.aab),
+                             '--expect-version-code', '42')
+    check('upload below the versionCode the track serves exits 1, explained',
+          code == 1 and '50' in err and "doesn't allow" in err
+          and 'rebuild' in err, f'exit {code}: {err}')
+    no_change('... before uploading anything')
+
+    # An earlier run uploaded the bundle but its track update did not land.
+    FAKE.reset(bundles={42})
+    code, out, err = env.run('upload', '--aab', str(env.aab),
+                             '--expect-version-code', '42')
+    check('a bundle Play already has is released, not uploaded again',
+          code == 0 and FAKE.tracks.get('internal', [{}])[0].get('versionCodes') == ['42']
+          and not any('/upload/' in s for s in FAKE.summary()),
+          f'exit {code}: {err} {FAKE.summary()}')
+
+    # Without --expect-version-code the check runs after the upload.
+    FAKE.reset(tracks=internal_track(50))
+    code, out, err = env.run('upload', '--aab', str(env.aab))
+    check('without an expected versionCode, a lower one is refused after upload',
+          code == 1 and "doesn't allow" in err
+          and not any(s.startswith('PUT') or ':commit' in s for s in FAKE.summary()),
+          f'exit {code}: {err}')
 
 
 def test_upload_mismatch(env: Env) -> None:
@@ -397,6 +475,7 @@ def test_promote(env: Env) -> None:
           FAKE.summary()[1:] == [
               'POST /androidpublisher/v3/app/edits',
               'GET /androidpublisher/v3/app/edits/edit-1/tracks/internal',
+              'GET /androidpublisher/v3/app/edits/edit-1/tracks/production',
               'PUT /androidpublisher/v3/app/edits/edit-1/tracks/production',
               'POST /androidpublisher/v3/app/edits/edit-1:commit'],
           repr(FAKE.summary()))
@@ -436,6 +515,23 @@ def test_promote(env: Env) -> None:
           and 'DELETE /androidpublisher/v3/app/edits/edit-1' in FAKE.summary()
           and not FAKE.edits and 'production' not in FAKE.tracks,
           repr(FAKE.summary()))
+
+    tracks = {**internal_track(), 'production': [
+        {'versionCodes': ['42'], 'status': 'completed', 'name': '0.2.0'}]}
+    FAKE.reset(tracks=tracks)
+    code, out, err = env.run('promote', '--version-code', '42',
+                             '--user-fraction', '0.2')
+    check('promoting what production already serves is a no-op success',
+          code == 0 and out.get('already') is True, f'exit {code}: {err} {out}')
+    no_change('... changing nothing')
+
+    tracks = {**internal_track(), 'production': [
+        {'versionCodes': ['50'], 'status': 'completed'}]}
+    FAKE.reset(tracks=tracks)
+    code, out, err = env.run('promote', '--version-code', '42')
+    check('promoting below what production serves exits 1, explained',
+          code == 1 and '50' in err and "doesn't allow" in err, f'exit {code}: {err}')
+    no_change('... changing nothing')
 
 
 def test_rollout(env: Env) -> None:
@@ -576,6 +672,7 @@ def main() -> int:
             env = Env(pathlib.Path(tmp), server.server_address[1])
             test_upload(env)
             test_upload_mismatch(env)
+            test_upload_track_state(env)
             test_draft_app(env)
             test_promote(env)
             test_rollout(env)

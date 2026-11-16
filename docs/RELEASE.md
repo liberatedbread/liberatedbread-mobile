@@ -176,7 +176,12 @@ script falls back to saying what to click, as before.
   `python3 scripts/play_publish.py rollout --version-code N --user-fraction 0.5`
   (or `--complete`, or `--halt`). Before the app's first publication Play only
   accepts draft releases; the script creates them as drafts and says what to
-  roll out by hand.
+  roll out by hand. Before creating a release it reads the target track: a
+  versionCode the track already serves counts as done (a re-run), and one
+  below the versionCode the track serves stops with an explanation. Those are
+  the two cases Play Console refuses as "does not add or remove any app
+  bundles" and "doesn't allow any existing users to upgrade". A bundle an
+  earlier run already uploaded is released rather than uploaded again.
 - **App Store Connect**: `scripts/asc_api.py`, with the same API key `altool`
   uploads with (`ASC_KEY_ID`, `ASC_ISSUER_UUID`, `AuthKey_<KEYID>.p8` as in
   the Apple runbook Step 5; the IDs are kept in the record). After the upload
