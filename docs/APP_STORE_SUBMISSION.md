@@ -127,7 +127,7 @@ baked into the App Store profile (Step 4).
 
 *(Fallback if the grant is denied/slow and you must ship: remove the multicast
 line from `Runner.entitlements` to ship a BLE-only build — Wi-Fi discovery is
-then dead at runtime; re-add in 0.1.1. Ask me to stage that if needed.)*
+then dead at runtime; re-add in 0.0.2. Ask me to stage that if needed.)*
 
 ## Step 2 — Apple **Distribution** certificate
 
