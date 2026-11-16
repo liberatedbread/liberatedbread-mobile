@@ -228,7 +228,8 @@ The record is mirrored to a **draft** GitHub Release tagged
 `release-record-X.Y.Z`, holding only `release-record.txt`: drafts are visible
 only to people with push access and create no tag. Never publish it. Each
 machine merges the other's keys at the start and after every finished step,
-so the CI gate, gates and GitHub Release done on one count on the other.
+so the CI gate and GitHub Release done on one count on the other (the
+one-time gates are confirmed per platform).
 Machine paths (artifacts, logs) are not shared. A shared record for a
 different commit stops the run: that would be two builds of one version.
 `LB_RELEASE_SHARED_RECORD=0` keeps the record local.
