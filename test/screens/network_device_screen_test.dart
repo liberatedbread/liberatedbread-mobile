@@ -4421,6 +4421,9 @@ void main() {
     testWidgets('a value typed with a decimal comma is sent as a number', (
       tester,
     ) async {
+      // The comma is a decimal point only where the locale writes one.
+      tester.platformDispatcher.localeTestValue = const Locale('de', 'DE');
+      addTearDown(tester.platformDispatcher.clearLocaleTestValue);
       await pumpNumberReading(tester, 21.0);
       await tester.tap(find.byIcon(Icons.edit_outlined));
       await tester.pumpAndSettle();
