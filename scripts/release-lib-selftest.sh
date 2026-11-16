@@ -341,6 +341,16 @@ expect "record_merge: a key here keeps its value" aaa "$(record_get "$TMP/local.
 expect "record_merge: the other machine's key is added" 7 "$(record_get "$TMP/local.txt" IOS_BUILD_NUMBER)"
 expect "record_merge: the other machine's paths are not" "" \
   "$(record_get "$TMP/local.txt" IOS_ARTIFACT)$(record_get "$TMP/local.txt" IOS_BUILD_LOG)"
+# The Mac imported Android's build 100; Android then rebuilt as 101. The Mac
+# must take 101, not push its stale 100 back, and keeps its own iOS keys.
+printf 'ANDROID_VERSION_CODE=100\nIOS_BUILD_NUMBER=7\nCI_DONE_SHA=aaa\n' >"$TMP/mac.txt"
+printf 'ANDROID_VERSION_CODE=101\nIOS_BUILD_NUMBER=6\nCI_DONE_SHA=bbb\n' >"$TMP/shared.txt"
+( PLATFORM_KEY=IOS; record_merge "$TMP/mac.txt" "$TMP/shared.txt" )
+expect "record_merge: the other platform's newer value replaces a stale copy" \
+  "101/7/aaa" \
+  "$(record_get "$TMP/mac.txt" ANDROID_VERSION_CODE)/$(record_get "$TMP/mac.txt" IOS_BUILD_NUMBER)/$(record_get "$TMP/mac.txt" CI_DONE_SHA)"
+expect "record_key_owner: platform keys and shared ones" "ANDROID/IOS/IOS/" \
+  "$(record_key_owner UPLOAD_ANDROID_BUILD)/$(record_key_owner ASC_KEY_ID)/$(record_key_owner APP_STORE_VERSION_ID)/$(record_key_owner GITHUB_RELEASE_URL)"
 
 # A stand-in gh with file-backed releases, for the shared record and for the
 # rehearsal below: CI is always green for any commit asked about. The gh

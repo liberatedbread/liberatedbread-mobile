@@ -457,15 +457,33 @@ shared_record_on() { [[ "${LB_RELEASE_SHARED_RECORD:-1}" != 0 ]]; }
 shared_record_tag() { printf 'release-record-%s' "$VERSION"; }
 record_key_is_local() { case "$1" in *_ARTIFACT | *_BUILD_LOG) return 0 ;; esac; return 1; }
 
-# record_merge LOCAL OTHER — append OTHER's shareable keys that LOCAL lacks.
+# record_key_owner KEY — the platform that writes KEY (ANDROID, IOS), or
+# nothing for the keys both halves share (VERSION, CI_*, HOST_TESTS_*, ...).
+record_key_owner() {
+  case "$1" in
+    *ANDROID* | PLAY_* | AAB_*) echo ANDROID ;;
+    *IOS* | ASC_* | APP_STORE_* | TESTFLIGHT_* | IPA_*) echo IOS ;;
+  esac
+}
+
+# record_merge LOCAL OTHER — fold OTHER's shareable keys into LOCAL. A key
+# the OTHER platform owns always takes OTHER's value: that machine is its
+# only writer, so a copy imported earlier is just stale (an Android rebuild
+# after the Mac last synced must not be pushed back as the old build). Every
+# other key keeps LOCAL's value when it has one. Outside a platform's run
+# (--status) PLATFORM_KEY is unset and both platforms' keys refresh.
 record_merge() {
-  local line key
+  local line key owner
   while IFS= read -r line || [[ -n "$line" ]]; do
     [[ "$line" == [A-Z]*=* ]] || continue
     key="${line%%=*}"
     record_key_is_local "$key" && continue
-    grep -q "^$key=" "$1" 2>/dev/null && continue
-    printf '%s\n' "$line" >>"$1"
+    owner="$(record_key_owner "$key")"
+    if [[ -n "$owner" && "$owner" != "${PLATFORM_KEY:-}" ]]; then
+      record_set "$1" "$key" "${line#*=}"
+    elif ! grep -q "^$key=" "$1" 2>/dev/null; then
+      printf '%s\n' "$line" >>"$1"
+    fi
   done <"$2"
 }
 

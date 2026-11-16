@@ -322,7 +322,15 @@ publish_through_api() {
         confirm "Submit $VERSION (build $BUILD_NUMBER) for App Review now?" y || return 1
         asc submit --version "$VERSION" >/dev/null || return 1
         log "Submitted for review." ;;
-      READY_FOR_REVIEW | WAITING_FOR_REVIEW | IN_REVIEW | PENDING_CONTRACT | WAITING_FOR_EXPORT_COMPLIANCE)
+      READY_FOR_REVIEW)
+        # Added to a review submission but not submitted: an earlier run
+        # stopped between the two, or "Add for Review" was clicked alone.
+        # Apple has nothing yet; asc submit finishes that same draft.
+        confirm "$VERSION is ready for review but not submitted. Submit it (build $BUILD_NUMBER) now?" y ||
+          return 1
+        asc submit --version "$VERSION" >/dev/null || return 1
+        log "Submitted for review." ;;
+      WAITING_FOR_REVIEW | IN_REVIEW | PENDING_CONTRACT | WAITING_FOR_EXPORT_COMPLIANCE)
         say "Apple has it ($state). Approval can take days: q stops here, and" \
           "re-running with --from-tag $TAG checks again. Enter checks now."
         pause ;;
