@@ -823,6 +823,17 @@ prepare_release_commit() {
     warn "Get it merged into main (or delete the branch on $REMOTE to start over)."
     return 1
   fi
+  # Declining both the push to main and the PR leaves the commit in its
+  # worktree; the next "Prepare the release commit now?" takes it up again
+  # rather than stopping on the worktree it left.
+  if [[ -e "$PREP_DIR" ]] &&
+    [[ "$(git -C "$PREP_DIR" symbolic-ref -q --short HEAD 2>/dev/null)" == "$PREP_BRANCH" ]] &&
+    [[ "$(git rev-parse -q --verify "$PREP_BRANCH~1" 2>/dev/null)" == "$RELEASE_SHA" ]] &&
+    [[ "$(git log -1 --format=%s "$PREP_BRANCH")" == "Release $new" ]] &&
+    [[ -z "$(git -C "$PREP_DIR" status --porcelain)" ]]; then
+    log "Reusing $(git log -1 --format='%h %s' "$PREP_BRANCH") on $PREP_BRANCH ($PREP_DIR)."
+    return 0
+  fi
   [[ ! -e "$PREP_DIR" ]] ||
     die "$PREP_DIR already exists (an earlier, unfinished prep?)." \
       "Inspect it, then: git worktree remove \"$PREP_DIR\" and re-run."

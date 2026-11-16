@@ -279,6 +279,15 @@ git rev-parse -q --verify refs/heads/release/v0.3.0 >/dev/null &&
 [[ ! -e "$TMP/prep" ]] && pass "prep declined: worktree discarded" ||
   fail "prep declined: worktree discarded"
 
+# Declining both the push to main and the PR leaves the commit in its
+# worktree; preparing again (the next prompt's default) takes it up.
+( prepare_release_commit 0.3.0 && open_release_pr 0.3.0 ) <<<$'y\nn' >/dev/null 2>&1
+PREP_030="$(git rev-parse -q --verify refs/heads/release/v0.3.0)"
+expect "prep again after declining the PR: reuses the commit" "0 $PREP_030" \
+  "$( (prepare_release_commit 0.3.0 </dev/null >/dev/null 2>&1); echo $?) $(git rev-parse -q --verify refs/heads/release/v0.3.0)"
+git worktree remove --force "$TMP/prep" 2>/dev/null
+git_q branch -D release/v0.3.0
+
 # main's version already tagged on an earlier commit (v0.1.0 is on "one",
 # main is "notes"): no "Not ready" error and no version prompt; it commits the
 # next patch, 0.1.1, straight onto main and carries on with it. Answers:
