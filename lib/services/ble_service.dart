@@ -168,6 +168,21 @@ class BleLinkDroppedException implements UserFacingException {
   String toString() => message;
 }
 
+/// A connect that `RealBleService.cancelConnect` stopped before it reached
+/// the platform.
+///
+/// Only the caller that backed out ever sees it, and that caller has already
+/// stopped listening (a disposed screen, a timed-out group run), so it is
+/// never shown to anyone. A type of its own so the log says "cancelled"
+/// rather than looking like the device refused.
+class BleConnectCancelledException implements Exception {
+  final String deviceId;
+  const BleConnectCancelledException(this.deviceId);
+
+  @override
+  String toString() => 'connect to $deviceId was cancelled';
+}
+
 /// A saved device the system has no record of any more.
 ///
 /// Distinct from "connect timed out" because the remedy is different, and the

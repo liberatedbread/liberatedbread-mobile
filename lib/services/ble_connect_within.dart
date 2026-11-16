@@ -70,8 +70,10 @@ Future<void> connectWithin(
 /// system has forgotten, and a characteristic that never replies. Asking
 /// those again gets the same answer and only delays the advice that fixes
 /// them. A link that dropped is not decided here — the screen shows it as a
-/// disconnect, not a failed connect.
+/// disconnect, not a failed connect. Nor is a connect this app cancelled
+/// itself: its owner backed out, and trying again would undo that.
 bool isTransientConnectFailure(Object error) => switch (error) {
+  BleConnectCancelledException() ||
   BlePermissionDeniedException() ||
   BleUnavailableException() ||
   BlePairingRequiredException() ||

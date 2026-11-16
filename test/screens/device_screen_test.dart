@@ -659,6 +659,8 @@ void main() {
       const BlePairingRequiredException(),
       const BleDeviceUnheardException(),
       const BleCharacteristicSilentException(),
+      // Before the fix a connect the app cancelled itself was retried.
+      const BleConnectCancelledException('AA:BB'),
     ]) {
       expect(isTransientConnectFailure(answer), isFalse, reason: '$answer');
     }
