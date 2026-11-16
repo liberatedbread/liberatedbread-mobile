@@ -44,13 +44,26 @@ class PhilipsAirControlClient {
   /// Where the session's socket comes from; tests may bind elsewhere.
   final Future<RawDatagramSocket> Function() _bind;
 
+  /// How a host name becomes an address; tests may answer for the resolver.
+  final Future<List<InternetAddress>> Function(
+    String host, {
+    InternetAddressType type,
+  })
+  _lookup;
+
   PhilipsAirControlClient({
     this.timeout = const Duration(seconds: 3),
     Random? random,
     Future<RawDatagramSocket> Function()? bind,
+    Future<List<InternetAddress>> Function(
+      String host, {
+      InternetAddressType type,
+    })?
+    lookup,
   }) : _random = random ?? Random.secure(),
        _bind =
-           bind ?? (() => RawDatagramSocket.bind(InternetAddress.anyIPv4, 0));
+           bind ?? (() => RawDatagramSocket.bind(InternetAddress.anyIPv4, 0)),
+       _lookup = lookup ?? InternetAddress.lookup;
 
   /// Read the status: sync, one GET of `/sys/dev/status`, decrypt, and
   /// flatten to the dotted names the spec's entities read
@@ -184,13 +197,18 @@ class PhilipsAirControlClient {
   }
 
   Future<_Session> _open(String host, int port) async {
-    final InternetAddress address;
+    // The session socket is bound to anyIPv4, so only an IPv4 answer can be
+    // sent to: a resolver listing an IPv6 address first must not win.
+    InternetAddress? address;
     try {
       address =
           InternetAddress.tryParse(host) ??
-          (await InternetAddress.lookup(host)).first;
+          (await _lookup(host, type: InternetAddressType.IPv4)).firstOrNull;
     } on SocketException catch (e) {
       throw PhilipsAirException('Could not find $host (${e.message}).');
+    }
+    if (address == null) {
+      throw PhilipsAirException('Could not find an IPv4 address for $host.');
     }
     final socket = await _bind();
     return _Session(socket, address, port, timeout);
