@@ -1011,9 +1011,9 @@ GroupNetworkPlan resolveNetworkGroupPlan({
         final effect = _networkRainbowEffectAction(entity);
         if (action == null && effect == null) break;
         final on = _networkAction(entity, 'turn_on');
-        // A legacy LimitlessLED colour carries the zone's ON in each of its
-        // rounds already; a separate one ahead of it makes six ONs in under
-        // a second, past the five that unlink a bulb just powered up.
+        // A legacy LimitlessLED colour carries the zone's ON already; a
+        // separate turn_on (itself three ONs) ahead of it would add rapid ONs
+        // a bulb just powered up can take for an unlink sequence.
         final colourTurnsOn = action?.transport == kLimitlessledTransport;
         if (on != null && !colourTurnsOn) {
           direct.add(

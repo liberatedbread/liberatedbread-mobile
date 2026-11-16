@@ -195,8 +195,10 @@ fn a_bridge_send_crosses_the_ffi_as_its_timed_sequence() {
     assert_eq!(frames[0].bytes, vec![0x45, 0x00, 0x55]);
     assert_eq!(frames[0].delay_after_ms, 100);
     assert_eq!(frames[1].bytes, vec![0x40, 0xB0, 0x55]);
-    assert_eq!(frames.len(), 6);
-    assert_eq!(frames[5].delay_after_ms, 0);
+    // The zone is addressed once; the colour repeats.
+    assert_eq!(frames.len(), 4);
+    assert_eq!(frames[3].bytes, vec![0x40, 0xB0, 0x55]);
+    assert_eq!(frames[3].delay_after_ms, 0);
 }
 
 /// SPECS_TO_FIX S-21: the bridge declares a probe and no `lan_protocols`.

@@ -163,12 +163,16 @@ pub fn render_request(
         return declared_frames(command, command_name, zone, values);
     }
 
-    let mut round = Vec::with_capacity(2);
     let byte = CommandByte::parse(&argument_text(command, "command")?)?;
+    // A byte that names no zone (colour, brightness) goes to the zone last
+    // addressed, so the zone's ON goes first. Once: it switches the zone on
+    // as well as selecting it, and repeating it in every round turned the
+    // light on three times for one colour change. Only the command repeats.
+    let mut sequence = Vec::with_capacity(REPEATS + 1);
     if matches!(byte, CommandByte::Fixed(_)) {
-        round.push(addressing_frame(spec, zone)?);
+        sequence.push(addressing_frame(spec, zone)?);
     }
-    round.push(LegacyFrame {
+    let frame = LegacyFrame {
         bytes: [
             byte.for_zone(zone),
             argument_byte(
@@ -180,9 +184,8 @@ pub fn render_request(
             TERMINATOR,
         ],
         delay_after_ms: PACE_MS,
-    });
-
-    let mut sequence: Vec<LegacyFrame> = (0..REPEATS).flat_map(|_| round.clone()).collect();
+    };
+    sequence.extend(std::iter::repeat_n(frame, REPEATS));
     if let Some(last) = sequence.last_mut() {
         last.delay_after_ms = 0;
     }
@@ -298,11 +301,12 @@ mod tests {
         bytes.try_into().unwrap()
     }
 
+    /// The distinct frames of a send, in order: what one round of the
+    /// repeats says.
     fn one_round(sequence: &[LegacyFrame]) -> Vec<[u8; 3]> {
-        sequence[..sequence.len() / REPEATS]
-            .iter()
-            .map(|f| f.bytes)
-            .collect()
+        let mut frames: Vec<[u8; 3]> = sequence.iter().map(|f| f.bytes).collect();
+        frames.dedup();
+        frames
     }
 
     /// The literal frames as the spec's own table spells them, read from
@@ -439,10 +443,34 @@ mod tests {
         assert_eq!(frames.last().unwrap().delay_after_ms, 0);
 
         let colour = render_request(&spec, "set_color", &values(&[("hue", "0")])).unwrap();
-        assert_eq!(colour.len(), 2 * REPEATS);
+        assert_eq!(colour.len(), 1 + REPEATS);
         assert!(colour[..colour.len() - 1]
             .iter()
             .all(|f| f.delay_after_ms >= 100));
+    }
+
+    /// Before the fix the zone's ON went out in every round, so one colour
+    /// change switched the zone on three times. It addresses once; only the
+    /// command repeats.
+    #[test]
+    fn an_addressed_command_sends_the_zones_on_once() {
+        let spec = spec();
+        let frames = render_request(
+            &spec,
+            "set_color",
+            &values(&[("hue", "176"), (ZONE_VALUE, "3")]),
+        )
+        .unwrap();
+        let bytes: Vec<[u8; 3]> = frames.iter().map(|f| f.bytes).collect();
+        assert_eq!(
+            bytes,
+            vec![
+                [0x49, 0x00, 0x55],
+                [0x40, 0xB0, 0x55],
+                [0x40, 0xB0, 0x55],
+                [0x40, 0xB0, 0x55],
+            ]
+        );
     }
 
     #[test]
