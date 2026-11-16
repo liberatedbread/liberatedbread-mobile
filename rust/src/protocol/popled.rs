@@ -144,6 +144,8 @@ value: [0xC1, 0x03, 0x06, 0x00]
         r#"
 description: ""
 value: [0xC1, 0x02, 0x08, 0x02, 0x00, 0xFF]
+advanced: true
+advanced_reason: "Deletes every program stored on the panel; they cannot be recovered from it."
 "#,
     ),
 ];
@@ -186,6 +188,14 @@ pub fn bind_commands(spec: &mut DeviceSpec) {
                 command.parameters = parsed.parameters;
                 command.encoding = None;
                 command.payload = None;
+                // A wire form that destroys stored data is advanced whatever
+                // the spec says; never clear a flag the spec set itself.
+                if parsed.advanced {
+                    command.advanced = true;
+                    if command.advanced_reason.is_none() {
+                        command.advanced_reason = parsed.advanced_reason;
+                    }
+                }
                 bound = true;
             }
             if bound {
@@ -651,6 +661,43 @@ entities:
             framed,
             hex("aa 55 ff ff 0a 00 01 00 c1 02 06 02 00 0f e2 03")
         );
+    }
+
+    #[test]
+    fn deleting_every_stored_program_is_bound_as_advanced() {
+        for yaml in [
+            include_str!(
+                "../../../vendor/protocol-specs/device-specs/devices/autobaba-led-backpack.yaml"
+            ),
+            include_str!("../../../vendor/protocol-specs/device-specs/devices/led-space.yaml"),
+            include_str!(
+                "../../../vendor/protocol-specs/device-specs/devices/nyan-bt-image-controller.yaml"
+            ),
+        ] {
+            let spec = parse_device_spec(yaml).expect("vendored spec parses");
+            let commands: Vec<(&String, &Command)> = spec
+                .services
+                .iter()
+                .flat_map(|s| &s.characteristics)
+                .filter_map(|c| c.commands.as_ref())
+                .flatten()
+                .collect();
+            let (_, delete) = commands
+                .iter()
+                .find(|(name, _)| *name == "delete_all_programs")
+                .expect("the spec declares delete_all_programs");
+            assert!(delete.advanced, "{}", spec.device.name);
+            assert!(delete.encoding.is_none(), "bound to its wire form");
+            assert!(delete
+                .advanced_reason
+                .as_deref()
+                .is_some_and(|r| !r.is_empty()));
+            let (_, brightness) = commands
+                .iter()
+                .find(|(name, _)| *name == "set_brightness")
+                .expect("the spec declares set_brightness");
+            assert!(!brightness.advanced);
+        }
     }
 
     #[test]
