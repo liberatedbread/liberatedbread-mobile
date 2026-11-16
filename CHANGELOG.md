@@ -7,8 +7,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## [0.1.1] - 2026-11-16
+
+### Added
+
+- **The release scripts drive both stores' APIs.** With a Google Play service
+  account, `release-android.sh` uploads the bundle to Internal testing and
+  promotes the tested versionCode to Production as a staged rollout
+  (`scripts/play_publish.py`). With the App Store Connect key `altool` already
+  uploads with, `release-apple.sh` waits for processing, adds the build to
+  TestFlight, selects it on the version, sets What's New, submits for review
+  and releases (`scripts/asc_api.py`). Every step falls back to the Play
+  Console or App Store Connect instructions when it is not set up or refused.
+- **Store artifacts can be built in GitHub Actions.** `--ci-build` dispatches
+  `.github/workflows/release-build.yml`, which signs from repository secrets
+  and attests build provenance; the script downloads the artifact and checks
+  its hash and attestation before its own checks.
+- **The release AAB's contents are checked** (`scripts/verify_aab.py`): the
+  Rust core in every ABI, 16 KB page alignment of every 64-bit library, the
+  merged manifest's package and permissions, and versionCode/versionName. CI
+  builds and checks a release bundle on every PR.
+- **One release, two machines.** The release record is shared through a
+  draft GitHub Release (`release-record-X.Y.Z`, never published), so the
+  Android and iOS halves see each other's progress. `--status` prints it.
+- Store "What's new" text is generated from this file as plain text and
+  checked against each store's limit.
+
 ### Changed
 
+- **The phone preflight acts on nothing physical** (no printing suite, no
+  connection to the strongest nearby BLE peripheral), and can be skipped with
+  `--skip-device-tests` or at its prompt. The host suites CI already ran on
+  the release commit are no longer rerun unless asked (`--host-tests`).
+- A re-run of the same commit skips everything already done with one answer,
+  and remembers the phone-runner arguments.
 - **The release version bump goes straight onto main.** The guided release
   scripts now push the "Release X.Y.Z" commit (pubspec.yaml's version and the
   dated CHANGELOG section) directly to `main` instead of opening a PR and
@@ -16,6 +48,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   needs no CI run of its own: the CI gate checks the green run of the commit
   under it, as long as the release commit changes only the version line and
   CHANGELOG.md. If `main` refuses the push, the scripts open the PR as before.
+
+### Fixed
+
+- `release-android.sh` no longer prints "Stopped by an unexpected failure" for
+  runs that carry on fine.
+- Play releases that give no user anything newer (a versionCode the track
+  already serves, or one below it) are recognised before Play Console refuses
+  them.
 
 ## [0.0.1] - 2026-11-14
 

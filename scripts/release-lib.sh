@@ -28,6 +28,29 @@
 #                      an earlier run, already cut it). Pushes it if it is
 #                      only local.
 #
+# and, with either:
+#
+#   --skip-device-tests  skip the physical-phone preflight (Step 3) without
+#                      being asked. Without it the step asks first, and No
+#                      skips it too. A skip is noted in the record
+#                      (PREFLIGHT_<PLATFORM>_SKIPPED_SHA) and never marks the
+#                      step done, so a re-run of the same commit asks again.
+#   --host-tests       run scripts/test.sh and the netdisco suites here even
+#                      though CI already ran them on this commit (the step
+#                      otherwise asks, defaulting to No)
+#   --ci-build | --local-build
+#                      build the store artifact in GitHub Actions
+#                      (.github/workflows/release-build.yml: signed there,
+#                      provenance attested, then downloaded and checked here)
+#                      or on this machine. Without either, the build step
+#                      asks when that workflow is on main.
+#
+# and on its own:
+#
+#   --status [X.Y.Z]   print the release record (merged with the shared copy)
+#                      and which steps are done, then exit. The newest
+#                      record when no version is given.
+#
 # State lives in a release record outside every worktree (docs/RELEASE.md's
 # KEY=value list, plus *_DONE_SHA markers), so an interrupted run can be
 # re-run with --from-tag and offers to skip what already passed for the same
@@ -45,6 +68,11 @@
 #   LB_RELEASE_PREP_WORKTREE  where the release commit is prepared (default:
 #                          ../liberatedbread-release-prep-<version>; removed
 #                          once the branch is pushed)
+#   LB_RELEASE_SHARED_RECORD  0 keeps the record on this machine only (see
+#                          "shared record" below)
+#   LB_RELEASE_BUILD       ci or local, as --ci-build / --local-build
+#   LB_RELEASE_DEVICE_ARGS default extra arguments for the phone runners (the
+#                          last answer is remembered in the record otherwise)
 #
 # Hooks each entry script defines (all run inside the release worktree):
 #   platform_preflight     host tools, signing material — before anything slow
@@ -56,7 +84,8 @@
 #   platform_closed_test   install the closed-testing build on a phone
 #   platform_publish       submit / promote / release (Step 7)
 # and these variables: PLATFORM (android|ios), PLATFORM_KEY (ANDROID|IOS, for
-# record keys), PLATFORM_NAME, BUILD_NUMBER_KEY, ARTIFACT_SHA_KEY.
+# record keys), PLATFORM_NAME, BUILD_NUMBER_KEY, ARTIFACT_SHA_KEY, and
+# ARTIFACT_EXT (aab|ipa, the file a CI build hands over).
 #
 # Written for bash 3.2 too (macOS's /bin/bash): no ${x,,}/${x^^}, no mapfile,
 # no empty arrays under set -u.
@@ -69,7 +98,23 @@ FLUTTER_HOME="${FLUTTER_HOME:-$HOME/.flutter-sdk}"
 export PATH="${FLUTTER_HOME}/bin:$HOME/.cargo/bin:$PATH"
 
 REMOTE="${LB_RELEASE_REMOTE:-origin}"
-GITHUB_RELEASES_URL="https://github.com/liberatedbread/liberatedbread-mobile/releases"
+
+# What the release passes the phone runners (platform_device_tests). An
+# acceptance run here must not act on anything physical around the phone:
+#   --no-printing    printing_test.dart stays out of the mock-mode aggregate.
+#                    Its printers are loopback fakes, but a release has no use
+#                    for a suite whose whole subject is sending print jobs.
+#   no --live-ble-any, which connects to whichever connectable BLE peripheral
+#                    is strongest in the room and reads every readable
+#                    characteristic: somebody's lock, printer or meter. Add it
+#                    (or --live-ble-name NAME) at the "extra arguments" prompt
+#                    to opt back in.
+# The Wi-Fi scan stays: it is discovery datagrams only, and nothing it finds is
+# connected to or sent a command.
+RELEASE_DEVICE_TEST_ARGS=(--all --expect-lan-devices --no-printing)
+GITHUB_REPO=liberatedbread/liberatedbread-mobile
+GITHUB_RELEASES_URL="https://github.com/$GITHUB_REPO/releases"
+RELEASE_BUILD_WORKFLOW=release-build.yml
 
 # ── output ───────────────────────────────────────────────────────────────────
 
@@ -346,15 +391,41 @@ record() { record_set "$RECORD" "$@"; }
 recorded() { record_get "$RECORD" "$1"; }
 
 # already_done MARKER WHAT — status 0 when MARKER was set for this exact
-# commit by an earlier run AND the human agrees to skip it.
+# commit by an earlier run AND the human agrees to skip it (once, for every
+# step, at offer_skip_done; or here, step by step).
 already_done() {
   if [[ "$(recorded "$1")" == "$RELEASE_SHA" ]]; then
+    if [[ "${AUTO_SKIP:-0}" == 1 ]]; then
+      log "$2 already passed for $SHORT_SHA; skipping."
+      return 0
+    fi
     confirm "$2 already passed for $SHORT_SHA in an earlier run. Skip it?" y
     return
   fi
   return 1
 }
-mark_done() { record "$1" "$RELEASE_SHA"; }
+# A finished step is also the moment to tell the other machine (record_push).
+mark_done() { record "$1" "$RELEASE_SHA"; record_push; }
+
+# offer_skip_done — on a re-run, list what earlier runs finished for this
+# commit and offer to skip all of it with one answer, instead of one question
+# per step. No falls back to asking at each step (where a rebuild can be
+# chosen, e.g. after a store refused the build number).
+offer_skip_done() {
+  local list="" build k="$PLATFORM_KEY"
+  build="$(recorded "$BUILD_NUMBER_KEY")"
+  [[ "$(recorded HOST_TESTS_DONE_SHA)" == "$RELEASE_SHA" ]] && list+="host tests, "
+  [[ "$(recorded "PREFLIGHT_${k}_DONE_SHA")" == "$RELEASE_SHA" ]] && list+="phone preflight, "
+  if [[ "$(recorded "BUILD_${k}_DONE_SHA")" == "$RELEASE_SHA" && -f "$(recorded "${k}_ARTIFACT")" ]]; then
+    list+="the build (reusing build $build), "
+  fi
+  [[ -n "$build" && "$(recorded "UPLOAD_${k}_BUILD")" == "$build" ]] && list+="upload of build $build, "
+  [[ -n "$build" && "$(recorded "VALIDATED_${k}_${build}_SHA")" == "$RELEASE_SHA" ]] && list+="validation, "
+  [[ "$(recorded "PUBLISHED_${k}_DONE_SHA")" == "$RELEASE_SHA" ]] && list+="publication, "
+  [[ -n "$list" ]] || return 0
+  log "Earlier runs already finished, for $SHORT_SHA: ${list%, }."
+  if confirm "Skip all of that? (No asks at each step)" y; then AUTO_SKIP=1; fi
+}
 
 # record_url KEY PROMPT — ask for a console URL/number and keep it.
 record_url() {
@@ -364,11 +435,186 @@ record_url() {
   if [[ -n "$answer" ]]; then record "$1" "$answer"; fi
 }
 
+# ── shared record ────────────────────────────────────────────────────────────
+#
+# The Android half usually runs on Linux and the iOS half on the release Mac,
+# and each kept its own record: neither saw that CI, the gates or the host
+# tests had already passed on the other, nor what the other had shipped. So
+# the record is mirrored to a DRAFT GitHub Release tagged
+# release-record-X.Y.Z, holding release-record.txt, that is never published:
+# a draft is visible only to people with push access and creates no tag.
+#
+# Merging is by key. A key this machine has keeps its value; a key only the
+# other machine has is added. The halves write different keys (every
+# per-platform key names ANDROID or IOS), so nothing real conflicts. Paths on
+# this machine (*_ARTIFACT, *_BUILD_LOG) are never shared. Syncing is best
+# effort: a gh or network failure is one warning, and the local file is what
+# the run reads. The one hard stop is a shared record for another commit:
+# that is two builds of one version, which the record exists to prevent.
+# LB_RELEASE_SHARED_RECORD=0 turns it all off.
+
+shared_record_on() { [[ "${LB_RELEASE_SHARED_RECORD:-1}" != 0 ]]; }
+shared_record_tag() { printf 'release-record-%s' "$VERSION"; }
+record_key_is_local() { case "$1" in *_ARTIFACT | *_BUILD_LOG) return 0 ;; esac; return 1; }
+
+# record_key_owner KEY — the platform that writes KEY (ANDROID, IOS), or
+# nothing for the keys both halves share (VERSION, CI_*, HOST_TESTS_*, ...).
+record_key_owner() {
+  case "$1" in
+    *ANDROID* | PLAY_* | AAB_*) echo ANDROID ;;
+    *IOS* | ASC_* | APP_STORE_* | TESTFLIGHT_* | IPA_*) echo IOS ;;
+  esac
+}
+
+# record_merge LOCAL OTHER — fold OTHER's shareable keys into LOCAL. A key
+# the OTHER platform owns always takes OTHER's value: that machine is its
+# only writer, so a copy imported earlier is just stale (an Android rebuild
+# after the Mac last synced must not be pushed back as the old build). Every
+# other key keeps LOCAL's value when it has one. Outside a platform's run
+# (--status) PLATFORM_KEY is unset and both platforms' keys refresh.
+record_merge() {
+  local line key owner
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    [[ "$line" == [A-Z]*=* ]] || continue
+    key="${line%%=*}"
+    record_key_is_local "$key" && continue
+    owner="$(record_key_owner "$key")"
+    if [[ -n "$owner" && "$owner" != "${PLATFORM_KEY:-}" ]]; then
+      record_set "$1" "$key" "${line#*=}"
+    elif ! grep -q "^$key=" "$1" 2>/dev/null; then
+      printf '%s\n' "$line" >>"$1"
+    fi
+  done <"$2"
+}
+
+shared_record_warn() {
+  [[ "${SHARED_RECORD_WARNED:-0}" == 1 ]] && return 0
+  SHARED_RECORD_WARNED=1
+  warn "Could not $1 the shared record (draft release $(shared_record_tag)); carrying on with the local one."
+}
+
+# record_pull — merge the shared copy into $RECORD. With RELEASE_SHA unset
+# (--status on a machine with no record) it adopts the shared commit.
+record_pull() {
+  shared_record_on || return 0
+  local dir other
+  dir="$(mktemp -d)" || return 0
+  if gh release download "$(shared_record_tag)" -R "$GITHUB_REPO" -p release-record.txt -D "$dir" >/dev/null 2>&1; then
+    other="$(record_get "$dir/release-record.txt" RELEASE_SHA)"
+    if [[ -n "$other" && -n "${RELEASE_SHA:-}" && "$other" != "$RELEASE_SHA" ]]; then
+      rm -rf "$dir"
+      die "The shared record for $VERSION (draft release $(shared_record_tag)) is for commit $other, not $RELEASE_SHA." \
+        "Another machine is releasing $VERSION from a different commit; find out which one shipped." \
+        "LB_RELEASE_SHARED_RECORD=0 ignores the shared copy."
+    fi
+    record_merge "$RECORD" "$dir/release-record.txt"
+  fi
+  rm -rf "$dir"
+}
+
+# record_push — fold in the other machine's latest keys, then upload.
+record_push() {
+  shared_record_on || return 0
+  [[ -n "${RECORD:-}" && -f "$RECORD" && -n "${RELEASE_SHA:-}" ]] || return 0
+  local dir tag other
+  tag="$(shared_record_tag)"
+  dir="$(mktemp -d)" || return 0
+  if gh release download "$tag" -R "$GITHUB_REPO" -p release-record.txt -D "$dir" >/dev/null 2>&1; then
+    other="$(record_get "$dir/release-record.txt" RELEASE_SHA)"
+    if [[ -n "$other" && "$other" != "$RELEASE_SHA" ]]; then
+      # Never overwrite another commit's record; record_pull explains it.
+      rm -rf "$dir"
+      shared_record_warn update
+      return 0
+    fi
+    record_merge "$RECORD" "$dir/release-record.txt"
+    rm -f "$dir/release-record.txt"
+  fi
+  grep -vE '^[A-Z0-9_]*(_ARTIFACT|_BUILD_LOG)=' "$RECORD" >"$dir/release-record.txt" || true
+  if gh release view "$tag" -R "$GITHUB_REPO" >/dev/null 2>&1; then
+    gh release upload "$tag" -R "$GITHUB_REPO" "$dir/release-record.txt" --clobber >/dev/null 2>&1 ||
+      shared_record_warn upload
+  else
+    gh release create "$tag" -R "$GITHUB_REPO" --draft --target "$RELEASE_SHA" \
+      --title "Release record $VERSION (draft; never publish)" \
+      --notes "Shared state of the guided release of $VERSION (scripts/release-lib.sh). Never publish this draft: publishing would create the tag $tag." \
+      "$dir/release-record.txt" >/dev/null 2>&1 || shared_record_warn create
+  fi
+  rm -rf "$dir"
+}
+
+# json_field FIELD — FIELD of the one-line JSON summary that
+# play_publish.py and asc_api.py print last on stdout ("" when absent).
+json_field() {
+  python3 -c 'import json, sys
+lines = sys.stdin.read().splitlines()
+v = json.loads(lines[-1]).get(sys.argv[1]) if lines else None
+print("" if v is None else v)' "$1"
+}
+
+# ── store release notes ──────────────────────────────────────────────────────
+#
+# Both stores show "what's new" as plain text with a length limit (Google
+# Play 500 characters per language, the App Store 4000), and the runbook used
+# to say "paste the CHANGELOG section", Markdown and PR links included.
+
+# store_notes_text — CHANGELOG Markdown on stdin, as plain text: headings
+# bare, bullets as •, links as their text, (#123) PR references dropped,
+# emphasis and code marks removed, runs of blank lines squeezed.
+store_notes_text() {
+  # shellcheck disable=SC2016  # the backticks are Markdown, not expansions
+  sed -E \
+    -e '/^\[[^]]+\]: /d' \
+    -e 's/^#+[[:space:]]*//' \
+    -e 's/^([[:space:]]*)[-*+][[:space:]]+/\1• /' \
+    -e 's/\[([^]]+)\]\([^)]*\)/\1/g' \
+    -e 's/ \((#[0-9]+)(, #[0-9]+)*\)//g' \
+    -e 's/\*\*([^*]+)\*\*/\1/g' \
+    -e 's/__([^_]+)__/\1/g' \
+    -e 's/`([^`]+)`/\1/g' |
+    cat -s
+}
+
+# char_count — characters (not bytes: • is three) on stdin, without the
+# final newline, as the stores count them.
+char_count() {
+  python3 -c 'import sys; print(len(sys.stdin.buffer.read().decode("utf-8").rstrip("\n")))'
+}
+
+# store_notes STORE LIMIT — sets STORE_NOTES to the file holding this
+# release's notes for STORE (play, appstore). Written from CHANGELOG.md's
+# section the first time and kept after that, so a hand edit survives a
+# re-run; the limit is checked every time, and an editor offered until the
+# notes fit.
+store_notes() {
+  local store="$1" limit="$2" file len editor
+  file="$RELEASE_HOME/notes-$store.txt"
+  if [[ ! -s "$file" ]]; then
+    git show "$RELEASE_SHA:CHANGELOG.md" | changelog_section "$VERSION" | store_notes_text >"$file"
+  fi
+  [[ -s "$file" ]] || die "CHANGELOG.md's [$VERSION] section is empty: no $store release notes."
+  editor="${VISUAL:-${EDITOR:-}}"
+  while len="$(char_count <"$file")" && ((len > limit)); do
+    warn "The $store release notes are $len characters; $store takes at most $limit."
+    # shellcheck disable=SC2086  # $editor may be a command and its flags
+    if [[ -n "$editor" ]] && confirm "Shorten $file in $editor?" y; then
+      $editor "$file" || true
+    else
+      say "Shorten $file by hand (it is what the store gets), then continue."
+      pause
+    fi
+  done
+  log "$store release notes ($len of $limit characters): $file"
+  STORE_NOTES="$file"
+}
+
 # ── steps ────────────────────────────────────────────────────────────────────
 
 usage() {
   cat >&2 <<EOF
-Usage: $(basename "$0") [--new-tag [X.Y.Z] | --from-tag vX.Y.Z]
+Usage: $(basename "$0") [--new-tag [X.Y.Z] | --from-tag vX.Y.Z] [--skip-device-tests]
+         [--host-tests] [--ci-build | --local-build]
+       $(basename "$0") --status [X.Y.Z]
 
 Guided $PLATFORM_NAME store release (docs/RELEASE.md). Asks which of the two
 modes when neither flag is given:
@@ -378,11 +624,23 @@ modes when neither flag is given:
                      yet, bump pubspec.yaml, date CHANGELOG.md's Unreleased
                      entries as [X.Y.Z], and push that commit to main first
   --from-tag vX.Y.Z  build an existing tag (pushing it first if only local)
+  --skip-device-tests
+                     skip the physical-phone preflight without asking (the
+                     step otherwise asks, and No skips it too); the record
+                     notes the skip
+  --host-tests       run test.sh and the netdisco suites here even though CI
+                     ran them on this commit (otherwise asked, default No)
+  --ci-build         build the signed artifact in GitHub Actions
+                     ($RELEASE_BUILD_WORKFLOW) and download it
+  --local-build      build it on this machine (otherwise asked, when the
+                     workflow is on $REMOTE/main)
+  --status [X.Y.Z]   print the release record and what is left, then exit
 EOF
 }
 
 parse_args() {
-  MODE="" TAG="" WANT_VERSION=""
+  MODE="" TAG="" WANT_VERSION="" SKIP_DEVICE_TESTS=false HOST_TESTS=false
+  STATUS_ONLY=false STATUS_VERSION="" BUILD_WHERE="${LB_RELEASE_BUILD:-}"
   while (($#)); do
     case "$1" in
       --new-tag)
@@ -405,6 +663,17 @@ parse_args() {
         shift
         ;;
       --from-tag=*) MODE=existing TAG="${1#*=}" ;;
+      --skip-device-tests) SKIP_DEVICE_TESTS=true ;;
+      --host-tests) HOST_TESTS=true ;;
+      --ci-build) BUILD_WHERE=ci ;;
+      --local-build) BUILD_WHERE=local ;;
+      --status)
+        STATUS_ONLY=true
+        if [[ $# -ge 2 ]] && version_valid "${2#v}"; then
+          STATUS_VERSION="${2#v}"
+          shift
+        fi
+        ;;
       -h|--help) usage; exit 0 ;;
       *) usage; exit 1 ;;
     esac
@@ -413,11 +682,15 @@ parse_args() {
   if [[ "$MODE" == existing && -n "$WANT_VERSION" ]]; then
     die "--from-tag builds a tag as it is; a new version goes with --new-tag X.Y.Z."
   fi
+  case "$BUILD_WHERE" in
+    "" | ci | local) ;;
+    *) die "LB_RELEASE_BUILD must be ci or local (got '$BUILD_WHERE')." ;;
+  esac
 }
 
 check_tools() {
   local tool
-  for tool in git gh flutter awk sed; do
+  for tool in git gh flutter awk sed python3; do
     command -v "$tool" &>/dev/null ||
       die "$tool not found. Run ./scripts/setup.sh (and install the GitHub CLI for gh)."
   done
@@ -798,6 +1071,10 @@ EOF
   record TAG "$TAG"
   record RELEASE_SHA "$RELEASE_SHA"
   log "Release record: $RECORD"
+  if shared_record_on; then
+    record_pull
+    log "Shared with the other platform's machine as draft release $(shared_record_tag) (LB_RELEASE_SHARED_RECORD=0 to keep it local)."
+  fi
 }
 
 ci_gate() {
@@ -894,6 +1171,19 @@ host_tests() {
   step "Host tests: scripts/test.sh and the network-discovery suites (Step 2)"
   already_done HOST_TESTS_DONE_SHA "The host test suites" && return
   flutter pub get --enforce-lockfile || die "flutter pub get --enforce-lockfile failed."
+  # ci_gate already demands a green ci.yml run for this commit (or for the
+  # commit a version-bump-only release commit sits on), and that run is these
+  # same suites: test.sh's unit tests and the network-discovery job. Running
+  # them again here took ten minutes per platform for a second opinion from a
+  # different machine. Worth it after a toolchain change; not by default.
+  if [[ "$HOST_TESTS" != true && "$(recorded CI_DONE_SHA)" == "$RELEASE_SHA" ]]; then
+    log "CI ran these suites for this release: $(recorded CI_RUN_URL)"
+    if ! confirm "Run them again on this machine anyway? (--host-tests says yes)" n; then
+      record HOST_TESTS_SKIPPED_SHA "$RELEASE_SHA"
+      log "Host suites: CI's run stands for this machine's."
+      return
+    fi
+  fi
   run_until_pass "./scripts/test.sh" ./scripts/test.sh
   run_until_pass "./scripts/ci-netdisco-tests.sh" ./scripts/ci-netdisco-tests.sh
   require_clean "The release worktree (after the test runs)"
@@ -917,13 +1207,30 @@ run_until_pass() {
 device_preflight() {
   step "$PLATFORM_NAME physical-phone preflight (Step 3)"
   already_done "PREFLIGHT_${PLATFORM_KEY}_DONE_SHA" "The $PLATFORM_NAME phone preflight" && return
+  if [[ "${SKIP_DEVICE_TESTS:-false}" == true ]]; then
+    skip_device_preflight "--skip-device-tests"
+    return
+  fi
   say "Needs: a $PLATFORM_NAME phone attached to this machine, on a LAN with at least" \
-    "one supported device, and a connectable Bluetooth peripheral nearby." \
+    "one supported device. Nothing physical is acted on: no printing suite, and" \
+    "no connection to nearby Bluetooth peripherals (${RELEASE_DEVICE_TEST_ARGS[*]})." \
     "Watch the phone: a fresh install raises the Bluetooth and Local Network prompts."
-  pause
+  if ! confirm "Run the $PLATFORM_NAME phone suites now? (No skips this step for this release)" y; then
+    skip_device_preflight "answered No"
+    return
+  fi
   platform_device_tests
   require_clean "The release worktree (after the device runners)"
   mark_done "PREFLIGHT_${PLATFORM_KEY}_DONE_SHA"
+}
+
+# skip_device_preflight WHY — note the skip and carry on. Recorded under its
+# own key and never as *_DONE_SHA, so the record says the preflight did not
+# run, and a re-run of this commit asks again rather than offering "already
+# passed".
+skip_device_preflight() {
+  warn "Skipping the $PLATFORM_NAME phone preflight ($1): nothing in this release has run on a $PLATFORM_NAME phone."
+  record "PREFLIGHT_${PLATFORM_KEY}_SKIPPED_SHA" "$RELEASE_SHA"
 }
 
 create_local_tag() {
@@ -931,7 +1238,10 @@ create_local_tag() {
     return
   fi
   step "Tag $TAG (local only, for now)"
-  confirm "Every suite passed. Create the annotated tag $TAG on $SHORT_SHA?" y ||
+  local passed="Every suite passed."
+  [[ "$(recorded "PREFLIGHT_${PLATFORM_KEY}_DONE_SHA")" == "$RELEASE_SHA" ]] ||
+    passed="The host suites passed; the $PLATFORM_NAME phone preflight was SKIPPED."
+  confirm "$passed Create the annotated tag $TAG on $SHORT_SHA?" y ||
     die "Stopped before tagging."
   git tag -a "$TAG" -m "Liberated Bread $VERSION" "$RELEASE_SHA"
   log "Tagged $TAG locally. It is pushed only after the artifact checks pass."
@@ -943,7 +1253,7 @@ build_and_verify() {
   archived="$(recorded "${PLATFORM_KEY}_ARTIFACT")"
   if [[ -n "$archived" && -f "$archived" && "$(recorded "BUILD_${PLATFORM_KEY}_DONE_SHA")" == "$RELEASE_SHA" ]]; then
     log "Built earlier: $archived (build $(recorded "$BUILD_NUMBER_KEY"))."
-    if confirm "Reuse it? (No if the store refused it: a re-upload needs a new build number)" y; then
+    if [[ "${AUTO_SKIP:-0}" == 1 ]] || confirm "Reuse it? (No if the store refused it: a re-upload needs a new build number)" y; then
       ARTIFACT="$archived"
       BUILD_NUMBER="$(recorded "$BUILD_NUMBER_KEY")"
       return
@@ -955,7 +1265,13 @@ build_and_verify() {
   fi
 
   BUILD_LOG="$RELEASE_HOME/logs/build-$PLATFORM-$(utc_stamp).log"
-  platform_build
+  choose_build_where
+  if [[ "$BUILD_WHERE" == ci ]]; then
+    ci_build_artifact
+  else
+    platform_build
+  fi
+  record "BUILD_${PLATFORM_KEY}_WHERE" "$BUILD_WHERE"
   [[ -n "${BUILD_NUMBER:-}" ]] || die "Could not read the build number from $BUILD_LOG."
   [[ -f "${ARTIFACT:-}" ]] || die "The build produced no artifact (see $BUILD_LOG)."
   platform_verify
@@ -992,6 +1308,10 @@ push_tag() {
 upload() {
   step "Upload to $PLATFORM_NAME closed testing (Step 5)"
   if [[ "$(recorded "UPLOAD_${PLATFORM_KEY}_BUILD")" == "$BUILD_NUMBER" ]]; then
+    if [[ "${AUTO_SKIP:-0}" == 1 ]]; then
+      log "Build $BUILD_NUMBER was already uploaded; skipping."
+      return
+    fi
     confirm "Build $BUILD_NUMBER was already uploaded. Skip the upload?" y && return
   fi
   platform_upload
@@ -1065,15 +1385,201 @@ after_release() {
   fi
 }
 
+# ── building in GitHub Actions ───────────────────────────────────────────────
+#
+# .github/workflows/release-build.yml builds the same signed artifact with the
+# signing material in repository secrets, tags the commit only inside its own
+# checkout (the tag is still pushed from here, after the checks), and attests
+# the artifact's build provenance. The release machine then needs no keystore
+# password file and no Distribution certificate, and the archive says which
+# workflow run on which commit produced what was uploaded.
+
+choose_build_where() {
+  [[ -n "$BUILD_WHERE" ]] && return
+  BUILD_WHERE=local
+  git cat-file -e "$REMOTE/main:.github/workflows/$RELEASE_BUILD_WORKFLOW" 2>/dev/null || return 0
+  local pick
+  pick="$(choose "Where should the $PLATFORM_NAME store artifact be built?" \
+    "Here, with this machine's signing material" \
+    "In GitHub Actions ($RELEASE_BUILD_WORKFLOW, signing secrets in the repo, provenance attested)")" || exit 1
+  [[ "$pick" == 2 ]] && BUILD_WHERE=ci
+  return 0
+}
+
+# ci_build_artifact — dispatch the workflow for this tag/commit/platform,
+# watch it, download its artifact, and check the hash and the provenance.
+# Sets ARTIFACT and BUILD_NUMBER as platform_build does; platform_verify then
+# runs on it here exactly as on a local build.
+ci_build_artifact() {
+  local title before="" run="" url dir files count i want got
+  title="Release build $TAG $PLATFORM $RELEASE_SHA"
+  # The run-name carries the inputs, because a dispatched run's head commit is
+  # main's, not the one it builds. Runs that existed before this dispatch are
+  # excluded by id, so an earlier attempt for the same tag is never taken.
+  before="$(gh run list -R "$GITHUB_REPO" --workflow "$RELEASE_BUILD_WORKFLOW" --limit 1 \
+    --json databaseId --jq '.[0].databaseId // 0' 2>/dev/null || echo 0)"
+  log "gh workflow run $RELEASE_BUILD_WORKFLOW (tag $TAG, $PLATFORM, $SHORT_SHA)"
+  gh workflow run "$RELEASE_BUILD_WORKFLOW" -R "$GITHUB_REPO" --ref main \
+    -f tag="$TAG" -f sha="$RELEASE_SHA" -f platform="$PLATFORM" ||
+    die "Could not start $RELEASE_BUILD_WORKFLOW (is it on main, and may this gh account run workflows?)."
+  for ((i = 0; i < 36; i++)); do
+    run="$(gh run list -R "$GITHUB_REPO" --workflow "$RELEASE_BUILD_WORKFLOW" --limit 20 \
+      --json databaseId,displayTitle \
+      --jq "map(select(.displayTitle == \"$title\" and .databaseId > ${before:-0})) | .[0].databaseId // empty" \
+      2>/dev/null || true)"
+    [[ -n "$run" ]] && break
+    sleep 5
+  done
+  [[ -n "$run" ]] || die "The $RELEASE_BUILD_WORKFLOW run did not show up within 3 minutes; look in the repository's Actions tab."
+  url="$(gh run view "$run" -R "$GITHUB_REPO" --json url --jq .url)"
+  record "CI_BUILD_${PLATFORM_KEY}_RUN_URL" "$url"
+  log "Watching $url (an iOS build takes 20-40 minutes)"
+  gh run watch "$run" -R "$GITHUB_REPO" --exit-status --interval 60 >/dev/null ||
+    die "The CI build failed: $url"
+  gh run view "$run" -R "$GITHUB_REPO" --log >"$BUILD_LOG" 2>/dev/null ||
+    warn "Could not save the run's log to $BUILD_LOG."
+
+  dir="$RELEASE_HOME/ci-build-$run"
+  mkdir -p "$dir"
+  gh run download "$run" -R "$GITHUB_REPO" -n "$PLATFORM-$TAG" -D "$dir" ||
+    die "Could not download artifact $PLATFORM-$TAG from $url."
+  files="$(find "$dir" -maxdepth 1 -name "*.$ARTIFACT_EXT")"
+  count="$(printf '%s' "$files" | grep -c . || true)"
+  [[ "$count" == 1 ]] || die "Expected one .$ARTIFACT_EXT in $dir, found $count."
+  ARTIFACT="$files"
+  BUILD_NUMBER="$(tr -d '[:space:]' <"$dir/build-number.txt" 2>/dev/null || true)"
+  [[ "$BUILD_NUMBER" =~ ^[0-9]+$ ]] || die "$dir/build-number.txt holds no build number."
+  want="$(awk 'NR == 1 { print $1 }' "$dir/SHA256SUMS" 2>/dev/null || true)"
+  got="$(sha256_of "$ARTIFACT")"
+  [[ -n "$want" && "$want" == "$got" ]] ||
+    die "$ARTIFACT hashes to $got, but the run's SHA256SUMS says '${want:-nothing}'."
+  # The provenance proves this file came out of this repository's release
+  # workflow, not merely out of some run that was handed the same name.
+  if ! gh attestation verify "$ARTIFACT" -R "$GITHUB_REPO" \
+    --signer-workflow "$GITHUB_REPO/.github/workflows/$RELEASE_BUILD_WORKFLOW" >/dev/null; then
+    die "$ARTIFACT has no build-provenance attestation from $RELEASE_BUILD_WORKFLOW in $GITHUB_REPO."
+  fi
+  log "CI artifact: $ARTIFACT (build $BUILD_NUMBER), provenance verified."
+}
+
+# ── --status ─────────────────────────────────────────────────────────────────
+
+# release_status — the record for STATUS_VERSION (or the newest one), merged
+# with the shared copy, as a table of steps per platform. Changes nothing but
+# the local copy of the record, which gains the other machine's keys.
+release_status() {
+  local root d v best="" tmp="" p name num key state build next row key2 skipkey
+  if [[ -n "${LB_RELEASE_HOME:-}" ]]; then
+    RELEASE_HOME="$LB_RELEASE_HOME"
+  else
+    root="$(dirname "$PROJECT_DIR")/liberatedbread-release-records"
+    if [[ -n "$STATUS_VERSION" ]]; then
+      best="$STATUS_VERSION"
+    else
+      for d in "$root"/*/; do
+        v="$(basename "$d")"
+        version_valid "$v" || continue
+        if [[ -z "$best" ]] || version_gt "$v" "$best"; then best="$v"; fi
+      done
+    fi
+    [[ -n "$best" ]] || die "No release records under $root; give a version: --status X.Y.Z"
+    RELEASE_HOME="$root/$best"
+  fi
+  RECORD="$RELEASE_HOME/release-record.txt"
+  if [[ ! -f "$RECORD" ]]; then
+    tmp="$(mktemp)"
+    RECORD="$tmp"
+  fi
+  VERSION="${STATUS_VERSION:-$(recorded VERSION)}"
+  VERSION="${VERSION:-$best}"
+  [[ -n "$VERSION" ]] || die "$RECORD names no version."
+  RELEASE_SHA="$(recorded RELEASE_SHA)"
+  if shared_record_on && command -v gh &>/dev/null; then record_pull; fi
+  RELEASE_SHA="$(recorded RELEASE_SHA)"
+  [[ -n "$RELEASE_SHA" ]] || die "No record of $VERSION here or shared (draft release $(shared_record_tag))."
+
+  step "Release $VERSION ($(recorded TAG)) = ${RELEASE_SHA:0:10}"
+  [[ -n "$tmp" ]] || say "Record: $RECORD"
+  status_row "CI gate" "$(step_state CI_DONE_SHA)" "$(recorded CI_RUN_URL)"
+  status_row "Host suites" "$(step_state HOST_TESTS_DONE_SHA HOST_TESTS_SKIPPED_SHA)" ""
+  for p in ANDROID:Android:ANDROID_VERSION_CODE IOS:iOS:IOS_BUILD_NUMBER; do
+    key="${p%%:*}" name="${p#*:}" num="${name#*:}" name="${name%%:*}"
+    build="$(recorded "UPLOAD_${key}_BUILD")"
+    build="${build:-$(recorded "$num")}"
+    next=""
+    printf '\n   \033[1m%s\033[0m\n' "$name" >&2
+    for row in \
+      "One-time gates|GATES_${key}_DONE_SHA|" \
+      "Phone preflight|PREFLIGHT_${key}_DONE_SHA|PREFLIGHT_${key}_SKIPPED_SHA" \
+      "Build ${build:-}|BUILD_${key}_DONE_SHA|" \
+      "Upload|UPLOAD_${key}_DONE_SHA|" \
+      "Validated on a phone|VALIDATED_${key}_${build:-none}_SHA|" \
+      "Published|PUBLISHED_${key}_DONE_SHA|"; do
+      IFS='|' read -r name key2 skipkey <<<"$row"
+      state="$(step_state "$key2" "$skipkey")"
+      status_row "$name" "$state" ""
+      [[ -z "$next" && "$state" == "-" ]] && next="$name"
+    done
+    state="$(recorded "PRODUCTION_RELEASE_DATE_${key}")"
+    status_row "Public" "${state:--}" ""
+    if [[ -n "$next" ]]; then
+      say "Next: $next"
+    elif [[ -z "$state" ]]; then
+      say "Next: the public smoke test and its date"
+    fi
+  done
+  printf '\n' >&2
+  local gh_url gh_state=-
+  gh_url="$(recorded GITHUB_RELEASE_URL)"
+  [[ -z "$gh_url" ]] || gh_state=published
+  status_row "GitHub Release" "$gh_state" "$gh_url"
+  [[ -z "$tmp" ]] || rm -f "$tmp"
+}
+
+# step_state DONE_KEY [SKIPPED_KEY] — done, skipped or - for this commit.
+step_state() {
+  if [[ "$(recorded "$1")" == "$RELEASE_SHA" ]]; then
+    echo "done"
+  elif [[ -n "${2:-}" && "$(recorded "$2")" == "$RELEASE_SHA" ]]; then
+    echo skipped
+  else
+    echo -
+  fi
+}
+
+status_row() { printf '   %-24s %-8s %s\n' "$1" "$2" "$3" >&2; }
+
 # ── entry point ──────────────────────────────────────────────────────────────
+
+# release_err_trap STATUS — the ERR trap's report (called with the failed
+# command's status). set -E hands the trap to every subshell too, and a
+# failure inside one is not necessarily the run's: `grep -v` in a `2> >(...)`
+# filter exits 1 when it has nothing to pass on, and printed "Stopped by an
+# unexpected failure" four times for a run that went on fine. Only the top
+# shell reports. A failure that matters inside `$(...)` still reaches it, as
+# the assignment's own failure, so a real stop is named once, not twice.
+# BASH_LINENO[0] is the line that failed, where LINENO would be this function.
+release_err_trap() {
+  [[ "$BASH_SUBSHELL" == 0 ]] || return 0
+  local where="${BASH_SOURCE[1]##*/}:${BASH_LINENO[0]}" fn="${FUNCNAME[1]:-}"
+  [[ -n "$fn" && "$fn" != main ]] && where+=" in $fn"
+  err "Stopped by an unexpected failure (exit $1) at $where. The record keeps what finished; fix it and re-run."
+}
 
 release_main() {
   # set -e alone stops without a word when an unguarded command fails deep in
   # a function. Name the spot instead; -E carries the trap into functions.
   set -E
-  trap 'err "Stopped by an unexpected failure (exit $?) at ${BASH_SOURCE[0]##*/}:$LINENO. The record keeps what finished; fix it and re-run."' ERR
+  trap 'release_err_trap $?' ERR
   parse_args "$@"
-  [[ -t 0 ]] || die "This script is interactive; run it from a terminal."
+  if [[ "$STATUS_ONLY" == true ]]; then
+    release_status
+    exit 0
+  fi
+  # LB_RELEASE_TEST_STDIN=1 is release-lib-selftest.sh's rehearsal, which
+  # answers every prompt from a here-string. Nothing else sets it.
+  [[ -t 0 || "${LB_RELEASE_TEST_STDIN:-0}" == 1 ]] ||
+    die "This script is interactive; run it from a terminal."
   check_tools
   cd "$PROJECT_DIR" || die "cd $PROJECT_DIR failed."
 
@@ -1088,6 +1594,9 @@ release_main() {
   log "Releasing $TAG = $SHORT_SHA for $PLATFORM_NAME."
 
   init_record
+  # Whatever ends the run (a stop, q, a failure) leaves the shared copy current.
+  trap record_push EXIT
+  offer_skip_done
   ci_gate
   one_time_gates
   prepare_worktree

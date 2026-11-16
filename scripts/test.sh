@@ -264,8 +264,16 @@ log "release-lib selftest"
 if command -v python3 &>/dev/null; then
   log "net_virtual_device selftest"
   python3 ./scripts/net_virtual_device_selftest.py
+  # The release tools: the app-bundle verifier, and the Play and App Store
+  # Connect API clients against loopback fakes of the two APIs.
+  log "verify_aab selftest"
+  python3 ./scripts/verify_aab_selftest.py
+  log "play_publish selftest"
+  python3 ./scripts/play_publish_selftest.py
+  log "asc_api selftest"
+  python3 ./scripts/asc_api_selftest.py
 else
-  warn "SKIPPING net_virtual_device selftest: no python3. CI still runs it."
+  warn "SKIPPING the python3 selftests (net_virtual_device, verify_aab, play_publish, asc_api): no python3. CI still runs them."
 fi
 
 # The emulator job's retry loop, against stub binaries: an attempt that ignores

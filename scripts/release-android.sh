@@ -15,8 +15,16 @@
 #   ./scripts/release-android.sh --from-tag v0.1.0 # build a tag that already exists
 #
 # Runs on Linux or macOS. Needs gh (signed in), the Flutter SDK from
-# ./scripts/setup.sh, a JDK's jarsigner, the upload keystore, and an Android
-# phone. See scripts/release-lib.sh for the shared flow and the record.
+# ./scripts/setup.sh, a JDK's jarsigner, python3, the upload keystore (or
+# --ci-build, which signs in GitHub Actions), and an Android phone. See
+# scripts/release-lib.sh for the shared flow, the flags and the record.
+#
+# With a Google Play service account (docs/RELEASE.md, "Play Developer API"),
+# the upload to Internal testing and the promotion to Production go through
+# scripts/play_publish.py instead of Play Console; without one, or if the API
+# refuses, the script says what to do in Play Console, as before. The key's
+# JSON is read from LB_PLAY_SERVICE_ACCOUNT, else
+# ~/.config/liberatedbread/play-service-account.json.
 
 # shellcheck disable=SC2034  # PLATFORM* and *_KEY are read by release-lib.sh
 set -euo pipefail
@@ -32,6 +40,13 @@ BUILD_NUMBER_KEY=ANDROID_VERSION_CODE
 ARTIFACT_SHA_KEY=AAB_SHA256
 PLAY_CONSOLE_URL="https://play.google.com/console"
 AAB_PATH=build/app/outputs/bundle/release/app-release.aab
+ARTIFACT_EXT=aab
+PLAY_NOTES_LIMIT=500   # characters per language in Play's "What's new"
+PLAY_SERVICE_ACCOUNT="${LB_PLAY_SERVICE_ACCOUNT:-$HOME/.config/liberatedbread/play-service-account.json}"
+# The tools this checkout brings, not the release worktree's: a release of an
+# older tag must still be checked and uploaded by today's scripts.
+PLAY_PUBLISH="$RELEASE_LIB_DIR/play_publish.py"
+VERIFY_AAB="$RELEASE_LIB_DIR/verify_aab.py"
 
 # key.properties is read and written through java.util.Properties, the class
 # Gradle loads it with (android/app/build.gradle), so this script and the
@@ -71,7 +86,11 @@ public class KeyProps {
   }
 }
 JAVA
-  java "$src/KeyProps.java" "$@" 2> >(grep -v '^Picked up JAVA_TOOL_OPTIONS' >&2) || rc=$?
+  # `|| true` in the filter: grep -v exits 1 when java wrote nothing else to
+  # stderr (the usual case), and release_main's `set -E` carries its ERR trap
+  # into this process substitution, which then printed "Stopped by an
+  # unexpected failure ... :74" for every call although nothing had stopped.
+  java "$src/KeyProps.java" "$@" 2> >(grep -v '^Picked up JAVA_TOOL_OPTIONS' >&2 || true) || rc=$?
   rm -f "$src/KeyProps.java"
   rmdir "$src" 2>/dev/null || true
   return "$rc"
@@ -98,12 +117,19 @@ platform_gates() {
     "Play Console's listing, Data safety, ads, location declaration and content rating are complete (docs/RELEASE.md 'Google Play, the first time')"
 }
 
+# RELEASE_DEVICE_TEST_ARGS (release-lib.sh): no printing suite, and no
+# connection to whichever BLE peripheral happens to be strongest.
 platform_device_tests() {
   local extra
-  extra="$(ask "Extra arguments for run-android-device-tests.sh (e.g. --device SERIAL), blank for none" "")"
+  # The last answer is the default (- for none), so a re-run on the same
+  # phone is one Enter.
+  extra="$(ask "Extra arguments for run-android-device-tests.sh (e.g. --device SERIAL, --live-ble-any), - for none" \
+    "${LB_RELEASE_DEVICE_ARGS:-$(recorded DEVICE_TEST_ARGS_ANDROID)}")"
+  [[ "$extra" != - ]] || extra=""
+  record DEVICE_TEST_ARGS_ANDROID "${extra:--}"
   # shellcheck disable=SC2086  # extra is word-split on purpose: it is flags
-  run_until_pass "run-android-device-tests.sh --all --expect-lan-devices --live-ble-any $extra" \
-    ./scripts/run-android-device-tests.sh --all --expect-lan-devices --live-ble-any $extra
+  run_until_pass "run-android-device-tests.sh ${RELEASE_DEVICE_TEST_ARGS[*]} $extra" \
+    ./scripts/run-android-device-tests.sh "${RELEASE_DEVICE_TEST_ARGS[@]}" $extra
 }
 
 # The worktree is fresh, and key.properties is gitignored, so it is never
@@ -219,10 +245,27 @@ platform_build() {
 # docs/RELEASE.md Step 4: the keystore is the trust source for the self-signed
 # upload certificate, and the alias makes a bundle signed by any other key
 # fail. The password goes through the environment, never the command line.
+# A bundle built in GitHub Actions comes with no keystore on this machine:
+# its signing certificate is compared, by SHA-256, with the upload key's,
+# which a local build records and Play Console shows.
 platform_verify() {
+  if [[ -n "${KEYSTORE:-}" ]]; then
+    verify_with_keystore
+  else
+    verify_upload_fingerprint
+  fi
+  # The contents, as verify_ios_app.sh checks the IPA: the Rust core in every
+  # ABI, 16 KB page alignment, the merged manifest's package and permissions,
+  # and that the bundle's versionCode/versionName are this build's.
+  run_until_pass "verify_aab.py $ARTIFACT" python3 "$VERIFY_AAB" "$ARTIFACT" \
+    --expect-version-code "$BUILD_NUMBER" --expect-version-name "$VERSION"
+}
+
+verify_with_keystore() {
   log "jarsigner -verify --strict (alias $KEY_ALIAS)"
-  local out
-  out="$(LB_STOREPASS="$(key_prop android/key.properties storePassword)" \
+  local out store_pw fp
+  store_pw="$(key_prop android/key.properties storePassword)"
+  out="$(LB_STOREPASS="$store_pw" \
     jarsigner -verify --strict -keystore "$KEYSTORE" -storepass:env LB_STOREPASS \
     "$ARTIFACT" "$KEY_ALIAS" 2>&1)" || {
     printf '%s\n' "$out" >&2
@@ -233,18 +276,94 @@ platform_verify() {
     die "jarsigner did not report 'jar verified'."
   }
   log "Signed by the upload key."
+  # Kept for the day this release (or the next) is built in CI.
+  fp="$(LB_STOREPASS="$store_pw" keytool -list -v -keystore "$KEYSTORE" -alias "$KEY_ALIAS" \
+    -storepass:env LB_STOREPASS 2>/dev/null | sed -n 's/^[[:space:]]*SHA256:[[:space:]]*//p' | head -n 1 || true)"
+  [[ -z "$fp" ]] || record ANDROID_UPLOAD_CERT_SHA256 "$fp"
+}
+
+# fingerprint_norm FP — upper-case hex, no colons or spaces.
+fingerprint_norm() { printf '%s' "$1" | tr -d ': ' | tr '[:lower:]' '[:upper:]'; }
+
+verify_upload_fingerprint() {
+  local out want got
+  out="$(jarsigner -verify "$ARTIFACT" 2>&1)" || {
+    printf '%s\n' "$out" >&2
+    die "jarsigner -verify failed on $ARTIFACT."
+  }
+  grep -q 'jar verified' <<<"$out" || {
+    printf '%s\n' "$out" >&2
+    die "jarsigner did not report 'jar verified' for $ARTIFACT."
+  }
+  want="${LB_ANDROID_UPLOAD_CERT_SHA256:-$(recorded ANDROID_UPLOAD_CERT_SHA256)}"
+  if [[ -z "$want" ]]; then
+    say "No upload-key fingerprint is on record yet. Play Console → Liberated Bread →" \
+      "Test and release → App integrity → App signing → Upload key certificate: SHA-256."
+    want="$(ask_required "Upload key certificate SHA-256")"
+  fi
+  got="$(keytool -printcert -jarfile "$ARTIFACT" 2>/dev/null |
+    sed -n 's/^[[:space:]]*SHA256:[[:space:]]*//p' | head -n 1 || true)"
+  if [[ -z "$got" || "$(fingerprint_norm "$got")" != "$(fingerprint_norm "$want")" ]]; then
+    die "$ARTIFACT is signed by certificate SHA-256 ${got:-<none>}, not the upload key's $want. Play would reject it."
+  fi
+  record ANDROID_UPLOAD_CERT_SHA256 "$want"
+  log "Signed by the upload key (certificate SHA-256 matches)."
+}
+
+# say_track_errors — what Play Console's two refusals for a release that
+# gives no user anything newer mean. They read like faults, but both are about
+# what the track already serves (play_publish.py checks this itself).
+say_track_errors() {
+  say "" \
+    "If Play says the release \"does not add or remove any app bundles\": versionCode" \
+    "$BUILD_NUMBER is already on that track. Discard the new release; that step is done." \
+    "If it says it \"doesn't allow any existing users to upgrade\": the track serves a" \
+    "HIGHER versionCode. Discard the release, then test that newer build, or stop (q)," \
+    "re-run, and answer No to reusing the build so this one gets a higher number."
+}
+
+# play_api — status 0 when a service account is configured for play_publish.py.
+play_api() {
+  [[ -f "$PLAY_SERVICE_ACCOUNT" ]] && return 0
+  log "No Play service account at $PLAY_SERVICE_ACCOUNT (LB_PLAY_SERVICE_ACCOUNT); this step is by hand."
+  return 1
 }
 
 platform_upload() {
+  store_notes play "$PLAY_NOTES_LIMIT"
+  local out status
+  if play_api; then
+    log "Uploading build $BUILD_NUMBER to Internal testing through the Play Developer API"
+    if out="$(python3 "$PLAY_PUBLISH" upload --service-account "$PLAY_SERVICE_ACCOUNT" \
+      --aab "$ARTIFACT" --track internal --expect-version-code "$BUILD_NUMBER" \
+      --notes-file "$STORE_NOTES" --release-name "$VERSION ($BUILD_NUMBER)")"; then
+      status="$(json_field status <<<"$out")"
+      record PLAY_INTERNAL_STATUS "$status"
+      if [[ "$(json_field already <<<"$out")" == True ]]; then
+        log "Build $BUILD_NUMBER is already on Internal testing ($status); nothing to upload."
+      elif [[ "$status" == draft ]]; then
+        open_url "$PLAY_CONSOLE_URL"
+        say "Liberated Bread has never been published, so Play holds this as a DRAFT" \
+          "release on Internal testing. Play Console → Testing → Internal testing →" \
+          "the draft → review it and start the rollout to Internal testing."
+        pause
+      else
+        log "Build $BUILD_NUMBER is rolled out to Internal testing."
+      fi
+      return
+    fi
+    warn "The Play Developer API upload did not go through (above). Upload by hand instead:"
+  fi
   open_url "$PLAY_CONSOLE_URL"
   say "Play Console → Liberated Bread → Testing → Internal testing → Releases:" \
     "  1. Create a release and upload" \
     "       $ARTIFACT" \
     "     (versionCode $BUILD_NUMBER, SHA-256 $(recorded AAB_SHA256))." \
-    "  2. Paste the release notes (CHANGELOG.md's [$VERSION] section), review the" \
+    "  2. Paste the release notes from $STORE_NOTES, review the" \
     "     release, and start the rollout to Internal testing. Not Production." \
     "If Play refuses the versionCode, stop (q) and re-run: answer No to reusing" \
     "the build, and the next build gets a higher one."
+  say_track_errors
   pause
   record_url PLAY_INTERNAL_RELEASE_URL "Internal-testing release URL (blank to skip)"
 }
@@ -257,12 +376,49 @@ platform_closed_test() {
 }
 
 platform_publish() {
+  store_notes play "$PLAY_NOTES_LIMIT"
+  local fraction args out status
+  if play_api; then
+    say "Promotion carries the tested AAB (versionCode $BUILD_NUMBER) from Internal testing" \
+      "to Production: nothing is rebuilt or uploaded. A staged rollout starts with a" \
+      "fraction of users, and is widened later with play_publish.py rollout."
+    fraction="$(ask "Fraction of users to start the Production rollout with (1 for everyone)" 0.2)"
+    args=(promote --service-account "$PLAY_SERVICE_ACCOUNT" --version-code "$BUILD_NUMBER"
+      --from internal --to production --notes-file "$STORE_NOTES")
+    [[ "$fraction" == 1 || "$fraction" == 1.0 ]] || args+=(--user-fraction "$fraction")
+    if confirm "Promote versionCode $BUILD_NUMBER to Production at $fraction of users?" y &&
+      out="$(python3 "$PLAY_PUBLISH" "${args[@]}")"; then
+      status="$(json_field status <<<"$out")"
+      record PLAY_PRODUCTION_STATUS "$status"
+      if [[ "$(json_field already <<<"$out")" == True ]]; then
+        log "versionCode $BUILD_NUMBER is already on Production ($status); nothing to promote."
+        return
+      fi
+      record PLAY_ROLLOUT_FRACTION "$fraction"
+      if [[ "$status" == draft ]]; then
+        open_url "$PLAY_CONSOLE_URL"
+        say "Play created the Production release as a DRAFT (the app has never been" \
+          "published). Play Console → Production → the draft → check the store forms," \
+          "review the release and start its rollout."
+        pause
+      else
+        say "Production release created ($status). Play reviews the update before users" \
+          "see it. Widen the rollout once vitals look healthy:" \
+          "  python3 $PLAY_PUBLISH rollout --version-code $BUILD_NUMBER --user-fraction 0.5" \
+          "  python3 $PLAY_PUBLISH rollout --version-code $BUILD_NUMBER --complete" \
+          "(--halt stops it)."
+      fi
+      return
+    fi
+    warn "Not promoted through the API. Promote by hand instead:"
+  fi
   open_url "$PLAY_CONSOLE_URL"
   say "Play Console → Testing → Internal testing → the tested release (versionCode" \
     "$BUILD_NUMBER) → Promote release → Production. This carries the SAME AAB" \
     "forward: do not rebuild or upload anything new." \
-    "Check the release notes and store forms, review the Production release, and" \
-    "start its rollout (staged, when offered)."
+    "Release notes: $STORE_NOTES. Check the store forms, review the Production" \
+    "release, and start its rollout (staged, when offered)."
+  say_track_errors
   pause
   record_url PLAY_PRODUCTION_RELEASE_URL "Production release URL (blank to skip)"
 }

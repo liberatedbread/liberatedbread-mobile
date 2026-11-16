@@ -4,9 +4,11 @@
 #
 # Exercises the parts of scripts/release-lib.sh that decide WHAT gets released,
 # without a phone, a store or a network: the prompts, the version and
-# changelog parsing, the release record, and tag resolution against a
-# throwaway repo with a throwaway "origin". The guided release itself only
-# runs a few times a year, so its own bugs would otherwise surface mid-release.
+# changelog parsing, the release record (and its shared copy, through a
+# stand-in gh), tag resolution against a throwaway repo with a throwaway
+# "origin", and a rehearsal of a whole release_main run. The guided release
+# itself only runs a few times a year, so its own bugs would otherwise surface
+# mid-release.
 #
 # Runs in scripts/test.sh and CI's gate job; needs bash, git and awk.
 
@@ -26,6 +28,9 @@ expect() { # expect LABEL WANT GOT
 
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
+# The shared record syncs through gh; only the cases below that stub gh for
+# it turn it back on.
+export LB_RELEASE_SHARED_RECORD=0
 
 # ── prompts ──────────────────────────────────────────────────────────────────
 
@@ -155,6 +160,39 @@ expect "record_set replaces in place" $'A=2\nB=https://x/y?a=b&c=d' "$(cat "$R")
 expect "record_get with & and / in the value" 'https://x/y?a=b&c=d' "$(record_get "$R" B)"
 expect "record_get: prefix keys do not collide" "" "$(record_get "$R" AB)"
 
+# ── phone preflight: the skip option ─────────────────────────────────────────
+#
+# A skip never counts as the step passing: it is recorded under its own key,
+# and the platform hook (the phone runners) is not reached.
+
+(
+  parse_args --from-tag v1.0.0 --skip-device-tests
+  expect "parse_args: --skip-device-tests" "true/existing/v1.0.0" "$SKIP_DEVICE_TESTS/$MODE/$TAG"
+  parse_args --new-tag
+  expect "parse_args: no skip by default" "false" "$SKIP_DEVICE_TESTS"
+)
+expect "release args: nothing physical" "--all --expect-lan-devices --no-printing" \
+  "${RELEASE_DEVICE_TEST_ARGS[*]}"
+preflight_case() { # preflight_case SKIP_FLAG STDIN — prints DONE/SKIPPED/hook
+  (
+    RECORD="$TMP/preflight-record.txt" PLATFORM_KEY=ANDROID PLATFORM_NAME=Android
+    RELEASE_SHA=abc123 SHORT_SHA=abc123 SKIP_DEVICE_TESTS="$1"
+    rm -f "$RECORD"
+    hook=no
+    # shellcheck disable=SC2329  # stubs: device_preflight calls them
+    platform_device_tests() { hook=yes; }
+    # shellcheck disable=SC2329  # (the same)
+    require_clean() { :; }
+    device_preflight <<<"$2" >/dev/null 2>&1
+    printf '%s/%s/%s' "$(recorded PREFLIGHT_ANDROID_DONE_SHA)" \
+      "$(recorded PREFLIGHT_ANDROID_SKIPPED_SHA)" "$hook"
+  )
+}
+expect "device_preflight: --skip-device-tests skips without asking" "/abc123/no" \
+  "$(preflight_case true "")"
+expect "device_preflight: No at the prompt skips" "/abc123/no" "$(preflight_case false n)"
+expect "device_preflight: Yes runs and marks done" "abc123//yes" "$(preflight_case false y)"
+
 # ── tag resolution against a throwaway origin ────────────────────────────────
 
 git_q() { git -c user.name=t -c user.email=t@t -c init.defaultBranch=main "$@" >/dev/null 2>&1; }
@@ -271,6 +309,200 @@ git_q commit -qam "pubspec edit beside the version"
 bump_only_commit HEAD && fail "bump_only_commit: another pubspec line" ||
   pass "bump_only_commit: another pubspec line"
 git_q checkout -q -
+
+# ── store release notes ──────────────────────────────────────────────────────
+
+# shellcheck disable=SC2016  # backticks are Markdown here
+notes_in='### Added
+- **Bold** thing with `code` ([#118](https://github.com/x/y/pull/118))
+  * nested item (#12, #13)
+- [a link](https://example.com) and __under__
+
+
+- after a gap
+
+[Unreleased]: https://example.com/compare'
+notes_want='Added
+• Bold thing with code
+  • nested item
+• a link and under
+
+• after a gap'
+expect "store_notes_text: Markdown to plain text" "$notes_want" \
+  "$(store_notes_text <<<"$notes_in" | sed -e :a -e '/^\n*$/{$d;N;ba' -e '}')"
+expect "char_count: characters, not bytes" 3 "$(printf '•é!\n' | char_count)"
+
+# ── the shared record ────────────────────────────────────────────────────────
+
+printf '# header\nVERSION=1.0.0\nCI_DONE_SHA=aaa\nANDROID_ARTIFACT=/a.aab\n' >"$TMP/local.txt"
+printf 'CI_DONE_SHA=other\nIOS_BUILD_NUMBER=7\nIOS_ARTIFACT=/mac/x.ipa\nIOS_BUILD_LOG=/mac/l\n' >"$TMP/other.txt"
+record_merge "$TMP/local.txt" "$TMP/other.txt"
+expect "record_merge: a key here keeps its value" aaa "$(record_get "$TMP/local.txt" CI_DONE_SHA)"
+expect "record_merge: the other machine's key is added" 7 "$(record_get "$TMP/local.txt" IOS_BUILD_NUMBER)"
+expect "record_merge: the other machine's paths are not" "" \
+  "$(record_get "$TMP/local.txt" IOS_ARTIFACT)$(record_get "$TMP/local.txt" IOS_BUILD_LOG)"
+# The Mac imported Android's build 100; Android then rebuilt as 101. The Mac
+# must take 101, not push its stale 100 back, and keeps its own iOS keys.
+printf 'ANDROID_VERSION_CODE=100\nIOS_BUILD_NUMBER=7\nCI_DONE_SHA=aaa\n' >"$TMP/mac.txt"
+printf 'ANDROID_VERSION_CODE=101\nIOS_BUILD_NUMBER=6\nCI_DONE_SHA=bbb\n' >"$TMP/shared.txt"
+( PLATFORM_KEY=IOS; record_merge "$TMP/mac.txt" "$TMP/shared.txt" )
+expect "record_merge: the other platform's newer value replaces a stale copy" \
+  "101/7/aaa" \
+  "$(record_get "$TMP/mac.txt" ANDROID_VERSION_CODE)/$(record_get "$TMP/mac.txt" IOS_BUILD_NUMBER)/$(record_get "$TMP/mac.txt" CI_DONE_SHA)"
+expect "record_key_owner: platform keys and shared ones" "ANDROID/IOS/IOS/" \
+  "$(record_key_owner UPLOAD_ANDROID_BUILD)/$(record_key_owner ASC_KEY_ID)/$(record_key_owner APP_STORE_VERSION_ID)/$(record_key_owner GITHUB_RELEASE_URL)"
+
+# A stand-in gh with file-backed releases, for the shared record and for the
+# rehearsal below: CI is always green for any commit asked about. The gh
+# function above (the prep cases' recorder) would shadow it.
+unset -f gh
+mkdir -p "$TMP/bin" "$TMP/ghstate"
+cat >"$TMP/bin/gh" <<'GH'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >>"$GH_STATE/calls.log"
+args=("$@")
+opt() { local i; for ((i = 0; i < ${#args[@]}; i++)); do [[ "${args[i]}" == "$1" ]] && { printf '%s' "${args[i+1]}"; return 0; }; done; return 1; }
+case "$1 $2" in
+  "auth status") exit 0 ;;
+  "run list") printf '101\tcompleted\thttps://ci.example/101\tsuccess\n' ;;
+  "release view")
+    [[ -d "$GH_STATE/rel/$3" ]] || exit 1
+    if opt --json >/dev/null; then echo "https://gh.example/releases/$3"; fi ;;
+  "release create")
+    [[ ! -d "$GH_STATE/rel/$3" ]] || exit 1
+    mkdir -p "$GH_STATE/rel/$3"
+    for a in "${args[@]:3}"; do [[ -f "$a" ]] && cp "$a" "$GH_STATE/rel/$3/"; done
+    for a in "${args[@]}"; do [[ "$a" == --draft ]] && touch "$GH_STATE/rel/$3/.draft"; done
+    exit 0 ;;
+  "release upload")
+    [[ -d "$GH_STATE/rel/$3" ]] || exit 1
+    for a in "${args[@]:3}"; do [[ -f "$a" ]] && cp "$a" "$GH_STATE/rel/$3/"; done
+    exit 0 ;;
+  "release download")
+    f="$GH_STATE/rel/$3/$(opt -p)"
+    [[ -f "$f" ]] || exit 1
+    cp "$f" "$(opt -D)/" ;;
+  *) echo "stub gh: unexpected: $*" >&2; exit 1 ;;
+esac
+GH
+printf '#!/usr/bin/env bash\nexit 0\n' >"$TMP/bin/flutter"
+chmod +x "$TMP/bin/gh" "$TMP/bin/flutter"
+export GH_STATE="$TMP/ghstate"
+
+(
+  # shellcheck disable=SC2030  # PATH and the rest are this subshell's own
+  PATH="$TMP/bin:$PATH" LB_RELEASE_SHARED_RECORD=1 VERSION=9.9.9 RELEASE_SHA=sha1
+  RECORD="$TMP/shared-a.txt"
+  printf 'VERSION=9.9.9\nRELEASE_SHA=sha1\nANDROID_ARTIFACT=/x\nCI_DONE_SHA=sha1\n' >"$RECORD"
+  record_push
+  expect "record_push: creates a draft release" yes \
+    "$([[ -f "$GH_STATE/rel/release-record-9.9.9/.draft" ]] && echo yes)"
+  expect "record_push: machine paths stay here" "" \
+    "$(record_get "$GH_STATE/rel/release-record-9.9.9/release-record.txt" ANDROID_ARTIFACT)"
+  RECORD="$TMP/shared-b.txt"
+  printf 'VERSION=9.9.9\nRELEASE_SHA=sha1\nIOS_BUILD_NUMBER=5\n' >"$RECORD"
+  record_pull
+  expect "record_pull: the other machine's keys arrive" sha1 "$(recorded CI_DONE_SHA)"
+  record_push
+  expect "record_push: both machines' keys end up shared" "sha1/5" \
+    "$(record_get "$GH_STATE/rel/release-record-9.9.9/release-record.txt" CI_DONE_SHA)/$(record_get "$GH_STATE/rel/release-record-9.9.9/release-record.txt" IOS_BUILD_NUMBER)"
+  RELEASE_SHA=sha2
+  expect "record_pull: a shared record for another commit stops the run" 1 \
+    "$( (record_pull >/dev/null 2>&1); echo $?)"
+  record_push 2>/dev/null
+  expect "record_push: never overwrites another commit's record" sha1 \
+    "$(record_get "$GH_STATE/rel/release-record-9.9.9/release-record.txt" RELEASE_SHA)"
+)
+
+# ── rehearsal: release_main end to end ───────────────────────────────────────
+#
+# A whole guided release, in its own bash, against a throwaway repository and
+# origin, with the platform hooks stubbed and gh/flutter stood in for. It is
+# here because the release runs a few times a year, and its last bugs (a
+# spurious "unexpected failure" from a subshell; prompts answered for the
+# wrong step) only showed mid-release.
+
+R="$TMP/rehearsal"
+mkdir -p "$R/out"
+git_q init --bare "$R/origin.git"
+git_q clone "$R/origin.git" "$R/repo"
+mkdir -p "$R/repo/scripts"
+cp "$ROOT/scripts/release-lib.sh" "$R/repo/scripts/"
+cat >"$R/repo/scripts/release-fake.sh" <<'FAKE'
+#!/usr/bin/env bash
+set -euo pipefail
+source "$(dirname "$0")/release-lib.sh"
+PLATFORM=android PLATFORM_KEY=ANDROID PLATFORM_NAME=Android
+BUILD_NUMBER_KEY=ANDROID_VERSION_CODE ARTIFACT_SHA_KEY=AAB_SHA256 ARTIFACT_EXT=aab
+platform_preflight() { :; }
+platform_gates() { :; }
+platform_device_tests() { echo "DEVICE TESTS RAN" >&2; }
+platform_build() { ARTIFACT="$REHEARSAL_OUT/app.aab"; printf 'aab\n' >"$ARTIFACT"; BUILD_NUMBER=42; }
+platform_verify() { :; }
+platform_upload() { echo "UPLOADED" >&2; }
+platform_closed_test() { :; }
+platform_publish() { :; }
+release_main "$@"
+FAKE
+chmod +x "$R/repo/scripts/release-fake.sh"
+(
+  cd "$R/repo" || exit 1
+  printf 'name: x\nversion: 1.0.0+1\n' >pubspec.yaml
+  printf '# Changelog\n\n## [Unreleased]\n\n## [1.0.0] - 2026-11-01\n\n- First.\n' >CHANGELOG.md
+  git_q add -A && git_q commit -m "one" && git_q push origin HEAD:main
+  git_q tag -a v1.0.0 -m "Liberated Bread 1.0.0"
+)
+rehearse() { # rehearse HOME ANSWERS ARGS... — stderr+stdout of one run
+  local home="$1" answers="$2"
+  shift 2
+  # shellcheck disable=SC2031
+  # FLUTTER_HOME: release-lib.sh puts its bin/ first on PATH, which would
+  # put the real SDK ahead of the stub.
+  (cd "$R/repo" && PATH="$TMP/bin:$PATH" LB_RELEASE_TEST_STDIN=1 LB_RELEASE_SHARED_RECORD=1 \
+    LB_RELEASE_HOME="$home" LB_RELEASE_WORKTREE="$R/wt" REHEARSAL_OUT="$R/out" \
+    FLUTTER_HOME="$R/no-flutter-sdk" \
+    VISUAL="" EDITOR="" ./scripts/release-fake.sh "$@" <<<"$answers" 2>&1)
+}
+# Answers, in order: the two one-time gates; host suites again? (No); push
+# the tag; the six validation items; publish the GitHub Release; the public
+# smoke test, its date, the archive; remove the worktree (No: the re-run
+# below reuses it).
+first="$(rehearse "$R/rec" $'y\ny\n\n\ny\ny\ny\ny\ny\ny\n\n\n\n\nn' --from-tag v1.0.0 --skip-device-tests --local-build)"
+rc=$?
+# REHEARSAL_DEBUG=1 shows the run itself, prompts and all.
+[[ -z "${REHEARSAL_DEBUG:-}" ]] || printf '%s\n' "$first" >&2
+expect "rehearsal: a full run exits 0" 0 "$rc"
+[[ "$first" != *"unexpected failure"* ]] && pass "rehearsal: no 'unexpected failure' on the happy path" ||
+  fail "rehearsal: no 'unexpected failure' on the happy path: $(grep -m3 'unexpected failure' <<<"$first")"
+[[ "$first" != *"DEVICE TESTS RAN"* ]] && pass "rehearsal: --skip-device-tests ran no phone suite" ||
+  fail "rehearsal: --skip-device-tests ran no phone suite"
+expect "rehearsal: the tag reached origin" 1 \
+  "$(git -C "$R/repo" ls-remote --tags origin refs/tags/v1.0.0 | wc -l | tr -d ' ')"
+expect "rehearsal: published, host suites and preflight noted as skipped" \
+  "$(git -C "$R/repo" rev-parse 'v1.0.0^{commit}')/yes/yes" \
+  "$(record_get "$R/rec/release-record.txt" PUBLISHED_ANDROID_DONE_SHA)/$([[ -n "$(record_get "$R/rec/release-record.txt" HOST_TESTS_SKIPPED_SHA)" ]] && echo yes)/$([[ -n "$(record_get "$R/rec/release-record.txt" PREFLIGHT_ANDROID_SKIPPED_SHA)" ]] && echo yes)"
+expect "rehearsal: GitHub Release recorded" "https://gh.example/releases/v1.0.0" \
+  "$(record_get "$R/rec/release-record.txt" GITHUB_RELEASE_URL)"
+expect "rehearsal: the shared record has the run, without local paths" "42/" \
+  "$(record_get "$GH_STATE/rel/release-record-1.0.0/release-record.txt" ANDROID_VERSION_CODE)/$(record_get "$GH_STATE/rel/release-record-1.0.0/release-record.txt" ANDROID_ARTIFACT)"
+
+# The same commit again: one answer skips everything already done.
+second="$(rehearse "$R/rec" $'y\n\n\n\n\n\ny' --from-tag v1.0.0 --skip-device-tests --local-build)"
+rc=$?
+expect "rehearsal re-run: exits 0" 0 "$rc"
+[[ "$second" == *"Skip all of that?"* && "$second" != *"in an earlier run. Skip it?"* ]] &&
+  pass "rehearsal re-run: one question, not one per step" ||
+  fail "rehearsal re-run: one question, not one per step"
+[[ "$second" != *UPLOADED* ]] && pass "rehearsal re-run: the upload is not repeated" ||
+  fail "rehearsal re-run: the upload is not repeated"
+[[ "$second" != *"unexpected failure"* ]] && pass "rehearsal re-run: no 'unexpected failure'" ||
+  fail "rehearsal re-run: no 'unexpected failure'"
+
+# --status on "the other machine": no local record, only the shared one.
+third="$(rehearse "$R/rec-mac" "" --status 1.0.0)"
+[[ "$third" == *"Published"*"done"* && "$third" == *"iOS"* ]] &&
+  pass "--status: reads the shared record on a machine without one" ||
+  fail "--status: reads the shared record on a machine without one: $third"
 
 if [[ "$status" == 0 ]]; then echo "release-lib selftest: all passed"; fi
 exit "$status"

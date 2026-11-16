@@ -121,26 +121,115 @@ that question up front. Then each script:
   that commit. `--new-tag X.Y.Z` overrides the pick;
 
 - runs every step a shell can run: fetch, the CI gate (it watches a running
-  CI run), the clean worktree, `test.sh` and the netdisco suites, the phone
-  preflight, the local tag, `release.sh`, the artifact checks (`jarsigner`,
-  or `verify_ios_app.sh` plus the ITMS-91053 preflight), hashes, the tag push,
+  CI run), the clean worktree, the phone preflight, the local tag,
+  `release.sh`, the artifact checks (`jarsigner` plus `verify_aab.py`, or
+  `verify_ios_app.sh` plus the ITMS-91053 preflight), hashes, the tag push,
   and the GitHub Release from the CHANGELOG section;
+- does not rerun `test.sh` and the netdisco suites by default: the CI gate
+  already requires a green `ci.yml` run of these same suites for the release
+  commit. It asks (default No), and `--host-tests` runs them without asking,
+  for instance after a toolchain change on the release machine;
 - stops for every step that happens in a store console or on a phone, says
   exactly what to do, and waits for Enter (`q` stops the run);
+- runs the phone preflight with nothing physical acted on (below), and lets you
+  skip it: answer No when it asks, or pass `--skip-device-tests`. A skip is
+  recorded as `PREFLIGHT_<PLATFORM>_SKIPPED_SHA`, never as passed, so a re-run
+  of the same commit asks again;
 - asks before anything outward-facing: creating the tag, pushing it, and
   publishing the GitHub Release;
 - keeps the release record below in
   `../liberatedbread-release-records/<version>/`, along with the build logs
-  and a copy of each uploaded artifact. A re-run of the same commit offers to
-  skip each step that already passed, so a release that waits days for App
-  Review is resumed with `--from-tag`.
+  and a copy of each uploaded artifact, and mirrors it to the other
+  platform's machine (below). A re-run of the same commit lists what already
+  passed and skips all of it on one answer (No asks step by step, where a
+  rebuild can be chosen), so a release that waits days for App Review is
+  resumed with `--from-tag`;
+- writes each store's "What's new" text from the CHANGELOG section as plain
+  text (`notes-play.txt`, `notes-appstore.txt` in the record directory),
+  checks it against the store's limit (Play 500 characters, App Store 4000),
+  and offers `$EDITOR` until it fits. A hand edit is kept across re-runs;
+- remembers the extra phone-runner arguments you gave (`--device ...`) as the
+  next run's default (`-` for none; `LB_RELEASE_DEVICE_ARGS` presets them).
 
-The iOS upload goes through `xcrun altool` when an App Store Connect API key is
-available (`ASC_KEY_ID`, `ASC_ISSUER_UUID`, and the `.p8` as in the Apple
-runbook Step 5), and through Transporter otherwise. Play Console steps stay
-manual. A failed check stops the script; nothing in it sets the `release.sh`
+`--status [X.Y.Z]` prints the record as a table of steps per platform (the
+newest record without a version), merged with the shared copy, and exits; it
+works on a machine that has no local record.
+
+A failed check stops the script; nothing in it sets the `release.sh`
 overrides. The steps below are what the scripts do, and they still work by
 hand.
+
+#### Store APIs
+
+With credentials set up once, the store-console steps that need no judgement
+run through the stores' APIs. Without them, or whenever an API refuses, the
+script falls back to saying what to click, as before.
+
+- **Google Play**: `scripts/play_publish.py`, with a service account. Create
+  one in Google Cloud, give it access in Play Console → Users and permissions
+  (Release apps to testing tracks, and Release to production), download its
+  JSON key, and put it at `~/.config/liberatedbread/play-service-account.json`
+  (or point `LB_PLAY_SERVICE_ACCOUNT` at it; keep it `chmod 600`, out of every
+  checkout). The script then uploads the AAB to Internal testing with the
+  notes, and later promotes that same versionCode to Production as a staged
+  rollout at the fraction you give. Widen or finish it afterwards with
+  `python3 scripts/play_publish.py rollout --version-code N --user-fraction 0.5`
+  (or `--complete`, or `--halt`). Before the app's first publication Play only
+  accepts draft releases; the script creates them as drafts and says what to
+  roll out by hand. Before creating a release it reads the target track: a
+  versionCode the track already serves counts as done (a re-run), and one
+  below the versionCode the track serves stops with an explanation. Those are
+  the two cases Play Console refuses as "does not add or remove any app
+  bundles" and "doesn't allow any existing users to upgrade". A bundle an
+  earlier run already uploaded is released rather than uploaded again.
+- **App Store Connect**: `scripts/asc_api.py`, with the same API key `altool`
+  uploads with (`ASC_KEY_ID`, `ASC_ISSUER_UUID`, `AuthKey_<KEYID>.p8` as in
+  the Apple runbook Step 5; the IDs are kept in the record). After the upload
+  it polls until the build is processed (no waiting for Apple's email, and a
+  Missing Compliance state is reported at once), adds it to the internal
+  TestFlight group, creates the App Store version, selects the build and sets
+  What's New, then, after you finish the metadata and confirm, submits it for
+  review and, once approved, releases it. It reads the version's state on
+  every run, so stopping with `q` during review and re-running resumes there.
+
+Both clients use only the Python standard library and `openssl`, and their
+selftests run in CI against loopback fakes of the APIs. They have not yet been
+run against the live services; the first release with them is the check, and
+every step has the manual fallback.
+
+#### Building in GitHub Actions
+
+`--ci-build` (or `LB_RELEASE_BUILD=ci`, or the answer when the build step
+asks) builds the signed artifact in `.github/workflows/release-build.yml`
+instead of on the release machine. The script dispatches it with the tag,
+commit and platform, watches it, downloads the artifact, and checks the
+SHA-256 and the build-provenance attestation (`gh attestation verify
+--signer-workflow`) before its own checks run on it as on a local build. The
+workflow verifies that the commit is on `main` and matches the tag's version,
+and tags it only inside its own checkout; the tag is still pushed by the
+script, after the checks.
+
+The signing material lives in repository secrets, listed in the workflow's
+header (the Android upload keystore and its passwords; the Apple Distribution
+`.p12` and the App Store profile). Put them in an Environment named `release`
+with required reviewers so that every dispatch waits for a person. Then the
+release machine needs neither `android/key.properties` nor the Distribution
+certificate: an Android bundle built in CI is checked against the upload key
+certificate's SHA-256 (recorded by any local build, or entered once from Play
+Console → App integrity). Attestations need a public repository, or GitHub
+Enterprise Cloud for a private one.
+
+#### One release, two machines
+
+The Android half usually runs on Linux and the iOS half on the release Mac.
+The record is mirrored to a **draft** GitHub Release tagged
+`release-record-X.Y.Z`, holding only `release-record.txt`: drafts are visible
+only to people with push access and create no tag. Never publish it. Each
+machine merges the other's keys at the start and after every finished step,
+so the CI gate, gates and GitHub Release done on one count on the other.
+Machine paths (artifacts, logs) are not shared. A shared record for a
+different commit stops the run: that would be two builds of one version.
+`LB_RELEASE_SHARED_RECORD=0` keeps the record local.
 
 ### By hand
 
@@ -179,8 +268,8 @@ substitute the version actually in `pubspec.yaml`. A store build must use
    `version:` line and `CHANGELOG.md` needs no PR or CI run of its own. Gate
    on the run for its parent (`$RELEASE_SHA^`), which built and tested every
    other line. The guided scripts do this themselves and record the commit
-   they gated on as `CI_GATE_SHA`. Steps 2–4 still run the tests and the build
-   on the release commit itself.
+   they gated on as `CI_GATE_SHA`. Steps 3–4 still run the phone suites and the
+   build on the release commit itself.
 
 ### 2. Create and test a clean worktree
 
@@ -201,6 +290,8 @@ test "$(git rev-parse HEAD)" = "$RELEASE_SHA"
 test "$(sed -n 's/^version:[[:space:]]*\([^+[:space:]]*\).*/\1/p' pubspec.yaml)" = "$VERSION"
 test -z "$(git status --porcelain)"
 flutter pub get --enforce-lockfile
+# Optional: CI's green run for $RELEASE_SHA already ran these same suites.
+# Run them again after a toolchain change on this machine.
 ./scripts/test.sh
 ./scripts/ci-netdisco-tests.sh
 ```
@@ -212,14 +303,22 @@ clean worktree.
 ### 3. Run the physical-phone preflight, then tag
 
 From the release worktree, use an Android phone and an iPhone on a LAN with at
-least one supported device. These commands exercise real Bluetooth, Wi-Fi
-discovery and the mock end-to-end flows against `$RELEASE_SHA`;
-`--live-ble-any` also connects read-only to a nearby peripheral:
+least one supported device. These commands exercise the phone's real Bluetooth
+stack, Wi-Fi discovery and the mock end-to-end flows against `$RELEASE_SHA`,
+without acting on anything physical around the phone:
 
 ```bash
-./scripts/run-android-device-tests.sh --all --expect-lan-devices --live-ble-any
-./scripts/run-ios-device-tests.sh --all --expect-lan-devices --live-ble-any --keep-multicast
+./scripts/run-android-device-tests.sh --all --expect-lan-devices --no-printing
+./scripts/run-ios-device-tests.sh --all --expect-lan-devices --no-printing --keep-multicast
 ```
+
+`--no-printing` leaves `printing_test.dart` out of the mock-mode aggregate. The
+release deliberately does not pass `--live-ble-any`, which connects to whichever
+BLE peripheral is strongest in range (a lock, a printer, a meter) and reads every
+readable characteristic; add it, or `--live-ble-name NAME` for a peripheral of
+your own, when that is wanted. The Wi-Fi scan only sends discovery datagrams;
+nothing it finds is connected to. The guided scripts ask for extra arguments,
+which is where either goes.
 
 `--keep-multicast` is valid only after the iPhone's development profile includes
 the entitlement. Do not add `--allow-keychain-wipe` unless every credential the
@@ -286,6 +385,18 @@ certificate, and the alias makes a bundle signed by another key fail the check.
 The subshell keeps the password out of shell history and command arguments,
 then discards it. Without the keystore, `--strict` rejects the self-signed
 certificate even though its signature is valid.
+
+Then check the bundle's contents, as `verify_ios_app.sh` does the IPA's:
+
+```bash
+python3 ./scripts/verify_aab.py build/app/outputs/bundle/release/app-release.aab \
+  --expect-version-code <build number> --expect-version-name "$VERSION"
+```
+
+It checks the Rust core in every ABI, 16 KB page alignment of every 64-bit
+native library (Play requires apps targeting Android 15+ to support 16 KB
+pages), the merged manifest's package id and permissions, and the bundle's
+versionCode and versionName.
 
 Record each artifact's SHA-256 and the build number printed by `release.sh`.
 The iOS verifier checks the bundle id, permission declarations, Rust FFI symbols

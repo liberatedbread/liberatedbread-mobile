@@ -662,6 +662,7 @@ keychain, with the measurements printed as `[hardware]` lines.
 ./scripts/run-android-device-tests.sh --all              # the same suite on an attached Android phone
 ./scripts/run-ios-device-tests.sh --all --allow-keychain-wipe   # also run the keychain suite, which WIPES the app's credentials
 ./scripts/run-android-device-tests.sh --all --allow-keychain-wipe   # the same, WIPING the Android app's secure storage
+./scripts/run-ios-device-tests.sh --all --no-printing    # leave printing_test.dart out of the aggregate (as the release does)
 ```
 
 Both runners share the suite and its flags; the Android one needs no
