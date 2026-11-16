@@ -100,7 +100,10 @@ bool isHomeAssistantServer(NetworkDevice device) => device.serviceTypes
 /// Its TXT record carries `internal_url` (the LAN address the owner set) and
 /// `base_url` (external if set, else internal) — both empty when the owner
 /// configured neither, so the SRV address and port are the fallback. Only
-/// http(s) survives: this ends up in a link the OS opens.
+/// http(s) survives: this ends up in a link the OS opens. And only a host on
+/// this network: anything on the LAN can answer mDNS with any TXT, so a URL
+/// naming somewhere else (a look-alike login page) is not followed — see
+/// [isLanUrlHost].
 String? homeAssistantUrlOf(NetworkDevice device) {
   for (final key in const ['internal_url', 'base_url']) {
     final raw = device.txt[key]?.trim();
@@ -108,7 +111,8 @@ String? homeAssistantUrlOf(NetworkDevice device) {
     final uri = Uri.tryParse(raw);
     if (uri != null &&
         (uri.scheme == 'http' || uri.scheme == 'https') &&
-        uri.host.isNotEmpty) {
+        uri.host.isNotEmpty &&
+        isLanUrlHost(uri.host, deviceHost: device.host)) {
       return raw.endsWith('/') ? raw.substring(0, raw.length - 1) : raw;
     }
   }
@@ -119,4 +123,69 @@ String? homeAssistantUrlOf(NetworkDevice device) {
   final onlyHomeAssistant = device.serviceTypes.length <= 1;
   final port = onlyHomeAssistant ? (device.port ?? 8123) : 8123;
   return 'http://$host:$port';
+}
+
+/// Whether [host] (a URL's host, IPv6 without brackets) is somewhere on the
+/// local network an advertisement may send the user: the advertising
+/// device's own [deviceHost], an mDNS `.local` name, a private or link-local
+/// IPv4 address (10/8, 172.16/12, 192.168/16, 169.254/16), or a link-local
+/// or unique-local IPv6 one (fe80::/10, fc00::/7). Never loopback, which on
+/// the phone is the phone itself.
+bool isLanUrlHost(String host, {required String deviceHost}) {
+  final name = host.trim().toLowerCase().replaceAll(RegExp(r'\.+$'), '');
+  if (name.isEmpty || name == 'localhost' || name.endsWith('.localhost')) {
+    return false;
+  }
+  final v4 = _ipv4(name);
+  if (v4 != null) {
+    if (v4[0] == 127 || v4.every((b) => b == 0)) return false;
+    if (name == deviceHost.toLowerCase()) return true;
+    return v4[0] == 10 ||
+        (v4[0] == 172 && v4[1] >= 16 && v4[1] <= 31) ||
+        (v4[0] == 192 && v4[1] == 168) ||
+        (v4[0] == 169 && v4[1] == 254);
+  }
+  final v6 = _ipv6(name);
+  if (v6 != null) {
+    final loopback = v6.take(15).every((b) => b == 0) && v6[15] == 1;
+    // ::ffff:127.0.0.1 and friends are IPv4 in IPv6 clothing.
+    final mapped =
+        v6.take(10).every((b) => b == 0) && v6[10] == 0xff && v6[11] == 0xff;
+    if (loopback || v6.every((b) => b == 0) || mapped) return false;
+    if (_ipv6(deviceHost.toLowerCase()) case final device?
+        when _sameBytes(device, v6)) {
+      return true;
+    }
+    return (v6[0] == 0xfe && (v6[1] & 0xc0) == 0x80) || (v6[0] & 0xfe) == 0xfc;
+  }
+  return name == deviceHost.toLowerCase() || name.endsWith('.local');
+}
+
+List<int>? _ipv4(String host) {
+  if (!RegExp(r'^\d{1,3}(\.\d{1,3}){3}$').hasMatch(host)) return null;
+  try {
+    return Uri.parseIPv4Address(host);
+  } on FormatException {
+    return null;
+  }
+}
+
+List<int>? _ipv6(String host) {
+  if (!host.contains(':')) return null;
+  // A zone id (fe80::1%en0) is not part of the address.
+  final percent = host.indexOf('%');
+  final bare = percent < 0 ? host : host.substring(0, percent);
+  try {
+    return Uri.parseIPv6Address(bare);
+  } on FormatException {
+    return null;
+  }
+}
+
+bool _sameBytes(List<int> a, List<int> b) {
+  if (a.length != b.length) return false;
+  for (var i = 0; i < a.length; i++) {
+    if (a[i] != b[i]) return false;
+  }
+  return true;
 }

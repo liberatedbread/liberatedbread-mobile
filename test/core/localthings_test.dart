@@ -74,9 +74,11 @@ void main() {
     test('falls back to base_url, then to the SRV address and port', () {
       expect(
         homeAssistantUrlOf(
-          _device(txt: {'internal_url': '', 'base_url': 'http://ha.lan:8123'}),
+          _device(
+            txt: {'internal_url': '', 'base_url': 'http://10.0.0.5:8123'},
+          ),
         ),
-        'http://ha.lan:8123',
+        'http://10.0.0.5:8123',
       );
       expect(
         homeAssistantUrlOf(_device(port: 8124)),
@@ -105,6 +107,84 @@ void main() {
         homeAssistantUrlOf(_device(host: 'fd00::5', port: 8123)),
         'http://[fd00::5]:8123',
       );
+    });
+  });
+
+  // Before the fix any http(s) host in the TXT record was offered as the
+  // link, so anything on the LAN answering mDNS could point the user at a
+  // look-alike login page anywhere.
+  group('a TXT URL off this network is not followed', () {
+    for (final url in [
+      'https://example.ui.nabu.casa',
+      'http://ha.example.com:8123',
+      'http://8.8.8.8:8123',
+      'http://127.0.0.1:8123',
+      'http://localhost:8123',
+      'http://[::1]:8123',
+      'http://[::ffff:127.0.0.1]:8123',
+      'http://[2001:db8::5]:8123',
+      'http://ha.lan:8123',
+    ]) {
+      test(url, () {
+        final ha = _device(
+          port: 8123,
+          txt: {'internal_url': url, 'base_url': url},
+        );
+        expect(homeAssistantUrlOf(ha), 'http://192.168.1.60:8123');
+      });
+    }
+  });
+
+  group('isLanUrlHost', () {
+    test('accepts the device itself and local addresses', () {
+      for (final host in [
+        '192.168.1.60',
+        'homeassistant.local',
+        'HomeAssistant.local.',
+        '10.1.2.3',
+        '172.16.0.1',
+        '172.31.255.254',
+        '192.168.0.10',
+        '169.254.10.20',
+        'fe80::1',
+        'fe80::1%en0',
+        'febf::1',
+        'fd00::5',
+        'fc00::1',
+      ]) {
+        expect(
+          isLanUrlHost(host, deviceHost: '192.168.1.60'),
+          isTrue,
+          reason: host,
+        );
+      }
+      expect(isLanUrlHost('ha.lan', deviceHost: 'ha.lan'), isTrue);
+    });
+
+    test('refuses loopback and public addresses', () {
+      for (final host in [
+        '127.0.0.1',
+        '127.1.2.3',
+        '0.0.0.0',
+        'localhost',
+        '::1',
+        '::',
+        '172.32.0.1',
+        '172.15.0.1',
+        '11.0.0.1',
+        '2001:db8::1',
+        'fec0::1',
+        'example.com',
+        'local',
+      ]) {
+        expect(
+          isLanUrlHost(host, deviceHost: '192.168.1.60'),
+          isFalse,
+          reason: host,
+        );
+      }
+      // Not even when the advertisement says that is where it is.
+      expect(isLanUrlHost('127.0.0.1', deviceHost: '127.0.0.1'), isFalse);
     });
   });
 
