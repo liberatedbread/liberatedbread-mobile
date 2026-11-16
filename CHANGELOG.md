@@ -15,6 +15,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   so its handler name no longer stands in for the token the spec lacks
   (SPECS_TO_FIX S-21). A bridge is listed as an unidentified host until the
   spec narrows the reply.
+- **QardioArm gets the blood-pressure panel.** Its records are read as the
+  spec lays them out (each flag bit named, the optional timestamp, pulse,
+  user and status following in flag order), and a record streamed while the
+  cuff inflates is no reading rather than a decode failure. Tested against
+  the spec's worked examples; not run on hardware.
 
 ## [0.0.2] - 2026-11-16
 
