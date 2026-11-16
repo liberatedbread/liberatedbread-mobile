@@ -192,7 +192,7 @@ class IplSetupSession extends ChangeNotifier {
         );
       }
       _update(
-        phase: IplSetupPhase.ready,
+        phase: _foreoIdlePhase(),
         proMode: now,
         error: null,
         notice: pro
@@ -208,7 +208,7 @@ class IplSetupSession extends ChangeNotifier {
         if (!_disposed) mode = await _readRemovalMode();
       } catch (_) {}
       _update(
-        phase: IplSetupPhase.ready,
+        phase: _foreoIdlePhase(),
         proMode: mode,
         error: null,
         proModeError: error is UserFacingException
@@ -266,9 +266,16 @@ class IplSetupSession extends ChangeNotifier {
     );
   }
 
-  static String _foreoReadyText(bool? wakeupEnabled) => wakeupEnabled == null
-      ? 'Device activated.'
-      : 'Device activated and wake-up enabled.';
+  static String _foreoReadyText(bool? wakeupEnabled) => wakeupEnabled == true
+      ? 'Device activated and wake-up enabled.'
+      : 'Device activated.';
+
+  /// The phase a FOREO rests in once an operation ends, from what is known
+  /// of it: a mode change must not hide a pending activation or wake-up.
+  IplSetupPhase _foreoIdlePhase() =>
+      _state.locked == true || _state.wakeupEnabled == false
+      ? IplSetupPhase.needsAction
+      : IplSetupPhase.ready;
 
   /// 2A28 as text, without the NUL padding some firmware sends.
   static String _decodeRevision(List<int> bytes) =>

@@ -148,9 +148,9 @@ class _IplSetupPanelState extends ConsumerState<IplSetupPanel>
                 ? 'This device is locked and needs offline activation.'
                 : 'Activation is present, but wake-up is disabled.',
           IplSetupPhase.ready =>
-            state.wakeupEnabled == null
-                ? 'Activated'
-                : 'Activated · wake-up enabled',
+            state.wakeupEnabled == true
+                ? 'Activated · wake-up enabled'
+                : 'Activated',
           IplSetupPhase.working => 'Writing and checking the result…',
           IplSetupPhase.error => 'Setup could not be verified.',
         }),

@@ -160,6 +160,99 @@ void main() {
     expect(find.text('Unlock Pro mode'), findsOneWidget);
   });
 
+  Widget foreoPanel(FakeForeoBle ble, FakeSpecCodec specCodec) => ProviderScope(
+    overrides: [
+      bleServiceProvider.overrideWithValue(ble),
+      specCodecProvider.overrideWithValue(specCodec),
+      iplCodecProvider.overrideWithValue(FakeIplCodec()),
+    ],
+    child: MaterialApp(
+      home: Scaffold(
+        body: SingleChildScrollView(
+          child: IplSetupPanel(
+            deviceId: 'AA:BB:CC:DD:EE:FF',
+            specYaml: 'yaml',
+            spec: foreoSpec(),
+            services: iplDiscovered(const [
+              _security,
+              _sw,
+              _activation,
+              _wakeup,
+              foreoCommandChar,
+            ]),
+          ),
+        ),
+      ),
+    ),
+  );
+
+  testWidgets('FOREO Pro: Cancel in the unlock dialog sends nothing', (
+    tester,
+  ) async {
+    final specCodec = FakeSpecCodec();
+    final ble = FakeForeoBle(
+      specCodec: specCodec,
+      extraReads: const {
+        _wakeup: [1],
+      },
+    );
+    await tester.pumpWidget(foreoPanel(ble, specCodec));
+    for (var index = 0; index < 8; index++) {
+      await tester.pump();
+    }
+    final writesBefore = ble.writes.length;
+
+    await tester.tap(find.text('Unlock Pro mode'));
+    await tester.pumpAndSettle();
+    expect(find.text('Unlock Pro mode?'), findsOneWidget);
+    await tester.tap(find.widgetWithText(TextButton, 'Cancel'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Unlock Pro mode?'), findsNothing);
+    expect(
+      specCodec.encodeCalls.map((call) => call.commandName),
+      isNot(contains('set_removal_mode_pro')),
+    );
+    expect(ble.writes, hasLength(writesBefore));
+    expect(ble.mode, 0x01);
+    expect(find.text('Basic'), findsOneWidget);
+    expect(find.text('Unlock Pro mode'), findsOneWidget);
+  });
+
+  testWidgets('FOREO Pro: a mode change keeps Enable wake-up offered', (
+    tester,
+  ) async {
+    final specCodec = FakeSpecCodec();
+    final ble = FakeForeoBle(
+      specCodec: specCodec,
+      extraReads: const {
+        _wakeup: [0],
+      },
+    );
+    await tester.pumpWidget(foreoPanel(ble, specCodec));
+    for (var index = 0; index < 8; index++) {
+      await tester.pump();
+    }
+    expect(find.text('Enable wake-up'), findsOneWidget);
+
+    await tester.tap(find.text('Unlock Pro mode'));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.descendant(
+        of: find.byType(AlertDialog),
+        matching: find.widgetWithText(FilledButton, 'Unlock Pro mode'),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(ble.mode, 0x06);
+    expect(find.text('Enable wake-up'), findsOneWidget);
+    expect(
+      find.text('Activation is present, but wake-up is disabled.'),
+      findsOneWidget,
+    );
+    expect(find.text('Activated · wake-up enabled'), findsNothing);
+  });
+
   testWidgets('patch test asks before sending anything, then acknowledges', (
     tester,
   ) async {
