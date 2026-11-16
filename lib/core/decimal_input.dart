@@ -14,9 +14,10 @@ import 'package:flutter/widgets.dart' show Locale, WidgetsBinding;
 /// "146,940" is the only way to type a frequency and "41,7658" a latitude,
 /// and parsers that take only a period refused both. In a locale whose
 /// decimal separator is a period the same comma is a thousands separator,
-/// and "1,500" is fifteen hundred, not one and a half: it is left as typed,
-/// for the parser to refuse rather than to read as a number a thousand times
-/// smaller. Nothing else is guessed at either: a comma beside a period or
+/// and "1,500" is fifteen hundred, not one and a half: that thousands shape
+/// is left as typed there, for the parser to refuse rather than to read as a
+/// number a thousand times smaller. Any other single comma ("0,25") cannot
+/// be a grouped integer and is read as the decimal point in every locale. Nothing else is guessed at either: a comma beside a period or
 /// more than one comma is left as typed.
 ///
 /// Directory data does not come through here. A feed's "146,940" is not a
@@ -27,12 +28,23 @@ String normalizeDecimalInput(String typed, {Locale? locale}) {
   if (comma < 0 || text.contains('.') || text.lastIndexOf(',') != comma) {
     return text;
   }
-  final effective = locale ?? WidgetsBinding.instance.platformDispatcher.locale;
-  if (!localeUsesDecimalComma(effective)) {
-    return text;
+  // Only a thousands-shaped number ("1,500", "-12,000") can mean two
+  // things; "0,25" or "146,9400" cannot be a grouped integer, so they are
+  // read as decimals whatever the locale, as they were before the locale
+  // mattered.
+  if (_thousandsShaped.hasMatch(text)) {
+    final effective =
+        locale ?? WidgetsBinding.instance.platformDispatcher.locale;
+    if (!localeUsesDecimalComma(effective)) {
+      return text;
+    }
   }
   return text.replaceRange(comma, comma + 1, '.');
 }
+
+/// One to three digits, a comma, exactly three digits: the shape a
+/// decimal-period locale writes a grouped integer in.
+final _thousandsShaped = RegExp(r'^[+-]?\d{1,3},\d{3}$');
 
 /// Whether [locale] writes a decimal comma, per the CLDR number symbols of
 /// the languages and regions this app's users are likely to be in. A
