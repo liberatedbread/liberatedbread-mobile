@@ -223,7 +223,13 @@ fn decode_blood_pressure(
         pulse_bpm: optional_raw(&values, "pulse_sfloat")
             .and_then(|raw| decode_sfloat(raw as u16))
             .filter(|value| value.is_finite()),
-        measured_at: timestamp_from_decoded(&values),
+        // Flags bit 1 says the record carries a timestamp; without it the
+        // bytes where the date would sit are not a date.
+        measured_at: if flags & 0x02 != 0 {
+            timestamp_from_decoded(&values)
+        } else {
+            None
+        },
         user_slot: optional_raw(&values, "user_slot").map(|value| value as u8),
         irregular_heartbeat: status.map(|value| value & 0x04 != 0),
         sufficient_rest: status.and_then(|value| match (value >> 6) & 0x03 {
@@ -472,6 +478,19 @@ mod tests {
         assert_eq!(reading.irregular_heartbeat, Some(true));
         assert_eq!(reading.sufficient_rest, Some(true));
         assert!(!reading.converted_from_kpa);
+    }
+
+    #[test]
+    fn a_record_without_the_timestamp_flag_has_no_measured_at() {
+        // Same bytes as the decoded record above, but flags bit 1 clear:
+        // bytes 7-13 hold a plausible date that the record does not claim.
+        let bytes = [
+            0x00, 0x00, 0x78, 0x00, 0x50, 0x00, 0x5D, 0xEA, 0x07, 11, 8, 14, 32, 15, 0x00, 0x48, 2,
+            0, 0x44,
+        ];
+        let reading = decode_blood_pressure(&beurer_spec(), BP_CHAR, &bytes).unwrap();
+        assert_eq!(reading.systolic_mmhg, 120.0);
+        assert_eq!(reading.measured_at, None);
     }
 
     #[test]
