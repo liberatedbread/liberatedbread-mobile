@@ -175,85 +175,91 @@ services: []
     );
   });
 
-  test('both catalogues match every spec\'s own device the same way', () async {
-    if (!rustReady) {
-      markTestSkipped('Rust lib not loaded');
-      return;
-    }
-    final handled = await codec.loadCatalogue(specs);
-    final byValue = await FallbackSpecCatalogue.load(codec, specs);
+  test(
+    'both catalogues match every spec\'s own device the same way',
+    () async {
+      if (!rustReady) {
+        markTestSkipped('Rust lib not loaded');
+        return;
+      }
+      final handled = await codec.loadCatalogue(specs);
+      final byValue = await FallbackSpecCatalogue.load(codec, specs);
 
-    // Every spec that declares a name prefix or a service UUID becomes a
-    // device that should match it — which is far more matching than any
-    // hand-written fixture, and includes the cross-spec collisions (shared
-    // platform services, two-letter prefixes) the ranking rules exist for.
-    var devicesTried = 0;
-    var dialectsTried = 0;
-    for (final entry in handled.specs) {
-      final prefix = entry.identity.localNamePrefixes.firstOrNull;
-      final uuids = entry.identity.serviceUuids;
-      if (prefix == null && uuids.isEmpty) continue;
-      devicesTried++;
-      final name = '${prefix ?? ''}unit-1';
-      final a = await handled.matchDevice(
-        deviceName: name,
-        serviceUuids: uuids,
-      );
-      final b = await byValue.matchDevice(
-        deviceName: name,
-        serviceUuids: uuids,
-      );
-      String digest(List<SpecMatch> matches) => [
-        for (final m in matches)
-          '${m.entry.index}/${m.matchedByNamePrefix}/${m.confidence}/'
-              '${m.matchedServiceUuids.join(',')}',
-      ].join(' ');
-      expect(
-        digest(a),
-        digest(b),
-        reason:
-            'matching "$name" against ${entry.key} differs between the '
-            'handle catalogue and the by-value catalogue',
-      );
-      expect(
-        a,
-        isNotEmpty,
-        reason: '${entry.key} does not match its own device',
-      );
+      // Every spec that declares a name prefix or a service UUID becomes a
+      // device that should match it — which is far more matching than any
+      // hand-written fixture, and includes the cross-spec collisions (shared
+      // platform services, two-letter prefixes) the ranking rules exist for.
+      var devicesTried = 0;
+      var dialectsTried = 0;
+      for (final entry in handled.specs) {
+        final prefix = entry.identity.localNamePrefixes.firstOrNull;
+        final uuids = entry.identity.serviceUuids;
+        if (prefix == null && uuids.isEmpty) continue;
+        devicesTried++;
+        final name = '${prefix ?? ''}unit-1';
+        final a = await handled.matchDevice(
+          deviceName: name,
+          serviceUuids: uuids,
+        );
+        final b = await byValue.matchDevice(
+          deviceName: name,
+          serviceUuids: uuids,
+        );
+        String digest(List<SpecMatch> matches) => [
+          for (final m in matches)
+            '${m.entry.index}/${m.matchedByNamePrefix}/${m.confidence}/'
+                '${m.matchedServiceUuids.join(',')}',
+        ].join(' ');
+        expect(
+          digest(a),
+          digest(b),
+          reason:
+              'matching "$name" against ${entry.key} differs between the '
+              'handle catalogue and the by-value catalogue',
+        );
+        expect(
+          a,
+          isNotEmpty,
+          reason: '${entry.key} does not match its own device',
+        );
 
-      // R-073: and in the dialect the APP actually speaks. Specs write the
-      // full 128-bit form; flutter_blue_plus reports the shortest one, so a
-      // real peripheral exposing a standard service arrives here as "180f"
-      // where its spec says "0000180f-0000-1000-8000-00805f9b34fb". Every
-      // test before this one fed matching the spec's own spelling back to
-      // it, which is the one input that cannot catch a folding bug — and
-      // folding on only one side is exactly the defect R-066 was.
-      if (uuids.isEmpty) continue;
-      final asRadioReportsThem = [for (final u in uuids) normalizeUuid(u)];
-      // Nothing to prove when the spec already writes them the short way.
-      if (asRadioReportsThem.join('|') == uuids.join('|')) continue;
-      dialectsTried++;
-      final inRadioDialect = await handled.matchDevice(
-        deviceName: name,
-        serviceUuids: asRadioReportsThem,
-      );
+        // R-073: and in the dialect the APP actually speaks. Specs write the
+        // full 128-bit form; flutter_blue_plus reports the shortest one, so a
+        // real peripheral exposing a standard service arrives here as "180f"
+        // where its spec says "0000180f-0000-1000-8000-00805f9b34fb". Every
+        // test before this one fed matching the spec's own spelling back to
+        // it, which is the one input that cannot catch a folding bug — and
+        // folding on only one side is exactly the defect R-066 was.
+        if (uuids.isEmpty) continue;
+        final asRadioReportsThem = [for (final u in uuids) normalizeUuid(u)];
+        // Nothing to prove when the spec already writes them the short way.
+        if (asRadioReportsThem.join('|') == uuids.join('|')) continue;
+        dialectsTried++;
+        final inRadioDialect = await handled.matchDevice(
+          deviceName: name,
+          serviceUuids: asRadioReportsThem,
+        );
+        expect(
+          digest(inRadioDialect),
+          digest(a),
+          reason:
+              '${entry.key} matches its own UUIDs but not the shortened form '
+              'the radio reports them in',
+        );
+      }
+      expect(devicesTried, greaterThan(50));
       expect(
-        digest(inRadioDialect),
-        digest(a),
+        dialectsTried,
+        greaterThan(20),
         reason:
-            '${entry.key} matches its own UUIDs but not the shortened form '
-            'the radio reports them in',
+            'the radio-dialect check has to actually run on a good share of the '
+            'catalogue, or it pins nothing',
       );
-    }
-    expect(devicesTried, greaterThan(50));
-    expect(
-      dialectsTried,
-      greaterThan(20),
-      reason:
-          'the radio-dialect check has to actually run on a good share of the '
-          'catalogue, or it pins nothing',
-    );
-  });
+    },
+    // Two match calls per spec across the whole catalogue: about 27 s on its
+    // own, past the default 30 s once test.sh runs suites concurrently.
+    timeout: const Timeout(Duration(minutes: 2)),
+  );
 
   test(
     'specAt returns what loadDeviceSpec returns, and holds the parse',
