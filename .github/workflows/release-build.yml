@@ -1,0 +1,422 @@
+name: Release build
+
+# Builds the signed store artifact for one release, on GitHub's runners, for
+# scripts/release-android.sh / release-apple.sh --ci-build. Those scripts
+# dispatch it, watch it, download the artifact and check it again before
+# anything is pushed or uploaded; it is not meant to be run by hand, though
+# it can be (Actions → Release build → Run workflow).
+#
+# WHY. A store build made on a laptop needs the signing material on that
+# laptop: android/key.properties with the keystore passwords in plain text in
+# every release worktree, or the Distribution certificate in the release Mac's
+# keychain. Here the material lives in repository secrets, the runner is
+# fresh, and actions/attest-build-provenance signs a statement that THIS
+# workflow, at THIS commit, produced exactly these bytes. The release script
+# refuses an artifact whose attestation does not verify
+# (`gh attestation verify --signer-workflow .../release-build.yml`).
+# Attestations are free on public repositories; a private one needs GitHub
+# Enterprise Cloud, and without it the attest step fails and --ci-build is
+# not usable.
+#
+# WHAT IT DOES NOT DO. It pushes no tag (the tag is created in this checkout
+# only, because scripts/release.sh stamps the build from it, and the release
+# script pushes the real one after its own checks), uploads nothing to a
+# store, and publishes nothing.
+#
+# Inputs: the tag (vX.Y.Z, matching pubspec.yaml at the commit), the full
+# commit SHA (which must be on main), and the platform. The run is named after
+# all three so the dispatching script can find its own run.
+#
+# Repository secrets, per platform:
+#   Android
+#     ANDROID_UPLOAD_KEYSTORE      base64 of the upload keystore (.jks / PKCS12)
+#     ANDROID_KEYSTORE_PASSWORD    its store password
+#     ANDROID_KEY_ALIAS            the key alias (usually: upload)
+#     ANDROID_KEY_PASSWORD         optional; defaults to the store password,
+#                                  as android/app/build.gradle does
+#   iOS
+#     IOS_DISTRIBUTION_P12         base64 of a .p12 holding the Apple
+#                                  Distribution certificate and key (team
+#                                  GQ358PSWM3)
+#     IOS_DISTRIBUTION_P12_PASSWORD
+#     IOS_APPSTORE_PROFILE         base64 of the "Liberated Bread App Store"
+#                                  profile, carrying the multicast entitlement
+#                                  (docs/APP_STORE_SUBMISSION.md Step 4)
+#   Optional: IOS_KEYCHAIN_PASSWORD for the ephemeral keychain.
+# Put them in an Environment named `release` (Settings → Environments) with
+# required reviewers, so that a dispatch waits for a person before a job can
+# read them.
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag, vX.Y.Z (must match pubspec.yaml at the commit)'
+        required: true
+        type: string
+      sha:
+        description: 'Full 40-character commit SHA on main'
+        required: true
+        type: string
+      platform:
+        description: 'Which store artifact'
+        required: true
+        type: choice
+        options: [android, ios]
+
+run-name: Release build ${{ inputs.tag }} ${{ inputs.platform }} ${{ inputs.sha }}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-build-${{ inputs.tag }}-${{ inputs.platform }}
+  cancel-in-progress: false
+
+jobs:
+  android:
+    name: Signed Android app bundle
+    if: inputs.platform == 'android'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    environment: release
+    permissions:
+      contents: read
+      id-token: write       # the provenance signature
+      attestations: write
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      # Two checkouts. app/ is the release commit, built as it is (and kept
+      # clean: release.sh refuses a tree with stray files). tools/ is this
+      # workflow's own revision, whose checkers run on the result, so a
+      # release of an older commit is still checked by today's tools.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ inputs.sha }}
+          path: app
+          fetch-depth: 0
+          fetch-tags: true
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          path: tools
+          persist-credentials: false
+
+      - name: Check the commit and tag it in this checkout
+        env:
+          TAG: ${{ inputs.tag }}
+          SHA: ${{ inputs.sha }}
+        run: ../tools/scripts/release-build-tag.sh "$TAG" "$SHA"
+
+      - name: Resolve toolchain pins from ci.yml
+        id: versions
+        run: |
+          set -euo pipefail
+          source scripts/ci-versions.sh
+          {
+            echo "flutter=$CI_FLUTTER_VERSION"
+            echo "java=$CI_JAVA_VERSION"
+            echo "ndk=$CI_NDK_VERSION"
+            echo "api=$CI_ANDROID_API"
+            echo "build-tools=$CI_BUILD_TOOLS_VERSION"
+            echo "cmake=$CI_CMAKE_VERSION"
+            echo "rust-targets=${CI_RUST_ANDROID_TARGETS// /,}"
+          } >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78 # v6.2.0
+        with:
+          distribution: temurin
+          java-version: ${{ steps.versions.outputs.java }}
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        with:
+          flutter-version: ${{ steps.versions.outputs.flutter }}
+          channel: stable
+      # No caches in a release build: what ships is built from nothing but
+      # the commit and the pinned toolchain.
+      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
+        with:
+          targets: ${{ steps.versions.outputs.rust-targets }}
+      - uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4
+        with:
+          packages: >-
+            platform-tools
+            platforms;android-${{ steps.versions.outputs.api }}
+            build-tools;${{ steps.versions.outputs.build-tools }}
+            cmake;${{ steps.versions.outputs.cmake }}
+            ndk;${{ steps.versions.outputs.ndk }}
+      - name: Write android/local.properties
+        run: |
+          echo "flutter.sdk=$FLUTTER_ROOT" > android/local.properties
+          echo "sdk.dir=$ANDROID_HOME" >> android/local.properties
+
+      - name: Install the upload key
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_UPLOAD_KEYSTORE }}
+          LB_KP_STOREPASS: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          LB_KP_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          LB_KP_KEYPASS: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$KEYSTORE_B64" || -z "$LB_KP_STOREPASS" || -z "$LB_KP_ALIAS" ]]; then
+            echo "::error::ANDROID_UPLOAD_KEYSTORE, ANDROID_KEYSTORE_PASSWORD and ANDROID_KEY_ALIAS must be set (see this workflow's header)."
+            exit 1
+          fi
+          umask 077
+          keystore="$RUNNER_TEMP/upload.jks"
+          printf '%s' "$KEYSTORE_B64" | base64 --decode > "$keystore"
+          # java.util.Properties escaping, as Gradle reads the file: a
+          # backslash or non-Latin-1 character in a password would otherwise
+          # reach the signing config as something else.
+          LB_KP_STOREFILE="$keystore" python3 - <<'PY'
+          import os
+          def esc(v):
+              out = []
+              for i, c in enumerate(v):
+                  if c == "\\":
+                      out.append("\\\\")
+                  elif c in "=:#!" or (c == " " and i == 0):
+                      out.append("\\" + c)
+                  elif ord(c) < 0x20 or ord(c) > 0x7E:
+                      # \uXXXX per UTF-16 unit: above U+FFFF, a surrogate pair.
+                      b = c.encode("utf-16-be")
+                      out.extend("\\u%04x" % int.from_bytes(b[j:j + 2], "big")
+                                 for j in range(0, len(b), 2))
+                  else:
+                      out.append(c)
+              return "".join(out)
+          env = os.environ
+          values = {
+              "storeFile": env["LB_KP_STOREFILE"],
+              "storePassword": env["LB_KP_STOREPASS"],
+              "keyAlias": env["LB_KP_ALIAS"],
+              "keyPassword": env.get("LB_KP_KEYPASS") or env["LB_KP_STOREPASS"],
+          }
+          with open("android/key.properties", "w", encoding="ascii") as f:
+              for k, v in values.items():
+                  f.write(f"{k}={esc(v)}\n")
+          PY
+          git check-ignore -q android/key.properties
+
+      - name: Build the signed app bundle
+        env:
+          LB_FLUTTER_AUTO_UPGRADE: '0'
+        run: |
+          set -euo pipefail
+          flutter pub get --enforce-lockfile
+          ./scripts/release.sh android 2>&1 | tee "$RUNNER_TEMP/build.log"
+          sed -n 's/.*--build-number=\([0-9][0-9]*\).*/\1/p' "$RUNNER_TEMP/build.log" | head -n 1 > "$RUNNER_TEMP/build-number.txt"
+          test -s "$RUNNER_TEMP/build-number.txt"
+
+      - name: Check signature and contents
+        env:
+          LB_STOREPASS: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          aab=build/app/outputs/bundle/release/app-release.aab
+          jarsigner -verify --strict -keystore "$RUNNER_TEMP/upload.jks" \
+            -storepass:env LB_STOREPASS "$aab" "$ALIAS" | tee "$RUNNER_TEMP/jarsigner.txt"
+          grep -q 'jar verified' "$RUNNER_TEMP/jarsigner.txt"
+          python3 ../tools/scripts/verify_aab.py "$aab" \
+            --expect-version-code "$(cat "$RUNNER_TEMP/build-number.txt")" \
+            --expect-version-name "${TAG#v}"
+
+      - name: Stage the artifact
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          cp build/app/outputs/bundle/release/app-release.aab out/
+          cp "$RUNNER_TEMP/build-number.txt" out/
+          (cd out && sha256sum app-release.aab > SHA256SUMS)
+          cat out/SHA256SUMS out/build-number.txt
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: app/out/app-release.aab
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: android-${{ inputs.tag }}
+          path: app/out/
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Remove the signing material
+        if: always()
+        run: rm -f android/key.properties "$RUNNER_TEMP/upload.jks"
+
+  ios:
+    name: Signed App Store IPA
+    if: inputs.platform == 'ios'
+    runs-on: macos-latest
+    timeout-minutes: 75
+    environment: release
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    defaults:
+      run:
+        working-directory: app
+    env:
+      KEYCHAIN_NAME: release-build.keychain
+      PROFILE_NAME: Liberated Bread App Store
+      TEAM_ID: GQ358PSWM3
+    steps:
+      # Two checkouts. app/ is the release commit, built as it is (and kept
+      # clean: release.sh refuses a tree with stray files). tools/ is this
+      # workflow's own revision, whose checkers run on the result, so a
+      # release of an older commit is still checked by today's tools.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ inputs.sha }}
+          path: app
+          fetch-depth: 0
+          fetch-tags: true
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          path: tools
+          persist-credentials: false
+
+      - name: Check the commit and tag it in this checkout
+        env:
+          TAG: ${{ inputs.tag }}
+          SHA: ${{ inputs.sha }}
+        run: ../tools/scripts/release-build-tag.sh "$TAG" "$SHA"
+
+      - name: Resolve toolchain pins from ci.yml
+        id: versions
+        run: |
+          set -euo pipefail
+          source scripts/ci-versions.sh
+          {
+            echo "flutter=$CI_FLUTTER_VERSION"
+            echo "rust-targets=${CI_RUST_IOS_TARGETS// /,}"
+          } >> "$GITHUB_OUTPUT"
+
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        with:
+          flutter-version: ${{ steps.versions.outputs.flutter }}
+          channel: stable
+      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
+        with:
+          targets: ${{ steps.versions.outputs.rust-targets }}
+
+      - name: Install the Distribution certificate
+        env:
+          CERT_B64: ${{ secrets.IOS_DISTRIBUTION_P12 }}
+          CERT_PASS: ${{ secrets.IOS_DISTRIBUTION_P12_PASSWORD }}
+          KC_PASS: ${{ secrets.IOS_KEYCHAIN_PASSWORD || 'release-build-keychain' }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$CERT_B64" ]]; then
+            echo "::error::IOS_DISTRIBUTION_P12 is not set (see this workflow's header)."
+            exit 1
+          fi
+          security create-keychain -p "$KC_PASS" "$KEYCHAIN_NAME"
+          security default-keychain -s "$KEYCHAIN_NAME"
+          security list-keychains -d user -s "$KEYCHAIN_NAME" login.keychain
+          security unlock-keychain -p "$KC_PASS" "$KEYCHAIN_NAME"
+          security set-keychain-settings -t 3600 -u "$KEYCHAIN_NAME"
+          printf '%s' "$CERT_B64" | base64 --decode > "$RUNNER_TEMP/dist.p12"
+          security import "$RUNNER_TEMP/dist.p12" -k "$KEYCHAIN_NAME" \
+            -P "$CERT_PASS" -T /usr/bin/codesign
+          rm -f "$RUNNER_TEMP/dist.p12"
+          security set-key-partition-list -S apple-tool:,apple: \
+            -s -k "$KC_PASS" "$KEYCHAIN_NAME"
+          security find-identity -v -p codesigning "$KEYCHAIN_NAME" |
+            grep -q "Apple Distribution.*($TEAM_ID)" || {
+              echo "::error::The .p12 holds no Apple Distribution identity for team $TEAM_ID."
+              exit 1
+            }
+
+      - name: Install the App Store profile
+        env:
+          PROFILE_B64: ${{ secrets.IOS_APPSTORE_PROFILE }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$PROFILE_B64" ]]; then
+            echo "::error::IOS_APPSTORE_PROFILE is not set (see this workflow's header)."
+            exit 1
+          fi
+          profile="$RUNNER_TEMP/appstore.mobileprovision"
+          printf '%s' "$PROFILE_B64" | base64 --decode > "$profile"
+          security cms -D -i "$profile" > "$RUNNER_TEMP/profile.plist"
+          name="$(plutil -extract Name raw -o - "$RUNNER_TEMP/profile.plist")"
+          uuid="$(plutil -extract UUID raw -o - "$RUNNER_TEMP/profile.plist")"
+          # ios/ExportOptions-appstore.plist names the profile; a different one
+          # would fail at -exportArchive, ten minutes in.
+          [[ "$name" == "$PROFILE_NAME" ]] || {
+            echo "::error::The profile is '$name'; ios/ExportOptions-appstore.plist expects '$PROFILE_NAME'."
+            exit 1
+          }
+          /usr/libexec/PlistBuddy -c 'Print :Entitlements:com.apple.developer.networking.multicast' \
+            "$RUNNER_TEMP/profile.plist" >/dev/null || {
+              echo "::error::'$PROFILE_NAME' lacks the multicast entitlement; regenerate it (APP_STORE_SUBMISSION.md Step 4)."
+              exit 1
+            }
+          for dir in "$HOME/Library/MobileDevice/Provisioning Profiles" \
+            "$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles"; do
+            mkdir -p "$dir"
+            cp "$profile" "$dir/$uuid.mobileprovision"
+          done
+
+      # Manual signing for the archive, in the gitignored file
+      # ios/Flutter/Release.xcconfig includes: the checkout stays clean, so
+      # release.sh accepts it and the stamp reads vX.Y.Z, not vX.Y.Z-dirty.
+      - name: Sign the archive with the App Store profile
+        run: |
+          set -euo pipefail
+          {
+            echo 'CODE_SIGN_STYLE = Manual'
+            echo "DEVELOPMENT_TEAM = $TEAM_ID"
+            echo "PROVISIONING_PROFILE_SPECIFIER = $PROFILE_NAME"
+            echo 'CODE_SIGN_IDENTITY = Apple Distribution'
+            echo 'CODE_SIGN_IDENTITY[sdk=iphoneos*] = Apple Distribution'
+          } > ios/Flutter/ReleaseSigning.xcconfig
+          git check-ignore -q ios/Flutter/ReleaseSigning.xcconfig
+          # release-apple.sh's own pre-build check (ITMS-91053).
+          grep -q NSPrivacyAccessedAPICategoryFileTimestamp ios/Runner/PrivacyInfo.xcprivacy
+
+      - name: Build the signed IPA
+        env:
+          LB_FLUTTER_AUTO_UPGRADE: '0'
+        run: |
+          set -euo pipefail
+          flutter pub get --enforce-lockfile
+          ./scripts/release.sh ios 2>&1 | tee "$RUNNER_TEMP/build.log"
+          sed -n 's/.*--build-number=\([0-9][0-9]*\).*/\1/p' "$RUNNER_TEMP/build.log" | head -n 1 > "$RUNNER_TEMP/build-number.txt"
+          test -s "$RUNNER_TEMP/build-number.txt"
+
+      - name: Check the IPA
+        run: |
+          set -euo pipefail
+          ipas=(build/ios/ipa/*.ipa)
+          [[ ${#ipas[@]} == 1 && -f "${ipas[0]}" ]] || { echo "::error::expected one IPA"; exit 1; }
+          ../tools/scripts/verify_ios_app.sh "${ipas[0]}"
+          mkdir -p out
+          cp "${ipas[0]}" out/
+          cp "$RUNNER_TEMP/build-number.txt" out/
+          (cd out && shasum -a 256 ./*.ipa | sed 's| \./| |' > SHA256SUMS)
+          cat out/SHA256SUMS out/build-number.txt
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: app/out/*.ipa
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: ios-${{ inputs.tag }}
+          path: app/out/
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Remove the signing material
+        if: always()
+        run: |
+          security delete-keychain "$KEYCHAIN_NAME" 2>/dev/null || true
+          rm -f ios/Flutter/ReleaseSigning.xcconfig

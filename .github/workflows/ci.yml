@@ -349,9 +349,21 @@ jobs:
       # aapt2: each runtime-fatal permission it must catch being stripped.
       - name: Self-test the APK verifier
         run: ./scripts/verify-apk-selftest.sh
+      # The app-bundle verifier, against bundles built byte by byte: protobuf
+      # manifests and ELF libraries with chosen page alignments.
+      - name: Self-test the app-bundle verifier
+        run: python3 ./scripts/verify_aab_selftest.py
+      # The guided release's store clients, each against a loopback fake of
+      # its API (token exchange and JWT signatures included): the only place
+      # they run before a real release does.
+      - name: Self-test the Google Play publishing client
+        run: python3 ./scripts/play_publish_selftest.py
+      - name: Self-test the App Store Connect client
+        run: python3 ./scripts/asc_api_selftest.py
       # The guided release scripts' shared logic (release-android.sh,
-      # release-apple.sh): prompts, CHANGELOG/record parsing, and which tag
-      # and commit get released, against a throwaway repo and origin.
+      # release-apple.sh): prompts, CHANGELOG/record parsing, which tag and
+      # commit get released, the shared record, and a whole release rehearsed
+      # end to end, against a throwaway repo and origin and a stand-in gh.
       - name: release-lib selftest
         run: ./scripts/release-lib-selftest.sh
       - name: device-select selftest
@@ -916,11 +928,11 @@ jobs:
       #
       # Kept in this job rather than a new one so it reuses the warm Gradle,
       # pub, cargo and Swatinem caches; a separate job would pay that bootstrap
-      # again for identical coverage. Deliberately NOT also building an app
-      # bundle: `flutter build appbundle` would repeat the same AOT + cargokit
-      # work for a third time, and verifying an .aab's payload needs bundletool
-      # (its manifest is protobuf, so aapt2 cannot read it) — the release APK
-      # already covers the R8 and native-packaging risk that motivates it.
+      # again for identical coverage. The app bundle is built below as well,
+      # although it repeats the AOT + cargokit work a third time: the .aab is
+      # what Play receives, and scripts/verify_aab.py checks what only it can
+      # show (16 KB page alignment, the protobuf manifest) without bundletool.
+      # Finding a misaligned plugin library here beats finding it mid-release.
       - name: Build release APK (real BLE path, no mock define)
         timeout-minutes: 25
         run: flutter build apk --release --verbose
@@ -931,6 +943,14 @@ jobs:
       # that quietly stopped emitting one of them should fail both checks.
       - name: Verify release APK contents
         run: ./scripts/verify_apk.sh build/app/outputs/flutter-apk/app-release.apk
+          --require-abis arm64-v8a,armeabi-v7a,x86_64
+      # The store artifact itself, debug-signed here (no upload key in CI), with
+      # the checks scripts/release-android.sh runs on the real one.
+      - name: Build release app bundle
+        timeout-minutes: 25
+        run: flutter build appbundle --release
+      - name: Verify release app bundle contents
+        run: python3 ./scripts/verify_aab.py build/app/outputs/bundle/release/app-release.aab
           --require-abis arm64-v8a,armeabi-v7a,x86_64
 
   android-integration:

@@ -158,7 +158,12 @@ belong in the login keychain; Xcode manages the provisioning profile separately.
 
 `./scripts/release-apple.sh` does this step, and Steps 6–9's waits, from
 start to finish, prompting where App Store Connect needs a person (see
-[RELEASE.md](RELEASE.md#the-guided-scripts)). The manual route follows.
+[RELEASE.md](RELEASE.md#the-guided-scripts)). With an App Store Connect API
+key it also waits for processing, adds the build to TestFlight, selects it on
+the version, sets What's New, submits and releases through the API
+([RELEASE.md § Store APIs](RELEASE.md#store-apis)); `--ci-build` builds and
+signs the IPA in GitHub Actions instead of on the Mac. The manual route
+follows.
 
 Use the clean release worktree and build flow in
 [RELEASE.md](RELEASE.md#2-create-and-test-a-clean-worktree) Steps 2–4. Do not

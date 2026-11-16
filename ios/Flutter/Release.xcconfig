@@ -1,2 +1,6 @@
 #include? "Pods/Target Support Files/Pods-Runner/Pods-Runner.release.xcconfig"
 #include "Generated.xcconfig"
+// Signing overrides for an unattended App Store build, written only by
+// .github/workflows/release-build.yml (the file is gitignored). In a separate
+// file so the checkout stays clean and release.sh's build stamp stays `vX.Y.Z`.
+#include? "ReleaseSigning.xcconfig"
