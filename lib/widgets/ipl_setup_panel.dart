@@ -212,15 +212,18 @@ class _IplSetupPanelState extends ConsumerState<IplSetupPanel>
         )
       else ...[
         Text(switch (state.proMode) {
-          true => 'Pro · boost intensities available on the handset',
+          true => 'Pro · the handset levels likely give higher output',
           false => 'Basic',
           null => 'Not read yet',
         }),
         const SizedBox(height: 6),
         Text(
-          'Pro adds five boost intensities to the handset’s +/- levels, for '
-          'non-sensitive areas and experienced users. Opening the FOREO app '
-          'without a subscription switches the handset back to Basic.',
+          'The handset keeps its five +/- levels in Pro, but they most '
+          'likely select higher output, so level 1 in Pro is not Basic '
+          'level 1. Patch-test again after unlocking. Pro stays set on the '
+          'handset after you disconnect, until Basic is sent from here. '
+          'Opening the FOREO app without a subscription reportedly switches '
+          'it back to Basic.',
           style: text.bodySmall,
         ),
         if (state.proModeError != null) ...[
@@ -252,7 +255,8 @@ class _IplSetupPanelState extends ConsumerState<IplSetupPanel>
   Future<void> _confirmProMode() async {
     final warning =
         _session.proModeWarning ??
-        'Pro mode unlocks higher-output boost intensities on an IPL handset.';
+        'Pro mode most likely makes the same handset levels give higher '
+            'IPL output.';
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(

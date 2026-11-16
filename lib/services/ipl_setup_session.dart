@@ -196,7 +196,10 @@ class IplSetupSession extends ChangeNotifier {
         proMode: now,
         error: null,
         notice: pro
-            ? 'Pro mode unlocked. The handset +/- levels now include the boost intensities.'
+            ? 'Pro mode unlocked. The same five handset levels now most '
+                  'likely give higher output: patch-test again before '
+                  'treating. Pro stays set after you disconnect until you '
+                  'disable it here.'
             : 'Pro mode disabled. The handset is back in Basic mode.',
       );
     } catch (error) {

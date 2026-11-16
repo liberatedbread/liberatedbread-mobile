@@ -128,6 +128,12 @@ void main() {
     expect(find.text('Activated'), findsOneWidget);
     expect(find.text('Basic'), findsOneWidget);
     expect(find.text('Disable Pro mode'), findsNothing);
+    // Pro does not add handset levels: the same five give more output.
+    expect(
+      find.textContaining('level 1 in Pro is not Basic level 1'),
+      findsOneWidget,
+    );
+    expect(find.textContaining('Patch-test again'), findsOneWidget);
 
     await tester.tap(find.text('Unlock Pro mode'));
     await tester.pumpAndSettle();
@@ -143,7 +149,7 @@ void main() {
     );
     await tester.pumpAndSettle();
     expect(ble.mode, 0x06);
-    expect(find.textContaining('Pro · boost'), findsOneWidget);
+    expect(find.textContaining('Pro · the handset levels'), findsOneWidget);
     expect(find.text('Unlock Pro mode'), findsNothing);
 
     await tester.tap(find.text('Disable Pro mode'));
