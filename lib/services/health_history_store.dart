@@ -31,9 +31,12 @@ bool sameSession(PulseOxSessionDto a, PulseOxSessionDto b) =>
 /// hands its sessions over once, and a cuff keeps a few dozen.
 ///
 /// PRIVACY: this is health data. It is written to the app's own preferences
-/// and nowhere else: nothing here is sent, synced or put in a device report,
-/// and [clear] removes it. Keyed by device, so one person's cuff is not
-/// another's history.
+/// (SharedPreferences: NSUserDefaults on iOS, shared_prefs on Android). The
+/// app itself never sends, syncs or puts it in a device report, and [clear]
+/// removes it. The operating system's backups do copy those preferences:
+/// Android Auto Backup (the manifest sets no allowBackup or
+/// dataExtractionRules, so it is on) and iCloud / computer backups on iOS.
+/// Keyed by device, so one person's cuff is not another's history.
 class HealthHistoryStore {
   final SharedPreferences _prefs;
 
