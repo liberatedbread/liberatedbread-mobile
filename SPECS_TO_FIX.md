@@ -84,7 +84,7 @@ None of this was checked against hardware. The app's reading is in
 
 ## LOY SPACE panels: facts measured on a real backpack, 2026-11-08
 
-On a `YS525C110340` (`EXYC-A#CXB3BRI7BTVOICE3`, firmware `V2.8.8#V01`, 64x64),
+On a `YS525C…` (`EXYC-A#CXB3BRI7BTVOICE3`, firmware `V2.8.8#V01`, 64x64),
 through the `popled_json` handler. Each contradicts or sharpens the catalogue;
 the first three are worked around in `rust/src/protocol/popled.rs`.
 

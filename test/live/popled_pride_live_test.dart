@@ -5,7 +5,7 @@
 // BLE stack and Rust encoder, using the vendored spec, onto a LOY SPACE panel.
 // Watch the panel.
 //
-// LB_LIVE_BLE=1 LB_LIVE_BLE_NAME=YS525C110340
+// LB_LIVE_BLE=1 LB_LIVE_BLE_NAME=YS<serial>
 //   flutter test --tags live_ble test/live/popled_pride_live_test.dart
 // LB_LIVE_FLAG_POSITION picks where in the alternation it starts.
 @Tags(['live_ble'])
