@@ -360,12 +360,14 @@ expect "char_count: characters, not bytes" 3 "$(printf '•é!\n' | char_count)"
 # ── the shared record ────────────────────────────────────────────────────────
 
 printf '# header\nVERSION=1.0.0\nCI_DONE_SHA=aaa\nANDROID_ARTIFACT=/a.aab\n' >"$TMP/local.txt"
-printf 'CI_DONE_SHA=other\nIOS_BUILD_NUMBER=7\nIOS_ARTIFACT=/mac/x.ipa\nIOS_BUILD_LOG=/mac/l\n' >"$TMP/other.txt"
+printf 'CI_DONE_SHA=other\nIOS_BUILD_NUMBER=7\nIOS_ARTIFACT=/mac/x.ipa\nIOS_BUILD_LOG=/mac/l\nDEVICE_TEST_ARGS_IOS=-d UDID\n' >"$TMP/other.txt"
 record_merge "$TMP/local.txt" "$TMP/other.txt"
 expect "record_merge: a key here keeps its value" aaa "$(record_get "$TMP/local.txt" CI_DONE_SHA)"
 expect "record_merge: the other machine's key is added" 7 "$(record_get "$TMP/local.txt" IOS_BUILD_NUMBER)"
 expect "record_merge: the other machine's paths are not" "" \
   "$(record_get "$TMP/local.txt" IOS_ARTIFACT)$(record_get "$TMP/local.txt" IOS_BUILD_LOG)"
+expect "record_merge: the other machine's phone ids are not" "" \
+  "$(record_get "$TMP/local.txt" DEVICE_TEST_ARGS_IOS)"
 # The Mac imported Android's build 100; Android then rebuilt as 101. The Mac
 # must take 101, not push its stale 100 back, and keeps its own iOS keys.
 printf 'ANDROID_VERSION_CODE=100\nIOS_BUILD_NUMBER=7\nCI_DONE_SHA=aaa\n' >"$TMP/mac.txt"
@@ -418,12 +420,16 @@ export GH_STATE="$TMP/ghstate"
   # shellcheck disable=SC2030  # PATH and the rest are this subshell's own
   PATH="$TMP/bin:$PATH" LB_RELEASE_SHARED_RECORD=1 VERSION=9.9.9 RELEASE_SHA=sha1
   RECORD="$TMP/shared-a.txt"
-  printf 'VERSION=9.9.9\nRELEASE_SHA=sha1\nANDROID_ARTIFACT=/x\nCI_DONE_SHA=sha1\n' >"$RECORD"
+  printf 'VERSION=9.9.9\nRELEASE_SHA=sha1\nANDROID_ARTIFACT=/x\nDEVICE_TEST_ARGS_ANDROID=-d SERIAL\nCI_DONE_SHA=sha1\n' >"$RECORD"
   record_push
   expect "record_push: creates a draft release" yes \
     "$([[ -f "$GH_STATE/rel/release-record-9.9.9/.draft" ]] && echo yes)"
   expect "record_push: machine paths stay here" "" \
     "$(record_get "$GH_STATE/rel/release-record-9.9.9/release-record.txt" ANDROID_ARTIFACT)"
+  expect "record_push: phone ids in the device-test args stay here" "" \
+    "$(record_get "$GH_STATE/rel/release-record-9.9.9/release-record.txt" DEVICE_TEST_ARGS_ANDROID)"
+  expect "record_push: shared keys still go" sha1 \
+    "$(record_get "$GH_STATE/rel/release-record-9.9.9/release-record.txt" CI_DONE_SHA)"
   RECORD="$TMP/shared-b.txt"
   printf 'VERSION=9.9.9\nRELEASE_SHA=sha1\nIOS_BUILD_NUMBER=5\n' >"$RECORD"
   record_pull

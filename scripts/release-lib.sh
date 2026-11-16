@@ -447,7 +447,9 @@ record_url() {
 # Merging is by key. A key this machine has keeps its value; a key only the
 # other machine has is added. The halves write different keys (every
 # per-platform key names ANDROID or IOS), so nothing real conflicts. Paths on
-# this machine (*_ARTIFACT, *_BUILD_LOG) are never shared. Syncing is best
+# this machine (*_ARTIFACT, *_BUILD_LOG) are never shared, nor are the phone
+# suites' extra arguments (DEVICE_TEST_ARGS_*), which can name a phone's
+# serial or UDID. Syncing is best
 # effort: a gh or network failure is one warning, and the local file is what
 # the run reads. The one hard stop is a shared record for another commit:
 # that is two builds of one version, which the record exists to prevent.
@@ -455,7 +457,10 @@ record_url() {
 
 shared_record_on() { [[ "${LB_RELEASE_SHARED_RECORD:-1}" != 0 ]]; }
 shared_record_tag() { printf 'release-record-%s' "$VERSION"; }
-record_key_is_local() { case "$1" in *_ARTIFACT | *_BUILD_LOG) return 0 ;; esac; return 1; }
+record_key_is_local() {
+  case "$1" in *_ARTIFACT | *_BUILD_LOG | DEVICE_TEST_ARGS_*) return 0 ;; esac
+  return 1
+}
 
 # record_key_owner KEY — the platform that writes KEY (ANDROID, IOS), or
 # nothing for the keys both halves share (VERSION, CI_*, HOST_TESTS_*, ...).
@@ -530,7 +535,11 @@ record_push() {
     record_merge "$RECORD" "$dir/release-record.txt"
     rm -f "$dir/release-record.txt"
   fi
-  grep -vE '^[A-Z0-9_]*(_ARTIFACT|_BUILD_LOG)=' "$RECORD" >"$dir/release-record.txt" || true
+  local line
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    [[ "$line" == [A-Z]*=* ]] && record_key_is_local "${line%%=*}" && continue
+    printf '%s\n' "$line"
+  done <"$RECORD" >"$dir/release-record.txt"
   if gh release view "$tag" -R "$GITHUB_REPO" >/dev/null 2>&1; then
     gh release upload "$tag" -R "$GITHUB_REPO" "$dir/release-record.txt" --clobber >/dev/null 2>&1 ||
       shared_record_warn upload
