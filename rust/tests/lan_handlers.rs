@@ -199,13 +199,46 @@ fn a_bridge_send_crosses_the_ffi_as_its_timed_sequence() {
     assert_eq!(frames[5].delay_after_ms, 0);
 }
 
-/// SPECS_TO_FIX S-21: the bridge declares a probe and no `lan_protocols`, so
-/// its handler's name stands in. Without this it is an unidentified host.
+/// SPECS_TO_FIX S-21: the bridge declares a probe and no `lan_protocols`.
+/// Its 48899 probe is answered by every Hi-Flying Wi-Fi module (Magic Home
+/// strip controllers among them) and says nothing a reply must carry, so the
+/// handler's name must not stand in: it would label each of them a bridge.
 #[test]
-fn a_bridge_that_answered_its_probe_finds_its_spec() {
+fn a_probe_any_hi_flying_module_answers_names_no_bridge() {
     let bridge = identity("limitlessled-milight-bridge.yaml");
-    assert_eq!(bridge.lan_protocols, vec!["limitlessled_legacy_8899"]);
+    assert!(
+        bridge.lan_protocols.is_empty(),
+        "{:?}",
+        bridge.lan_protocols
+    );
     let matches = match_network_device(vec![bridge], answered("limitlessled_legacy_8899"));
+    assert!(matches.is_empty());
+}
+
+/// Once the probes say what the reply must carry, the handler's name stands
+/// in for the missing token and an answering bridge finds its spec. Every
+/// probe must: the token tags whatever answered any of them.
+#[test]
+fn a_narrowed_probe_lets_the_handler_name_stand_in() {
+    let yaml = spec_yaml("limitlessled-milight-bridge.yaml");
+    let anchor = "          passive_ok: false\n          identity_mapping:";
+    assert_eq!(yaml.matches(anchor).count(), 2);
+    let narrowing = "          passive_ok: false\n          response_match:\n            \
+         - source: \"csv:2\"\n              match: \"prefix\"\n              \
+         value: \"HF-LPB\"\n          identity_mapping:";
+    let bridge = |yaml: String| {
+        SpecIdentityDto::from(&load_device_spec(yaml).expect("the narrowed spec loads"))
+    };
+
+    let one_narrowed = bridge(yaml.replacen(anchor, narrowing, 1));
+    assert!(one_narrowed.lan_protocols.is_empty());
+
+    let both_narrowed = bridge(yaml.replace(anchor, narrowing));
+    assert_eq!(
+        both_narrowed.lan_protocols,
+        vec!["limitlessled_legacy_8899"]
+    );
+    let matches = match_network_device(vec![both_narrowed], answered("limitlessled_legacy_8899"));
     assert_eq!(matches.len(), 1);
     assert!(matches[0].device_name.contains("LimitlessLED"));
 }
@@ -403,7 +436,9 @@ fn a_panel_upload_is_split_into_acknowledged_bodies() {
 }
 
 /// The spec declares a probe and no `lan_protocols`, so its handler's name
-/// stands in, and only this spec of the three popled ones declares a probe.
+/// stands in: the probe is the handler's own framed dev_info query (no fixed
+/// `probe_hex`), which only a popled panel answers. Only this spec of the
+/// three popled ones declares a probe.
 #[test]
 fn a_panel_that_answered_its_probe_finds_its_spec() {
     let panel = identity("led-space.yaml");
@@ -418,4 +453,30 @@ fn a_panel_that_answered_its_probe_finds_its_spec() {
     );
     assert_eq!(matches.len(), 1);
     assert!(matches[0].device_name.contains("LED space"));
+}
+
+/// `response_match` is read, not dropped: the cube lamp's probe narrows on
+/// the reply's `support` header, the bridge's on nothing.
+#[test]
+fn a_probes_response_match_is_parsed() {
+    let cube = liberated_bread_core::spec::parser::parse_device_spec(&spec_yaml(
+        "yeelight-cube-lamp.yaml",
+    ))
+    .unwrap();
+    let probes = cube.device.udp_broadcast_probes();
+    let conditions = probes
+        .iter()
+        .find_map(|p| p.response_match.clone())
+        .expect("the cube's probe narrows its reply");
+    assert_eq!(conditions[0].source, "header:support");
+    assert_eq!(conditions[0].kind, "contains");
+    assert_eq!(conditions[0].value, "set_segment_rgb");
+
+    let bridge = liberated_bread_core::spec::parser::parse_device_spec(&spec_yaml(
+        "limitlessled-milight-bridge.yaml",
+    ))
+    .unwrap();
+    let probes = bridge.device.udp_broadcast_probes();
+    assert_eq!(probes.len(), 2);
+    assert!(probes.iter().all(|p| !p.declares_response_match()));
 }

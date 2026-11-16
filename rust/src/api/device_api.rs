@@ -2773,11 +2773,15 @@ pub fn render_network_http_command(
 /// The tokens a device that answered this spec's probe is matched back by.
 ///
 /// `identification.lan_protocols` when it states them. A spec that declares a
-/// `udp_broadcast` probe and a `protocol_handler` but no token — the legacy
-/// Mi-Light bridge, SPECS_TO_FIX.md S-21 — has already named the protocol once,
-/// so that name stands in: without it the bridge answers the probe and is
-/// listed as an unidentified host, with the controls its spec describes out of
-/// reach.
+/// `udp_broadcast` probe and a `protocol_handler` but no token has named the
+/// protocol once already, so that name stands in, but only for a probe whose
+/// answer says which product sent it: one that declares a `response_match`,
+/// or one with no fixed `probe_hex`, whose bytes are the handler's own framed
+/// query (the LED space panel's dev_info), answered only by its protocol. A
+/// fixed string with nothing required of the reply is not that: the legacy
+/// Mi-Light bridge's `HF-A11ASSISTHREAD` on 48899 (SPECS_TO_FIX.md S-21) is
+/// answered by every Hi-Flying Wi-Fi module, and standing the handler name in
+/// for it labelled each Magic Home controller a LimitlessLED bridge.
 pub(crate) fn answered_protocol_tokens(spec: &DeviceSpec) -> Vec<String> {
     let declared = spec
         .device
@@ -2785,7 +2789,14 @@ pub(crate) fn answered_protocol_tokens(spec: &DeviceSpec) -> Vec<String> {
         .as_ref()
         .and_then(|i| i.lan_protocols.clone())
         .unwrap_or_default();
-    if !declared.is_empty() || spec.device.udp_broadcast_probes().is_empty() {
+    if !declared.is_empty() {
+        return declared;
+    }
+    let probes = spec.device.udp_broadcast_probes();
+    let identifying = |probe: &crate::spec::types::UdpBroadcastProbe| {
+        probe.declares_response_match() || probe.probe_hex.is_none()
+    };
+    if probes.is_empty() || !probes.iter().all(identifying) {
         return declared;
     }
     spec.protocol_handler.iter().cloned().collect()

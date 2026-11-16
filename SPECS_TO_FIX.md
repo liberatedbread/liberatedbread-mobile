@@ -1110,10 +1110,21 @@ their probes and read the MAC and module out of the reply, and the device
 appears on the Wi-Fi screen — but nothing joins it back to the spec that found
 it, so it is listed as an unidentified host rather than as a MiLight bridge.
 
+The app stands the spec's `protocol_handler` in for the missing token only
+when every probe says which product answered: a `response_match`, or no fixed
+`probe_hex` (the bytes are the handler's own framed query). The bridge's probes
+are neither. `HF-A11ASSISTHREAD` on 48899 is the Hi-Flying module's own
+assistant string, answered by every module of that family (Magic Home strip
+controllers among them), so an un-narrowed fallback labelled each of them a
+LimitlessLED bridge. The bridge therefore stays an unidentified host until its
+spec narrows the reply.
+
 Ask: every spec declaring a `udp_broadcast` probe should also declare a
 `lan_protocols` token for it. The probe and the token are two halves of one
 fact, and a schema rule requiring the second where the first exists would keep
-them together.
+them together. A probe that a whole chipset family answers also needs a
+`response_match` the bridge's reply alone satisfies (its module field, or a
+legacy-only reply shape), or the token labels every module that answers.
 
 ### S-22 — `identity_mapping.source: tlv:<name>` names a field the spec never defines
 
@@ -1385,9 +1396,10 @@ real, it should round to them.
 `arguments.command` is `"0x42 (all) or 0x45/0x47/0x49/0x4B (zone 1-4)"` and the
 hue's addressing is a note, so the app parses that one sentence as a closed
 grammar and carries the zone beside the declared parameters. A `zone` parameter
-and a byte table would be data. S-21's missing `lan_protocols` token is worked
-around by matching on the spec's own `protocol_handler`; declaring the token
-makes that fallback unused without further change here.
+and a byte table would be data. S-21's missing `lan_protocols` token cannot be
+worked around with the spec's own `protocol_handler` while its probes carry no
+`response_match`: every Hi-Flying module answers them. Until the spec declares
+both, an answering bridge is listed as an unidentified host.
 
 ### limitlessled-milight-bridge: the HF-A11 probe cannot tell generations apart
 

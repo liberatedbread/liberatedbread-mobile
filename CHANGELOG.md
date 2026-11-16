@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Fixed
+
+- **Hi-Flying Wi-Fi modules are no longer labelled LimitlessLED bridges.** The
+  bridge spec's 48899 probe is answered by every module of that family (Magic
+  Home controllers among them) and says nothing the bridge's reply must carry,
+  so its handler name no longer stands in for the token the spec lacks
+  (SPECS_TO_FIX S-21). A bridge is listed as an unidentified host until the
+  spec narrows the reply.
+
 ## [0.0.2] - 2026-11-16
 
 ### Added
@@ -218,7 +227,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the spec's setup notes. Built from the spec and tested against a fake lamp;
   not run on hardware.
 - **Legacy LimitlessLED / Mi-Light bridges (`limitlessled_legacy_8899`).** A
-  bridge that answers its discovery probe now finds its spec and gets power,
+  bridge matched to its spec gets power,
   brightness, colour and zone selection, as paced repeats over UDP 8899. The
   protocol is write-only, so the card says what was sent rather than what
   happened. Built from the spec and tested against a fake bridge; not run on
